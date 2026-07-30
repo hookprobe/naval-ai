@@ -157,8 +157,14 @@ class Hull:
         return 2.0 * float(np.trapezoid(self.y_sheer, self.x))
 
     def offsets_grid(self, nz: int = 12, wl: float = 0.0):
-        """y(x, z) half-breadth grid below wl for the Michell integral."""
-        zs = np.linspace(min(float(self.z_keel.min()), -1e-6), wl, nz, endpoint=False)
+        """y(x, z) half-breadth grid below wl for the Michell integral.
+
+        z points cluster quadratically toward the waterline (the Michell
+        kernel decays fastest there — see benchmarks/wigley.py convergence).
+        """
+        z0 = min(float(self.z_keel.min()), -1e-6)
+        s = np.linspace(1.0, 0.0, nz, endpoint=False)
+        zs = np.sort(wl + (z0 - wl) * s**2)
         Y = np.zeros((self.n_stations, nz))
         for i in range(self.n_stations):
             pts = self.section(i)
