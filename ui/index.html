@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NavalAI — slider surface</title>
+<style>
+  :root {
+    --bg: #f4f6f8; --panel: #ffffff; --ink: #17222b; --dim: #5c6d7a;
+    --accent: #0d6e8c; --ok: #1a7f4e; --bad: #b3382c; --band: #e3e9ee;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #10161b; --panel: #1a2229; --ink: #dde6ec; --dim: #8399a8;
+            --accent: #4db3d4; --ok: #4dc98a; --bad: #e07b6e; --band: #24303a; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 15px/1.45 system-ui, sans-serif; background: var(--bg);
+         color: var(--ink); }
+  header { padding: 14px 22px; border-bottom: 1px solid var(--band);
+           display: flex; gap: 14px; align-items: baseline; flex-wrap: wrap; }
+  header h1 { font-size: 17px; margin: 0; letter-spacing: .02em; }
+  header .sub { color: var(--dim); font-size: 13px; }
+  main { display: grid; grid-template-columns: minmax(300px, 420px) 1fr;
+         gap: 18px; padding: 18px 22px; max-width: 1250px; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+  .card { background: var(--panel); border: 1px solid var(--band);
+          border-radius: 8px; padding: 16px 18px; }
+  .card h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em;
+             color: var(--dim); margin: 0 0 12px; }
+  .slider-row { display: grid; grid-template-columns: 9.5em 1fr 5.5em;
+                gap: 10px; align-items: center; margin: 7px 0; }
+  .slider-row label { font-size: 13px; }
+  .slider-row output { font-variant-numeric: tabular-nums; font-size: 13px;
+                       text-align: right; color: var(--accent); }
+  input[type=range] { width: 100%; accent-color: var(--accent); }
+  .qgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+           gap: 10px; }
+  .q { border: 1px solid var(--band); border-radius: 6px; padding: 10px 12px; }
+  .q .name { font-size: 11px; color: var(--dim); text-transform: uppercase;
+             letter-spacing: .06em; }
+  .q .val { font-size: 20px; font-variant-numeric: tabular-nums; margin: 2px 0; }
+  .q .band { font-size: 12px; color: var(--dim);
+             font-variant-numeric: tabular-nums; }
+  .badge { display: inline-block; font-size: 10px; padding: 1px 6px;
+           border-radius: 8px; background: var(--band); color: var(--dim);
+           vertical-align: 2px; margin-left: 6px; }
+  #verdict { font-weight: 600; margin-bottom: 8px; }
+  #verdict.ok { color: var(--ok); } #verdict.bad { color: var(--bad); }
+  #violations { color: var(--bad); font-size: 13px; white-space: pre-line; }
+  #latency { color: var(--dim); font-size: 12px; margin-top: 10px; }
+  textarea { width: 100%; background: var(--bg); color: var(--ink);
+             border: 1px solid var(--band); border-radius: 6px; padding: 8px;
+             font: inherit; resize: vertical; }
+  button { background: var(--accent); color: #fff; border: 0; padding: 8px 14px;
+           border-radius: 6px; font: inherit; cursor: pointer; }
+  button:focus-visible, input:focus-visible { outline: 2px solid var(--accent);
+           outline-offset: 2px; }
+  .stack { display: flex; flex-direction: column; gap: 18px; }
+  #weights { font-size: 13px; color: var(--dim); margin-top: 10px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>NavalAI · slider surface</h1>
+  <span class="sub">every number is tier-badged L0/L1 with a &plusmn;&sigma; band — nothing here is certified until it climbs the ladder</span>
+</header>
+<main>
+  <div class="stack">
+    <section class="card">
+      <h2>Mission (natural language)</h2>
+      <textarea id="mission" rows="2">6 tonne solar-electric liveaboard, 10 m, Danube and Black Sea coastal, cruise 5 knots, 2 crew</textarea>
+      <div style="margin-top:8px; display:flex; gap:8px; align-items:center;">
+        <button id="apply">Apply mission</button>
+        <button id="suggest">Suggest better hulls</button>
+      </div>
+    </section>
+    <section class="card">
+      <h2>Form sliders (hull grammar)</h2>
+      <div id="sliders"></div>
+    </section>
+  </div>
+  <div class="stack">
+    <section class="card">
+      <h2>Validation ladder verdict</h2>
+      <div id="verdict">—</div>
+      <div id="violations"></div>
+      <div id="latency"></div>
+    </section>
+    <section class="card">
+      <h2>Physics (live, L1 fidelity)</h2>
+      <div class="qgrid" id="quant"></div>
+      <div id="weights"></div>
+    </section>
+  </div>
+</main>
+<script>
+const DEFAULTS = { LWL: 10.0, BWL: 3.2, T: 0.55, D: 1.55, beta_mid: 8, beta_bow: 30,
+  p_bow: 2.2, p_stern: 3.0, x_mb: 0.55, r_transom: 0.75, rocker: 0.15,
+  forefoot: 0.85, flare: 10, sheer_rise: 0.18, beta_len: 0.35 };
+const NICE = { displacement_kg: "Displacement kg", GM_m: "GM m", freeboard_m: "Freeboard m",
+  Rt_N: "Resistance N", wh_per_nm: "Wh / NM", solar_kwh_day: "Solar kWh/day",
+  range_solar_nm_day: "Solar range NM/day", cb: "Block coeff" };
+let params = { ...DEFAULTS }, mission = null, timer = null;
+
+async function boot() {
+  const spec = await (await fetch("/bounds")).json();
+  const host = document.getElementById("sliders");
+  for (const p of spec) {
+    const row = document.createElement("div");
+    row.className = "slider-row";
+    const step = (p.high - p.low) / 200;
+    row.innerHTML = `<label title="${p.desc}">${p.name} <span class="badge">${p.unit}</span></label>
+      <input type="range" min="${p.low}" max="${p.high}" step="${step}"
+             value="${params[p.name]}" data-name="${p.name}">
+      <output>${params[p.name]}</output>`;
+    const inp = row.querySelector("input"), out = row.querySelector("output");
+    inp.addEventListener("input", () => {
+      params[p.name] = parseFloat(inp.value);
+      out.textContent = (+inp.value).toFixed(3).replace(/\.?0+$/, "");
+      schedule();
+    });
+    host.appendChild(row);
+  }
+  evalNow();
+}
+function schedule() { clearTimeout(timer); timer = setTimeout(evalNow, 60); }
+
+async function evalNow() {
+  const t0 = performance.now();
+  const r = await fetch("/eval", { method: "POST",
+    body: JSON.stringify({ params, mission }) });
+  const d = await r.json();
+  const dt = performance.now() - t0;
+  const v = document.getElementById("verdict");
+  if (d.error) { v.className = "bad"; v.textContent = "error: " + d.error; return; }
+  v.className = d.ok ? "ok" : "bad";
+  v.textContent = d.ok ? `VALID at tier ${d.tier}` : `REJECTED at tier ${d.tier}`;
+  document.getElementById("violations").textContent = (d.violations || []).join("\n");
+  document.getElementById("latency").textContent =
+    `physics ${d.eval_ms} ms · round-trip ${dt.toFixed(0)} ms`;
+  const qh = document.getElementById("quant");
+  qh.innerHTML = "";
+  for (const [k, q] of Object.entries(d.quantities || {})) {
+    const el = document.createElement("div");
+    el.className = "q";
+    el.innerHTML = `<div class="name">${NICE[k] || k}<span class="badge">${q.tier}</span></div>
+      <div class="val">${q.value.toLocaleString()}</div>
+      <div class="band">&plusmn;${q.sigma.toLocaleString()} (1&sigma;)</div>`;
+    qh.appendChild(el);
+  }
+  const w = d.weights_kg;
+  document.getElementById("weights").textContent = w ?
+    `weight budget: structure ${w.structure} · battery ${w.battery} · panels ${w.panels} · outfit ${w.outfit} · payload ${w.payload} → total ${w.total} kg` : "";
+}
+
+document.getElementById("apply").addEventListener("click", async () => {
+  const text = document.getElementById("mission").value;
+  mission = await (await fetch("/mission", { method: "POST",
+    body: JSON.stringify({ text }) })).json();
+  evalNow();
+});
+document.getElementById("suggest").addEventListener("click", async () => {
+  const b = document.getElementById("suggest");
+  b.disabled = true; b.textContent = "sampling…";
+  try {
+    const d = await (await fetch("/generate", { method: "POST",
+      body: JSON.stringify({ percentile: 0.8, n: 1 }) })).json();
+    if (d.hulls && d.hulls.length) {
+      params = d.hulls[0];
+      document.querySelectorAll("#sliders input").forEach(inp => {
+        inp.value = params[inp.dataset.name];
+        inp.dispatchEvent(new Event("input"));
+      });
+    }
+  } finally { b.disabled = false; b.textContent = "Suggest better hulls"; }
+});
+boot();
+</script>
+</body>
+</html>
