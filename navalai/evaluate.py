@@ -34,6 +34,29 @@ class Evaluation:
     badges: dict = field(default_factory=dict)   # quantity -> (tier, sigma)
 
 
+def sample_valid(n: int, mission: MissionSpec, seed: int = 0,
+                 quantity: str = "wh_per_nm"):
+    """Sample n hulls that clear L0 AND produce a finite L1 evaluation.
+
+    Returns (X, y) for surrogate training — the flywheel's data feed.
+    """
+    rng = np.random.default_rng(seed)
+    X, y = [], []
+    while len(X) < n:
+        x = rng.uniform(grammar.LOW, grammar.HIGH)
+        if not grammar.check(x).ok:
+            continue
+        ev = evaluate(x, mission)
+        if ev.energy is None:
+            continue
+        val = {"wh_per_nm": ev.energy.wh_per_nm,
+               "gm": ev.gm_m,
+               "rt": ev.resistance.total}[quantity]
+        X.append(x)
+        y.append(val)
+    return np.array(X), np.array(y)
+
+
 def evaluate(params: np.ndarray, mission: MissionSpec,
              rho: float = RHO_WATER,
              provenance: db.Provenance | None = None) -> Evaluation:

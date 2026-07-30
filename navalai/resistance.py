@@ -49,7 +49,8 @@ def michell_rw(xs: np.ndarray, zs: np.ndarray, Y: np.ndarray, speed: float,
     sec = 1.0 / np.cos(thetas)
     vals = np.empty(n_theta)
     for i, (th, sc) in enumerate(zip(thetas, sec)):
-        depth = np.exp(k0 * sc**2 * zs)[None, :]          # (1, nz), zs <= 0
+        # zs must be <= 0 (below the actual free surface); clamp defensively
+        depth = np.exp(np.minimum(k0 * sc**2 * zs, 0.0))[None, :]
         phase = k0 * sc * xs                               # (nx,)
         gz = (dydx * depth)                                # (nx, nz)
         fx = np.trapezoid(gz, zs, axis=1)                  # integrate z
@@ -75,7 +76,8 @@ def total_resistance(hull: Hull, speed: float, wetted: float, cb: float,
                      rho: float = 1000.0, wl: float = 0.0,
                      nz: int = 14) -> ResistanceResult:
     xs, zs, Y = hull.offsets_grid(nz=nz, wl=wl)
-    rw = michell_rw(xs, zs, Y, speed, rho)
+    # Michell frame: free surface at z=0 — shift the grid by the floated WL
+    rw = michell_rw(xs, zs - wl, Y, speed, rho)
     lwl = float(hull.x[-1])
     cf = ittc57_cf(speed, lwl)
     k = form_factor(cb, lwl, 2.0 * float(hull.y_chine.max()), -float(hull.z_keel.min()))
