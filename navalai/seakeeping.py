@@ -58,6 +58,38 @@ def heave_coeffs(hull: Hull, omegas: np.ndarray, nx: int = 40,
     return am, dp, body.mesh.nb_faces
 
 
+def heave_rao(hull: Hull, omegas: np.ndarray, disp_kg: float, awp: float,
+              nx: int = 30, nz: int = 8, rho: float = 1000.0) -> np.ndarray:
+    """|RAO| of heave in head/beam long-crested waves (zero speed).
+
+    RAO(w) = |F_exc| / |-w^2 (m + A33) + i w B33 + C33|,  C33 = rho g Awp.
+    Physics check built into Gate D: RAO -> 1 as w -> 0 (a small boat follows
+    long waves).
+    """
+    import capytaine as cpt
+    from capytaine.bem.airy_waves import froude_krylov_force
+
+    body = _body_from_hull(hull, nx, nz)
+    solver = cpt.BEMSolver()
+    c33 = rho * G * awp
+    out = np.empty(len(omegas))
+    for i, w in enumerate(omegas):
+        rad = solver.solve(cpt.RadiationProblem(
+            body=body, radiating_dof="Heave", omega=float(w), rho=rho, g=G),
+            keep_details=False)
+        dif_pb = cpt.DiffractionProblem(
+            body=body, wave_direction=0.0, omega=float(w), rho=rho, g=G)
+        dif = solver.solve(dif_pb, keep_details=False)
+        a33 = rad.added_masses["Heave"]
+        b33 = rad.radiation_dampings["Heave"]
+        # excitation = Froude-Krylov + diffraction (scattering alone -> 0 at
+        # long waves; the physics-limit gate below catches that mistake)
+        f = froude_krylov_force(dif_pb)["Heave"] + dif.forces["Heave"]
+        den = -w**2 * (disp_kg + a33) + 1j * w * b33 + c33
+        out[i] = abs(f) / max(abs(den), 1e-12)
+    return out
+
+
 def convergence_sweep(hull: Hull, omega: float, levels=((24, 6), (36, 9), (48, 12)),
                       rho: float = 1000.0):
     """Added-mass at one frequency across mesh refinements.
