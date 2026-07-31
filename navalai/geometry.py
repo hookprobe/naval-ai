@@ -204,6 +204,32 @@ class Hull:
         f = (xv - self.x[i - 1]) / (self.x[i] - self.x[i - 1])
         return self.section(i - 1) * (1 - f) + self.section(i) * f
 
+    def min_bend_radius(self) -> float:
+        """Smallest 3-D bend radius [m] along the keel and chine curves.
+
+        Developable panels bend about their rulings; the tightest curvature a
+        sheet must take follows these edge curves. Checked against the marine-
+        plywood cold-bend limit (~80 x thickness) in the ladder.
+        """
+        r_min = np.inf
+        for ys, zs in ((np.zeros_like(self.x), self.z_keel),
+                       (self.y_chine, self.z_chine)):
+            d1 = np.stack([np.gradient(self.x, self.x),
+                           np.gradient(ys, self.x),
+                           np.gradient(zs, self.x)], axis=1)
+            d2 = np.stack([np.gradient(d1[:, 0], self.x),
+                           np.gradient(d1[:, 1], self.x),
+                           np.gradient(d1[:, 2], self.x)], axis=1)
+            cross = np.cross(d1, d2)
+            speed = np.linalg.norm(d1, axis=1)
+            kappa = np.linalg.norm(cross, axis=1) / np.maximum(speed**3, 1e-12)
+            # ignore the stem tip where the chine collapses to a point
+            mask = self.y_chine > 0.05 * max(float(self.y_chine.max()), 1e-9)
+            k = kappa[mask] if mask.any() else kappa
+            if k.size and k.max() > 1e-9:
+                r_min = min(r_min, 1.0 / float(k.max()))
+        return float(r_min)
+
     def panel_twist_rate(self) -> float:
         """Max bottom-panel twist [deg/m] — developability honesty metric.
 

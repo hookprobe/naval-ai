@@ -87,6 +87,12 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
         viol.append(f"freeboard at load {hs.freeboard_min:.2f} m < 0.25 m")
     if gm_m < 0.35:
         viol.append(f"GM {gm_m:.2f} m < 0.35 m (L1 floor; ISO 12217 check is tier R)")
+    # buildability: marine-ply cold-bend limit ~ 80 x sheet thickness
+    r_min = hull.min_bend_radius()
+    r_req = 80.0 * 0.015
+    if r_min < r_req:
+        viol.append(f"panel bend radius {r_min:.2f} m < {r_req:.2f} m "
+                    "(15 mm ply cold-bend limit)")
 
     u = mission.cruise_speed_ms()
     res = total_resistance(hull, u, hs.wetted, hs.cb, rho, wl)
