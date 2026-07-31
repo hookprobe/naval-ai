@@ -52,10 +52,21 @@ hardware/software this machine lacks).
 | Interactive dashboard w/ Pareto front | **GAP → Stage F** | slider surface exists (p95 <100 ms, tier badges); Pareto-front view missing. |
 | STEP / IGES / DXF manufacturing export | **GAP → Stage C/F** | STL exists (CFD path). Fix: developable-panel unrolling → DXF; STEP/IGES via CadQuery if installable. |
 
-## Scorecard (before gap-closure)
+## Scorecard
 
-- ALIGNED: 4 · DIVERGED with research grounding: 6 · GAP: 11 · BLOCKED: 1
-- Every GAP has an assigned stage below; stages close in order, each behind a gate.
+- Before gap-closure: ALIGNED 4 · DIVERGED (research-grounded) 6 · GAP 11 · BLOCKED 1
+- **After gap-closure (stages B–F, all gates green): ALIGNED/CLOSED 15 ·
+  DIVERGED-with-receipts 6 · BLOCKED 1** (OpenFOAM execution — templates,
+  runner, and GCI post-processor all ready and tested on synthetic data).
+- Measured findings produced by the closure campaign:
+  1. the 8-D genome costs ~2–3× surrogate accuracy vs the full 15-param
+     vector (Stage E) — the original plan's 8-D assumption now has a price tag;
+  2. agent-handoff latency is <1% of one L1 physics evaluation (Stage F) —
+     the Zig/C rewrite the original plan proposed would optimise noise;
+  3. Capytaine diffraction forces alone are NOT the excitation force — the
+     RAO long-wave-limit gate caught the missing Froude–Krylov term (Stage D);
+  4. ruled-surface development had a mirror-side bug caught by the exact-
+     cylinder anchor (Stage F) — analytic anchors catch what eyeballs miss.
 
 ## Gap-closure stages
 

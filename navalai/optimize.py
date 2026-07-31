@@ -27,12 +27,12 @@ class HullProblem(Problem):
 
     def __init__(self, mission: MissionSpec):
         self.mission = mission
-        super().__init__(n_var=grammar.N_PARAMS, n_obj=3, n_ieq_constr=2,
+        super().__init__(n_var=grammar.N_PARAMS, n_obj=3, n_ieq_constr=3,
                          xl=grammar.LOW, xu=grammar.HIGH)
 
     def _evaluate(self, X, out, *_args, **_kwargs):
         F = np.full((len(X), 3), 1e9)
-        Gc = np.full((len(X), 2), 1e3)
+        Gc = np.full((len(X), 3), 1e3)
         for i, x in enumerate(X):
             ev = evaluate(x, self.mission)
             if ev.tier == "L0" or ev.hydro is None or ev.energy is None:
@@ -40,7 +40,9 @@ class HullProblem(Problem):
             hull = Hull(x)
             build_area = hull.wetted_surface(float(hull.z_sheer.max())) + hull.deck_area()
             F[i] = (ev.energy.wh_per_nm, build_area, -ev.gm_m)
-            Gc[i] = (0.25 - ev.hydro.freeboard_min, 0.35 - ev.gm_m)
+            # buildability is a constraint, not a wish: 15 mm ply cold-bend
+            Gc[i] = (0.25 - ev.hydro.freeboard_min, 0.35 - ev.gm_m,
+                     80.0 * 0.015 - hull.min_bend_radius())
         out["F"] = F
         out["G"] = Gc
 
@@ -53,13 +55,13 @@ class LatentHullProblem(Problem):
         self.mission = mission
         self.genome = genome
         q = genome.W.shape[1]
-        super().__init__(n_var=q, n_obj=3, n_ieq_constr=2,
+        super().__init__(n_var=q, n_obj=3, n_ieq_constr=3,
                          xl=-z_range * np.ones(q), xu=z_range * np.ones(q))
 
     def _evaluate(self, Z, out, *_args, **_kwargs):
         X = self.genome.decode(Z)              # gate-projected to feasibility
         F = np.full((len(X), 3), 1e9)
-        Gc = np.full((len(X), 2), 1e3)
+        Gc = np.full((len(X), 3), 1e3)
         for i, x in enumerate(X):
             ev = evaluate(x, self.mission)
             if ev.tier == "L0" or ev.hydro is None or ev.energy is None:
@@ -67,7 +69,9 @@ class LatentHullProblem(Problem):
             hull = Hull(x)
             build_area = hull.wetted_surface(float(hull.z_sheer.max())) + hull.deck_area()
             F[i] = (ev.energy.wh_per_nm, build_area, -ev.gm_m)
-            Gc[i] = (0.25 - ev.hydro.freeboard_min, 0.35 - ev.gm_m)
+            # buildability is a constraint, not a wish: 15 mm ply cold-bend
+            Gc[i] = (0.25 - ev.hydro.freeboard_min, 0.35 - ev.gm_m,
+                     80.0 * 0.015 - hull.min_bend_radius())
         out["F"] = F
         out["G"] = Gc
 

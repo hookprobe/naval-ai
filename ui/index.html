@@ -91,6 +91,15 @@
       <div class="qgrid" id="quant"></div>
       <div id="weights"></div>
     </section>
+    <section class="card">
+      <h2>Pareto front <span class="badge">L1</span> — Wh/NM vs build area, click to load</h2>
+      <div style="display:flex; gap:10px; align-items:center; margin-bottom:8px;">
+        <button id="loadPareto">Compute front</button>
+        <span id="paretoInfo" style="color:var(--dim); font-size:12px;"></span>
+      </div>
+      <canvas id="pareto" width="520" height="260"
+              style="width:100%; max-width:560px; border:1px solid var(--band); border-radius:6px;"></canvas>
+    </section>
   </div>
 </main>
 <script>
@@ -173,6 +182,56 @@ document.getElementById("suggest").addEventListener("click", async () => {
       });
     }
   } finally { b.disabled = false; b.textContent = "Suggest better hulls"; }
+});
+let paretoPts = [];
+document.getElementById("loadPareto").addEventListener("click", async () => {
+  const info = document.getElementById("paretoInfo");
+  info.textContent = "running NSGA-II…";
+  const d = await (await fetch("/pareto")).json();
+  paretoPts = d.points;
+  info.textContent = `${d.points.length} designs · ${d.n_evals} L1 evals · tier ${d.tier}`;
+  drawPareto();
+});
+function drawPareto() {
+  const cv = document.getElementById("pareto"), ctx = cv.getContext("2d");
+  ctx.clearRect(0, 0, cv.width, cv.height);
+  if (!paretoPts.length) return;
+  const xs = paretoPts.map(p => p.wh_per_nm), ys = paretoPts.map(p => p.build_area_m2);
+  const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+  const px = v => 40 + (v - x0) / (x1 - x0 || 1) * (cv.width - 60);
+  const py = v => cv.height - 30 - (v - y0) / (y1 - y0 || 1) * (cv.height - 50);
+  const style = getComputedStyle(document.documentElement);
+  ctx.fillStyle = style.getPropertyValue("--dim");
+  ctx.font = "11px system-ui";
+  ctx.fillText("Wh/NM →", cv.width - 70, cv.height - 8);
+  ctx.save(); ctx.translate(12, 100); ctx.rotate(-Math.PI / 2);
+  ctx.fillText("build m² →", 0, 0); ctx.restore();
+  for (const p of paretoPts) {
+    ctx.beginPath();
+    ctx.arc(px(p.wh_per_nm), py(p.build_area_m2), 5, 0, 7);
+    ctx.fillStyle = style.getPropertyValue("--accent");
+    ctx.fill();
+  }
+}
+document.getElementById("pareto").addEventListener("click", ev => {
+  if (!paretoPts.length) return;
+  const cv = ev.target, r = cv.getBoundingClientRect();
+  const mx = (ev.clientX - r.left) * cv.width / r.width;
+  const my = (ev.clientY - r.top) * cv.height / r.height;
+  const xs = paretoPts.map(p => p.wh_per_nm), ys = paretoPts.map(p => p.build_area_m2);
+  const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+  const px = v => 40 + (v - x0) / (x1 - x0 || 1) * (cv.width - 60);
+  const py = v => cv.height - 30 - (v - y0) / (y1 - y0 || 1) * (cv.height - 50);
+  let best = 0, bd = 1e9;
+  paretoPts.forEach((p, i) => {
+    const d = (px(p.wh_per_nm) - mx) ** 2 + (py(p.build_area_m2) - my) ** 2;
+    if (d < bd) { bd = d; best = i; }
+  });
+  params = paretoPts[best].params;
+  document.querySelectorAll("#sliders input").forEach(inp => {
+    inp.value = params[inp.dataset.name];
+    inp.dispatchEvent(new Event("input"));
+  });
 });
 boot();
 </script>

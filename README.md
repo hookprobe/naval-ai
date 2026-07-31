@@ -58,9 +58,23 @@ python3 benchmarks/wigley.py         # print the Michell Wigley curve
 
 Deps: numpy, scipy, pymoo, capytaine, pytest (`pip install --user --break-system-packages ...`).
 
+## Alignment campaign (stages B–F, see ALIGNMENT.md)
+
+The original agentic-PLM plan was audited against the build; all 11 gaps
+closed behind gates:
+
+| Stage | Closed | Gate |
+|---|---|---|
+| B | grammar AST + typology type-checker · plywood bend-radius · 8-D pPCA genome | GREEN (11) |
+| C | async agent network (Orchestrator/Builder/Validator/Engineer, audit trail) · engineer metrics · STEP/IGES export (CadQuery/OCP) | GREEN (7) |
+| D | JONSWAP + heave-RAO response spectra · inertia/mooring/lifting + MuJoCo cross-check · CFD runner + forces parser + Roache GCI | GREEN (12) |
+| E | NSGA-II over the 8-D genome · latent-GP (measured: 8-D costs 2–3× accuracy) | GREEN (3) |
+| F | developable-panel unrolling → DXF · Pareto dashboard · handoff-latency receipt (<1% of physics) | GREEN (7) |
+
 ## What is deliberately NOT here yet
 
 - guided tabular diffusion (GMM baseline stands in; same interface)
 - LoRA-fine-tuned translator (rule floor + sanitising LLM seam stand in)
-- OpenFOAM execution + Tokyo-2015 calibration (templates ready, metal-gated)
-- ES-TRIN checks, panel unrolling/DXF export, licensed-text ISO parity
+- OpenFOAM execution + Tokyo-2015 calibration (templates + runner + GCI
+  post-processor ready and synthetic-tested; metal-gated)
+- ES-TRIN checks, licensed-text ISO parity (declared approx bases)

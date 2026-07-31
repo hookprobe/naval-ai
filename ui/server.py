@@ -30,6 +30,26 @@ from navalai.mission import MissionSpec, parse_mission
 _model_lock = threading.Lock()
 _model: HullFamilyModel | None = None
 _mission_default = MissionSpec()
+_pareto_cache: dict | None = None
+_pareto_lock = threading.Lock()
+
+
+def get_pareto() -> dict:
+    """Small NSGA-II front, cached after first request (Pareto dashboard)."""
+    global _pareto_cache
+    with _pareto_lock:
+        if _pareto_cache is None:
+            from navalai.optimize import pareto_front
+            res = pareto_front(_mission_default, pop=16, gens=6, seed=2)
+            pts = []
+            for x, f in zip(res.X, res.F):
+                pts.append({"params": grammar.named(x),
+                            "wh_per_nm": round(float(f[0]), 1),
+                            "build_area_m2": round(float(f[1]), 1),
+                            "gm_m": round(float(-f[2]), 3)})
+            _pareto_cache = {"points": pts, "n_evals": res.n_evals,
+                            "tier": "L1"}
+        return _pareto_cache
 
 
 def get_model() -> HullFamilyModel:
@@ -100,6 +120,8 @@ class Handler(BaseHTTPRequestHandler):
         if self.path in ("/", "/index.html"):
             html = (Path(__file__).parent / "index.html").read_bytes()
             self._send(200, html, "text/html; charset=utf-8")
+        elif self.path == "/pareto":
+            self._send(200, json.dumps(get_pareto()).encode())
         elif self.path == "/bounds":
             spec = [{"name": n, "unit": u, "low": lo, "high": hi, "desc": d}
                     for (n, u, lo, hi, d) in grammar.PARAMS]
