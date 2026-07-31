@@ -40,8 +40,8 @@ hardware/software this machine lacks).
 | Plan item | Verdict | Evidence / fix |
 |---|---|---|
 | PINNs replacing data-driven surrogates | **DIVERGED (evidence-closed)** | NeurIPS-2021 failure modes + no PINN beats data-driven on free-surface flows; ladder uses kriging/co-kriging (Forrester-anchored, calibrated). Interface admits a PINN tier if the literature turns. |
-| Surrogate predicts from the 8-D latent genome | **GAP → Stage E** | surrogate currently reads full 15-param vector. Fix: GP on the Stage-B 8-D latent, accuracy-compared. |
-| NSGA-II / CMA-ES over the latent space | **GAP → Stage E** | NSGA-II runs over raw params (GREEN); latent-space exploration missing. |
+| Surrogate predicts from the 8-D latent genome | **CLOSED (Stage E), with a measured caveat** | GP on the 8-D genome works, but costs ~2–3× accuracy vs the full 15-param GP (median rel err ~0.30 vs ~0.10–0.15 at n=200). The original plan's 8-D assumption has a real, now-quantified price; the full vector remains the default surrogate input. |
+| NSGA-II / CMA-ES over the latent space | **CLOSED (Stage E)** | `pareto_front_latent`: NSGA-II in the 8-D genome, decoded designs all feasible, best Wh/NM within 20% of raw-parameter search at equal budget. |
 | Continuous DB-driven refinement | **ALIGNED** | `flywheel.py`: harvest → retrain → frozen-benchmark regression gate (poisoned model refused). |
 
 ## Original Phase 5 — Production & Execution
