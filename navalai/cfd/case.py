@@ -299,6 +299,23 @@ def stl_watertight_report(path: Path) -> dict:
             "watertight": len(bad) == 0, "signed_volume": vol}
 
 
+def write_resistance_case_from_stl(stl_path: str | Path, lwl: float,
+                                   speed: float, out_dir: str | Path,
+                                   end_time: float = 40.0, scale: float = 1.0,
+                                   np_procs: int = 8) -> dict:
+    """Same case generator, but for EXTERNAL geometry (KCS/JBC calibration).
+
+    The STL must be watertight, in metres, with the free surface at z=0 and
+    the hull spanning x in [0, lwl] (translate/scale upstream if needed).
+    """
+    out = Path(out_dir)
+    (out / "constant" / "triSurface").mkdir(parents=True, exist_ok=True)
+    data = Path(stl_path).read_bytes()
+    (out / "constant" / "triSurface" / "hull.stl").write_bytes(data)
+    stl_sha = hashlib.sha256(data).hexdigest()
+    return _write_case_dicts(out, stl_sha, lwl, speed, end_time, scale, np_procs)
+
+
 def write_resistance_case(hull: Hull, speed: float, out_dir: str | Path,
                           end_time: float = 40.0, scale: float = 1.0,
                           np_procs: int = 8) -> dict:
@@ -309,11 +326,16 @@ def write_resistance_case(hull: Hull, speed: float, out_dir: str | Path,
     tuning on the OpenFOAM machine is expected and normal.
     """
     out = Path(out_dir)
-    (out / "system").mkdir(parents=True, exist_ok=True)
     (out / "constant" / "triSurface").mkdir(parents=True, exist_ok=True)
-    (out / "0").mkdir(parents=True, exist_ok=True)
     stl_sha = hull_to_stl(hull, out / "constant" / "triSurface" / "hull.stl")
-    lwl = float(hull.x[-1])
+    return _write_case_dicts(out, stl_sha, float(hull.x[-1]), speed,
+                             end_time, scale, np_procs)
+
+
+def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
+                      end_time: float, scale: float, np_procs: int) -> dict:
+    (out / "system").mkdir(parents=True, exist_ok=True)
+    (out / "0").mkdir(parents=True, exist_ok=True)
 
     # domain: generous towing-tank box around the hull (hull x in [0, L])
     # nz MUST be a multiple of 3: the waterline z=0 sits 2/3 up the domain

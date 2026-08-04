@@ -36,18 +36,34 @@ def main() -> None:
     ap.add_argument("--scale", type=float, default=1.0)
     ap.add_argument("--triplet", action="store_true",
                     help="write coarse/medium/fine at r=sqrt(2) for GCI")
+    ap.add_argument("--stl", help="external hull STL (KCS/JBC calibration); "
+                                  "metres, WL at z=0, x in [0, LWL]")
+    ap.add_argument("--lwl", type=float,
+                    help="waterline length [m], required with --stl")
     args = ap.parse_args()
 
-    hull = Hull(grammar.vector(REFERENCE))
+    if args.stl:
+        if not args.lwl:
+            ap.error("--stl requires --lwl")
+        from navalai.cfd.case import write_resistance_case_from_stl
+
+        def gen(out, s):
+            return write_resistance_case_from_stl(
+                args.stl, args.lwl, args.speed, out, args.end_time, s,
+                args.np_procs)
+    else:
+        hull = Hull(grammar.vector(REFERENCE))
+
+        def gen(out, s):
+            return write_resistance_case(hull, args.speed, out,
+                                         args.end_time, s, args.np_procs)
+
     if args.triplet:
         for name, s in (("coarse", 1.0), ("medium", 2 ** 0.5), ("fine", 2.0)):
-            meta = write_resistance_case(hull, args.speed,
-                                         Path(args.out) / name,
-                                         args.end_time, s, args.np_procs)
+            meta = gen(Path(args.out) / name, s)
             print(f"{name}: {meta['bg_cells']} bg cells -> {args.out}/{name}")
     else:
-        meta = write_resistance_case(hull, args.speed, args.out,
-                                     args.end_time, args.scale, args.np_procs)
+        meta = gen(args.out, args.scale)
         print(f"case: {meta['bg_cells']} bg cells -> {args.out}")
 
 
