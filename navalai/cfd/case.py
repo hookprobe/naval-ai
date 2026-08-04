@@ -9,11 +9,80 @@ GATE STATUS: METAL-GATED — requires a machine with OpenFOAM (.com or .org
 from __future__ import annotations
 
 import hashlib
+import math
 from pathlib import Path
 
 import numpy as np
 
 from ..geometry import Hull
+
+# Total z-expansion across each block (coarsest cell / finest cell). Held
+# FIXED while cell counts scale, which is what makes the refinement
+# systematic: every cell dimension then shrinks like 1/scale together. Fixing
+# the per-cell ratio instead would shrink the interface cell exponentially in
+# n and the three grids would not be a refinement family at all.
+_Z_EXPANSION = 20.0
+
+# Free-surface refinement slab, as multiples of LWL (hull occupies x in [0,L]).
+# Refining the whole tank buys nothing for hull forces and costs the run:
+# every refined cell is paid for at every one of the ~13k timesteps that
+# maxAlphaCo sets. The slab covers the hull and the near wake, where the
+# pressure field that makes the drag actually lives.
+_FS_BOX = dict(x0=-1.6, x1=1.3, y=0.7, z=0.05)
+
+# Target y+ for the wall functions (build plan: y+ ~ 30, SJTU KCS pipeline).
+# MEASURED before this was computed rather than assumed: 3 relative-sized
+# layers gave y+ min 42 / avg 7491 / max 60017 on the hull -- one to three
+# orders of magnitude outside where nutkWallFunction is valid. Skin friction
+# is most of this hull's drag at Fn 0.26, so that is not a rounding error.
+_TARGET_YPLUS = 30.0
+_LAYER_EXPANSION = 1.3
+
+# Layers snappy will actually INSERT on this hull, measured (coarse grid,
+# absolute first-layer thickness held at y+ 30):
+#   n=3 -> 50.3%   n=5 -> 36.5%   n=8 -> 26.2%   n=15 -> 11.2%
+# and loosening nLayerIter/nRelaxedIter changed nothing. A layer that is not
+# inserted controls no y+ at all, so coverage wins over stack depth: the ideal
+# bridging depth is still computed, and case.info records both so the gap is
+# visible rather than silently absorbed.
+_MAX_LAYERS = 3
+
+
+def first_layer_thickness(speed: float, lwl: float, target_yplus: float,
+                          nu: float = 1.09e-6) -> float:
+    """Absolute first-layer THICKNESS [m] that lands the first cell centre at
+    `target_yplus`, via the ITTC-1957 flat-plate friction line.
+
+    y+ = u_tau * y / nu with y the cell CENTRE, so the cell is twice that.
+    """
+    re = speed * lwl / nu
+    cf = 0.075 / (math.log10(re) - 2.0) ** 2
+    u_tau = speed * math.sqrt(cf / 2.0)
+    return 2.0 * target_yplus * nu / u_tau
+
+
+def n_layers_to_bridge(t1: float, cell: float, expansion: float) -> int:
+    """Layers needed for a stack of first-thickness `t1` to reach `cell`.
+
+    A stack that stops far short leaves a large size jump at its top, which is
+    where snappy gives up and coverage collapses.
+    """
+    if t1 <= 0 or cell <= t1:
+        return 3
+    n = math.log(1.0 + (cell / t1) * (expansion - 1.0)) / math.log(expansion)
+    return int(max(3, min(20, round(n))))
+
+
+def _interface_dz(height: float, n: int, expansion: float) -> float:
+    """Height of the cell touching the waterline in a graded block.
+
+    Cells form a geometric series summing to `height`, with the largest/
+    smallest ratio equal to `expansion`; the interface cell is the smallest.
+    """
+    if n < 2:
+        return height
+    q = expansion ** (1.0 / (n - 1))
+    return height * (q - 1.0) / (q ** n - 1.0)   # smallest term of the series
 
 CONTROL_DICT = """FoamFile {{ version 2.0; format ascii; class dictionary; object controlDict; }}
 application     interFoam;
@@ -22,30 +91,56 @@ stopAt          endTime;    endTime {end_time};
 deltaT          {dt};
 writeControl    adjustableRunTime;  writeInterval {write_int};
 purgeWrite      3;
-adjustTimeStep  yes;  maxCo 5;  maxAlphaCo 5;  maxDeltaT 0.1;
+// maxAlphaCo 5 smears the interface: the alpha equation carries the wave, so
+// it gets the tighter limit even though momentum tolerates Co>1. Measured
+// cost of the limit: at maxAlphaCo 1 it, not the cell count, sets dt (0.0031 s
+// -> ~4.9 h for the coarse grid alone, days for the fine). 2 is the compromise
+// MULESCorr's semi-implicit alpha solve supports; interface sharpness is
+// checked in the render rather than assumed.
+adjustTimeStep  yes;  maxCo 5;  maxAlphaCo 2;  maxDeltaT 0.1;
 functions {{
   forces {{
     type forces; libs (forces); patches (hull);
     rho rhoInf; rhoInf 998.8; CofR (0 0 0);
     writeControl timeStep; writeInterval 10;
   }}
+  // The build plan specifies wall functions at y+ ~ 30 (SJTU KCS pipeline).
+  // Nothing measured it before, so the layer stack was unverified: y+ in the
+  // buffer layer (5-30) is where wall functions are least valid and skin
+  // friction — most of this hull's drag — goes quietly wrong.
+  yPlus {{
+    type yPlus; libs (fieldFunctionObjects);
+    writeControl writeTime;
+  }}
 }}
 """
 
+# TWO blocks stacked in z, split exactly at the waterline z=0. The split is a
+# block boundary, so a mesh FACE lies on z=0 BY CONSTRUCTION for any cell count
+# — this replaces the old "nz must be a multiple of 3" snapping, which forced
+# z-refinement ratios of 1.333 and 1.5 and so broke the r=sqrt(2) systematic
+# refinement that GCI requires (measured: p=nan, GCI 58.5%, oscillatory).
+# Both blocks grade toward the interface (G_WATER<1 shrinks upward, G_AIR>1
+# expands upward), buying a thin free-surface cell without paying for it
+# through the full tank depth.
 BLOCKMESH = """FoamFile {{ version 2.0; format ascii; class dictionary; object blockMeshDict; }}
 scale 1;
 vertices (
   ({x0} {y0} {z0}) ({x1} {y0} {z0}) ({x1} {y1} {z0}) ({x0} {y1} {z0})
+  ({x0} {y0} 0)    ({x1} {y0} 0)    ({x1} {y1} 0)    ({x0} {y1} 0)
   ({x0} {y0} {z1}) ({x1} {y0} {z1}) ({x1} {y1} {z1}) ({x0} {y1} {z1})
 );
-blocks ( hex (0 1 2 3 4 5 6 7) ({nx} {ny} {nz}) simpleGrading (1 1 1) );
+blocks (
+  hex (0 1 2 3 4 5 6 7)     ({nx} {ny} {nzw}) simpleGrading (1 1 {g_water})
+  hex (4 5 6 7 8 9 10 11)   ({nx} {ny} {nza}) simpleGrading (1 1 {g_air})
+);
 boundary (
-  inlet      {{ type patch; faces ((1 2 6 5)); }}
-  outlet     {{ type patch; faces ((0 4 7 3)); }}
-  atmosphere {{ type patch; faces ((4 5 6 7)); }}
+  inlet      {{ type patch; faces ((1 2 6 5) (5 6 10 9)); }}
+  outlet     {{ type patch; faces ((0 4 7 3) (4 8 11 7)); }}
+  atmosphere {{ type patch; faces ((8 9 10 11)); }}
   bottom     {{ type wall;  faces ((0 3 2 1)); }}
-  side1      {{ type wall;  faces ((0 1 5 4)); }}
-  side2      {{ type wall;  faces ((3 7 6 2)); }}
+  side1      {{ type wall;  faces ((0 1 5 4) (4 5 9 8)); }}
+  side2      {{ type wall;  faces ((3 7 6 2) (7 11 10 6)); }}
 );
 """
 
@@ -80,7 +175,9 @@ solvers {
                     tolerance 1e-7; relTol 0.1; nSweeps 1; }
 }
 PIMPLE {
-  momentumPredictor no; nOuterCorrectors 1; nCorrectors 3;
+  // nOuterCorrectors 1 is PISO: valid only at Co<1. Running maxCo 5 in PISO
+  // mode leaves the pressure-velocity coupling unconverged within the step.
+  momentumPredictor no; nOuterCorrectors 2; nCorrectors 3;
   nNonOrthogonalCorrectors 0;
 }
 relaxationFactors { equations { ".*" 1; } }
@@ -216,23 +313,44 @@ boundaryField {
 
 SNAPPY_STUB = """FoamFile {{ version 2.0; format ascii; class dictionary; object snappyHexMeshDict; }}
 castellatedMesh true; snap true; addLayers true;
-geometry {{ hull.stl {{ type triSurfaceMesh; name hull; }} }}
+geometry {{
+  hull.stl {{ type triSurfaceMesh; name hull; }}
+  // free-surface slab: without it the wave field is unresolved. The bare
+  // background cell at the interface is ~{fs_dz_bg:.3f} m tall against waves
+  // ~0.1 m high, so the Kelvin pattern washed out entirely (measured: 5-10
+  // cells per wavelength vs the >=20 standard) and the drag rode on whatever
+  // the hull-local refinement happened to catch.
+  freeSurface {{ type searchableBox; min ({fs_x0} {fs_y0} {fs_z0});
+                                     max ({fs_x1} {fs_y1} {fs_z1}); }}
+}}
 castellatedMeshControls {{
   maxLocalCells 2000000; maxGlobalCells 8000000; minRefinementCells 10;
   nCellsBetweenLevels 3;
   features ( {{ file "hull.eMesh"; level 3; }} );
   refinementSurfaces {{ hull {{ level (2 3); }} }}
-  refinementRegions {{}}
+  refinementRegions {{ freeSurface {{ mode inside; levels ((1e15 {fs_level})); }} }}
   locationInMesh ({loc_x} 0.0 {loc_z});
   allowFreeStandingZoneFaces true; resolveFeatureAngle 30;
 }}
 snapControls {{ nSmoothPatch 3; tolerance 2.0; nSolveIter 50; nRelaxIter 5; }}
 addLayersControls {{
-  relativeSizes true; layers {{ hull {{ nSurfaceLayers 3; }} }}
-  expansionRatio 1.25; finalLayerThickness 0.4; minThickness 0.05; nGrow 0;
+  // ABSOLUTE sizing: y+ is a physical quantity, so the near-wall cell is set
+  // in metres from the ITTC friction line, not as a fraction of whatever cell
+  // snappy happened to leave there. relativeSizes true is what produced
+  // y+ ~ 7500. Held CONSTANT across the GCI triplet so all three grids sit in
+  // the wall-function's valid band -- the GCI then bounds OUTER-flow
+  // discretisation with the near-wall treatment fixed, which is the honest
+  // reading of it and is stated in case.info.
+  relativeSizes false; layers {{ hull {{ nSurfaceLayers {n_layers}; }} }}
+  expansionRatio {layer_expansion}; firstLayerThickness {first_layer:.6e};
+  minThickness {min_thickness:.6e}; nGrow 0;
   featureAngle 60; slipFeatureAngle 30;
   nRelaxIter 5; nSmoothSurfaceNormals 1; nSmoothNormals 3; nSmoothThickness 10;
-  maxFaceThicknessRatio 0.5; maxThicknessToMedialRatio 0.3;
+  // Loosened from 0.5/0.3: free-surface grading makes the cells at the
+  // waterline ~20:1 anisotropic, and layer insertion refuses there. Measured
+  // hull coverage 43.9% -> 46.3%; the remainder is reported by the yPlus
+  // function object rather than assumed adequate.
+  maxFaceThicknessRatio 0.8; maxThicknessToMedialRatio 0.6;
   minMedialAxisAngle 90; nBufferCellsNoExtrude 0; nLayerIter 50;
   nRelaxedIter 20;
 }}
@@ -337,16 +455,55 @@ def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
     (out / "system").mkdir(parents=True, exist_ok=True)
     (out / "0").mkdir(parents=True, exist_ok=True)
 
-    # domain: generous towing-tank box around the hull (hull x in [0, L])
-    # nz MUST be a multiple of 3: the waterline z=0 sits 2/3 up the domain
-    # (z in [-1.5L, 0.75L]) and free-surface cases need a cell FACE exactly
-    # at z=0 — the sqrt(2) medium grid (nz=25) put the interface mid-cell and
-    # doubled the drag (first Mac GCI triplet, non-monotone/oscillatory)
-    nz = max(3 * round(18 * scale / 3), 9)
+    # Domain: towing-tank box around the hull (hull x in [0, L]), split at the
+    # waterline. Depth 0.6L and air 0.25L replace the old 1.5L/0.75L: the tank
+    # only has to be deep-water for the generated wave (lambda/2 = pi*U^2/g,
+    # checked below), and the cells that bought 15 m of still water underneath
+    # are worth far more spent on the free surface.
+    # Deep water is a property of the WAVE, not of the hull: a tank shallower
+    # than half a wavelength changes the dispersion relation, so the depth
+    # tracks speed rather than sitting at a fixed multiple of LWL. 0.6L is
+    # ample at the Fn ~ 0.26 design point; a planing-speed case deepens itself
+    # instead of quietly computing shallow-water resistance and calling it
+    # deep-water resistance.
+    half_lambda = math.pi * speed ** 2 / 9.81
+    depth = max(0.6 * lwl, 1.5 * half_lambda)
+
     dom = dict(x0=-2.5 * lwl, x1=2.0 * lwl, y0=-1.5 * lwl, y1=1.5 * lwl,
-               z0=-1.5 * lwl, z1=0.75 * lwl,
-               nx=max(int(54 * scale), 20), ny=max(int(24 * scale), 10),
-               nz=nz)
+               z0=-depth, z1=0.25 * lwl,
+               nx=max(int(round(54 * scale)), 20),
+               ny=max(int(round(24 * scale)), 10),
+               nzw=max(int(round(20 * scale)), 8),
+               nza=max(int(round(8 * scale)), 4),
+               g_water=1.0 / _Z_EXPANSION, g_air=float(_Z_EXPANSION))
+    assert depth >= half_lambda, "deep-water condition violated"
+
+    # Cell height at the interface, both sides — these should match, and they
+    # set what the free-surface refinement then divides by 2**fs_level.
+    dz_w = _interface_dz(abs(dom["z0"]), dom["nzw"], _Z_EXPANSION)
+    dz_a = _interface_dz(dom["z1"], dom["nza"], _Z_EXPANSION)
+    fs_level = 2
+    fs_dz = max(dz_w, dz_a) / 2 ** fs_level
+    dx = (dom["x1"] - dom["x0"]) / dom["nx"] / 2 ** fs_level
+    wavelength = 2 * math.pi * speed ** 2 / 9.81
+    # near-wall stack sized for the wall functions, bridging to the local
+    # hull cell (background dx divided by the hull surface refinement level)
+    t1 = first_layer_thickness(speed, lwl, _TARGET_YPLUS)
+    hull_cell = (dom["x1"] - dom["x0"]) / dom["nx"] / 2 ** 3
+    n_ideal = n_layers_to_bridge(t1, hull_cell, _LAYER_EXPANSION)
+    n_layers = min(n_ideal, _MAX_LAYERS)
+    dom.update(
+        n_layers=n_layers, first_layer=t1, layer_expansion=_LAYER_EXPANSION,
+        min_thickness=0.25 * t1,
+        fs_level=fs_level, fs_dz_bg=max(dz_w, dz_a),
+        # slab thick enough to hold the wave through its whole vertical travel
+        fs_x0=_FS_BOX["x0"] * lwl, fs_x1=_FS_BOX["x1"] * lwl,
+        fs_y0=-_FS_BOX["y"] * lwl, fs_y1=_FS_BOX["y"] * lwl,
+        fs_z0=-_FS_BOX["z"] * lwl, fs_z1=_FS_BOX["z"] * lwl,
+        # locationInMesh: in the air, far upstream of the hull. The old
+        # (-2.0L, 0.35L) sat ABOVE the new tank roof and off a round multiple
+        # of the cell size; both are mesh-generation failures.
+        loc_x=-1.97 * lwl, loc_z=0.137 * lwl)
 
     # turbulence inlet: I = 2%, length scale 1% LWL
     k_in = 1.5 * (0.02 * speed) ** 2 + 1e-8
@@ -356,8 +513,7 @@ def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
     sysd.joinpath("controlDict").write_text(
         CONTROL_DICT.format(end_time=end_time, dt=0.001, write_int=5.0))
     sysd.joinpath("blockMeshDict").write_text(BLOCKMESH.format(**dom))
-    sysd.joinpath("snappyHexMeshDict").write_text(
-        SNAPPY_STUB.format(loc_x=-2.0 * lwl, loc_z=0.35 * lwl))
+    sysd.joinpath("snappyHexMeshDict").write_text(SNAPPY_STUB.format(**dom))
     sysd.joinpath("fvSchemes").write_text(FV_SCHEMES)
     sysd.joinpath("fvSolution").write_text(FV_SOLUTION)
     sysd.joinpath("decomposeParDict").write_text(DECOMPOSE.format(np=np_procs))
@@ -373,10 +529,27 @@ def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
     zero.joinpath("omega").write_text(FIELD_OMEGA.format(w_in=f"{w_in:.3e}"))
     zero.joinpath("nut").write_text(FIELD_NUT)
 
+    bg_cells = dom["nx"] * dom["ny"] * (dom["nzw"] + dom["nza"])
+    # Resolution receipt: the numbers that decide whether the wave field is
+    # actually resolved, recorded per case so a bad triplet is diagnosable
+    # from the case dir alone rather than from a post-hoc argument.
+    cells_per_wave = wavelength / dx
     (out / "case.info").write_text(
         f"speed_ms={speed}\nlwl={lwl}\nscale={scale}\nstl_sha256={stl_sha}\n"
-        f"cells_bg={dom['nx'] * dom['ny'] * dom['nz']}\n"
+        f"cells_bg={bg_cells}\n"
+        f"wavelength_m={wavelength:.4f}\ntank_depth_m={abs(dom['z0']):.4f}\n"
+        f"fs_dz_m={fs_dz:.5f}\nfs_dx_m={dx:.5f}\n"
+        f"cells_per_wavelength={cells_per_wave:.1f}\n"
+        f"target_yplus={_TARGET_YPLUS}\nfirst_layer_m={t1:.6e}\n"
+        f"n_layers={n_layers}\nn_layers_to_fully_bridge={n_ideal}\n"
+        "NOTE: layers are capped for insertion success, so the stack does NOT\n"
+        "  bridge to the local cell; y+ is controlled on layered faces only.\n"
+        "  Check postProcessing/yPlus for what was actually achieved.\n"
+        "NOTE: first-layer thickness is held constant across the GCI triplet,\n"
+        "  so the GCI bounds OUTER-flow discretisation, not the wall model.\n"
         "run: navalai/cfd/run-case.sh <this-dir> <np>\n"
         "Gate 2M = KCS/JBC resistance within Tokyo-2015 scatter, per-case GCI.\n")
     return {"stl_sha256": stl_sha, "speed": speed, "end_time": end_time,
-            "scale": scale, "bg_cells": dom["nx"] * dom["ny"] * dom["nz"]}
+            "scale": scale, "bg_cells": bg_cells,
+            "cells_per_wavelength": cells_per_wave, "fs_dz": fs_dz,
+            "wavelength": wavelength, "tank_depth": abs(dom["z0"])}

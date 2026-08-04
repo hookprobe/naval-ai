@@ -145,3 +145,46 @@ def test_gci_oscillatory_falls_back_conservative():
     rep = gci(100.0, 104.0, 101.0)
     assert np.isnan(rep.p_observed)
     assert rep.gci_fine_pct > 0 and "oscillatory" in rep.method
+
+
+def _box_stl(path, zlo=-1.0, zhi=1.0):
+    """Unit-square-section box spanning z in [zlo, zhi], as an ascii STL."""
+    x0 = y0 = 0.0
+    x1 = y1 = 1.0
+    c = [(x0, y0, zlo), (x1, y0, zlo), (x1, y1, zlo), (x0, y1, zlo),
+         (x0, y0, zhi), (x1, y0, zhi), (x1, y1, zhi), (x0, y1, zhi)]
+    quads = [(0, 3, 2, 1), (4, 5, 6, 7), (0, 1, 5, 4),
+             (2, 3, 7, 6), (1, 2, 6, 5), (3, 0, 4, 7)]
+    lines = ["solid box"]
+    for a, b, cc, d in quads:
+        for tri in ((a, b, cc), (a, cc, d)):
+            lines.append(" facet normal 0 0 0")
+            lines.append("  outer loop")
+            for i in tri:
+                lines.append("   vertex %.6e %.6e %.6e" % c[i])
+            lines.append("  endloop")
+            lines.append(" endfacet")
+    lines.append("endsolid box")
+    path.write_text("\n".join(lines))
+    return path
+
+
+def test_wetted_area_clips_at_the_waterline(tmp_path):
+    """Gate 2M needs C_t, so it needs the submerged area the CFD actually saw.
+
+    Exact answer for a 1x1 box spanning z in [-1, 1] clipped at z=0: the
+    bottom face (1) plus four side faces of height 1 (4) = 5 m^2; the deck and
+    the topsides above the waterline must NOT be counted.
+    """
+    from navalai.cfd.post import resistance_coefficient, stl_wetted_area
+    stl = _box_stl(tmp_path / "box.stl")
+    assert stl_wetted_area(stl, 0.0) == pytest.approx(5.0, rel=1e-6)
+    assert stl_wetted_area(stl, -1.0) == pytest.approx(1.0, rel=1e-6)  # keel only
+    # whole box: 2 end caps (1 each) + 4 sides of 1 x 2 = 10
+    assert stl_wetted_area(stl, 1.0) == pytest.approx(10.0, rel=1e-6)
+
+    # C_t = R_t / (0.5 rho S U^2)
+    ct = resistance_coefficient(1000.0, 5.0, 2.0, rho=1000.0)
+    assert ct == pytest.approx(1000.0 / (0.5 * 1000.0 * 5.0 * 4.0), rel=1e-9)
+    with pytest.raises(ValueError):
+        resistance_coefficient(100.0, 0.0, 2.0)

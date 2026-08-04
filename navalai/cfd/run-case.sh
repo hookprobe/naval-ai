@@ -23,7 +23,16 @@ surfaceFeatureExtract > log.surfaceFeatures 2>&1 || true
 say "snappyHexMesh ..."
 snappyHexMesh -overwrite > log.snappy 2>&1
 say "checkMesh ..."
-checkMesh > log.checkMesh 2>&1 || say "WARN: checkMesh reported errors"
+checkMesh > log.checkMesh 2>&1 || true
+# Report mesh quality rather than bury it: free-surface grading leaves ~20:1
+# cells where the hull pierces the waterline, so a handful of skew faces is
+# expected — but it must be VISIBLE and tracked, not discovered months later.
+say "mesh: $(grep -m1 'cells:' log.checkMesh | tr -s ' ') | \
+$(grep -m1 'non-orthogonality Max' log.checkMesh | tr -s ' ' | cut -c1-46) | \
+$(grep -m1 'Max skewness' log.checkMesh | tr -s ' ' | sed 's/^ *//' | cut -c1-40)"
+say "layers: $(grep -oE 'Added [0-9]+ out of [0-9]+ cells \([0-9.]+%\)' log.snappy \
+  | head -1 || echo 'none reported')"
+grep -q 'Mesh OK' log.checkMesh || say "NOTE: checkMesh flagged $(grep -c 'Failed' log.checkMesh) check(s) — see log.checkMesh"
 setFields > log.setFields 2>&1 || true
 if [ "$NP" -gt 1 ]; then
   say "decomposePar ($NP ranks) ..."

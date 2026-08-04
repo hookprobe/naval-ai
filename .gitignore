@@ -3,3 +3,4 @@ __pycache__/
 data/*.sqlite3
 .venv/
 runs/
+.DS_Store
