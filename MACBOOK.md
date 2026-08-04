@@ -17,14 +17,20 @@ a branch; fortress001 pulls them into the provenance DB.
 
 ## 2 · Base toolchain (arm64-native, no Rosetta needed)
 
-```bash
+Note for zsh (the macOS default): `#` is NOT a comment on an interactive
+command line — never paste trailing `# ...` text, it becomes arguments.
+Code blocks below are comment-free for that reason.
+
+```zsh
 xcode-select --install
 brew install python@3.12 git
 python3.12 -m venv ~/.venvs/naval && source ~/.venvs/naval/bin/activate
 pip install numpy scipy pytest pymoo capytaine mujoco cadquery
-python -m pytest tests/ -q          # expect 93 passed (~3 min)
-python -m navalai.gates             # expect 14 GREEN
+python -m pytest tests/ -q
+python -m navalai.gates
 ```
+
+Expected: 93 passed (~3 min), then 14 GREEN gates.
 
 All of these publish macOS arm64 wheels (capytaine, mujoco, pymoo: PyPI;
 CadQuery via the cadquery-ocp arm64 wheels). If `cadquery` pip resolution
@@ -36,10 +42,22 @@ cadquery` or conda-forge.
 Native Apple Silicon build — gerlero/openfoam-app (OpenFOAM v2606-era,
 bundles OpenMPI, installs via Homebrew):
 
-```bash
-brew install --no-quarantine gerlero/openfoam/openfoam       # native .app
-openfoam                            # drops you into an OpenFOAM shell
-which interFoam blockMesh snappyHexMesh mpirun               # all present
+```zsh
+brew install --no-quarantine gerlero/openfoam/openfoam
+openfoam
+```
+
+`openfoam` (no arguments) opens an OpenFOAM session; run this INSIDE it —
+all four must resolve:
+
+```zsh
+which interFoam blockMesh snappyHexMesh mpirun
+```
+
+One-shot alternative without entering the session:
+
+```zsh
+openfoam bash -c 'which interFoam blockMesh snappyHexMesh mpirun'
 ```
 
 Docker fallback (if the app route misbehaves): `gerlero/openfoam-docker-arm`

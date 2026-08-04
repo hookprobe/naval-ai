@@ -42,5 +42,16 @@ def test_cfd_case_generation_deterministic(tmp_path):
     meta1 = write_resistance_case(h, 2.5, tmp_path / "a")
     meta2 = write_resistance_case(h, 2.5, tmp_path / "b")
     assert meta1["stl_sha256"] == meta2["stl_sha256"]
-    assert (tmp_path / "a" / "system" / "controlDict").exists()
-    assert "METAL-GATED" in (tmp_path / "a" / "case.info").read_text()
+    # a COMPLETE runnable case: mesh, schemes, fields, physics, decomposition
+    for rel in ("system/controlDict", "system/blockMeshDict",
+                "system/snappyHexMeshDict", "system/fvSchemes",
+                "system/fvSolution", "system/decomposeParDict",
+                "system/setFieldsDict", "system/surfaceFeatureExtractDict",
+                "constant/transportProperties", "constant/turbulenceProperties",
+                "constant/g", "0/U", "0/p_rgh", "0/alpha.water", "0/k",
+                "0/omega", "0/nut"):
+        assert (tmp_path / "a" / rel).exists(), rel
+    assert "Gate 2M" in (tmp_path / "a" / "case.info").read_text()
+    # GCI triplet scaling actually changes the background mesh
+    m_fine = write_resistance_case(h, 2.5, tmp_path / "c", scale=2.0)
+    assert m_fine["bg_cells"] > 6 * meta1["bg_cells"]
