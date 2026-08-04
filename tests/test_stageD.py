@@ -147,6 +147,35 @@ def test_gci_oscillatory_falls_back_conservative():
     assert rep.gci_fine_pct > 0 and "oscillatory" in rep.method
 
 
+def test_restarted_run_merges_its_force_segments(tmp_path):
+    """The Mac has no working cooling and lost a triplet to 'Thermal Emergency
+    Sleep' mid-run. Resuming writes a SECOND postProcessing/forces/<t>/ dir, so
+    reading only `0/` would analyse the pre-crash fragment and report it as the
+    whole run -- a silently wrong settled average, which is the exact failure
+    mode the honesty rules exist to prevent.
+    """
+    from navalai.cfd.post import forces_path
+
+    root = tmp_path / "case" / "postProcessing" / "forces"
+    (root / "0").mkdir(parents=True)
+    (root / "12").mkdir()
+    # pre-crash: t=0..12 drifting; post-resume: t=12..25 settled at -300
+    (root / "0" / "force.dat").write_text("\n".join(
+        f"{t/10:.2f} ({-1000 + t*5:.3f} 0 0) (0 0 0)" for t in range(0, 121)))
+    (root / "12" / "force.dat").write_text("\n".join(
+        f"{t/10:.2f} (-300.0 0 0) (0 0 0)" for t in range(120, 251)))
+
+    merged = forces_path(tmp_path / "case")
+    t, fx = parse_forces(merged)
+    assert t[0] == pytest.approx(0.0) and t[-1] == pytest.approx(25.0)
+    assert len(t) == 251, "segments must join without gaps or duplicates"
+    # the resumed segment wins on the overlapping sample at t=12.0
+    assert fx[t == 12.0][0] == pytest.approx(-300.0)
+    # and the settled tail is the post-resume value, not the pre-crash drift
+    mean, _ = mean_resistance(merged, tail_frac=0.3)
+    assert mean == pytest.approx(-300.0, abs=1e-6)
+
+
 def _box_stl(path, zlo=-1.0, zhi=1.0):
     """Unit-square-section box spanning z in [zlo, zhi], as an ascii STL."""
     x0 = y0 = 0.0

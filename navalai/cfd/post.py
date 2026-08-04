@@ -36,6 +36,38 @@ def parse_forces(path: str | Path):
     return np.array(t), np.array(fx)
 
 
+def forces_path(case: str | Path) -> Path:
+    """Force history for a case, merging RESTART segments into one file.
+
+    A run interrupted by thermal sleep and resumed writes a fresh
+    postProcessing/forces/<restart-time>/force.dat; reading only the `0/`
+    directory would silently analyse the pre-crash fragment and report it as
+    the whole run. Segments are concatenated in time order and later samples
+    win where they overlap (the resumed run recomputed them).
+    """
+    root = Path(case) / "postProcessing" / "forces"
+    segs = sorted((d for d in root.glob("*/force.dat")),
+                  key=lambda p: float(p.parent.name))
+    if not segs:
+        raise FileNotFoundError(f"no force.dat under {root}")
+    if len(segs) == 1:
+        return segs[0]
+
+    rows: dict[float, str] = {}
+    for seg in segs:
+        for line in seg.read_text().splitlines():
+            s = line.strip()
+            if not s or s.startswith("#"):
+                continue
+            try:
+                rows[float(_NUM.findall(s)[0])] = s
+            except (IndexError, ValueError):
+                continue
+    merged = root / "force.merged.dat"
+    merged.write_text("\n".join(rows[t] for t in sorted(rows)) + "\n")
+    return merged
+
+
 def mean_resistance(path: str | Path, tail_frac: float = 0.3) -> tuple[float, float]:
     """(mean, std) of drag over the final tail_frac of the run (settled)."""
     t, fx = parse_forces(path)

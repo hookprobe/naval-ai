@@ -16,6 +16,46 @@ command -v interFoam >/dev/null || { echo "FATAL: OpenFOAM not in PATH" \
 cd "$CASE"
 say() { echo "[$CASE] $1"; }
 
+# --- resume support -------------------------------------------------------
+# This machine has no working cooling and has already lost a triplet to
+# 'Thermal Emergency Sleep' (power log, 2026-08-04 23:19). A multi-hour run
+# that always restarts from t=0 can never finish on hardware that naps, so a
+# case with a decomposed mesh and at least one written time resumes instead
+# of re-meshing. interFoam checkpoints every writeInterval anyway; this just
+# stops us throwing those checkpoints away.
+latest_proc_time() {
+  local best=0 t
+  for d in processor0/*/; do
+    t="${d#processor0/}"; t="${t%/}"
+    case "$t" in ''|*[!0-9.]*) continue;; esac
+    awk -v a="$t" -v b="$best" 'BEGIN{exit !(a+0>b+0)}' && best="$t"
+  done
+  echo "$best"
+}
+
+# Resume is only valid against a decomposition of the SAME width: mpirun -np N
+# against N' processor dirs either fails or silently reads the wrong ranks.
+NPROC_DIRS="$(find . -maxdepth 1 -type d -name 'processor*' | wc -l | tr -d ' ')"
+RESUME_FROM=""
+if [ -d processor0 ] && [ -f constant/polyMesh/points ]; then
+  if [ "$NPROC_DIRS" = "$NP" ]; then
+    RESUME_FROM="$(latest_proc_time)"
+  else
+    say "decomposition is ${NPROC_DIRS}-way but NP=$NP — re-meshing from scratch"
+    rm -rf processor*
+  fi
+fi
+
+if [ -n "$RESUME_FROM" ] && [ "$RESUME_FROM" != "0" ]; then
+  say "RESUMING from t=$RESUME_FROM (mesh + decomposition reused)"
+  foamDictionary -entry startFrom -set latestTime system/controlDict >/dev/null
+  say "interFoam -parallel (resume; tail -f $CASE/log.interFoam) ..."
+  mpirun -np "$NP" interFoam -parallel >> log.interFoam 2>&1
+  reconstructPar -latestTime > log.reconstruct 2>&1
+  say "done: $(ls postProcessing/forces/ 2>/dev/null | tr '\n' ' ' || echo 'NO FORCES')"
+  exit 0
+fi
+
 say "blockMesh ..."
 blockMesh > log.blockMesh 2>&1
 say "surfaceFeatureExtract ..."

@@ -75,10 +75,12 @@ def main() -> None:
     means = {}
     print(f"{'grid':8} {'mean drag [N]':>14} {'std [N]':>10} {'drift %':>8}")
     print("-" * 46)
+    from navalai.cfd.post import forces_path
     for g in GRIDS:
-        f = Path(args.root) / g / "postProcessing" / "forces" / "0" / "force.dat"
-        if not f.exists():
-            print(f"{g:8} MISSING ({f})")
+        try:
+            f = forces_path(Path(args.root) / g)          # merges restarts
+        except FileNotFoundError:
+            print(f"{g:8} MISSING (no forces under {args.root}/{g})")
             continue
         mean, std = mean_resistance(f, args.tail)
         means[g] = mean

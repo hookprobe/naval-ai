@@ -510,8 +510,13 @@ def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
     w_in = k_in ** 0.5 / (0.09 ** 0.25 * 0.01 * lwl)
 
     sysd, cons, zero = out / "system", out / "constant", out / "0"
+    # Checkpoint ~10 times per run. On a machine that thermal-sleeps mid-run
+    # the write interval is what you lose per nap: at 5 s of sim time that was
+    # ~1.7 h of fine-grid wall time thrown away each time. purgeWrite 3 keeps
+    # the disk bounded regardless.
+    write_int = max(end_time / 10.0, 0.5)
     sysd.joinpath("controlDict").write_text(
-        CONTROL_DICT.format(end_time=end_time, dt=0.001, write_int=5.0))
+        CONTROL_DICT.format(end_time=end_time, dt=0.001, write_int=write_int))
     sysd.joinpath("blockMeshDict").write_text(BLOCKMESH.format(**dom))
     sysd.joinpath("snappyHexMeshDict").write_text(SNAPPY_STUB.format(**dom))
     sysd.joinpath("fvSchemes").write_text(FV_SCHEMES)
