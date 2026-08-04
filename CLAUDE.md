@@ -4,7 +4,9 @@ Autonomous naval-architecture validation AI: mission in natural language →
 grammar-constrained hull generation → slider surface with live physics →
 tiered validation ladder (L0 algebraic → L1 Michell/hydrostatics → L2
 Capytaine BEM → L3 OpenFOAM RANS → R ISO rules) → manufacturing export.
-Canonical docs: `NavalArchAI-BuildPlan.md` (research-grounded plan),
+Canonical docs: `PLM.md` (product-line management: platform law, roles,
+lifecycle, roadmap board — READ THIS FIRST), `NavalArchAI-BuildPlan.md`
+(research-grounded plan),
 `ALIGNMENT.md` (audit vs the original agentic-PLM plan), `README.md`
 (gate-status table), `MACBOOK.md` (Mac simulation-node runbook).
 
