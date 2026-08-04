@@ -226,7 +226,11 @@ snapControls {{ nSmoothPatch 3; tolerance 2.0; nSolveIter 50; nRelaxIter 5; }}
 addLayersControls {{
   relativeSizes true; layers {{ hull {{ nSurfaceLayers 3; }} }}
   expansionRatio 1.25; finalLayerThickness 0.4; minThickness 0.05; nGrow 0;
-  featureAngle 60; nRelaxIter 5;
+  featureAngle 60; slipFeatureAngle 30;
+  nRelaxIter 5; nSmoothSurfaceNormals 1; nSmoothNormals 3; nSmoothThickness 10;
+  maxFaceThicknessRatio 0.5; maxThicknessToMedialRatio 0.3;
+  minMedialAxisAngle 90; nBufferCellsNoExtrude 0; nLayerIter 50;
+  nRelaxedIter 20;
 }}
 meshQualityControls {{ maxNonOrtho 65; maxBoundarySkewness 20; maxInternalSkewness 4;
   maxConcave 80; minVol 1e-13; minTetQuality 1e-15; minArea -1; minTwist 0.02;
@@ -236,26 +240,59 @@ writeFlags (scalarLevels); mergeTolerance 1e-6;
 """
 
 
-def hull_to_stl(hull: Hull, path: Path, nx: int = 80, nz: int = 20) -> str:
-    """Write a binary-ascii STL of the full hull surface; returns sha256."""
-    verts, faces = hull.panel_mesh(nx=nx, nz=nz)
+def hull_to_stl(hull: Hull, path: Path, nx: int = 80, nz: int = 16) -> str:
+    """Write a WATERTIGHT ascii STL (full hull + deck + transom); sha256.
+
+    CFD needs a closed manifold: the earlier wetted-only shell had 198 open
+    edges (surfaceFeatureExtract, first Mac smoke run) and let the mesher
+    reach the hull interior.
+    """
+    verts, tris = hull.closed_mesh(nx=nx, nz=nz)
     lines = ["solid hull"]
-    for f in faces:
-        for tri in ((f[0], f[1], f[2]), (f[0], f[2], f[3])):
-            p = verts[list(tri)]
-            n = np.cross(p[1] - p[0], p[2] - p[0])
-            nn = np.linalg.norm(n)
-            n = n / nn if nn > 1e-14 else np.array([0.0, 0.0, 1.0])
-            lines.append(f" facet normal {n[0]:.6e} {n[1]:.6e} {n[2]:.6e}")
-            lines.append("  outer loop")
-            for v in p:
-                lines.append(f"   vertex {v[0]:.6e} {v[1]:.6e} {v[2]:.6e}")
-            lines.append("  endloop")
-            lines.append(" endfacet")
+    for t in tris:
+        p = verts[list(t)]
+        n = np.cross(p[1] - p[0], p[2] - p[0])
+        nn = np.linalg.norm(n)
+        n = n / nn if nn > 1e-14 else np.array([0.0, 0.0, 1.0])
+        lines.append(f" facet normal {n[0]:.6e} {n[1]:.6e} {n[2]:.6e}")
+        lines.append("  outer loop")
+        for v in p:
+            lines.append(f"   vertex {v[0]:.6e} {v[1]:.6e} {v[2]:.6e}")
+        lines.append("  endloop")
+        lines.append(" endfacet")
     lines.append("endsolid hull")
     data = "\n".join(lines).encode()
     path.write_bytes(data)
     return hashlib.sha256(data).hexdigest()
+
+
+def stl_watertight_report(path: Path) -> dict:
+    """Parse an ascii STL and check closed-manifoldness geometrically.
+
+    Every undirected edge of a closed 2-manifold is shared by exactly two
+    triangles. Also returns the signed enclosed volume (divergence theorem) —
+    meaningful only when windings are consistently outward.
+    """
+    tris = []
+    cur: list = []
+    for line in Path(path).read_text().splitlines():
+        line = line.strip()
+        if line.startswith("vertex"):
+            cur.append(tuple(round(float(v), 6) for v in line.split()[1:4]))
+            if len(cur) == 3:
+                tris.append(tuple(cur))
+                cur = []
+    from collections import Counter
+    edges: Counter = Counter()
+    vol = 0.0
+    for a, b, c in tris:
+        for e in ((a, b), (b, c), (c, a)):
+            edges[tuple(sorted(e))] += 1
+        va, vb, vc = np.array(a), np.array(b), np.array(c)
+        vol += float(np.dot(va, np.cross(vb, vc))) / 6.0
+    bad = [e for e, n in edges.items() if n != 2]
+    return {"n_tris": len(tris), "open_or_nonmanifold_edges": len(bad),
+            "watertight": len(bad) == 0, "signed_volume": vol}
 
 
 def write_resistance_case(hull: Hull, speed: float, out_dir: str | Path,

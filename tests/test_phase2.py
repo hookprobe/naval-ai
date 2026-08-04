@@ -52,6 +52,17 @@ def test_cfd_case_generation_deterministic(tmp_path):
                 "0/omega", "0/nut"):
         assert (tmp_path / "a" / rel).exists(), rel
     assert "Gate 2M" in (tmp_path / "a" / "case.info").read_text()
+    # CFD hull must be a closed manifold (Mac smoke run found 198 open edges
+    # on the wetted-only shell) with outward windings and plausible volume
+    from navalai.cfd.case import stl_watertight_report
+    rep = stl_watertight_report(tmp_path / "a" / "constant" / "triSurface" / "hull.stl")
+    assert rep["watertight"], rep
+    assert 10.0 < rep["signed_volume"] < 60.0
+    # v2606 mandatory addLayers entries present
+    snappy = (tmp_path / "a" / "system" / "snappyHexMeshDict").read_text()
+    for key in ("maxFaceThicknessRatio", "maxThicknessToMedialRatio",
+                "minMedialAxisAngle", "nBufferCellsNoExtrude", "nLayerIter"):
+        assert key in snappy, key
     # GCI triplet scaling actually changes the background mesh
     m_fine = write_resistance_case(h, 2.5, tmp_path / "c", scale=2.0)
     assert m_fine["bg_cells"] > 6 * meta1["bg_cells"]

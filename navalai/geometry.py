@@ -198,6 +198,55 @@ class Hull:
         faces_p = [(d + nv, c + nv, b + nv, a + nv) for a, b, c, d in faces]
         return verts, np.array(faces + faces_p, dtype=int)
 
+    def closed_mesh(self, nx: int = 80, nz: int = 16):
+        """Watertight triangle mesh of the FULL hull (keel to sheer, both
+        sides, deck lid, transom cap) — for CFD, where an open shell lets the
+        mesher flood the interior (found by surfaceFeatureExtract: 198 open
+        edges on the wetted-only STL).
+
+        Returns (verts (N,3), tris (M,3) int). Degenerate slivers at the stem
+        are skipped by area.
+        """
+        xs = np.linspace(float(self.x[0]), float(self.x[-1]), nx)
+        S = np.zeros((nx, nz + 1, 3))
+        for i, xv in enumerate(xs):
+            pts = self._section_at(xv)
+            zs = np.linspace(pts[0, 1], pts[2, 1], nz + 1)
+            for j, z in enumerate(zs):
+                S[i, j] = (xv, _halfbreadth_at(pts, float(z)), z)
+        P = S * np.array([1.0, -1.0, 1.0])
+
+        verts: list = []
+        tris: list = []
+
+        def vid(p) -> int:
+            verts.append(p)
+            return len(verts) - 1
+
+        def quad(a, b, c, d) -> None:
+            # split into two triangles; drop degenerate slivers
+            for tri in ((a, b, c), (a, c, d)):
+                p = np.array(tri)
+                area = 0.5 * np.linalg.norm(np.cross(p[1] - p[0], p[2] - p[0]))
+                if area > 1e-10:
+                    tris.append((vid(p[0]), vid(p[1]), vid(p[2])))
+
+        for i in range(nx - 1):
+            for j in range(nz):
+                # starboard shell (outward +y), port mirrored winding
+                quad(S[i, j], S[i, j + 1], S[i + 1, j + 1], S[i + 1, j])
+                quad(P[i + 1, j], P[i + 1, j + 1], P[i, j + 1], P[i, j])
+            # deck lid strip (outward +z)
+            quad(S[i, nz], S[i + 1, nz], P[i + 1, nz], P[i, nz])
+        # transom cap at x = xs[0] (outward -x)
+        for j in range(nz):
+            quad(S[0, j], P[0, j], P[0, j + 1], S[0, j + 1])
+        # stem cap (degenerate for sharp bows; quads self-filter by area)
+        for j in range(nz):
+            quad(S[-1, j], S[-1, j + 1], P[-1, j + 1], P[-1, j])
+
+        return np.array(verts), np.array(tris, dtype=int)
+
     def _section_at(self, xv: float) -> np.ndarray:
         i = np.searchsorted(self.x, xv)
         i = min(max(i, 1), self.n_stations - 1)
