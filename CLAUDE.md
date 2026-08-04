@@ -126,12 +126,54 @@ lifecycle, roadmap board — READ THIS FIRST), `NavalArchAI-BuildPlan.md`
   Coarse mesh 297,712 cells at 20.3 cells/wavelength (v1: 45,606 at 5.1).
 - Runtime on 10 performance cores at maxAlphaCo 2, end-time 25 s:
   coarse ~0.5 h, medium ~2 h, fine ~8.5 h (measured rate, not the runbook guess).
-- Next milestone: **Gate 2M** — KCS calibration (IGES from t2015.nmri.go.jp,
-  model scale 1:31.6, LWL 7.2786 m, Fn 0.26 → 2.196 m/s) via
-  `scripts/iges2stl.py` + `make_case.py --stl`. Success = fine-grid Ct inside
-  Tokyo-2015 scatter with GCI ≲ 2.5%.
-- Then: record L3 results in provenance (tier 'L3') and wire the co-kriging
-  L1→L3 correction; parallel tracks: diffusion (PyTorch-MPS), LoRA (mlx-lm).
+## WHERE TO PICK UP (end of 2026-08-04/05 Mac session)
+
+**The blocker is the near-wall mesh, not the outer mesh.** The v2 mesh strategy
+works — coarse/medium are now MONOTONIC (-2639.4 → -2469.4 N, 297712 → 834760
+cells), unlike v1's oscillation. But `scripts/yplus_wetted.py` showed only
+**2.0% of WETTED hull faces are inside 30 ≤ y+ ≤ 300** (median 11431), so the
+wall functions are invalid where skin friction is made. Cross-checks agree:
+viscous drag is 2.62× the ITTC-57 line, and Ct 2.4e-2 against ~6.7e-3 from L1.
+
+The fine grid was deliberately NOT run: ~3 h to converge onto a wall model
+known to be invalid buys a precise wrong number.
+
+Root cause: `refinementSurfaces hull level (2 3)` gives FLAT hull area only
+level 2 (~208 mm cells), which a 0.7 mm first layer cannot bridge in 3 layers,
+so layers mostly are not inserted. `_HULL_REFINE` and `_TARGET_YPLUS` in
+`navalai/cfd/case.py` are now the knobs.
+
+Next steps, in order:
+1. Finish the near-wall sweep. It was cut short; PARTIAL result (2 s solves, so
+   read these as RELATIVE — the 25 s coarse run gave median 11431 / 2.0%):
+
+       trial                  cells   layer%  t1 mm  wet med y+  in-band%
+       (2,3) y+30 n3         297712    50.3   0.706      7163      5.1
+       (3,4) y+30 n5         343675    48.6   0.706      3999      8.9
+
+   So raising hull refinement halves median y+ for only +15% cells — right
+   direction, nowhere near enough. UNTESTED and most promising: a THICKER
+   first layer aimed at the middle of the valid band rather than its edge
+   (y+ 100-150 → t1 2.4-3.5 mm) with level (4 5); a short stack bridges a
+   small cell far more easily than a 0.7 mm layer bridges a 208 mm one.
+   Sweep script: `~/.claude/jobs/*/tmp/wall_sweep.py` (re-create if the job
+   dir is gone; it is 5 configs × ~5 min). Adopt the winner into
+   `_HULL_REFINE` / `_TARGET_YPLUS` / `_MAX_LAYERS` + a gate test.
+   NOTE: `openfoam bash <script>` SEGFAULTS; the launcher execs its args, so
+   call `openfoam <script> ...` directly.
+2. Re-run the own-hull triplet ONCE with a valid wall treatment:
+   `openfoam scripts/run_campaign.sh runs/gci 10` (resumes across thermal naps).
+   Then `python scripts/post_gci.py runs/gci` → record `data/baselines.json`.
+3. **Gate 2M is otherwise READY.** Acceptance data is in `benchmarks/kcs.py`
+   (EFD Ct 3.711e-3 @ Fn 0.26, 13-group scatter 3.620–3.733e-3). Regenerate the
+   hull per the recipe in that file (validated to −0.09% on displacement), then
+   `make_case.py --stl data/benchmark_geom/kcs.stl --lwl 7.2786 --speed 2.196`.
+4. Then: L3 into provenance (tier 'L3') + co-kriging L1→L3; parallel tracks
+   diffusion (PyTorch-MPS) and LoRA (mlx-lm), both GPU — OpenFOAM never uses it.
+
+Open and recorded (see ALIGNMENT.md): a SECOND benchmark anchor is owed. KCS
+shares no chine/transom/spray physics with the SKUs, so Gate 2M passing is not
+small-craft validation.
 
 ## Verification
 
