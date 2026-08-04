@@ -27,9 +27,12 @@ def main() -> None:
     ap.add_argument("--refinement", type=float, default=2.0 ** 0.5)
     args = ap.parse_args()
 
+    from navalai.cfd.post import parse_forces
+    import numpy as np
+
     means = {}
-    print(f"{'grid':8} {'mean drag [N]':>14} {'std [N]':>10}")
-    print("-" * 36)
+    print(f"{'grid':8} {'mean drag [N]':>14} {'std [N]':>10} {'drift %':>8}")
+    print("-" * 46)
     for g in GRIDS:
         f = Path(args.root) / g / "postProcessing" / "forces" / "0" / "force.dat"
         if not f.exists():
@@ -37,7 +40,16 @@ def main() -> None:
             continue
         mean, std = mean_resistance(f, args.tail)
         means[g] = mean
-        print(f"{g:8} {mean:14.1f} {std:10.1f}")
+        # settledness: drift between the two halves of the averaging tail;
+        # > ~5% means the run is not stationary yet -> extend end-time
+        t, fx = parse_forces(f)
+        cut = t[0] + (1.0 - args.tail) * (t[-1] - t[0])
+        seg_t, seg = t[t >= cut], fx[t >= cut]
+        half = seg_t[0] + 0.5 * (seg_t[-1] - seg_t[0])
+        m1, m2 = np.mean(seg[seg_t < half]), np.mean(seg[seg_t >= half])
+        drift = 100.0 * abs(m2 - m1) / max(abs(mean), 1e-9)
+        flag = "" if drift < 5.0 else "  <-- NOT SETTLED"
+        print(f"{g:8} {mean:14.1f} {std:10.1f} {drift:8.1f}{flag}")
 
     if len(means) == 3:
         rep = gci(means["coarse"], means["medium"], means["fine"],

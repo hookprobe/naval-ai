@@ -316,10 +316,15 @@ def write_resistance_case(hull: Hull, speed: float, out_dir: str | Path,
     lwl = float(hull.x[-1])
 
     # domain: generous towing-tank box around the hull (hull x in [0, L])
+    # nz MUST be a multiple of 3: the waterline z=0 sits 2/3 up the domain
+    # (z in [-1.5L, 0.75L]) and free-surface cases need a cell FACE exactly
+    # at z=0 — the sqrt(2) medium grid (nz=25) put the interface mid-cell and
+    # doubled the drag (first Mac GCI triplet, non-monotone/oscillatory)
+    nz = max(3 * round(18 * scale / 3), 9)
     dom = dict(x0=-2.5 * lwl, x1=2.0 * lwl, y0=-1.5 * lwl, y1=1.5 * lwl,
                z0=-1.5 * lwl, z1=0.75 * lwl,
                nx=max(int(54 * scale), 20), ny=max(int(24 * scale), 10),
-               nz=max(int(18 * scale), 8))
+               nz=nz)
 
     # turbulence inlet: I = 2%, length scale 1% LWL
     k_in = 1.5 * (0.02 * speed) ** 2 + 1e-8
