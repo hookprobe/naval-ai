@@ -46,6 +46,54 @@ def mean_resistance(path: str | Path, tail_frac: float = 0.3) -> tuple[float, fl
     return float(np.mean(seg)), float(np.std(seg))
 
 
+def stl_wetted_area(path: str | Path, waterline: float = 0.0) -> float:
+    """Submerged area [m^2] of an ascii STL, triangles clipped at z=waterline.
+
+    Gate 2M compares C_t against the Tokyo-2015 scatter, and C_t needs the
+    wetted surface the CFD actually saw — taking it from the STL (the same
+    geometry snappy meshed) keeps it honest for external benchmark hulls,
+    where no analytic hull object exists to ask.
+    """
+    verts: list = []
+    tris: list = []
+    for line in Path(path).read_text().splitlines():
+        s = line.strip()
+        if s.startswith("vertex"):
+            verts.append([float(v) for v in s.split()[1:4]])
+            if len(verts) == 3:
+                tris.append(np.array(verts))
+                verts = []
+
+    total = 0.0
+    for tri in tris:
+        # Sutherland-Hodgman clip of the triangle against the half-space z<=wl
+        poly: list = []
+        for i in range(3):
+            a, b = tri[i], tri[(i + 1) % 3]
+            a_in, b_in = a[2] <= waterline, b[2] <= waterline
+            if a_in:
+                poly.append(a)
+            if a_in != b_in:
+                t = (waterline - a[2]) / (b[2] - a[2])
+                poly.append(a + t * (b - a))
+        if len(poly) < 3:
+            continue
+        p = np.array(poly)
+        # fan triangulation of the (planar, convex) clipped polygon
+        for i in range(1, len(p) - 1):
+            total += 0.5 * float(np.linalg.norm(
+                np.cross(p[i] - p[0], p[i + 1] - p[0])))
+    return total
+
+
+def resistance_coefficient(drag: float, wetted_area: float, speed: float,
+                           rho: float = 998.8) -> float:
+    """C_t = R_t / (0.5 rho S U^2) — the form Tokyo-2015 reports."""
+    if wetted_area <= 0 or speed <= 0:
+        raise ValueError("wetted_area and speed must be positive")
+    return abs(drag) / (0.5 * rho * wetted_area * speed ** 2)
+
+
 @dataclass(frozen=True)
 class GCIReport:
     f_fine: float
