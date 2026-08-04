@@ -38,6 +38,16 @@ _FS_BOX = dict(x0=-1.6, x1=1.3, y=0.7, z=0.05)
 _TARGET_YPLUS = 30.0
 _LAYER_EXPANSION = 1.3
 
+# snappy refinementSurfaces level (min, max) on the hull. MEASURED why this
+# matters: at (2 3) the FLAT hull areas take only level 2, i.e. background/4
+# ~208 mm, so a 0.7 mm first layer would need ~15 layers to bridge and snappy
+# inserts almost none. The consequence, from a wetted-only y+ pass on the
+# coarse grid at t=25: median y+ 11431 and only 2.0% of WET faces inside the
+# 30<=y+<=300 wall-function band. Skin friction then came out 2.62x the
+# ITTC-57 line. Raising this shrinks the local cell so a short layer stack can
+# actually reach the wall.
+_HULL_REFINE = (2, 3)
+
 # Layers snappy will actually INSERT on this hull, measured (coarse grid,
 # absolute first-layer thickness held at y+ 30):
 #   n=3 -> 50.3%   n=5 -> 36.5%   n=8 -> 26.2%   n=15 -> 11.2%
@@ -327,7 +337,7 @@ castellatedMeshControls {{
   maxLocalCells 2000000; maxGlobalCells 8000000; minRefinementCells 10;
   nCellsBetweenLevels 3;
   features ( {{ file "hull.eMesh"; level 3; }} );
-  refinementSurfaces {{ hull {{ level (2 3); }} }}
+  refinementSurfaces {{ hull {{ level ({hull_lvl_min} {hull_lvl_max}); }} }}
   refinementRegions {{ freeSurface {{ mode inside; levels ((1e15 {fs_level})); }} }}
   locationInMesh ({loc_x} 0.0 {loc_z});
   allowFreeStandingZoneFaces true; resolveFeatureAngle 30;
@@ -496,10 +506,14 @@ def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
     # near-wall stack sized for the wall functions, bridging to the local
     # hull cell (background dx divided by the hull surface refinement level)
     t1 = first_layer_thickness(speed, lwl, _TARGET_YPLUS)
-    hull_cell = (dom["x1"] - dom["x0"]) / dom["nx"] / 2 ** 3
+    # Size the stack against the cell on FLAT hull area, which takes the MIN
+    # refinement level — that is most of the hull, and it is where layers have
+    # to bridge the furthest. Using the max level here flattered the estimate.
+    hull_cell = (dom["x1"] - dom["x0"]) / dom["nx"] / 2 ** _HULL_REFINE[0]
     n_ideal = n_layers_to_bridge(t1, hull_cell, _LAYER_EXPANSION)
     n_layers = min(n_ideal, _MAX_LAYERS)
     dom.update(
+        hull_lvl_min=_HULL_REFINE[0], hull_lvl_max=_HULL_REFINE[1],
         n_layers=n_layers, first_layer=t1, layer_expansion=_LAYER_EXPANSION,
         min_thickness=0.25 * t1,
         fs_level=fs_level, fs_dz_bg=max(dz_w, dz_a),
