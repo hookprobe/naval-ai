@@ -95,6 +95,7 @@ hardware/software this machine lacks).
 | Prism-layer coverage on the hull | ~50% (swept: n=3 50.3% · n=5 36.5% · n=8 26.2% · n=15 11.2%; nLayerIter/nRelaxedIter change nothing) | y+ controlled on layered faces only. Layer config is IDENTICAL across the triplet, so GCI still bounds outer-flow discretisation — but absolute C_t carries a bias that Gate 2M (KCS vs Tokyo-2015) must quantify, not the triplet. |
 | 72 skew faces, max skewness 6.03 | isolated: removing the free-surface box does NOT fix it | inherent to ~20:1 graded cells where the hull pierces the waterline; v1 avoided it only by not resolving waves. Reported by run-case.sh rather than buried. |
 | Wetted-only (alpha-masked) y+ | not implemented | the honest per-face wall-function check is still owed. |
+| **Benchmark anchor set is wrong for the product line** | KCS is slender, displacement, Fn 0.26, no chines, no immersed transom, no spray. The SKUs (Solar Liveaboard, Dayboat) are chined semi-displacement craft with immersed transoms. | KCS calibrates the INSTRUMENT (free-surface capture, friction line, force integration, mesh convergence) and gives a bias floor — it does not validate small-craft physics. Per BuildPlan §1.3 (Islam & Guedes Soares 2019) V&V is case-specific. A second anchor sharing our dominant features is owed: DTMB 5415 (transom stern, already in the plan) or DSYHS / Series 62 for chined planing craft. Until then, Gate 2M's pass must NOT be read as small-craft validation. |
 
 ## Gap-closure stages
 

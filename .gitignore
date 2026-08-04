@@ -4,3 +4,5 @@ data/*.sqlite3
 .venv/
 runs/
 .DS_Store
+downloads/
+data/benchmark_geom/

@@ -198,6 +198,38 @@ def _box_stl(path, zlo=-1.0, zhi=1.0):
     return path
 
 
+def test_cap_planar_holes_closes_external_geometry(tmp_path):
+    """Gate 2M: the Tokyo-2015 KCS IGES is a trimmed-surface HALF body, open at
+    the deck — 450 open edges as delivered. CFD needs a closed manifold or the
+    mesher floods the interior (the own-hull STL taught this at 198 open
+    edges). Here: a box missing its lid must come back closed, with the
+    enclosed volume exactly right and windings outward.
+    """
+    from navalai.cfd.case import stl_watertight_report
+    from navalai.cfd.post import cap_planar_holes
+
+    from navalai.cfd.post import _read_stl_tris, _write_stl
+
+    # unit box spanning z in [-1, 1], lid deliberately removed
+    src = _box_stl(tmp_path / "open.stl")
+    tris = []
+    for t in _read_stl_tris(src):
+        if all(abs(p[2] - 1.0) < 1e-9 for p in t):
+            continue                    # this is the lid
+        tris.append(t)
+    _write_stl(tris, tmp_path / "open.stl")
+    assert not stl_watertight_report(tmp_path / "open.stl")["watertight"]
+
+    rep = cap_planar_holes(tmp_path / "open.stl", tmp_path / "closed.stl")
+    assert rep["loops_capped"] == 1, rep
+
+    closed = stl_watertight_report(tmp_path / "closed.stl")
+    assert closed["watertight"], closed
+    assert closed["open_or_nonmanifold_edges"] == 0
+    # 1x1 base, 2 tall -> volume 2, and POSITIVE means outward windings
+    assert closed["signed_volume"] == pytest.approx(2.0, rel=1e-6)
+
+
 def test_wetted_area_clips_at_the_waterline(tmp_path):
     """Gate 2M needs C_t, so it needs the submerged area the CFD actually saw.
 

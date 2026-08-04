@@ -77,7 +77,8 @@ calibration — cfd-engineer, IN PROGRESS), Gate 6R (ISO parity — compliance).
 | Epic | Owner | State |
 |---|---|---|
 | Own-hull GCI triplet | cfd-engineer | RE-RUNNING on a rebuilt case. The medium re-run COMPLETED and the triplet still failed (p=nan, GCI 58.5%): the waterline fix was necessary but not sufficient. Two measured causes — unresolved free surface (5–10 cells/wavelength vs ≥20) and a non-systematic refinement family (r = 1.297/1.368, not √2). Case rebuilt; v1 kept at `runs/gci_v1_unresolved/`, its numbers void. See `ALIGNMENT.md` findings 5–7. |
-| Gate 2M: KCS calibration vs Tokyo-2015 | cfd-engineer | READY (tooling shipped: `iges2stl.py`, `make_case --stl`) |
+| Gate 2M: KCS calibration vs Tokyo-2015 | cfd-engineer | GEOMETRY + ACCEPTANCE DATA IN HAND. `benchmarks/kcs.py` carries the EFD (C_T 3.711e-3 @ Fn 0.26) and the 13-group scatter band, extracted from the proceedings PDF. Hull regenerates from `KCS.igs` via `iges2stl.py --sew-tol --mirror-y` + `cap_planar_holes`, validated to **-0.09% on displacement**. Runs once the own-hull triplet frees the cores. |
+| **Second benchmark anchor for the SKUs** (DTMB 5415 / DSYHS / Series 62) | cfd-engineer | QUEUED — KCS calibrates the instrument but shares none of the chine/transom/spray physics the product lines depend on; Gate 2M alone must not be read as small-craft validation. See `ALIGNMENT.md`. |
 | L3→co-kriging wiring (first HF points into the spine) | ml-engineer | BLOCKED on Gate 2M |
 | Guided tabular diffusion behind `HullFamilyModel` | ml-engineer | READY (PyTorch-MPS) |
 | LoRA mission translator above the sanitizing seam | ml-engineer | READY (mlx-lm) |

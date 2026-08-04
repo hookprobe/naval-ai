@@ -118,6 +118,114 @@ def stl_wetted_area(path: str | Path, waterline: float = 0.0) -> float:
     return total
 
 
+def _read_stl_tris(path: str | Path) -> list:
+    verts: list = []
+    tris: list = []
+    for line in Path(path).read_text().splitlines():
+        s = line.strip()
+        if s.startswith("vertex"):
+            verts.append(tuple(round(float(v), 7) for v in s.split()[1:4]))
+            if len(verts) == 3:
+                tris.append(tuple(verts))
+                verts = []
+    return tris
+
+
+def _write_stl(tris, path: str | Path, name: str = "hull") -> None:
+    out = [f"solid {name}"]
+    for tri in tris:
+        p = np.array(tri)
+        n = np.cross(p[1] - p[0], p[2] - p[0])
+        ln = np.linalg.norm(n)
+        n = n / ln if ln > 1e-14 else np.array([0.0, 0.0, 1.0])
+        out.append(f" facet normal {n[0]:.6e} {n[1]:.6e} {n[2]:.6e}")
+        out.append("  outer loop")
+        for v in p:
+            out.append(f"   vertex {v[0]:.6e} {v[1]:.6e} {v[2]:.6e}")
+        out.append("  endloop")
+        out.append(" endfacet")
+    out.append(f"endsolid {name}")
+    Path(path).write_text("\n".join(out))
+
+
+def cap_planar_holes(src: str | Path, dst: str | Path,
+                     planar_tol: float = 1e-4) -> dict:
+    """Close planar openings in a triangulated surface (deck, transom, ...).
+
+    External benchmark geometry arrives as a trimmed-surface model, not a
+    solid: the Tokyo-2015 KCS IGES is a half body open at the deck. CFD needs a
+    CLOSED manifold or the mesher floods the interior — the same lesson the
+    own-hull STL taught (198 open edges, first Mac smoke run).
+
+    Each boundary loop is triangulated as a fan from its centroid, with the
+    cap normal oriented away from the body centroid so windings stay outward.
+    Non-planar loops are refused rather than silently fudged.
+    """
+    tris = _read_stl_tris(src)
+    from collections import Counter, defaultdict
+
+    edges: Counter = Counter()
+    for a, b, c in tris:
+        for e in ((a, b), (b, c), (c, a)):
+            edges[tuple(sorted(e))] += 1
+    boundary = [e for e, n in edges.items() if n == 1]
+
+    # chain boundary edges into closed loops
+    adj: dict = defaultdict(list)
+    for a, b in boundary:
+        adj[a].append(b)
+        adj[b].append(a)
+    unused = set(boundary)
+    loops: list = []
+    while unused:
+        a, b = next(iter(unused))
+        unused.discard((a, b))
+        loop = [a, b]
+        while True:
+            cur = loop[-1]
+            nxt = None
+            for cand in adj[cur]:
+                e = tuple(sorted((cur, cand)))
+                if e in unused:
+                    nxt = cand
+                    unused.discard(e)
+                    break
+            if nxt is None:
+                break
+            if nxt == loop[0]:
+                break
+            loop.append(nxt)
+        if len(loop) >= 3:
+            loops.append(loop)
+
+    body_c = np.array([p for t in tris for p in t]).mean(axis=0)
+    capped = list(tris)
+    made = 0
+    for loop in loops:
+        pts = np.array(loop)
+        c = pts.mean(axis=0)
+        # plane fit: smallest singular vector is the normal
+        _, sv, vt = np.linalg.svd(pts - c)
+        if sv[-1] / max(sv[0], 1e-12) > planar_tol * 100:
+            raise ValueError(
+                f"boundary loop of {len(loop)} points is not planar "
+                f"(flatness {sv[-1]:.3e}); refusing to cap it blindly")
+        n = vt[-1]
+        if np.dot(n, c - body_c) < 0:      # point the cap outward
+            n = -n
+        for i in range(len(loop)):
+            a, b = pts[i], pts[(i + 1) % len(loop)]
+            tri = (tuple(c), tuple(a), tuple(b))
+            if np.dot(np.cross(a - c, b - c), n) < 0:
+                tri = (tuple(c), tuple(b), tuple(a))
+            capped.append(tri)
+            made += 1
+
+    _write_stl(capped, dst)
+    return {"loops_capped": len(loops), "triangles_added": made,
+            "n_tris": len(capped)}
+
+
 def resistance_coefficient(drag: float, wetted_area: float, speed: float,
                            rho: float = 998.8) -> float:
     """C_t = R_t / (0.5 rho S U^2) — the form Tokyo-2015 reports."""
