@@ -76,7 +76,7 @@ calibration — cfd-engineer, IN PROGRESS), Gate 6R (ISO parity — compliance).
 
 | Epic | Owner | State |
 |---|---|---|
-| Own-hull GCI triplet (medium re-run after WL-alignment fix) | cfd-engineer | RUNNING |
+| Own-hull GCI triplet | cfd-engineer | RE-RUNNING on a rebuilt case. The medium re-run COMPLETED and the triplet still failed (p=nan, GCI 58.5%): the waterline fix was necessary but not sufficient. Two measured causes — unresolved free surface (5–10 cells/wavelength vs ≥20) and a non-systematic refinement family (r = 1.297/1.368, not √2). Case rebuilt; v1 kept at `runs/gci_v1_unresolved/`, its numbers void. See `ALIGNMENT.md` findings 5–7. |
 | Gate 2M: KCS calibration vs Tokyo-2015 | cfd-engineer | READY (tooling shipped: `iges2stl.py`, `make_case --stl`) |
 | L3→co-kriging wiring (first HF points into the spine) | ml-engineer | BLOCKED on Gate 2M |
 | Guided tabular diffusion behind `HullFamilyModel` | ml-engineer | READY (PyTorch-MPS) |

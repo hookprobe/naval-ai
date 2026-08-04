@@ -67,6 +67,34 @@ hardware/software this machine lacks).
      RAO long-wave-limit gate caught the missing Froude–Krylov term (Stage D);
   4. ruled-surface development had a mirror-side bug caught by the exact-
      cylinder anchor (Stage F) — analytic anchors catch what eyeballs miss.
+  5. **a GCI number is worthless unless the three grids are a refinement
+     FAMILY** (Gate 2M campaign, Mac): the generator snapped nz to a multiple
+     of 3 to keep the waterline on a cell face, which made the z-refinement
+     ratios 1.333 and 1.5 (effective r = 1.297 then 1.368) while post_gci
+     assumed sqrt(2). Reported p=nan / GCI 58.5%. post_gci now MEASURES r from
+     cell counts and warns when the steps disagree — an assumed r is exactly
+     how a triplet reports precision it has not earned.
+  6. **an unresolved free surface fails silently** (same campaign): with
+     `refinementRegions {}` the wave field ran at 5.1–10.2 cells per
+     wavelength against the ≥20 standard, and the background cell was
+     0.63–1.25 m against ~0.1 m waves. Nothing errored; the drag simply rode
+     on hull-local refinement, and one z-cell tripled it. `case.info` now
+     carries cells_per_wavelength as a receipt.
+  7. **`relativeSizes true` silently decouples y+ from physics** (same
+     campaign): near-wall cells were ~2.7 cm, so wall functions ran far
+     outside their band. Nothing measured y+ at all until a yPlus function
+     object was added — the instrumentation was the finding. Corollary: the
+     hull-patch AVERAGE y+ is not a metric, because the patch includes dry
+     deck/topsides whose y+ inverts to a 0.18–1.4 m first cell and dominates
+     it; read the min.
+
+## Open, measured, not yet closed (Gate 2M campaign)
+
+| Item | Measurement | Consequence |
+|---|---|---|
+| Prism-layer coverage on the hull | ~50% (swept: n=3 50.3% · n=5 36.5% · n=8 26.2% · n=15 11.2%; nLayerIter/nRelaxedIter change nothing) | y+ controlled on layered faces only. Layer config is IDENTICAL across the triplet, so GCI still bounds outer-flow discretisation — but absolute C_t carries a bias that Gate 2M (KCS vs Tokyo-2015) must quantify, not the triplet. |
+| 72 skew faces, max skewness 6.03 | isolated: removing the free-surface box does NOT fix it | inherent to ~20:1 graded cells where the hull pierces the waterline; v1 avoided it only by not resolving waves. Reported by run-case.sh rather than buried. |
+| Wetted-only (alpha-masked) y+ | not implemented | the honest per-face wall-function check is still owed. |
 
 ## Gap-closure stages
 
