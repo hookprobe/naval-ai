@@ -453,7 +453,14 @@ def write_resistance_case(hull: Hull, speed: float, out_dir: str | Path,
 def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
                       end_time: float, scale: float, np_procs: int) -> dict:
     (out / "system").mkdir(parents=True, exist_ok=True)
-    (out / "0").mkdir(parents=True, exist_ok=True)
+    # Initial fields live in 0.orig and are COPIED to 0 (the OpenFOAM tutorial
+    # convention). setFields rewrites 0/alpha.water as a full non-uniform field
+    # sized for the snapped mesh; re-running the pipeline in that directory then
+    # hands snappyHexMesh a field with the wrong cell count and it dies with an
+    # FPE in markFeatureCellLevel (measured: 1.67 MB alpha.water vs 817 B
+    # pristine, snappy exit 132 on a case that had meshed cleanly minutes
+    # before). A case directory has to be re-runnable.
+    (out / "0.orig").mkdir(parents=True, exist_ok=True)
 
     # Domain: towing-tank box around the hull (hull x in [0, L]), split at the
     # waterline. Depth 0.6L and air 0.25L replace the old 1.5L/0.75L: the tank
@@ -509,7 +516,7 @@ def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
     k_in = 1.5 * (0.02 * speed) ** 2 + 1e-8
     w_in = k_in ** 0.5 / (0.09 ** 0.25 * 0.01 * lwl)
 
-    sysd, cons, zero = out / "system", out / "constant", out / "0"
+    sysd, cons, zero = out / "system", out / "constant", out / "0.orig"
     # Checkpoint ~10 times per run. On a machine that thermal-sleeps mid-run
     # the write interval is what you lose per nap: at 5 s of sim time that was
     # ~1.7 h of fine-grid wall time thrown away each time. purgeWrite 3 keeps
@@ -533,6 +540,12 @@ def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
     zero.joinpath("k").write_text(FIELD_K.format(k_in=f"{k_in:.3e}"))
     zero.joinpath("omega").write_text(FIELD_OMEGA.format(w_in=f"{w_in:.3e}"))
     zero.joinpath("nut").write_text(FIELD_NUT)
+
+    # working copy: run-case.sh restores this from 0.orig before every re-mesh
+    import shutil
+    if (out / "0").exists():
+        shutil.rmtree(out / "0")
+    shutil.copytree(zero, out / "0")
 
     bg_cells = dom["nx"] * dom["ny"] * (dom["nzw"] + dom["nza"])
     # Resolution receipt: the numbers that decide whether the wave field is

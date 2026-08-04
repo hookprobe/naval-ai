@@ -3,6 +3,8 @@ anchor), hull BEM runs with convergence sweep, CFD case generation deterministic
 
 import math
 import re
+import shutil
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -117,6 +119,43 @@ def test_waterline_sits_on_a_block_face_for_any_cell_count(tmp_path):
         # the middle vertex ring is exactly z=0, whatever the cell counts
         assert re.search(r"\(-?[\d.]+ -?[\d.]+ 0\)", text), text[:400]
         assert meta["tank_depth"] > 0
+
+
+def test_case_keeps_pristine_initial_fields_for_re_meshing(tmp_path):
+    """Measured 2026-08-05: re-running the pipeline in a used case directory
+    killed snappyHexMesh with an FPE in markFeatureCellLevel (exit 132) on a
+    case that had meshed cleanly minutes earlier. Cause: setFields rewrites
+    0/alpha.water as a full non-uniform field sized for the SNAPPED mesh
+    (1.67 MB vs 817 B pristine), so the next blockMesh+snappy saw a field with
+    the wrong cell count. 0.orig is the restore point; run-case.sh copies it
+    back before every re-mesh.
+    """
+    h = Hull(mid_params())
+    write_resistance_case(h, 2.57, tmp_path / "c", scale=1.0)
+    case = tmp_path / "c"
+
+    fields = ("U", "p_rgh", "alpha.water", "k", "omega", "nut")
+    for f in fields:
+        assert (case / "0.orig" / f).exists(), f"0.orig missing {f}"
+        assert (case / "0" / f).exists(), f"0 missing {f}"
+        assert (case / "0.orig" / f).read_text() == (case / "0" / f).read_text()
+
+    # initial alpha must be UNIFORM: that is what makes it mesh-independent
+    alpha = (case / "0.orig" / "alpha.water").read_text()
+    assert "internalField   uniform 0" in alpha or \
+           "internalField uniform 0" in alpha, alpha[:200]
+
+    # simulate what setFields does, then confirm 0.orig is still the clean copy
+    (case / "0" / "alpha.water").write_text("CLOBBERED BY setFields\n" * 500)
+    assert (case / "0.orig" / "alpha.water").read_text() == alpha
+    # and that restoring is a plain copy (what run-case.sh performs)
+    shutil.rmtree(case / "0")
+    shutil.copytree(case / "0.orig", case / "0")
+    assert (case / "0" / "alpha.water").read_text() == alpha
+
+    runner = (Path(__file__).resolve().parents[1] /
+              "navalai" / "cfd" / "run-case.sh").read_text()
+    assert "0.orig" in runner, "runner must restore pristine fields"
 
 
 def test_near_wall_spacing_targets_the_wall_function_band(tmp_path):

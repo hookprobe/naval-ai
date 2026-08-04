@@ -56,6 +56,18 @@ if [ -n "$RESUME_FROM" ] && [ "$RESUME_FROM" != "0" ]; then
   exit 0
 fi
 
+# A full (re-)mesh must start from pristine initial fields and no stale mesh
+# artifacts. setFields leaves 0/alpha.water as a non-uniform field sized for
+# the PREVIOUS mesh, and snappyHexMesh then dies with an FPE in
+# markFeatureCellLevel (exit 132) on a case that meshed cleanly before.
+if [ -d 0.orig ]; then
+  say "restoring pristine 0/ from 0.orig (re-mesh must be idempotent)"
+  rm -rf 0 && cp -R 0.orig 0
+else
+  say "WARNING: no 0.orig — cannot guarantee a clean re-mesh"
+fi
+rm -rf constant/polyMesh constant/extendedFeatureEdgeMesh processor*
+
 say "blockMesh ..."
 blockMesh > log.blockMesh 2>&1
 say "surfaceFeatureExtract ..."
