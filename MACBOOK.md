@@ -7,19 +7,13 @@ already runs green on fortress001.
 
 ## 1 · Get the repo onto the Mac
 
-fortress001 has no git remote; transfer by bundle (full history, one file):
-
 ```bash
-# on fortress001 (already done — file is at ~/naval-ai-transfer.bundle):
-git -C ~/naval-ai bundle create ~/naval-ai-transfer.bundle --all
-
-# copy it over (adjust host):        scp fortress001:naval-ai-transfer.bundle .
-# on the Mac:
-git clone naval-ai-transfer.bundle naval-ai && cd naval-ai
+git clone git@github.com:hookprobe/naval-ai.git && cd naval-ai
 ```
 
-Ongoing sync: either repeat the bundle dance, or create a private GitHub repo
-once and `git remote add` on both machines.
+(Offline fallback: `~/naval-ai-transfer.bundle` on fortress001 —
+`git clone naval-ai-transfer.bundle naval-ai`.) Push Gate-2M results back on
+a branch; fortress001 pulls them into the provenance DB.
 
 ## 2 · Base toolchain (arm64-native, no Rosetta needed)
 
