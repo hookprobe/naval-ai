@@ -157,7 +157,11 @@ FIELD_ALPHA = """FoamFile { version 2.0; format ascii; class volScalarField; obj
 dimensions [0 0 0 0 0 0 0];
 internalField uniform 0;
 boundaryField {
-  inlet      { type inletOutlet; inletValue $internalField; value $internalField; }
+  // inlet MUST inject stratified water/air: an inletOutlet with inletValue
+  // $internalField (= uniform 0) injects AIR below the waterline and drains
+  // the tank (first Mac smoke run: phase fraction 0.667 -> 0.486 over 5 s)
+  inlet      { type exprFixedValue; value uniform 0;
+               valueExpr "(pos().z() < 0) ? 1 : 0"; }
   outlet     { type variableHeightFlowRate; lowerBound 0.0; upperBound 1.0;
                value uniform 0; }
   atmosphere { type inletOutlet; inletValue uniform 0; value uniform 0; }

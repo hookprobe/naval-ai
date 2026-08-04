@@ -63,6 +63,9 @@ def test_cfd_case_generation_deterministic(tmp_path):
     for key in ("maxFaceThicknessRatio", "maxThicknessToMedialRatio",
                 "minMedialAxisAngle", "nBufferCellsNoExtrude", "nLayerIter"):
         assert key in snappy, key
+    # inlet alpha must be height-stratified (air-injection drain bug, smoke #2)
+    alpha = (tmp_path / "a" / "0" / "alpha.water").read_text()
+    assert "exprFixedValue" in alpha and "pos().z()" in alpha
     # GCI triplet scaling actually changes the background mesh
     m_fine = write_resistance_case(h, 2.5, tmp_path / "c", scale=2.0)
     assert m_fine["bg_cells"] > 6 * meta1["bg_cells"]
