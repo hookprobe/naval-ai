@@ -2,3 +2,4 @@ __pycache__/
 *.pyc
 data/*.sqlite3
 .venv/
+runs/

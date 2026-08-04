@@ -95,7 +95,7 @@ SURFACE_FEATURES = """FoamFile { version 2.0; format ascii; class dictionary; ob
 hull.stl {
   extractionMethod extractFromSurface;
   extractFromSurfaceCoeffs { includedAngle 150; }
-  writeObj yes;
+  writeObj no;
 }
 """
 
