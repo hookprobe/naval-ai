@@ -91,6 +91,27 @@ lifecycle, roadmap board — READ THIS FIRST), `NavalArchAI-BuildPlan.md`
 - v2606 requires the full addLayersControls set (maxFaceThicknessRatio etc.).
 - Mesh-tuning loop: mesh-only (blockMesh+snappy+checkMesh) is ~2 min while a
   solve is hours — sweep mesh parameters WITHOUT solving.
+- **Core topology (MEASURED — the old "10 performance cores" note was wrong
+  in a way that matters).** `sysctl hw.perflevel{0,1}` on this M5 Pro:
+  perflevel0 = "Super" ×5, perflevel1 = "Performance" ×10, 15 total. There is
+  no efficiency tier to avoid.
+- **np=10 is the measured optimum — do not use all 15.** Same 0.4 s slice of
+  the medium grid: np=5 → 212.7 s, **np=10 → 127.2 s (1.67×)**, np=15 →
+  153.1 s. Oversubscribing all 15 costs ~20%. (A prior guess that the slower
+  tier would stall MPI was simply wrong; the benchmark settled it.)
+- **This Mac's cooling cannot sustain long runs.** Measured: `pmset -g log`
+  showed `Entering Sleep state due to 'Thermal Emergency Sleep'` at
+  2026-08-04 23:19, losing a triplet with the fine grid never started.
+  `caffeinate` and the lockscreen timeout do NOT prevent this — they address
+  IDLE sleep, a different path (`pmset -g` already shows `sleep 0`). Mitigate
+  by RESUMABILITY, not by throttling: `scripts/run_campaign.sh <root> 10`
+  re-invokes until endTime is reached. Check `pmset -g log | grep -i thermal`
+  after any run that ends early.
+- Consequences of that, both now handled: `run-case.sh` RESUMES from the
+  latest checkpoint instead of re-meshing, and `post.forces_path()` merges the
+  extra `postProcessing/forces/<restart-t>/` segment a resume creates —
+  reading only `0/` would report the pre-crash fragment as the whole run.
+  writeInterval is end_time/10 so a nap costs ~10% of the run, not 20%.
 
 ## Current campaign state (2026-08-04, Mac)
 
