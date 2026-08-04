@@ -1,5 +1,7 @@
 # NavalAI — autonomous naval-architecture validation AI
 
+Licensed under **GNU AGPL-3.0** (see `LICENSE`).
+
 Mission in natural language → grammar-constrained hull generation → slider
 surface with live physics → tiered validation ladder → rules gate → export.
 Built to `NavalArchAI-BuildPlan.md` (research-grounded; 24 primary sources,
