@@ -23,7 +23,7 @@ from paraview.simple import (  # type: ignore
 
 
 def main() -> None:
-    if len(sys.argv) != 3:
+    if len(sys.argv) < 3:
         sys.exit("usage: pvbatch render_case.py <case-dir> <out.png>")
     case, out = Path(sys.argv[1]).resolve(), Path(sys.argv[2]).resolve()
     if not (case / "system" / "controlDict").exists():
