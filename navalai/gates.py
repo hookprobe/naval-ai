@@ -29,6 +29,11 @@ GATES = [
      "tests/test_stageF.py", None),
     ("Gate 2M", "KCS/JBC OpenFOAM calibration w/ per-case GCI",
      None, "RED (measured 2026-08-05): KCS C_t 9.33e-3 vs EFD 3.711e-3, E%D -151%, outside the Tokyo-2015 scatter. Cause: only 16.3% of WETTED faces inside 30<=y+<=300. Not softened - see benchmarks/kcs.py"),
+    ("Gate 2U", "unattended meshing (plan: >=95% of a 200-hull batch)",
+     None, "RED (measured 2026-08-05, N=8): 75.0% meshed unattended. 2 of 8 "
+     "hulls produced zero-volume cells or wrongly oriented faces, both of "
+     "which kill interFoam on timestep 1. BuildPlan Risk #1. "
+     "Re-measure: scripts/mesh_robustness.py --n 200"),
     ("Gate 6R", "ISO threshold parity vs licensed standard text",
      None, "REVIEW-GATED: qualified-reviewer parity on basis='approx' values"),
 ]

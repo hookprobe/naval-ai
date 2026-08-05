@@ -8,9 +8,12 @@ healthy.
 
 This samples valid hulls from the grammar and MESHES each one
 (blockMesh + snappyHexMesh + checkMesh, no solve — meshing is ~2 min, a solve
-is hours). A hull counts as meshed only if checkMesh reports no zero-volume
-cells: those are what kill interFoam on the first timestep, so a mesh carrying
-them has not "meshed unattended" in any useful sense.
+is hours). A hull counts as meshed only if checkMesh reports neither
+zero-volume cells NOR incorrectly oriented faces (negative face pyramids).
+Both kill interFoam on the first timestep, so a mesh carrying either has not
+"meshed unattended" in any useful sense. Zero-volume alone is not enough: a KCS
+mesh at hull refinement (3,4) had none and still died, carrying 18 wrongly
+oriented faces.
 
   python scripts/mesh_robustness.py --n 10 [--scale 1.0] [--keep]
 
@@ -54,19 +57,26 @@ def mesh_one(case: Path, np_procs: int = 1) -> dict:
         return cast(m.group(1)) if m else default
 
     zero = grab(r"Writing (\d+) zero volume cells", cast=int, default=0)
+    # Wrongly oriented faces (negative face pyramids) kill interFoam just as
+    # reliably as zero-volume cells. MEASURED: a KCS mesh at hull refinement
+    # (3,4) reported ZERO zero-volume cells and still died on the first
+    # timestep with an FPE — it carried 18 incorrectly oriented faces. Judging
+    # "meshed" on zero-volume alone called that mesh clean.
+    wrong_n = grab(r"Error in face pyramids: (\d+) faces are incorrectly",
+                   cast=int, default=0)
+    cells = grab(r"cells:\s+(\d+)", cast=int, default=-1)
     layers = re.findall(r"Added \d+ out of \d+ cells \(([\d.]+)%\)", sn)
     return {
-        "cells": grab(r"cells:\s+(\d+)", cast=int, default=-1),
+        "cells": cells,
         "zero_volume_cells": zero,
-        "wrong_oriented": grab(r"Writing (\d+) faces with incorrect orientation",
-                               cast=int, default=0),
+        "wrong_oriented": wrong_n,
         "non_ortho_max": grab(r"non-orthogonality Max: ([\d.]+)", default=-1.0),
         "max_skewness": grab(r"Max skewness = ([\d.]+)", default=-1.0),
         "failed_checks": grab(r"Failed (\d+) mesh checks", cast=int, default=0),
         "layer_pct": max((float(a) for a in layers), default=-1.0),
         "seconds": round(time.time() - t0, 1),
-        # the bar: zero-volume cells kill interFoam on the first timestep
-        "meshed": zero == 0 and grab(r"cells:\s+(\d+)", cast=int, default=-1) > 0,
+        # the bar: a mesh interFoam will actually start on
+        "meshed": zero == 0 and wrong_n == 0 and cells > 0,
     }
 
 
