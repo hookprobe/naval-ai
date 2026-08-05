@@ -69,8 +69,9 @@ the same push.
 ## 5 · Gate registry (single source: `python -m navalai.gates`)
 
 GREEN = enforced by tests · METAL-GATED = needs hardware/software evidence ·
-REVIEW-GATED = needs qualified human. Current open items: Gate 2M (KCS
-calibration — cfd-engineer, IN PROGRESS), Gate 6R (ISO parity — compliance).
+REVIEW-GATED = needs qualified human. RED = ran and missed its bar, kept red.
+Current open items: **Gate 2M RED** (KCS C_t -151% vs EFD), **Gate 2U RED**
+(unattended meshing 75% vs the >=95% bar), Gate 6R (ISO parity — compliance).
 
 ## 6 · Roadmap board (update in place)
 
@@ -85,4 +86,4 @@ calibration — cfd-engineer, IN PROGRESS), Gate 6R (ISO parity — compliance).
 | **Full-Vessel Line v2** (arrangement + ergonomics + unsinkability) | chief-architect → ergonomics-architect | RESEARCH RUNNING → `BuildPlan2-FullVessel.md` |
 | ES-TRIN rules profile; ISO parity review | compliance | QUEUED |
 | CI/CD enforcement of the gate ladder | verification | **DONE** — `.github/workflows/gates.yml` + `.githooks/pre-push` (install: `scripts/install-hooks.sh`). Also fixed a soft-green in the runner itself: pytest exits 0 when every test SKIPS, so a missing optional dep used to print GREEN having verified nothing. |
-| Unattended-meshing robustness (plan Gate 2: >=95% of 200 random hulls) | cfd-engineer | **NOT TESTED — own epic.** No test runs OpenFOAM at all. This session is evidence it would fail today: one benchmark hull took a full session to mesh. BuildPlan Risk #1 called this the largest unknown. |
+| Unattended-meshing robustness (plan Gate 2: >=95% of 200 random hulls) | cfd-engineer | **MEASURED, RED — Gate 2U.** 75.0% at N=8 (`scripts/mesh_robustness.py`). 2 of 8 sampled valid hulls produced zero-volume cells or wrongly oriented faces, both fatal to interFoam on timestep 1. BuildPlan Risk #1 is now a number, not a worry. Re-measure at N=200 when there is a spare machine-day. |
