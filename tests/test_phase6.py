@@ -29,8 +29,16 @@ def test_reference_hull_assessed_category_d():
     assert by["R-DFH"]["passed"], by["R-DFH"]
     assert by["R-OLH"]["passed"], by["R-OLH"]
     assert all(f["clause"] for f in rep["findings"])
-    # approx thresholds are declared, not hidden
-    assert "R-GM" in rep["unreviewed_bases"]
+    # Basis is DECLARED, never hidden. This asserted "R-GM" was unreviewed,
+    # which encoded the state of the world before the Gate 6R parity review
+    # (2026-08-05) rather than an invariant. The invariant is that every
+    # finding's basis traces to the review record — and that a reviewed
+    # threshold still does not make this a certification.
+    from navalai.rules.review import basis_for
+    for f in rep["findings"]:
+        assert f["basis"] == basis_for(f["rule_id"]), f
+    assert rep["unreviewed_bases"] == []
+    assert "NOT CERTIFICATION" in rep["disclaimer"]
 
 
 def test_stricter_category_is_harder():

@@ -18,6 +18,7 @@ import math
 from ..evaluate import Evaluation
 from ..limits import CATEGORY_TABLE, gm_floor  # single source (navalai/limits.py)
 from . import RuleFinding
+from .review import basis_for
 
 # category -> (significant wave height context [m], downflooding floor [m],
 #              GM floor [m], max offset-load heel [deg])
@@ -35,24 +36,24 @@ def assess(ev: Evaluation, category: str, crew: int,
 
     if ev.hydro is None or ev.gm_m is None:
         out.append(RuleFinding("R-CAT", "ISO 12217-1 §5 (design categories)",
-                               "approx", False, 0.0, hs, "m",
+                               basis_for("R-CAT"), False, 0.0, hs, "m",
                                "no floatation state — cannot assess"))
         return out
 
     out.append(RuleFinding(
-        "R-CAT", "ISO 12217-1 §5 (design categories)", "approx", True, hs, hs,
+        "R-CAT", "ISO 12217-1 §5 (design categories)", basis_for("R-CAT"), True, hs, hs,
         "m", f"category {category}: significant wave height context {hs} m"))
 
     dfh = ev.hydro.freeboard_min   # lowest opening assumed at sheer (conservative
     # only if no lower openings exist — recorded in the note)
     out.append(RuleFinding(
-        "R-DFH", "ISO 12217-1 §6.2 (downflooding height)", "approx",
+        "R-DFH", "ISO 12217-1 §6.2 (downflooding height)", basis_for("R-DFH"),
         dfh >= dfh_req, dfh, dfh_req, "m",
         "lowest opening assumed at sheer line; declare real openings to tighten"))
 
     out.append(RuleFinding(
         "R-GM", "ISO 12217-1 annex (metacentric floor, practice value)",
-        "approx", ev.gm_m >= gm_req, ev.gm_m, gm_req, "m", ""))
+        basis_for("R-GM"), ev.gm_m >= gm_req, ev.gm_m, gm_req, "m", ""))
 
     # offset-load heel: moment balance m*b = disp*GM*sin(phi)  (exact mechanics)
     m_crew = crew * CREW_MASS_KG
@@ -60,7 +61,7 @@ def assess(ev: Evaluation, category: str, crew: int,
     sin_phi = min(m_crew * b / max(ev.hydro.disp_kg * ev.gm_m, 1e-9), 1.0)
     phi = math.degrees(math.asin(sin_phi))
     out.append(RuleFinding(
-        "R-OLH", "ISO 12217-1 §6.3 (offset load test)", "approx",
+        "R-OLH", "ISO 12217-1 §6.3 (offset load test)", basis_for("R-OLH"),
         phi <= heel_max, phi, heel_max, "deg",
         f"{crew} crew x {CREW_MASS_KG:.0f} kg at {b:.2f} m offset"))
     return out

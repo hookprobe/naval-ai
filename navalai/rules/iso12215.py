@@ -17,6 +17,7 @@ from __future__ import annotations
 import math
 
 from . import RuleFinding
+from .review import basis_for
 
 SIGMA_D_OKOUME = 15.0     # N/mm^2 design bending stress, marine okoume ply
 
@@ -38,9 +39,9 @@ def assess(mldc_kg: float, provided_mm: float, span_mm: float = 400.0,
     t_req = required_thickness_mm(mldc_kg, span_mm, sigma_d=sigma_d)
     return [
         RuleFinding("R-PBM", "ISO 12215-5 (bottom design pressure, displ. mode)",
-                    "approx", True, p, p, "kN/m^2",
+                    basis_for("R-PBM"), True, p, p, "kN/m^2",
                     f"mLDC {mldc_kg:.0f} kg"),
         RuleFinding("R-TBM", "ISO 12215-5 (plywood bottom panel thickness)",
-                    "approx", provided_mm >= t_req, provided_mm, t_req, "mm",
+                    basis_for("R-TBM"), provided_mm >= t_req, provided_mm, t_req, "mm",
                     f"span {span_mm:.0f} mm, sigma_d {sigma_d} N/mm^2, flat panel"),
     ]
