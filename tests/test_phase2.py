@@ -118,15 +118,23 @@ def test_waterline_sits_on_a_block_face_for_any_cell_count(tmp_path):
     waterline by construction. This replaces the 'nz must be a multiple of 3'
     rule, which held only for the specific 1.5L/0.75L domain and put the
     medium grid's interface mid-cell (nz=25) -- doubling its drag.
+
+    The stack is now FOUR blocks (deep / hull band / wave band / air), after
+    the DTCHull reference: the two middle bands are UNIFORM so the keel is as
+    well resolved in z as the waterline. The single graded block it replaced
+    left the keel coarse. z=0 is the boundary between the hull and wave bands.
     """
     h = Hull(mid_params())
-    # deliberately awkward scales: none of these would give a "nice" nz
+    # deliberately awkward scales: none of these would give a "nice" cell count
     for i, s in enumerate((1.0, 2 ** 0.5, 2.0, 1.234, 0.777)):
         meta = write_resistance_case(h, 2.57, tmp_path / f"s{i}", scale=s)
         text = (tmp_path / f"s{i}" / "system" / "blockMeshDict").read_text()
-        assert text.count("hex (") == 2, "waterline split block missing"
-        # the middle vertex ring is exactly z=0, whatever the cell counts
+        assert text.count("hex (") == 4, "expected the 4-band z stack"
+        # a vertex ring sits exactly on z=0, whatever the cell counts
         assert re.search(r"\(-?[\d.]+ -?[\d.]+ 0\)", text), text[:400]
+        # and the two middle bands are UNIFORM (grading 1 1 1), which is what
+        # makes the keel region resolved rather than graded away
+        assert text.count("simpleGrading (1 1 1)") == 2, text[:600]
         assert meta["tank_depth"] > 0
 
 

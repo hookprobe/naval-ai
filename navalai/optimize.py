@@ -19,7 +19,7 @@ from . import grammar
 from .evaluate import evaluate
 from .geometry import Hull
 from .mission import MissionSpec
-from .rules.iso12217 import gm_floor
+from .limits import gm_floor
 
 
 class HullProblem(Problem):

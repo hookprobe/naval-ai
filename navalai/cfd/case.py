@@ -46,7 +46,25 @@ _LAYER_EXPANSION = 1.3
 # 30<=y+<=300 wall-function band. Skin friction then came out 2.62x the
 # ITTC-57 line. Raising this shrinks the local cell so a short layer stack can
 # actually reach the wall.
+# snappy surface refinement. The DTCHull reference uses level (0 0) — snappy
+# SNAPS and adds LAYERS, it does not refine. All refinement happens beforehand
+# with topoSet+refineMesh, which can refine x,y WITHOUT z. Raising this
+# reintroduces the isotropic hanging-node transitions that produced wrongly
+# oriented faces at (3 4) and zero-volume cells at (4 5).
 _HULL_REFINE = (2, 3)
+
+# z bands as multiples of LWL: a UNIFORM-fine core spanning the hull draft and
+# the wave, graded coarse away from it. This is the part of the DTCHull
+# architecture that transfers: all z resolution comes from blockMesh, and the
+# core is uniform so the keel region is as well resolved as the waterline
+# (the old single graded block left the keel coarse). dz is set so that after
+# snappy refinement the near-hull cell is ~2:1 in x:z rather than cubic.
+_Z_BANDS = dict(hull=0.09, wave=0.03, dz=0.0022)
+
+# refineMesh rounds. Each halves x and y inside a box that tightens toward the
+# hull, so the near-hull cell is background/2**rounds in x,y while z keeps the
+# blockMesh value. 4 rounds take a 0.61 m background cell to ~38 mm.
+_REFINE_ROUNDS = 0
 
 # Layers snappy will actually INSERT on this hull, measured (coarse grid,
 # absolute first-layer thickness held at y+ 30):
@@ -81,6 +99,30 @@ def n_layers_to_bridge(t1: float, cell: float, expansion: float) -> int:
         return 3
     n = math.log(1.0 + (cell / t1) * (expansion - 1.0)) / math.log(expansion)
     return int(max(3, min(20, round(n))))
+
+
+
+def _refine_boxes(lwl: float, symmetric: bool) -> list[dict]:
+    """Nested boxes for the refineMesh rounds, outermost first.
+
+    Each round halves x and y inside its box, so nesting them grades the
+    refinement in space. The boxes shrink toward the hull in x and y but keep
+    a generous z span: z costs nothing here because refineMesh does not refine
+    z, and a tall box simply means the whole water column under the hull gets
+    the finer x,y.
+    """
+    boxes = []
+    for i in range(_REFINE_ROUNDS):
+        f = 1.0 - i / (_REFINE_ROUNDS + 1.0)      # 1.0, 0.8, 0.6, 0.4 ...
+        bx0 = -(0.9 + 1.2 * f) * lwl
+        bx1 = (1.05 + 0.45 * f) * lwl
+        by = (0.25 + 0.65 * f) * lwl
+        bz0 = -(0.10 + 0.25 * f) * lwl
+        bz1 = (0.05 + 0.10 * f) * lwl
+        boxes.append(dict(bx0=bx0, bx1=bx1,
+                          by0=0.0 - (0.0 if symmetric else by), by1=by,
+                          bz0=bz0, bz1=bz1))
+    return boxes
 
 
 def _as_symmetric(text: str) -> str:
@@ -155,24 +197,62 @@ functions {{
 # Both blocks grade toward the interface (G_WATER<1 shrinks upward, G_AIR>1
 # expands upward), buying a thin free-surface cell without paying for it
 # through the full tank depth.
+# FOUR blocks stacked in z, following the DTCHull reference architecture:
+#
+#   [z0, -zh]  deep water   graded, coarse at the bottom
+#   [-zh, 0]   hull band    UNIFORM fine  <- the hull and the wave trough live here
+#   [0,  +za]  wave band    UNIFORM fine, same dz  <- wave crest
+#   [+za, z1]  air          graded, coarse upward
+#
+# Two reasons for the uniform middle bands. (1) The waterline is still a BLOCK
+# BOUNDARY, so a face lies on z=0 by construction. (2) refineMesh refines in x
+# and y ONLY, so ALL z resolution has to come from blockMesh — a graded mesh
+# would leave the keel region coarse in z while the waterline is fine.
 BLOCKMESH = """FoamFile {{ version 2.0; format ascii; class dictionary; object blockMeshDict; }}
 scale 1;
 vertices (
-  ({x0} {y0} {z0}) ({x1} {y0} {z0}) ({x1} {y1} {z0}) ({x0} {y1} {z0})
-  ({x0} {y0} 0)    ({x1} {y0} 0)    ({x1} {y1} 0)    ({x0} {y1} 0)
-  ({x0} {y0} {z1}) ({x1} {y0} {z1}) ({x1} {y1} {z1}) ({x0} {y1} {z1})
+  ({x0} {y0} {z0})  ({x1} {y0} {z0})  ({x1} {y1} {z0})  ({x0} {y1} {z0})
+  ({x0} {y0} {zh})  ({x1} {y0} {zh})  ({x1} {y1} {zh})  ({x0} {y1} {zh})
+  ({x0} {y0} 0)     ({x1} {y0} 0)     ({x1} {y1} 0)     ({x0} {y1} 0)
+  ({x0} {y0} {za})  ({x1} {y0} {za})  ({x1} {y1} {za})  ({x0} {y1} {za})
+  ({x0} {y0} {z1})  ({x1} {y0} {z1})  ({x1} {y1} {z1})  ({x0} {y1} {z1})
 );
 blocks (
-  hex (0 1 2 3 4 5 6 7)     ({nx} {ny} {nzw}) simpleGrading (1 1 {g_water})
-  hex (4 5 6 7 8 9 10 11)   ({nx} {ny} {nza}) simpleGrading (1 1 {g_air})
+  hex (0 1 2 3 4 5 6 7)       ({nx} {ny} {nz_deep}) simpleGrading (1 1 {g_deep})
+  hex (4 5 6 7 8 9 10 11)     ({nx} {ny} {nz_hull}) simpleGrading (1 1 1)
+  hex (8 9 10 11 12 13 14 15) ({nx} {ny} {nz_wave}) simpleGrading (1 1 1)
+  hex (12 13 14 15 16 17 18 19) ({nx} {ny} {nz_air}) simpleGrading (1 1 {g_air})
 );
 boundary (
-  inlet      {{ type patch; faces ((1 2 6 5) (5 6 10 9)); }}
-  outlet     {{ type patch; faces ((0 4 7 3) (4 8 11 7)); }}
-  atmosphere {{ type patch; faces ((8 9 10 11)); }}
+  inlet      {{ type patch; faces ((1 2 6 5) (5 6 10 9) (9 10 14 13) (13 14 18 17)); }}
+  outlet     {{ type patch; faces ((0 4 7 3) (4 8 11 7) (8 12 15 11) (12 16 19 15)); }}
+  atmosphere {{ type patch; faces ((16 17 18 19)); }}
   bottom     {{ type wall;  faces ((0 3 2 1)); }}
-  side1      {{ type {side1_type};  faces ((0 1 5 4) (4 5 9 8)); }}
-  side2      {{ type wall;  faces ((3 7 6 2) (7 11 10 6)); }}
+  side1      {{ type {side1_type};  faces ((0 1 5 4) (4 5 9 8) (8 9 13 12) (12 13 17 16)); }}
+  side2      {{ type wall;  faces ((3 7 6 2) (7 11 10 6) (11 15 14 10) (15 19 18 14)); }}
+);
+"""
+
+# refineMesh refines in x and y ONLY (directions tan1 tan2). This is the whole
+# point of the architecture: free-surface ship meshes need ANISOTROPIC
+# refinement — fine in x,y around the hull, fine in z only near the waterline —
+# and snappyHexMesh refines ISOTROPICALLY, so buying x,y resolution through
+# snappy levels drags z along and every level boundary becomes a hanging-node
+# transition. Those transitions are where our meshes were failing.
+REFINE_MESH = """FoamFile { version 2.0; format ascii; class dictionary; object refineMeshDict; }
+set             c0;
+coordinateSystem global;
+globalCoeffs { tan1 (1 0 0); tan2 (0 1 0); }
+directions      ( tan1 tan2 );
+useHexTopology  no;
+geometricCut    yes;
+writeMesh       no;
+"""
+
+TOPO_SET = """FoamFile {{ version 2.0; format ascii; class dictionary; object topoSetDict; }}
+actions (
+  {{ name c0; type cellSet; action new; source boxToCell;
+     box ({bx0} {by0} {bz0}) ({bx1} {by1} {bz1}); }}
 );
 """
 
@@ -347,18 +427,16 @@ SNAPPY_STUB = """FoamFile {{ version 2.0; format ascii; class dictionary; object
 castellatedMesh true; snap true; addLayers true;
 geometry {{
   hull.stl {{ type triSurfaceMesh; name hull; }}
-  // free-surface slab: without it the wave field is unresolved. The bare
-  // background cell at the interface is ~{fs_dz_bg:.3f} m tall against waves
-  // ~0.1 m high, so the Kelvin pattern washed out entirely (measured: 5-10
-  // cells per wavelength vs the >=20 standard) and the drag rode on whatever
-  // the hull-local refinement happened to catch.
   freeSurface {{ type searchableBox; min ({fs_x0} {fs_y0} {fs_z0});
                                      max ({fs_x1} {fs_y1} {fs_z1}); }}
 }}
 castellatedMeshControls {{
-  maxLocalCells 2000000; maxGlobalCells 8000000; minRefinementCells 10;
+  maxLocalCells 2000000; maxGlobalCells 12000000; minRefinementCells 0;
   nCellsBetweenLevels 3;
-  features ( {{ file "hull.eMesh"; level 3; }} );
+  // level 0: snappy must not refine ANYTHING here. hexRef8 (its octree
+  // engine) cannot refine a mesh produced by refineMesh, and asking it to
+  // aborts in danglingCellRefine. The reference uses level 0 as well.
+  features ( {{ file "hull.eMesh"; level {hull_lvl_max}; }} );
   refinementSurfaces {{ hull {{ level ({hull_lvl_min} {hull_lvl_max}); }} }}
   refinementRegions {{ freeSurface {{ mode inside; levels ((1e15 {fs_level})); }} }}
   locationInMesh ({loc_x} {loc_y} {loc_z});
@@ -552,24 +630,32 @@ def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
     # A symmetric case models only y >= 0 and closes it with a symmetry plane:
     # half the cells for the same resolution, and no mirrored-geometry seam.
     y_half = 1.5 * lwl
+    # z bands. The uniform core spans the hull draft plus the wave, because
+    # refineMesh cannot refine z at all — every z cell we need must exist in
+    # blockMesh. zh reaches below the deepest keel we expect (0.09L covers a
+    # 0.055L draft with margin); za covers the crest.
+    zh = -_Z_BANDS["hull"] * lwl
+    za = _Z_BANDS["wave"] * lwl
+    dz_core = _Z_BANDS["dz"] * lwl / scale        # uniform cell in both cores
+    n_hull = max(int(round(abs(zh) / dz_core)), 4)
+    n_wave = max(int(round(za / dz_core)), 3)
+
     dom = dict(x0=-2.5 * lwl, x1=2.0 * lwl,
                y0=0.0 if symmetric else -y_half, y1=y_half,
-               z0=-depth, z1=0.25 * lwl,
+               z0=-depth, zh=zh, za=za, z1=0.25 * lwl,
                side1_type="symmetry" if symmetric else "wall",
                nx=max(int(round(54 * scale)), 20),
                ny=max(int(round((12 if symmetric else 24) * scale)), 8),
-               nzw=max(int(round(20 * scale)), 8),
-               nza=max(int(round(8 * scale)), 4),
-               g_water=1.0 / _Z_EXPANSION, g_air=float(_Z_EXPANSION))
+               nz_deep=max(int(round(10 * scale)), 5),
+               nz_hull=n_hull, nz_wave=n_wave,
+               nz_air=max(int(round(8 * scale)), 4),
+               # graded away from the core so the far field is cheap
+               g_deep=float(_Z_EXPANSION), g_air=float(_Z_EXPANSION))
     assert depth >= half_lambda, "deep-water condition violated"
 
-    # Cell height at the interface, both sides — these should match, and they
-    # set what the free-surface refinement then divides by 2**fs_level.
-    dz_w = _interface_dz(abs(dom["z0"]), dom["nzw"], _Z_EXPANSION)
-    dz_a = _interface_dz(dom["z1"], dom["nza"], _Z_EXPANSION)
-    fs_level = 2
-    fs_dz = max(dz_w, dz_a) / 2 ** fs_level
-    dx = (dom["x1"] - dom["x0"]) / dom["nx"] / 2 ** fs_level
+    fs_dz = dz_core                     # uniform through hull and wave bands
+    # x,y cell after the refineMesh rounds (each halves x and y inside its box)
+    dx = (dom["x1"] - dom["x0"]) / dom["nx"] / 2 ** (_REFINE_ROUNDS or 2)
     wavelength = 2 * math.pi * speed ** 2 / 9.81
     # near-wall stack sized for the wall functions, bridging to the local
     # hull cell (background dx divided by the hull surface refinement level)
@@ -584,8 +670,7 @@ def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
         hull_lvl_min=_HULL_REFINE[0], hull_lvl_max=_HULL_REFINE[1],
         n_layers=n_layers, first_layer=t1, layer_expansion=_LAYER_EXPANSION,
         min_thickness=0.25 * t1,
-        fs_level=fs_level, fs_dz_bg=max(dz_w, dz_a),
-        # slab thick enough to hold the wave through its whole vertical travel
+        fs_level=2, fs_dz_bg=dz_core, refine_rounds=_REFINE_ROUNDS,
         fs_x0=_FS_BOX["x0"] * lwl, fs_x1=_FS_BOX["x1"] * lwl,
         fs_y0=0.0 if symmetric else -_FS_BOX["y"] * lwl,
         fs_y1=_FS_BOX["y"] * lwl,
@@ -610,6 +695,12 @@ def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
         CONTROL_DICT.format(end_time=end_time, dt=0.001, write_int=write_int))
     sysd.joinpath("blockMeshDict").write_text(BLOCKMESH.format(**dom))
     sysd.joinpath("snappyHexMeshDict").write_text(SNAPPY_STUB.format(**dom))
+    sysd.joinpath("refineMeshDict").write_text(REFINE_MESH)
+    # Nested boxes, each round halving x,y inside it. Box 1 covers the hull and
+    # near wake generously; each subsequent box tightens toward the hull, so the
+    # refinement is graded in space rather than in one jump.
+    for i, frac in enumerate(_refine_boxes(lwl, symmetric), start=1):
+        sysd.joinpath(f"topoSetDict.{i}").write_text(TOPO_SET.format(**frac))
     sysd.joinpath("fvSchemes").write_text(FV_SCHEMES)
     sysd.joinpath("fvSolution").write_text(FV_SOLUTION)
     sysd.joinpath("decomposeParDict").write_text(DECOMPOSE.format(np=np_procs))
@@ -636,7 +727,8 @@ def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
         shutil.rmtree(out / "0")
     shutil.copytree(zero, out / "0")
 
-    bg_cells = dom["nx"] * dom["ny"] * (dom["nzw"] + dom["nza"])
+    bg_cells = dom["nx"] * dom["ny"] * (dom["nz_deep"] + dom["nz_hull"]
+                                    + dom["nz_wave"] + dom["nz_air"])
     # Resolution receipt: the numbers that decide whether the wave field is
     # actually resolved, recorded per case so a bad triplet is diagnosable
     # from the case dir alone rather than from a post-hoc argument.

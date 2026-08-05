@@ -72,7 +72,29 @@ say "blockMesh ..."
 blockMesh > log.blockMesh 2>&1
 say "surfaceFeatureExtract ..."
 surfaceFeatureExtract > log.surfaceFeatures 2>&1 || true
-say "snappyHexMesh ..."
+
+# Refinement BEFORE snapping, following the DTCHull reference architecture.
+# Each round selects a box with topoSet and halves the cells inside it in x
+# and y ONLY (refineMeshDict: directions (tan1 tan2)). This is the whole point:
+# free-surface ship meshes need anisotropic refinement, and snappyHexMesh
+# refines isotropically — buying x,y resolution through snappy levels drags z
+# along and every level boundary becomes a hanging-node transition, which is
+# where our meshes were failing (wrongly oriented faces, zero-volume cells).
+# NOTE: `ls system/topoSetDict.* | wc -l` looks harmless but `set -o pipefail`
+# turns the no-match `ls` failure into a pipeline failure, and `set -e` then
+# kills the run before snappy ever starts. Count with a glob instead.
+ROUNDS=0
+for _f in system/topoSetDict.*; do [ -e "$_f" ] && ROUNDS=$((ROUNDS + 1)); done
+if [ "$ROUNDS" -gt 0 ]; then
+  for i in $(seq 1 "$ROUNDS"); do
+    say "refine round $i/$ROUNDS (x,y only) ..."
+    topoSet -dict "system/topoSetDict.$i" > "log.topoSet.$i" 2>&1
+    refineMesh -dict system/refineMeshDict -overwrite > "log.refineMesh.$i" 2>&1
+  done
+  say "after refinement: $(grep -m1 'cells:' log.refineMesh.$ROUNDS | tr -s ' ' || echo '?')"
+fi
+
+say "snappyHexMesh (snap + layers only; refinement already done) ..."
 snappyHexMesh -overwrite > log.snappy 2>&1
 say "checkMesh ..."
 checkMesh > log.checkMesh 2>&1 || true

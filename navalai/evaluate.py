@@ -15,6 +15,7 @@ from . import db, grammar
 from .energy import EnergyReport, WeightBudget, energy_report, weight_budget
 from .geometry import RHO_WATER, Hull
 from .hydrostatics import HydroState, gm, solve_to_displacement
+from .limits import gm_floor
 from .mission import MissionSpec
 from .resistance import ResistanceResult, total_resistance
 
@@ -85,8 +86,10 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
     viol = []
     if hs.freeboard_min < 0.25:
         viol.append(f"freeboard at load {hs.freeboard_min:.2f} m < 0.25 m")
-    if gm_m < 0.35:
-        viol.append(f"GM {gm_m:.2f} m < 0.35 m (L1 floor; ISO 12217 check is tier R)")
+    gm_min = gm_floor(mission.design_category)
+    if gm_m < gm_min:
+        viol.append(f"GM {gm_m:.2f} m < {gm_min:.2f} m "
+                    f"(category {mission.design_category} floor, ISO 12217)")
     # buildability: marine-ply cold-bend limit ~ 80 x sheet thickness
     r_min = hull.min_bend_radius()
     r_req = 80.0 * 0.015

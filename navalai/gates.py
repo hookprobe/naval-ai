@@ -72,12 +72,25 @@ def status_of(returncode: int, c: dict) -> tuple[str, bool]:
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     strict = "--strict" in argv          # CI: skipped gates are not acceptable
-    failures = skipped_gates = 0
+    # --suites-only: judge ONLY the pytest-backed gates. The pre-push hook uses
+    # this so it blocks REGRESSIONS (a suite going red) without blocking every
+    # push on gates that are known, measured and recorded red (2M, 2U). Making
+    # the hook unusable is how you train people to --no-verify, which is worse
+    # than either. CI runs WITHOUT it, so the red gates stay visible there.
+    suites_only = "--suites-only" in argv
+    failures = skipped_gates = red_gates = 0
     print(f"{'gate':8} {'scope':45} status")
     print("-" * 78)
     for name, scope, suite, blocked in GATES:
         if suite is None:
             print(f"{name:8} {scope:45} {blocked}")
+            # A RED row is a gate that RAN and missed its bar. It must fail the
+            # runner, or CI goes green with Gate 2M at -151% vs EFD and the
+            # pre-push "BLOCKED: a gate is RED" message can never fire.
+            # METAL/REVIEW-gated rows are different: they are honestly
+            # unverifiable here, so they do not fail.
+            if not suites_only and str(blocked).strip().upper().startswith("RED"):
+                red_gates += 1
             continue
         r = subprocess.run([sys.executable, "-m", "pytest", suite, "-q",
                             "--no-header", "-x"], capture_output=True, text=True)
@@ -88,10 +101,13 @@ def main(argv: list[str] | None = None) -> int:
             skipped_gates += 1
         tail = r.stdout.strip().splitlines()[-1] if r.stdout.strip() else ""
         print(f"{name:8} {scope:45} {label}  ({tail})")
+    if red_gates:
+        print(f"\n{red_gates} gate(s) RED — ran and missed their bar. "
+              "A failing gate is information; never soften it to pass.")
     if skipped_gates:
         print(f"\n{skipped_gates} gate(s) ran no tests. "
               f"{'FAILING (--strict).' if strict else 'Install the optional deps to verify them.'}")
-    return 1 if (failures or (strict and skipped_gates)) else 0
+    return 1 if (failures or red_gates or (strict and skipped_gates)) else 0
 
 
 if __name__ == "__main__":

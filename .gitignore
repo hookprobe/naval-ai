@@ -6,3 +6,7 @@ runs/
 .DS_Store
 downloads/
 data/benchmark_geom/
+badFaces
+illegalFaces
+selfInterPoints.obj
+*.obj
