@@ -148,8 +148,141 @@ def _write_stl(tris, path: str | Path, name: str = "hull") -> None:
     Path(path).write_text("\n".join(out))
 
 
+def weld_vertices(src: str | Path, dst: str | Path, tol: float = 2e-4) -> dict:
+    """Merge vertices closer than `tol` and drop the triangles that collapse.
+
+    Sliver triangles are what snappyHexMesh turns into ZERO-VOLUME cells, and
+    interFoam then dies on the first timestep. They are inherent to a sewn
+    NURBS tessellation: the Tokyo-2015 KCS half body carries 8 triangles below
+    quality 1e-3 straight out of the IGES, where patches with mismatched
+    tessellation meet. Welding coincident-ish vertices removes the cause
+    instead of asking the mesher to cope with it.
+
+    Quality here is 4*sqrt(3)*A / sum(edge^2): 1 for equilateral, 0 for
+    degenerate. Note that a max-edge/min-edge ratio does NOT detect these —
+    three nearly COLLINEAR vertices have unremarkable edge lengths and no area.
+    """
+    tris = _read_stl_tris(src)
+    # grid-snap to a lattice of size tol, then use the lattice cell as identity
+    def key(v):
+        return (round(v[0] / tol), round(v[1] / tol), round(v[2] / tol))
+
+    rep: dict = {}
+    for t in tris:
+        for v in t:
+            rep.setdefault(key(v), v)
+
+    welded, dropped = [], 0
+    for t in tris:
+        p = tuple(rep[key(v)] for v in t)
+        a, b, c = (np.array(v) for v in p)
+        area = np.linalg.norm(np.cross(b - a, c - a)) / 2
+        if len(set(p)) < 3 or area < 1e-12:
+            dropped += 1
+            continue
+        welded.append(p)
+    _write_stl(welded, dst)
+    return {"n_tris": len(welded), "dropped": dropped,
+            "vertices_merged": sum(1 for t in tris for v in t
+                                   if rep[key(v)] != v)}
+
+
+def mirror_half_hull(src: str | Path, dst: str | Path,
+                     snap_tol: float = 1e-4) -> dict:
+    """Mirror a half hull about y=0 into a full hull, SNAPPING the centreplane.
+
+    MEASURED on the Tokyo-2015 KCS half body: its centreline vertices are not
+    exactly on y=0 but scatter over -5.0e-6 .. +1.53e-5 m, with 49 of them on
+    the wrong side of the plane. Mirroring that as-is makes the two halves
+    interpenetrate by a few microns, which every topological check passes —
+    watertight, manifold, no duplicates, correct enclosed volume — while
+    snappyHexMesh produces 14 zero-volume cells, 73 wrongly oriented faces and
+    non-orthogonality 148.9, and interFoam dies on the first timestep.
+
+    Snapping |y| < snap_tol to exactly zero makes the seam shared rather than
+    crossed. Mirrored triangles get REVERSED winding so normals stay outward,
+    and triangles that collapse on snapping are dropped.
+    """
+    tris = _read_stl_tris(src)
+    snapped, dropped = [], 0
+    for tri in tris:
+        p = [(x, 0.0 if abs(y) < snap_tol else y, z) for x, y, z in tri]
+        a, b, c = (np.array(v) for v in p)
+        if np.linalg.norm(np.cross(b - a, c - a)) / 2 < 1e-14:
+            dropped += 1                      # collapsed on the plane
+            continue
+        snapped.append(tuple(p))
+
+    out = list(snapped)
+    for tri in snapped:
+        m = [(x, -y, z) for x, y, z in tri]
+        if all(abs(v[1]) < 1e-15 for v in tri):
+            continue                          # lies in the plane: no twin
+        out.append((m[0], m[2], m[1]))        # reversed winding -> outward
+    _write_stl(out, dst)
+    return {"n_tris": len(out), "dropped_degenerate": dropped,
+            "half_tris": len(snapped)}
+
+
+def _triangulate_polygon(pts, u, v, normal):
+    """Ear-clip a planar polygon, returning outward-oriented triangles.
+
+    A centroid FAN is only valid for a convex loop. On a ship deck outline —
+    which is not convex — fan triangles cross outside the polygon and the STL
+    becomes SELF-INTERSECTING: measured, the fan turned a clean sewn KCS half
+    hull ("Surface is not self-intersecting") into one with 5 intersections,
+    and snappy then degraded catastrophically as cells shrank enough to
+    resolve them (149 zero-volume cells and 938 wrongly oriented faces at
+    refinement level 4-5, versus 10 and 55 at level 2-3). Ear clipping keeps
+    every triangle inside the polygon by construction.
+    """
+    P = np.array([[np.dot(p - pts[0], u), np.dot(p - pts[0], v)] for p in pts])
+    # orient CCW in the (u, v) frame so the "ear" test has a fixed sign
+    area2 = sum(P[i][0] * P[(i + 1) % len(P)][1] - P[(i + 1) % len(P)][0] * P[i][1]
+                for i in range(len(P)))
+    idx = list(range(len(pts)))
+    if area2 < 0:
+        idx.reverse()
+
+    def cross2(o, a, b):
+        return ((P[a][0] - P[o][0]) * (P[b][1] - P[o][1])
+                - (P[a][1] - P[o][1]) * (P[b][0] - P[o][0]))
+
+    def inside(a, b, c, p):
+        d1, d2, d3 = cross2(a, b, p), cross2(b, c, p), cross2(c, a, p)
+        return not ((d1 < 0 or d2 < 0 or d3 < 0) and (d1 > 0 or d2 > 0 or d3 > 0))
+
+    out, guard = [], 0
+    while len(idx) > 3 and guard < 10 * len(pts):
+        guard += 1
+        for k in range(len(idx)):
+            a, b, c = idx[k - 1], idx[k], idx[(k + 1) % len(idx)]
+            if cross2(a, b, c) <= 0:                      # reflex, not an ear
+                continue
+            if any(inside(a, b, c, m) for m in idx if m not in (a, b, c)):
+                continue
+            out.append((a, b, c))
+            idx.pop(k)
+            break
+        else:
+            break                                        # no ear: give up
+    if len(idx) == 3:
+        out.append(tuple(idx))
+
+    tris = []
+    for a, b, c in out:
+        t = [pts[a], pts[b], pts[c]]
+        if np.dot(np.cross(t[1] - t[0], t[2] - t[0]), normal) < 0:
+            t = [t[0], t[2], t[1]]
+        tris.append(tuple(tuple(float(x) for x in p) for p in t))
+    return tris
+
+
 def cap_planar_holes(src: str | Path, dst: str | Path,
-                     planar_tol: float = 1e-4) -> dict:
+                     planar_tol: float = 1e-4,
+                     only_axis: int | None = None,
+                     only_value: float = 0.0,
+                     only_tol: float = 1e-3) -> dict:
     """Close planar openings in a triangulated surface (deck, transom, ...).
 
     External benchmark geometry arrives as a trimmed-surface model, not a
@@ -169,6 +302,14 @@ def cap_planar_holes(src: str | Path, dst: str | Path,
         for e in ((a, b), (b, c), (c, a)):
             edges[tuple(sorted(e))] += 1
     boundary = [e for e, n in edges.items() if n == 1]
+    # On a HALF hull the boundary is one L-shaped loop spanning the
+    # centreplane AND the deck, so it is genuinely non-planar. Only the deck
+    # needs capping — the symmetry patch closes the centreplane — hence the
+    # option to cap just the loop lying in one plane.
+    if only_axis is not None:
+        boundary = [e for e in boundary
+                    if all(abs(p[only_axis] - only_value) < only_tol
+                           for p in e)]
 
     # chain boundary edges into closed loops
     adj: dict = defaultdict(list)
@@ -213,11 +354,7 @@ def cap_planar_holes(src: str | Path, dst: str | Path,
         n = vt[-1]
         if np.dot(n, c - body_c) < 0:      # point the cap outward
             n = -n
-        for i in range(len(loop)):
-            a, b = pts[i], pts[(i + 1) % len(loop)]
-            tri = (tuple(c), tuple(a), tuple(b))
-            if np.dot(np.cross(a - c, b - c), n) < 0:
-                tri = (tuple(c), tuple(b), tuple(a))
+        for tri in _triangulate_polygon(pts, vt[0], vt[1], n):
             capped.append(tri)
             made += 1
 
