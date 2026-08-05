@@ -21,6 +21,7 @@ import json
 
 from .energy import EnergySpec
 from .evaluate import Evaluation
+from .limits import gm_floor
 from .mission import DESIGN_CATEGORIES, MissionSpec, parse_mission
 
 # hard ranges for every LLM-writable field: outside -> clamped or rejected
@@ -114,8 +115,9 @@ def requirements_from_mission(m: MissionSpec) -> list[Requirement]:
             lambda ev: "hull cannot carry its own weight budget"
                        if ev.hydro is None else "floats"),
         Requirement(
-            "gm-floor", "L1 floor 0.35 m (ISO 12217 assessment is tier R)",
-            lambda ev: ev.gm_m is not None and ev.gm_m >= 0.35,
+            "gm-floor", f"category {m.design_category} floor "
+                       f"{gm_floor(m.design_category):.2f} m (ISO 12217)",
+            lambda ev: ev.gm_m is not None and ev.gm_m >= gm_floor(m.design_category),
             lambda ev: f"GM {ev.gm_m:.2f} m" if ev.gm_m is not None else "no GM"),
         Requirement(
             "freeboard-floor", "L1 floor 0.25 m at load",

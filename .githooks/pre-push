@@ -4,15 +4,23 @@
 # Install once:  scripts/install-hooks.sh      Bypass once:  git push --no-verify
 set -uo pipefail
 cd "$(git rev-parse --show-toplevel)" || exit 1
-PY="${PYTHON:-python3}"
+# Use the project venv if it exists: CLAUDE.md says the deps live in
+# ~/.venvs/naval, and a hook that dies on ModuleNotFoundError just teaches
+# everyone to pass --no-verify.
+PY="${PYTHON:-}"
+if [ -z "$PY" ] && [ -x "$HOME/.venvs/naval/bin/python" ]; then
+  PY="$HOME/.venvs/naval/bin/python"
+elif [ -z "$PY" ]; then
+  PY=python3
+fi
 echo "[pre-push] pytest ..."
 if ! "$PY" -m pytest tests/ -q; then
   echo "[pre-push] BLOCKED: tests failing. --no-verify to override deliberately."
   exit 1
 fi
 echo "[pre-push] gate ladder ..."
-if ! "$PY" -m navalai.gates; then
-  echo "[pre-push] BLOCKED: a gate is RED. A failing gate is information — fix it, never soften it."
+if ! "$PY" -m navalai.gates --suites-only; then
+  echo "[pre-push] BLOCKED: a test-backed gate went RED. A failing gate is information — fix it, never soften it."
   exit 1
 fi
 echo "[pre-push] ladder green."

@@ -16,31 +16,11 @@ from __future__ import annotations
 import math
 
 from ..evaluate import Evaluation
+from ..limits import CATEGORY_TABLE, gm_floor  # single source (navalai/limits.py)
 from . import RuleFinding
 
 # category -> (significant wave height context [m], downflooding floor [m],
 #              GM floor [m], max offset-load heel [deg])
-CATEGORY_TABLE = {
-    "A": (4.0, 0.65, 0.60, 10.0),
-    "B": (4.0, 0.50, 0.50, 10.0),
-    "C": (2.0, 0.35, 0.45, 10.0),
-    "D": (0.3, 0.25, 0.35, 12.0),
-}
-
-def gm_floor(category: str) -> float:
-    """Metacentric-height floor [m] for a design category.
-
-    Exported so the OPTIMIZER can constrain against the same number the rules
-    tier judges by. They were hard-coded separately and drifted: the optimizer
-    demanded GM >= 0.35 m while category C requires 0.45 m, so NSGA-II happily
-    returned a GM 0.40 m hull that was feasible by its own constraint and then
-    failed R-GM at the gate. Platform law (PLM.md §1): a product may configure
-    the kernel, never bypass a gate — so the two must read one source.
-    """
-    if category not in CATEGORY_TABLE:
-        raise ValueError(f"unknown design category {category!r}")
-    return CATEGORY_TABLE[category][2]
-
 
 CREW_MASS_KG = 85.0     # ISO default person mass
 OFFSET_FRACTION = 0.40  # crew CG offset as fraction of beam (approx)

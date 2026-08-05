@@ -90,3 +90,35 @@ def test_gate_runner_never_reports_green_for_a_suite_that_ran_nothing():
     # a partial skip still counts as green, but says so out loud
     lab, fail = status_of(0, counts(" 9 passed, 2 skipped in 1s"))
     assert lab == "GREEN (2 skipped)" and fail is False
+
+
+def test_red_gates_fail_the_runner_but_suites_only_does_not():
+    """Audit finding (2026-08-05): `python -m navalai.gates` exited 0 with Gate
+    2M and 2U RED, because rows without a pytest suite printed their status and
+    `continue`d without touching the failure counter. CI therefore went green
+    with KCS at -151% vs EFD, and pre-push's "BLOCKED: a gate is RED" could
+    never fire for the gates that were actually red.
+
+    Two behaviours are pinned, because they are in tension:
+      - a RED row must make the FULL run fail (honesty rule 6);
+      - --suites-only must NOT count it, so the pre-push hook blocks
+        REGRESSIONS without blocking every push on a known recorded red gate.
+        A hook that always blocks is a hook everyone bypasses.
+
+    NOTE: this exercises main() in-process with a stub. It must NEVER shell out
+    to `python -m navalai.gates` — the runner executes tests/test_phase7.py,
+    so a subprocess call from here recurses without limit. (Learned the hard
+    way; the first version of this test did exactly that.)
+    """
+    import navalai.gates as G
+
+    real = G.GATES
+    try:
+        G.GATES = [("Gate X", "a recorded red gate", None, "RED (measured): missed its bar")]
+        assert G.main([]) == 1, "a RED row must fail the full run"
+        assert G.main(["--suites-only"]) == 0, "--suites-only must ignore recorded reds"
+
+        G.GATES = [("Gate Y", "metal", None, "METAL-GATED: needs hardware")]
+        assert G.main([]) == 0, "METAL/REVIEW rows are honestly unverifiable, not failures"
+    finally:
+        G.GATES = real
