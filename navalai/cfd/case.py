@@ -28,7 +28,12 @@ _Z_EXPANSION = 20.0
 # every refined cell is paid for at every one of the ~13k timesteps that
 # maxAlphaCo sets. The slab covers the hull and the near wake, where the
 # pressure field that makes the drag actually lives.
-_FS_BOX = dict(x0=-1.6, x1=1.3, y=0.7, z=0.05)
+# Free-surface refinement box, as fractions of Lwl. z is the HALF-height of the
+# band that gets the fine cells. It was 0.05 (+-0.36 m on KCS) against a wave
+# field of roughly +-0.06 m — six times taller than the physics occupies, and
+# every one of those cells was paid for in wall-clock. 0.025 still leaves ~3x
+# the wave amplitude for sinkage, the bow wave crest and the transom trough.
+_FS_BOX = dict(x0=-1.6, x1=1.3, y=0.7, z=0.025)
 
 # Target y+ for the wall functions (build plan: y+ ~ 30, SJTU KCS pipeline).
 # MEASURED before this was computed rather than assumed: 3 relative-sized
