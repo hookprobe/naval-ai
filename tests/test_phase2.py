@@ -68,6 +68,15 @@ def test_cfd_case_generation_deterministic(tmp_path):
     for key in ("maxFaceThicknessRatio", "maxThicknessToMedialRatio",
                 "minMedialAxisAngle", "nBufferCellsNoExtrude", "nLayerIter"):
         assert key in snappy, key
+    # v2606 also demands meshQualityControls/relaxed once layer addition
+    # reaches nRelaxedIter: without it snappy dies with a FATAL IO ERROR
+    # ("Entry 'relaxed' not found") AFTER building the mesh. Hidden while
+    # nSurfaceLayers was 3; it surfaced the moment the near-wall fix asked
+    # for 6 layers, killing the sweep mid-run.
+    assert "relaxed" in snappy, "meshQualityControls/relaxed missing"
+    relaxed = snappy.split("relaxed", 1)[1]
+    for key in ("maxNonOrtho", "maxBoundarySkewness", "minTwist"):
+        assert key in relaxed, f"relaxed block missing {key}"
     # inlet alpha must be height-stratified (air-injection drain bug, smoke #2)
     alpha = (tmp_path / "a" / "0" / "alpha.water").read_text()
     assert "exprFixedValue" in alpha and "pos().z()" in alpha

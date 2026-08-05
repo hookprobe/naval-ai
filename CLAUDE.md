@@ -91,6 +91,19 @@ lifecycle, roadmap board — READ THIS FIRST), `NavalArchAI-BuildPlan.md`
 - v2606 requires the full addLayersControls set (maxFaceThicknessRatio etc.).
 - Mesh-tuning loop: mesh-only (blockMesh+snappy+checkMesh) is ~2 min while a
   solve is hours — sweep mesh parameters WITHOUT solving.
+- **v2606 needs `meshQualityControls/relaxed`** as soon as layer addition
+  reaches `nRelaxedIter`, else FATAL IO ERROR "Entry 'relaxed' not found"
+  AFTER the mesh is built. Hidden at nSurfaceLayers 3; it appears at 6.
+- **`deltaT` collapsing (1e-40) while Courant stays high == a DEGENERATE CELL,
+  not a numerics problem.** No timestep can fix a cell of near-zero volume, so
+  the adaptive controller shrinks dt to underflow and interFoam dies with an
+  FPE in the GAMG p_rgh solve. Cause was `relaxed` loosening the VOLUME/TWIST
+  guards (snappy then kept 11976 illegal faces). Relax only the angle/skew
+  entries; a dropped layer costs accuracy, a degenerate cell costs the run.
+- **The STL must be finer than the cells that snap to it.** Default 80x16 gives
+  ~112 mm triangles on a 10 m hull — fine against level-3 (104 mm) cells, but
+  the limiting surface at level 4-5. `stl_resolution()` now scales it with the
+  hull refinement level (capped at 600x120 ~ 144k tris).
 - **Core topology (MEASURED — the old "10 performance cores" note was wrong
   in a way that matters).** `sysctl hw.perflevel{0,1}` on this M5 Pro:
   perflevel0 = "Super" ×5, perflevel1 = "Performance" ×10, 15 total. There is
