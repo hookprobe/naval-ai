@@ -82,5 +82,6 @@ calibration — cfd-engineer, IN PROGRESS), Gate 6R (ISO parity — compliance).
 | L3→co-kriging wiring (first HF points into the spine) | ml-engineer | BLOCKED on Gate 2M |
 | Guided tabular diffusion behind `HullFamilyModel` | ml-engineer | READY (PyTorch-MPS) |
 | LoRA mission translator above the sanitizing seam | ml-engineer | READY (mlx-lm) |
-| **Full-Vessel Line v2** (arrangement + ergonomics + unsinkability) | chief-architect → ergonomics-architect | RESEARCH RUNNING → `BuildPlan2-FullVessel.md` |
+| **Full-Vessel Line v2** (arrangement + ergonomics + unsinkability) | ergonomics-architect | PLAN PUBLISHED — `BuildPlan2-FullVessel.md` (research: 50 sources, 71/76 votes upheld); next: V2.0 refdata spine |
+| Standards/books purchase queue (ISO 15085:2024, 12217-3, 9094; ABYC H-41; Panero & Zelnik; Larsson & Eliasson) | compliance | QUEUED (basis='approx' floors ship meanwhile) |
 | ES-TRIN rules profile; ISO parity review | compliance | QUEUED |
