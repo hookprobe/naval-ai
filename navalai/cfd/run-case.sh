@@ -138,6 +138,16 @@ _LAYERLOG=log.snappy; [ -s log.snappy.layers ] && _LAYERLOG=log.snappy.layers
 say "layers: $(awk '/^hull +[0-9]/ {print "n="$3", near-wall "$4" m, overall "$5" m ("$2" faces)"; found=1}
                    END {if (!found) print "none reported"}' "$_LAYERLOG" | tail -1)"
 grep -q 'Mesh OK' log.checkMesh || say "NOTE: checkMesh flagged $(grep -c 'Failed' log.checkMesh) check(s) — see log.checkMesh"
+# MESH_ONLY exists so the robustness harness measures THIS pipeline. It used
+# to call `snappyHexMesh -overwrite` itself, which was a fair copy of the
+# single-pass mesher and is now simply a different mesher: it skips the z-only
+# refineMesh rounds and the separate layer pass, so with staged meshing it
+# would have graded a layerless mesh and called the result a success rate.
+if [ "${MESH_ONLY:-0}" = "1" ]; then
+  say "MESH_ONLY=1 — stopping after checkMesh"
+  exit 0
+fi
+
 setFields > log.setFields 2>&1 || true
 if [ "$NP" -gt 1 ]; then
   say "decomposePar ($NP ranks) ..."
