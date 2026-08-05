@@ -16,14 +16,18 @@ from __future__ import annotations
 import math
 
 from ..evaluate import Evaluation
-from ..limits import CATEGORY_TABLE, gm_floor  # single source (navalai/limits.py)
+from ..limits import (CATEGORY_TABLE, CREW_MASS_KG,  # single source (limits.py)
+                      gm_floor)
 from . import RuleFinding
 from .review import basis_for
 
 # category -> (significant wave height context [m], downflooding floor [m],
 #              GM floor [m], max offset-load heel [deg])
 
-CREW_MASS_KG = 85.0     # ISO default person mass
+# CREW_MASS_KG now comes from limits.py: it was declared here alone, so the
+# stability check and the weight budget disagreed about how many people were
+# aboard — 12 crew put 1020 kg on the rail here while the boat floated at the
+# 2-crew displacement.
 OFFSET_FRACTION = 0.40  # crew CG offset as fraction of beam (approx)
 
 

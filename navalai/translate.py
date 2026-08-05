@@ -21,7 +21,7 @@ import json
 
 from .energy import EnergySpec
 from .evaluate import Evaluation
-from .limits import gm_floor
+from .limits import FREEBOARD_FLOOR_M, gm_floor
 from .mission import DESIGN_CATEGORIES, MissionSpec, parse_mission
 
 # hard ranges for every LLM-writable field: outside -> clamped or rejected
@@ -119,9 +119,14 @@ def requirements_from_mission(m: MissionSpec) -> list[Requirement]:
                        f"{gm_floor(m.design_category):.2f} m (ISO 12217)",
             lambda ev: ev.gm_m is not None and ev.gm_m >= gm_floor(m.design_category),
             lambda ev: f"GM {ev.gm_m:.2f} m" if ev.gm_m is not None else "no GM"),
+        # The floor is IMPORTED, not retyped. This file already imported
+        # `gm_floor` correctly while keeping a private literal 0.25 for
+        # freeboard — the same drift that limits.py exists to prevent, caught
+        # one constant short.
         Requirement(
-            "freeboard-floor", "L1 floor 0.25 m at load",
-            lambda ev: ev.hydro is not None and ev.hydro.freeboard_min >= 0.25,
+            "freeboard-floor", f"L1 floor {FREEBOARD_FLOOR_M:.2f} m at load",
+            lambda ev: ev.hydro is not None
+                       and ev.hydro.freeboard_min >= FREEBOARD_FLOOR_M,
             lambda ev: f"freeboard {ev.hydro.freeboard_min:.2f} m"
                        if ev.hydro else "n/a"),
         Requirement(

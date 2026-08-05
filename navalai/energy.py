@@ -10,6 +10,8 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 
+from .limits import PLY_THICKNESS_M
+
 
 @dataclass(frozen=True)
 class EnergySpec:
@@ -45,16 +47,21 @@ class WeightBudget:
 
 def weight_budget(lwl: float, depth: float, hull_surface: float,
                   deck_area: float, spec: EnergySpec,
-                  panel_thickness_m: float = 0.015) -> WeightBudget:
+                  panel_thickness_m: float = PLY_THICKNESS_M) -> WeightBudget:
     structure = (hull_surface + deck_area) * panel_thickness_m * PLY_DENSITY * 1.35
     battery = spec.battery_kwh * BATT_KG_PER_KWH
     pv_area = deck_area * spec.panel_packing
     panels = pv_area * PANEL_KG_PER_M2
     outfit = OUTFIT_KG_PER_M * lwl
     total = structure + battery + panels + outfit + spec.payload_kg
-    # VCG stack above keel: batteries low, structure mid, panels on deck
-    kg = (battery * 0.15 * depth + structure * 0.55 * depth + outfit * 0.60 * depth
-          + spec.payload_kg * 0.70 * depth + panels * 1.02 * depth) / total
+    masses = {"structure": structure, "battery": battery, "panels": panels,
+              "outfit": outfit, "payload": spec.payload_kg}
+    # VCG stack above keel: batteries low, structure mid, panels on deck.
+    # Built FROM `VCG_FRACTION` rather than from inlined literals. The two used
+    # to hold the same five numbers fifteen lines apart, agreeing only because
+    # a test compared them — which makes the test load-bearing instead of
+    # tautological, and is the "declared twice" pattern the invariants forbid.
+    kg = sum(m * VCG_FRACTION[name] * depth for name, m in masses.items()) / total
     return WeightBudget(structure, battery, panels, outfit, spec.payload_kg,
                         total, kg)
 
@@ -75,7 +82,7 @@ VCG_FRACTION = {"structure": 0.55, "battery": 0.15, "panels": 1.02,
 
 def weight_items(lwl: float, depth: float, hull_surface: float,
                  deck_area: float, spec: EnergySpec, t_design: float,
-                 panel_thickness_m: float = 0.015) -> list:
+                 panel_thickness_m: float = PLY_THICKNESS_M) -> list:
     """The same five buckets, as positioned MassItems.
 
     Same masses and the same VCG fractions as `weight_budget`, so nothing moves
