@@ -135,3 +135,27 @@ def test_mission_parser_handles_ordinary_english_units():
         assert s.lwl_hint_m == lwl, (text, s.lwl_hint_m)
         if kn is not None:
             assert s.cruise_speed_kn == kn, (text, s.cruise_speed_kn)
+
+
+def test_explicit_design_category_is_honoured():
+    """Audit 2026-08-05: "category A" parsed to the default C.
+
+    The category was only ever INFERRED from waters keywords, so a mission that
+    stated it outright came back one or more categories weaker than asked for —
+    and since the GM floor is category-driven (limits.gm_floor), that silently
+    relaxed the stability bar the design was held to.
+    """
+    from navalai.limits import gm_floor
+    from navalai.mission import parse_mission
+
+    for cat in ("A", "B", "C", "D"):
+        for phrasing in (f"category {cat}", f"design category {cat}",
+                         f"a category-{cat} vessel", f"Category {cat}"):
+            m = parse_mission(f"a 10 metre boat, 3 tonnes, {phrasing}")
+            assert m.design_category == cat, (phrasing, m.design_category)
+
+    # a stated category beats inferred waters, and the conflict is REPORTED
+    m = parse_mission("a 10 metre ocean boat, 3 tonnes, category D")
+    assert m.design_category == "D"
+    assert "waters imply category A" in m.notes
+    assert gm_floor("D") != gm_floor("A")

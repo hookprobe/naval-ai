@@ -9,7 +9,7 @@ from pathlib import Path
 from navalai.cfd.post import gci, mean_resistance, parse_forces
 from navalai.dynamics import (inertia, lifting, mooring,
                               pendulum_period_analytic)
-from navalai.energy import EnergySpec, weight_budget
+from navalai.energy import EnergySpec, weight_budget, weight_items
 from navalai.evaluate import evaluate
 from navalai.geometry import Hull
 from navalai.mission import MissionSpec
@@ -78,13 +78,17 @@ def test_heave_response_black_sea_vs_danube(rao_curve):
 @pytest.fixture(scope="module")
 def wb():
     h = Hull(mid_params())
-    return h, weight_budget(10.0, 1.55, h.wetted_surface(0) * 1.6,
-                            h.deck_area(), EnergySpec())
+    t_design = -float(h.z_keel.min())
+    budget = weight_budget(10.0, 1.55, h.wetted_surface(0) * 1.6,
+                           h.deck_area(), EnergySpec())
+    items = weight_items(10.0, 1.55, h.wetted_surface(0) * 1.6,
+                         h.deck_area(), EnergySpec(), t_design)
+    return h, budget, items
 
 
 def test_inertia_sane(wb):
-    h, budget = wb
-    rep = inertia(h, budget)
+    h, budget, items = wb
+    rep = inertia(h, items)
     assert rep.iyy > rep.ixx                 # pitch inertia > roll for a slender hull
     assert 0.30 < rep.kxx < 0.55             # roll gyradius fractions, naval practice
     assert 0.20 < rep.kyy < 0.40
@@ -93,8 +97,8 @@ def test_inertia_sane(wb):
 def test_inertia_mujoco_crosscheck(wb):
     mujoco = pytest.importorskip("mujoco")
     from navalai.dynamics import pendulum_period_mujoco
-    h, budget = wb
-    rep = inertia(h, budget)
+    h, budget, items = wb
+    rep = inertia(h, items)
     d = 2.0
     t_analytic = pendulum_period_analytic(rep.mass, rep.iyy, d)
     t_mj = pendulum_period_mujoco(rep.mass, rep.iyy, d)
@@ -103,7 +107,7 @@ def test_inertia_mujoco_crosscheck(wb):
 
 
 def test_mooring_and_lifting(wb):
-    h, budget = wb
+    h, budget, items = wb
     mo = mooring(h)
     assert mo.wind_force_n > 0 and mo.line_tension_n > mo.wind_force_n * 0.9
     li = lifting(budget.total_kg, 30.0)

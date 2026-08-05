@@ -74,7 +74,15 @@ say "surfaceFeatureExtract ..."
 surfaceFeatureExtract > log.surfaceFeatures 2>&1 || true
 
 
-say "snappyHexMesh (isotropic: refine + snap + layers) ..."
+# STAGED snappy. The z-only refineMesh rounds have to happen BETWEEN snapping
+# and layer addition, and the ordering is forced from both sides:
+#   - AFTER snapping, because snapping an anisotropic cell folds it inside out
+#     (the 38:1 background incident) — snappy must see cubic cells;
+#   - BEFORE layers, because refining z HALVES the prism cells. Measured with
+#     the rounds last: min z edge went 1.3e-4 -> 3.8e-5 -> 1.1e-5 m over three
+#     rounds and checkMesh found 72988 zero-volume cells. An 11 micron cell in
+#     a 0.7 mm boundary layer is a destroyed boundary layer, not a fine one.
+say "snappyHexMesh pass 1 (castellate + snap, NO layers) ..."
 snappyHexMesh -overwrite > log.snappy 2>&1
 # Anisotropic free-surface refinement AFTER snappy. Order matters both ways:
 # snappy gets a clean isotropic octree (its comfort zone, and the best chance
@@ -99,6 +107,18 @@ if [ "$ROUNDS" -gt 0 ]; then
   # are mesh topology, not initial conditions — the mesh in constant/ is the
   # authority, so drop the stale copies.
   rm -rf 0/cellLevel 0/pointLevel 0/polyMesh 0/refinementHistory 0/surfaceIndex
+  # refineMesh does not maintain snappy's octree bookkeeping, so what is left in
+  # constant/polyMesh describes the PRE-refinement mesh. Layer addition uses
+  # absolute thicknesses (relativeSizes false), so it does not need the levels —
+  # but it does refuse to read ones of the wrong length.
+  rm -f constant/polyMesh/cellLevel constant/polyMesh/pointLevel \
+        constant/polyMesh/level0Edge constant/polyMesh/surfaceIndex \
+        constant/polyMesh/refinementHistory
+
+  say "snappyHexMesh pass 2 (layers only, on the z-refined mesh) ..."
+  snappyHexMesh -overwrite -dict system/snappyHexMeshDict.layers \
+    > log.snappy.layers 2>&1 || \
+    { say "FATAL: layer pass failed — see log.snappy.layers"; exit 1; }
 fi
 
 say "checkMesh ..."
@@ -109,8 +129,14 @@ checkMesh > log.checkMesh 2>&1 || true
 say "mesh: $(grep -m1 'cells:' log.checkMesh | tr -s ' ') | \
 $(grep -m1 'non-orthogonality Max' log.checkMesh | tr -s ' ' | cut -c1-46) | \
 $(grep -m1 'Max skewness' log.checkMesh | tr -s ' ' | sed 's/^ *//' | cut -c1-40)"
-say "layers: $(grep -oE 'Added [0-9]+ out of [0-9]+ cells \([0-9.]+%\)' log.snappy \
-  | head -1 || echo 'none reported')"
+# The layer summary is the `patch faces layers avg thickness` table snappy
+# prints at the END of the layer pass — NOT the "Added N out of M cells" lines,
+# which report castellation iterations and read as 0.3% coverage on a patch
+# that is in fact fully layered. With staged meshing that table lives in
+# log.snappy.layers; fall back to log.snappy for the single-pass case.
+_LAYERLOG=log.snappy; [ -s log.snappy.layers ] && _LAYERLOG=log.snappy.layers
+say "layers: $(awk '/^hull +[0-9]/ {print "n="$3", near-wall "$4" m, overall "$5" m ("$2" faces)"; found=1}
+                   END {if (!found) print "none reported"}' "$_LAYERLOG" | tail -1)"
 grep -q 'Mesh OK' log.checkMesh || say "NOTE: checkMesh flagged $(grep -c 'Failed' log.checkMesh) check(s) — see log.checkMesh"
 setFields > log.setFields 2>&1 || true
 if [ "$NP" -gt 1 ]; then

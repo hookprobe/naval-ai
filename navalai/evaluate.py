@@ -6,18 +6,31 @@ and can be appended to the provenance DB (rule: nothing exists unless recorded).
 
 from __future__ import annotations
 
+import math
 import time
 from dataclasses import dataclass, field
 
 import numpy as np
 
 from . import db, grammar
-from .energy import EnergyReport, WeightBudget, energy_report, weight_budget
+from .energy import (EnergyReport, WeightBudget, energy_report, weight_budget,
+                     weight_items)
 from .geometry import RHO_WATER, Hull
-from .hydrostatics import HydroState, gm, solve_to_displacement
-from .limits import gm_floor
+from .hydrostatics import HydroState, gm, gm_long, solve_to_displacement
+from .limits import (BEND_RADIUS_RATIO, FREEBOARD_FLOOR_M, LIST_LIMIT_DEG,
+                     PLY_THICKNESS_M, TRIM_LIMIT_DEG, gm_floor)
 from .mission import MissionSpec
 from .resistance import ResistanceResult, total_resistance
+from .weights import MassAggregate, aggregate, trim_angle_deg
+
+
+# The ladder's inequality constraints, in one place, as g <= 0 == feasible.
+# The optimizer used to re-derive these by hand from Evaluation fields, with
+# its own copies of the numbers (0.25 freeboard, 80*0.015 bend radius). That
+# guarantees drift: a check added to evaluate() stayed invisible to NSGA-II,
+# so the optimizer would return designs the ladder then called violations.
+# Both now read the SAME dict.
+CONSTRAINT_NAMES = ("freeboard", "gm", "bend_radius", "trim", "list")
 
 
 @dataclass
@@ -28,11 +41,16 @@ class Evaluation:
     hydro: HydroState | None = None
     wl: float = 0.0                 # floated waterline vs design WL
     weights: WeightBudget | None = None
-    gm_m: float | None = None
+    masses: MassAggregate | None = None   # the positioned model (LCG/TCG/VCG)
+    gm_m: float | None = None             # AFTER free-surface correction
+    gm_l_m: float | None = None
+    trim_deg: float = 0.0                 # + = bow down
+    list_deg: float = 0.0                 # + = heel to starboard
     resistance: ResistanceResult | None = None
     energy: EnergyReport | None = None
     eval_ms: float = 0.0
     badges: dict = field(default_factory=dict)   # quantity -> (tier, sigma)
+    g: dict = field(default_factory=dict)        # constraint -> value, <=0 feasible
 
 
 def sample_valid(n: int, mission: MissionSpec, seed: int = 0,
@@ -72,30 +90,61 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
     hull = Hull(params)
     p = grammar.named(params)
 
-    # weight budget first: the boat must float AT its real weight, not a wish
+    # Weight model first: the boat must float AT its real weight, not a wish.
+    # The POSITIONED model is the one truth (weights.MassAggregate) — it used to
+    # exist only in tests while the ladder read a separate scalar budget, so an
+    # arrangement could move mass without moving the boat. weight_items()
+    # reproduces weight_budget's masses and VCG exactly, so wiring it in changes
+    # no number; it adds LCG, TCG and the free-surface moment, which the checks
+    # below then have something to check.
+    t_design = -float(hull.z_keel.min())
     wb = weight_budget(p["LWL"], p["D"], hull.wetted_surface(0.0) * 1.6,
                        hull.deck_area(), mission.energy)
-    target = max(wb.total_kg, mission.displacement_target_kg)
+    agg = aggregate(weight_items(p["LWL"], p["D"], hull.wetted_surface(0.0) * 1.6,
+                                 hull.deck_area(), mission.energy, t_design))
+    target = max(agg.total_kg, mission.displacement_target_kg)
     try:
         hs, wl = solve_to_displacement(hull, target, rho)
     except ValueError as e:
         return Evaluation(False, "L1", (f"floatation: {e}",), weights=wb,
                           eval_ms=(time.perf_counter() - t0) * 1e3)
 
-    gm_m = gm(hs, wb.kg_above_keel)
-    viol = []
-    if hs.freeboard_min < 0.25:
-        viol.append(f"freeboard at load {hs.freeboard_min:.2f} m < 0.25 m")
+    # Free-surface correction is a VIRTUAL RISE of G, so it is subtracted from
+    # GM. With no slack tanks declared it is exactly zero; the moment a tier-F
+    # tank is added it stops being zero, which is the whole point of carrying it.
+    kg = agg.vcg_above_keel(t_design)
+    fsc = agg.free_surface_correction()
+    gm_m = gm(hs, kg) - fsc
+    gm_l_m = gm_long(hs, kg)
+    trim = trim_angle_deg(agg, hs.lcb, hs.disp_kg, gm_l_m)
+    # List from a transverse offset: tan(phi) = TCG / GM. Zero while every item
+    # sits on centreline, non-zero as soon as an arrangement is asymmetric.
+    heel = math.degrees(math.atan(agg.tcg_m / gm_m)) if gm_m > 1e-6 else 0.0
+
     gm_min = gm_floor(mission.design_category)
-    if gm_m < gm_min:
-        viol.append(f"GM {gm_m:.2f} m < {gm_min:.2f} m "
-                    f"(category {mission.design_category} floor, ISO 12217)")
-    # buildability: marine-ply cold-bend limit ~ 80 x sheet thickness
     r_min = hull.min_bend_radius()
-    r_req = 80.0 * 0.015
-    if r_min < r_req:
-        viol.append(f"panel bend radius {r_min:.2f} m < {r_req:.2f} m "
-                    "(15 mm ply cold-bend limit)")
+    r_req = BEND_RADIUS_RATIO * PLY_THICKNESS_M   # marine-ply cold-bend limit
+    g = {
+        "freeboard": FREEBOARD_FLOOR_M - hs.freeboard_min,
+        "gm": gm_min - gm_m,
+        "bend_radius": r_req - r_min,
+        "trim": abs(trim) - TRIM_LIMIT_DEG,
+        "list": abs(heel) - LIST_LIMIT_DEG,
+    }
+    assert tuple(g) == CONSTRAINT_NAMES, "constraint order must match the names"
+    why = {
+        "freeboard": f"freeboard at load {hs.freeboard_min:.2f} m "
+                     f"< {FREEBOARD_FLOOR_M:.2f} m",
+        "gm": f"GM {gm_m:.2f} m < {gm_min:.2f} m "
+              f"(category {mission.design_category} floor, ISO 12217)",
+        "bend_radius": f"panel bend radius {r_min:.2f} m < {r_req:.2f} m "
+                       f"({PLY_THICKNESS_M * 1e3:.0f} mm ply cold-bend limit)",
+        "trim": f"static trim {trim:+.2f} deg exceeds {TRIM_LIMIT_DEG:.1f} deg "
+                f"(LCG {agg.lcg_m:.2f} m vs LCB {hs.lcb:.2f} m)",
+        "list": f"static list {heel:+.2f} deg exceeds {LIST_LIMIT_DEG:.1f} deg "
+                f"(TCG {agg.tcg_m:+.3f} m off centreline)",
+    }
+    viol = [why[k] for k, v in g.items() if v > 0.0]
 
     u = mission.cruise_speed_ms()
     res = total_resistance(hull, u, hs.wetted, hs.cb, rho, wl)
@@ -103,7 +152,8 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
 
     ev = Evaluation(
         ok=len(viol) == 0, tier="L1", violations=tuple(viol), hydro=hs, wl=wl,
-        weights=wb, gm_m=gm_m, resistance=res, energy=en,
+        weights=wb, masses=agg, gm_m=gm_m, gm_l_m=gm_l_m,
+        trim_deg=trim, list_deg=heel, resistance=res, energy=en, g=g,
         eval_ms=(time.perf_counter() - t0) * 1e3,
         badges={
             "displacement": ("L1", 0.02 * hs.disp_kg),

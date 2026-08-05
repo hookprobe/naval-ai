@@ -85,7 +85,24 @@ def parse_mission(text: str) -> MissionSpec:
         cats.append("D")
     if "offshore" in t or "ocean" in t:
         cats.append("B")
-    if cats:
+    # An EXPLICIT design category beats anything inferred from waters. Without
+    # this, "category A" parsed to the default C — the request was read, the
+    # word 'category' matched nothing, and the mission silently came back one
+    # or more categories weaker than asked for. Note "." because the caller has
+    # already turned commas into full stops.
+    explicit = None
+    if g := re.search(r"categor(?:y|ies)" + _SEP + r"[.:]?" + _SEP + r"([a-d])\b", t):
+        explicit = g.group(1).upper()
+
+    if explicit:
+        m.design_category = explicit
+        if cats and min(cats) < explicit:
+            # Asking for C while naming ocean waters is a real conflict, not a
+            # typo to silently resolve: honour the stated category and say so.
+            unparsed.append(f"waters imply category {min(cats)}, "
+                            f"stated category {explicit} used")
+        m.waters = ",".join(sorted(set(cats))) if cats else explicit
+    elif cats:
         m.design_category = min(cats)   # 'A' < 'B' < 'C' < 'D': keep the worst waters
         m.waters = ",".join(sorted(set(cats)))
     else:
