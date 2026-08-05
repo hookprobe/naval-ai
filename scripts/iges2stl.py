@@ -25,12 +25,12 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("iges")
     ap.add_argument("stl")
-    ap.add_argument("--deflection", type=float, default=0.005,
-                    help="mesh chord tolerance [m] (smaller = finer STL)")
+    ap.add_argument("--deflection", type=float, default=0.001,
+                    help="mesh chord tolerance [m]. MEASURED on KCS: 0.004 and 0.001 both give a non-self-intersecting surface once sewn, 0.002 does not (4 intersections); 0.001 also resolves the bulbous bow.")
     ap.add_argument("--scale", type=float, default=1.0)
     ap.add_argument("--x-shift", type=float, default=0.0)
     ap.add_argument("--z-shift", type=float, default=0.0)
-    ap.add_argument("--sew-tol", type=float, default=1e-4,
+    ap.add_argument("--sew-tol", type=float, default=1e-3,
                     help="sew adjacent NURBS patches within this tolerance "
                          "[m] BEFORE meshing (0 disables). The Tokyo-2015 KCS "
                          "IGES ships 194 unsewn patches, so without this each "

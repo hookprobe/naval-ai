@@ -213,16 +213,25 @@ Ruled OUT by measurement, so do not re-try these:
   because they are three nearly COLLINEAR vertices, not coincident ones
 - the mirrored-hull keel seam: symmetry removed it (skewness 52.2 -> 9.5)
 
-The live lead is `surfaceCheck -checkSelfIntersection` (run it WITH the flag;
-plain surfaceCheck reports the surface as fine):
-    sewn at 1e-4          -> 64 self-intersections
-    sewn at 1e-3 (raw)    -> NONE, clean
-    after my capping      -> 5, at y~0.5095, z -0.009..0.096
-So the raw sewn half hull is clean and OUR post-processing breaks it. The
-centroid-fan cap was genuinely invalid (a fan only works on a convex loop) and
-is now ear-clipping, but 5 intersections remain and their z does NOT match the
-cap plane (0.1332) — so the cap is not the whole story. Next: bisect the
-remaining post-processing, or cap in OCC before tessellation instead.
+**The EXPORT has been validated and is NOT the problem** (checked because the
+obvious suspicion was that we had exported it wrong and were chasing our own
+mistake). In pipeline order — scale to metres, translate, then sew:
+    sew 1e-4 m -> 2 shells, 17/18 faces, OCC valid = FALSE  (64 self-intersect)
+    sew 1e-3 m -> 1 shell,  18/18 faces, OCC valid = TRUE   (clean)
+Sewing is MANDATORY: unsewn, the tessellation self-intersects at 298-373
+locations because each patch tessellates independently. And run surfaceCheck
+WITH `-checkSelfIntersection` — plain surfaceCheck calls a broken surface fine.
+Best settings found: `--deflection 0.001 --sew-tol 1e-3`, then ear-clip
+capping ⇒ "Surface is not self-intersecting", displacement -0.07%.
+
+STILL UNEXPLAINED: on that verified-clean surface snappy STILL produces
+zero-volume cells, and always WORSE with refinement —
+    (2,3) 10-14 | (3,4) 9 | (4,5) 149 | (3,4)@scale2 (1.3M cells) 146, skew 303
+Refinement making things worse is not normal snappy behaviour. Removing the
+free-surface box helps skew a lot (63 -> 7) but leaves 7 zero-volume cells, so
+it is not the cause either. Untried next: finer ANGULAR deflection in
+BRepMesh (currently 0.5 rad ~ 28.6 deg, coarse for a bulbous bow), or
+obtaining a published ready-to-mesh KCS STL and skipping our geometry path.
 
 Symmetry (`symmetric=True`) is implemented and worth keeping regardless: half
 the cells, no mirror seam. Use `type symmetry`, NOT `symmetryPlane` — once the
