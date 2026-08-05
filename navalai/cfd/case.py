@@ -51,27 +51,41 @@ _LAYER_EXPANSION = 1.3
 # with topoSet+refineMesh, which can refine x,y WITHOUT z. Raising this
 # reintroduces the isotropic hanging-node transitions that produced wrongly
 # oriented faces at (3 4) and zero-volume cells at (4 5).
-_HULL_REFINE = (2, 3)
+# MEASURED on the isotropic background (aspect 1.85:1, was 38:1). The old
+# background could not survive (3,4) -- 3 zero-volume / 49 wrongly-oriented
+# faces -- because snappy refines ISOTROPICALLY, so a 38:1 cell stays 38:1 at
+# every level while its height shrinks absolutely, and the snap displacement
+# (which scales with the LONG edge) folds the cell inside out. Deriving dz
+# from dx fixes it at the source: (2,3)/(3,4)/(4,5) are now ALL clean, and
+# layer coverage went 32% -> 75% because layers insert into well-shaped cells.
+_HULL_REFINE = (4, 5)
 
-# z bands as multiples of LWL: a UNIFORM-fine core spanning the hull draft and
-# the wave, graded coarse away from it. This is the part of the DTCHull
-# architecture that transfers: all z resolution comes from blockMesh, and the
-# core is uniform so the keel region is as well resolved as the waterline
-# (the old single graded block left the keel coarse). dz is set so that after
-# snappy refinement the near-hull cell is ~2:1 in x:z rather than cubic.
-_Z_BANDS = dict(hull=0.09, wave=0.03, dz=0.0022)
+# z band extents as multiples of LWL. The CELL SIZE is no longer set here:
+# it is derived to match dx so the background cell is ISOTROPIC.
+#
+# THE REASON, measured. snappyHexMesh refines ISOTROPICALLY, so whatever aspect
+# ratio the background has is PRESERVED at every refinement level. Our old
+# background was 606 x 910 x 16 mm — 38:1 — so at hull refinement (3 4) snappy
+# was snapping cells 57 mm long and 1.0 mm tall, and at (4 5) 0.5 mm tall. Its
+# snap displacement scales with the LONG edge, so a few-mm move is several cell
+# HEIGHTS and the cell folds inside out: the "incorrectly oriented faces" and
+# zero-volume cells that blocked every refinement past (2 3).
+# DTCHull starts from the same 42:1 background but refines x,y ONLY, ending at
+# 0.66:1 — nearly cubic — before snappy ever snaps. Same destination, reached
+# the other way: we make the background cubic and let snappy stay cubic.
+# Ungraded core bands above and below the waterline, as a fraction of Lwl.
+# They are EQUAL so both hold near-cubic cells: a thin 0.03 band divided into
+# the >=2 cells the refinement family needs gave 109 mm cells against a 607 mm
+# dx (5.6:1), reintroducing the very anisotropy the isotropic background fixed.
+_Z_BANDS = dict(hull=0.09, wave=0.09)
 
 # refineMesh rounds. Each halves x and y inside a box that tightens toward the
 # hull, so the near-hull cell is background/2**rounds in x,y while z keeps the
 # blockMesh value. 4 rounds take a 0.61 m background cell to ~38 mm.
-# DISABLED (0). Kept, working, and documented — but it refines the FREE
-# SURFACE, and the open blocker is y+ at the WALL. It does not touch the
-# near-wall cell, so it cannot move Gate 2M. It is also expensive: on KCS,
-# starting from a 1.07M-cell snapped mesh, round 1 -> 3.89M and round 2 ->
-# 11.49M cells (x4 per round inside the slab), which round 3 would have taken
-# past this machine's 24 GB. Turn it on only when wave resolution is the
-# binding constraint AND there is memory to spare.
-_REFINE_ROUNDS = 0
+# z-only refineMesh rounds run AFTER snappy, in the free-surface band. Each
+# halves the cell HEIGHT there, giving the interface the thin cells VOF needs
+# without ever handing snappy an anisotropic mesh to snap.
+_REFINE_ROUNDS = 3
 
 # Layers snappy will actually INSERT on this hull, measured (coarse grid,
 # absolute first-layer thickness held at y+ 30):
@@ -257,19 +271,22 @@ boundary (
 );
 """
 
-# refineMesh refines in x and y ONLY (directions tan1 tan2). This is the whole
-# point of the architecture: free-surface ship meshes need ANISOTROPIC
-# refinement — fine in x,y around the hull, fine in z only near the waterline —
-# and snappyHexMesh refines ISOTROPICALLY, so buying x,y resolution through
-# snappy levels drags z along and every level boundary becomes a hanging-node
-# transition. Those transitions are where our meshes were failing.
+# refineMesh refines in Z ONLY, and runs AFTER snappy. The direction enum is
+# (tan1 tan2 normal) -- there is NO tan3; asking for one is a fatal error.
+# With tan1=+x and tan2=+y, `normal` is their cross product, i.e. +z.
+# Division of labour: snappy gets ISOTROPIC cells, which is the only shape it
+# can snap and layer reliably; the free surface then gets its THIN cells from a
+# z-only split that snappy never has to understand. Running it afterwards also
+# sidesteps hexRef8 — snappy cannot refine a mesh refineMesh has touched
+# ("cell N of level 0 uses more than 8 points of equal or lower level").
+# Earlier this refined x,y, which serves the HULL; the free surface needs z.
 REFINE_MESH = """FoamFile { version 2.0; format ascii; class dictionary; object refineMeshDict; }
 set             c0;
 coordinateSystem global;
-globalCoeffs { tan1 (1 0 0); tan2 (0 1 0); }
-directions      ( tan1 tan2 );
-useHexTopology  no;
-geometricCut    yes;
+globalCoeffs { tan1 (1 0 0); tan2 (0 1 0);  }
+directions      ( normal );
+useHexTopology  yes;
+geometricCut    no;
 writeMesh       no;
 """
 
@@ -473,6 +490,10 @@ castellatedMeshControls {{
   locationInMesh ({loc_x} {loc_y} {loc_z});
   allowFreeStandingZoneFaces true; resolveFeatureAngle 30;
 }}
+// MEASURED, and counter to expectation. Adopting the DTCHull reference
+// values (tolerance 1.0, nSolveIter 100) made refinement (3 4) far WORSE:
+// zero-volume cells 3 -> 79 and wrongly oriented faces 49 -> 767. These are
+// the values that mesh clean at (2 3), which is what the GCI triplet uses.
 snapControls {{ nSmoothPatch 3; tolerance 2.0; nSolveIter 50; nRelaxIter 5; }}
 addLayersControls {{
   // ABSOLUTE sizing: y+ is a physical quantity, so the near-wall cell is set
@@ -500,7 +521,7 @@ addLayersControls {{
 // a FATAL IO ERROR after the mesh is already built. It stayed hidden while
 // nSurfaceLayers was 3 (iteration 20 was never reached) and only surfaced
 // when the near-wall fix asked for 6 layers.
-meshQualityControls {{ maxNonOrtho 65; maxBoundarySkewness 20; maxInternalSkewness 4;
+meshQualityControls {{ maxNonOrtho 70; maxBoundarySkewness 20; maxInternalSkewness 4;
   maxConcave 80; minVol 1e-13; minTetQuality 1e-15; minArea -1; minTwist 0.02;
   minDeterminant 0.001; minFaceWeight 0.05; minVolRatio 0.01; minTriangleTwist -1;
   nSmoothScale 4; errorReduction 0.75;
@@ -667,26 +688,39 @@ def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
     # 0.055L draft with margin); za covers the crest.
     zh = -_Z_BANDS["hull"] * lwl
     za = _Z_BANDS["wave"] * lwl
-    dz_core = _Z_BANDS["dz"] * lwl / scale        # uniform cell in both cores
-    n_hull = max(int(round(abs(zh) / dz_core)), 4)
-    n_wave = max(int(round(za / dz_core)), 3)
+    nx = max(int(round(54 * scale)), 20)
+    # ISOTROPIC background: dz is derived from dx so the cell is a cube. snappy
+    # preserves aspect ratio through refinement, so a cubic background gives
+    # cubic cells at every level — which is the only shape it snaps reliably.
+    dx_bg = (2.0 * lwl + 2.5 * lwl) / nx
+    ny = max(int(round((1.5 if symmetric else 3.0) * lwl / dx_bg)), 6)
+    # The z counts must SCALE WITH THE FAMILY or the GCI triplet stops being
+    # systematic: deriving them from dx_bg directly, round(1.08) and round(1.53)
+    # both give the same integer, so nz froze across coarse/medium and the
+    # measured r fell to 1.376 against the sqrt(2) the triplet claims. Instead
+    # fix the near-cubic count ONCE at scale 1 and scale that, which preserves
+    # the cell aspect at every level AND lets nz grow like nx and ny.
+    dx1 = 4.5 * lwl / 54
+    n_hull = max(int(round(max(int(round(abs(zh) / dx1)), 2) * scale)), 2)
+    n_wave = max(int(round(max(int(round(za / dx1)), 2) * scale)), 2)
+    dz_core = abs(zh) / n_hull
 
     dom = dict(x0=-2.5 * lwl, x1=2.0 * lwl,
-               y0=0.0 if symmetric else -y_half, y1=y_half,
+               y0=0.0 if symmetric else -1.5 * lwl, y1=1.5 * lwl,
                z0=-depth, zh=zh, za=za, z1=0.25 * lwl,
                side1_type="symmetry" if symmetric else "wall",
-               nx=max(int(round(54 * scale)), 20),
-               ny=max(int(round((12 if symmetric else 24) * scale)), 8),
-               nz_deep=max(int(round(10 * scale)), 5),
+               nx=nx, ny=ny,
+               nz_deep=max(int(round(6 * scale)), 3),
                nz_hull=n_hull, nz_wave=n_wave,
-               nz_air=max(int(round(8 * scale)), 4),
-               # graded away from the core so the far field is cheap
+               nz_air=max(int(round(4 * scale)), 2),
                g_deep=float(_Z_EXPANSION), g_air=float(_Z_EXPANSION))
     assert depth >= half_lambda, "deep-water condition violated"
 
     fs_dz = dz_core                     # uniform through hull and wave bands
-    # x,y cell after the refineMesh rounds (each halves x and y inside its box)
-    dx = (dom["x1"] - dom["x0"]) / dom["nx"] / 2 ** (_REFINE_ROUNDS or 2)
+    # x cell inside the free-surface refinement box (snappy, isotropic)
+    dx = (dom["x1"] - dom["x0"]) / dom["nx"] / 2 ** 2
+    # z cell there after the z-only refineMesh rounds that follow snappy
+    fs_dz = dz_core / 2 ** 2 / 2 ** _REFINE_ROUNDS
     wavelength = 2 * math.pi * speed ** 2 / 9.81
     # near-wall stack sized for the wall functions, bridging to the local
     # hull cell (background dx divided by the hull surface refinement level)
