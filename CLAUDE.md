@@ -94,12 +94,19 @@ lifecycle, roadmap board — READ THIS FIRST), `NavalArchAI-BuildPlan.md`
 - **v2606 needs `meshQualityControls/relaxed`** as soon as layer addition
   reaches `nRelaxedIter`, else FATAL IO ERROR "Entry 'relaxed' not found"
   AFTER the mesh is built. Hidden at nSurfaceLayers 3; it appears at 6.
-- **`deltaT` collapsing (1e-40) while Courant stays high == a DEGENERATE CELL,
-  not a numerics problem.** No timestep can fix a cell of near-zero volume, so
-  the adaptive controller shrinks dt to underflow and interFoam dies with an
-  FPE in the GAMG p_rgh solve. Cause was `relaxed` loosening the VOLUME/TWIST
-  guards (snappy then kept 11976 illegal faces). Relax only the angle/skew
-  entries; a dropped layer costs accuracy, a degenerate cell costs the run.
+- **`deltaT` collapsing (1e-40) while Courant stays high == a pathological
+  CELL, not a numerics problem.** No timestep can fix a cell whose local
+  Courant will not fall, so the adaptive controller shrinks dt to underflow
+  and interFoam dies with an FPE in the GAMG p_rgh solve. Diagnose by the
+  dt/Courant signature.
+- **Do NOT use snappy's "illegal faces" count as the predictor** — it is not
+  sufficient. MEASURED: coarse finished with 8826 illegal faces and medium
+  with 17326, and BOTH solved 25 s cleanly; the configs that died had 11976
+  and 22529. What distinguished them was more/thicker layers at higher hull
+  refinement, not the raw count. Keeping `relaxed` from loosening the
+  volume/twist guards is still right on principle (a dropped layer costs
+  accuracy, a degenerate cell costs the run) but it is NOT an established
+  cause of these crashes.
 - **The STL must be finer than the cells that snap to it.** Default 80x16 gives
   ~112 mm triangles on a 10 m hull — fine against level-3 (104 mm) cells, but
   the limiting surface at level 4-5. `stl_resolution()` now scales it with the
