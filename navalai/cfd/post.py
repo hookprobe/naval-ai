@@ -452,12 +452,107 @@ def gci(f_coarse: float, f_medium: float, f_fine: float,
         return GCIReport(f_fine, f_fine, float("nan"),
                          100.0 * 1.25 * spread / max(abs(f_fine), 1e-12),
                          "oscillatory: spread bound, Fs=1.25")
-    p = math.log(abs(e32 / e21)) / math.log(refinement)
-    p = min(max(p, 0.5), 4.0)              # clamp to sane observed orders
+    p_raw = math.log(abs(e32 / e21)) / math.log(refinement)
+    # THE LOW-END CLAMP WAS ANTI-CONSERVATIVE. Raising a below-first-order p up
+    # to 0.5 SHRINKS the reported uncertainty, because GCI ~ 1/(r^p - 1).
+    # MEASURED on an exact Richardson triplet at r=sqrt(2) with true p=0.1: the
+    # analytic GCI is 6.392% and this function reported 1.191% — an
+    # understatement of 5.37x, in precisely the direction that lets a barely
+    # converging triplet claim the <=2.5% bar. Roache's own recommendation for
+    # a poorly-behaved p is to fall back to first order with the SAFER factor
+    # Fs = 3.0, so that is what fires, and the method string says which rule
+    # was used. The high-end clamp is conservative and stays.
+    if p_raw < 1.0:
+        # Keep the OBSERVED order and raise the safety factor. Substituting
+        # p = 1 here was still anti-conservative: at p_obs = 0.1 it reported
+        # 1.306% against an analytic 6.392%, because 1/(r^p - 1) collapses as p
+        # rises. The observed p with Fs = 3.0 gives 15.3% — larger than the
+        # Fs=1.25 figure, which is the point: a triplet below first order is
+        # not in the asymptotic range and its uncertainty must not look small.
+        # p is floored only to keep the denominator finite.
+        p, fs = max(p_raw, 0.05), 3.0
+        rule = f"p_obs={p_raw:.2f}<1, NOT asymptotic -> Fs=3.0"
+    else:
+        p, fs, rule = min(p_raw, 4.0), 1.25, "Richardson p (capped at 4), Fs=1.25"
     f_exact = f_fine - e21 / (refinement**p - 1.0)
-    gci_pct = 100.0 * 1.25 * abs(e21 / f_fine) / (refinement**p - 1.0)
-    return GCIReport(f_fine, f_exact, p, gci_pct,
-                     "Roache GCI, Fs=1.25, Richardson p (clamped 0.5..4)")
+    gci_pct = 100.0 * fs * abs(e21 / f_fine) / (refinement**p - 1.0)
+    return GCIReport(f_fine, f_exact, p, gci_pct, f"Roache GCI, {rule}")
+
+
+class WaterplaneError(ValueError):
+    """The waterplane could not be closed from this geometry.
+
+    A dedicated type so callers can fall back on a GEOMETRY problem without
+    also swallowing a file-read failure. Learned the hard way: a binary STL
+    raised UnicodeDecodeError, which is a ValueError, which a broad
+    `except ValueError` upstream absorbed into a silent fallback.
+    """
+
+
+def stl_waterplane_properties(path, waterline: float = 0.0) -> dict:
+    """Waterplane area, LCF and LONGITUDINAL second moment about it.
+
+    Why this exists: the pitch restoring stiffness of a floating body is
+    rho*g*I_L, and `sixdof_properties` was approximating I_L as Awp*(L/2)^2.
+    MEASURED on the KCS STL: true I_L = 19.854 m^4 giving k_theta = 194539
+    N.m/rad, against the approximation's 771030 — **3.96x too stiff**. That put
+    the pitch damper at zeta 0.597 instead of the intended 0.30, roughly
+    doubling settling time on a run already budgeted in days.
+
+    Method: the closed waterplane is recovered from the hull surface by the
+    divergence theorem rather than by cutting the mesh. For the submerged
+    volume V bounded by hull + cap, integrating div(F) with F = (0,0,1) gives
+    A_wp = -sum(A_i n_z,i) over the HULL triangles below the waterline, because
+    the cap's own contribution is what we are solving for. The same trick with
+    F = (0,0,x^2) yields the second moment about x=0; the parallel axis then
+    moves it to the centre of flotation.
+    """
+    tris = np.asarray(_read_stl_tris(path), float)
+    tris = tris - np.array([0.0, 0.0, waterline])
+
+    kept = []
+    for tri in tris:
+        z = tri[:, 2]
+        if (z <= 0).all():
+            kept.append(tri)
+            continue
+        if (z > 0).all():
+            continue
+        poly = []
+        for i in range(3):
+            a, b = tri[i], tri[(i + 1) % 3]
+            if a[2] <= 0:
+                poly.append(a)
+            if (a[2] <= 0) != (b[2] <= 0):
+                f = a[2] / (a[2] - b[2])
+                poly.append(a + f * (b - a))
+        for i in range(1, len(poly) - 1):
+            kept.append(np.array([poly[0], poly[i], poly[i + 1]]))
+    if not kept:
+        raise WaterplaneError("no submerged geometry below the waterline")
+
+    T = np.asarray(kept)
+    a, b, c = T[:, 0], T[:, 1], T[:, 2]
+    n2 = np.cross(b - a, c - a)          # 2 * area * unit normal
+    nz = n2[:, 2] * 0.5                  # signed area projected on z
+    xbar = (a[:, 0] + b[:, 0] + c[:, 0]) / 3.0
+
+    awp = -float(nz.sum())
+    if awp <= 0:
+        raise WaterplaneError(f"non-physical waterplane area {awp:.6g} m^2")
+    # int(x) over a triangle IS area * centroid — exact, because x is linear.
+    lcf = -float((nz * xbar).sum()) / awp
+    # int(x^2) is NOT area * centroid^2. The exact quadrature over a triangle is
+    # A * (sum xi^2 + sum_{i<j} xi xj) / 6; using the centroid squared
+    # understated a 4 x 2 m box's I_L as 3.556 m^4 against the closed-form
+    # B*L^3/12 = 10.667 — a factor of 3, and in the unsafe direction for a
+    # stiffness. Caught by the box anchor, which is why the anchor exists.
+    x1, x2, x3 = a[:, 0], b[:, 0], c[:, 0]
+    x2_quad = (x1 * x1 + x2 * x2 + x3 * x3
+               + x1 * x2 + x1 * x3 + x2 * x3) / 6.0
+    i_x0 = -float((nz * x2_quad).sum())
+    i_l = i_x0 - awp * lcf ** 2
+    return {"awp_m2": awp, "lcf": lcf, "i_l_m4": max(i_l, 1e-12)}
 
 
 def stl_submerged_properties(path, waterline: float = 0.0) -> dict:

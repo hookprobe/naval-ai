@@ -31,6 +31,11 @@ from navalai.cfd import post
 
 RHO = 998.8            # kg/m^3, the value the forces FO is told
 SETTLE_TOL = 0.05      # 5% drift over the last fifth => not settled
+# The plan's Gate 2 bar is "documented grid uncertainty (target <= ~2.5%, the
+# published bar)". 5% is the outer limit we will call converged at all; the
+# Tokyo-2015 groups achieved 2.5-3.5%. A triplet whose own GCI exceeds this has
+# not earned a verdict, however close its C_T happens to land.
+GCI_BAR_PCT = 5.0
 
 
 def read_info(case: Path) -> dict:
@@ -65,9 +70,19 @@ def motion_result(case: Path) -> dict | None:
     z0 = zs[0]
     sink = float(np.mean(zs[-n:])) - z0
     sink_prev = float(np.mean(zs[-2 * n:-n])) - z0
-    trim = math.degrees(math.asin(max(-1.0, min(1.0, float(np.mean(sins[-n:]))))))
-    trim_prev = math.degrees(math.asin(max(-1.0, min(1.0,
-                                                     float(np.mean(sins[-2 * n:-n]))))))
+    # SIGN. The KCS STL's bow is at +x (verified: half-beam tapers 0.5095 ->
+    # 0.0008 over x = 6.1 -> 7.72 with the stem rising to z = 0.4021; the blunt
+    # transom is at x = 0), and the inlet is the +x face with U = (-u, 0, 0).
+    # Rotation about +y by theta > 0 takes xhat -> (cos, 0, -sin), i.e. BOW
+    # DOWN, and R[0][2] = sin(theta) > 0. EFD's convention is negative = bow
+    # down, so reporting +asin(R[0][2]) made a physically CORRECT bow-down
+    # result print +0.169 deg against EFD -0.169 and score a +200% error.
+    # This check exists to catch sign errors; it had one.
+    def _trim_of(vals):
+        return -math.degrees(math.asin(max(-1.0, min(1.0, float(np.mean(vals))))))
+
+    trim = _trim_of(sins[-n:])
+    trim_prev = _trim_of(sins[-2 * n:-n])
     return {
         "sinkage_m": sink, "trim_deg": trim,
         "sink_drift": abs(sink - sink_prev) / max(abs(sink), 1e-9),
@@ -176,7 +191,10 @@ def main() -> int:
               "cannot close the gate on its own.")
         print(f"VERDICT: {'inside' if inside else 'OUTSIDE'} the scatter band "
               f"({KCS.error_vs_efd(r['ct']):+.1f}% vs EFD)")
-        return 0 if inside else 1
+        # NO VERDICT is not success. This branch has just said in words that it
+        # "cannot close the gate on its own" and then returned 0, which is what
+        # any CI reads. 3 = inconclusive, distinct from 0 pass and 1 fail.
+        return 3
 
     fine, med, coarse = usable[-1], usable[-2], usable[-3]
     r12 = (med["cells"] / fine["cells"]) ** (1 / 3)
@@ -194,15 +212,26 @@ def main() -> int:
           f"GCI(fine) = {g['gci_fine_pct']:.2f}%")
 
     ct, unc = fine["ct"], g["gci_fine_pct"] / 100.0 * fine["ct"]
-    inside = (ct + unc) >= lo and (ct - unc) <= hi
-    print(f"\nC_T = {ct:.4e} +/- {unc:.2e} (GCI)   "
+    # UNCERTAINTY MUST NEVER WIDEN THE ACCEPTANCE REGION.
+    # The old test was overlap of [ct-unc, ct+unc] with the band, with NO cap
+    # on the GCI — so a sloppier grid study passed more easily. MEASURED at the
+    # recorded C_T: GCI 2.5% -> FAIL, 5% -> FAIL, 12.8% -> FAIL, 15% -> PASS,
+    # 100% -> PASS. The Tokyo-2015 groups achieved 2.5-3.5%, i.e. a careful
+    # triplet failed where a careless one closed the gate. The bar is now two
+    # independent conditions, both of which must hold.
+    within_band = lo <= ct <= hi
+    converged = g["gci_fine_pct"] <= GCI_BAR_PCT
+    inside = within_band and converged
+    print(f"\nC_T = {ct:.4e} +/- {unc:.2e} (GCI {g['gci_fine_pct']:.2f}%)   "
           f"E%D = {KCS.error_vs_efd(ct):+.1f}%")
-    print(f"VERDICT: {'PASS' if inside else 'FAIL'} — "
-          f"{'overlaps' if inside else 'does not overlap'} the Tokyo-2015 "
-          f"scatter band {lo:.3e}..{hi:.3e}")
+    print(f"  in the Tokyo-2015 band {lo:.3e}..{hi:.3e}: "
+          f"{'YES' if within_band else 'NO'}")
+    print(f"  GCI <= {GCI_BAR_PCT:.1f}% (published groups achieved 2.5-3.5%): "
+          f"{'YES' if converged else 'NO'}")
+    print(f"VERDICT: {'PASS' if inside else 'FAIL'}")
     if not inside:
-        print("Recorded as measured. Do NOT widen the band to make it pass "
-              "(honesty rule 6).")
+        print("Recorded as measured. Do NOT widen the band, and do NOT let a "
+              "coarse grid's own uncertainty buy the overlap (honesty rule 6).")
     return 0 if inside else 1
 
 

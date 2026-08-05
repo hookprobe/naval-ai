@@ -105,13 +105,28 @@ _NZ_PER_NX = 14.0 / 54.0
 _MAX_LAYERS = 3
 
 
-_G = 9.81   # matches constant/g in the generated case
+# FLUID PROPERTIES, ONCE. The audit found rho declared FIVE times in this file,
+# nu twice and g four times — the project's own documented anti-pattern, in the
+# module that carries the two RED gates. They are constants now, and every
+# template and helper below formats them in rather than retyping them.
+_G = 9.81               # matches constant/g in the generated case
+_RHO_WATER = 998.8      # kg/m^3, ~20 C fresh water
+_RHO_AIR = 1.2
+_NU_WATER = 1.09e-6     # m^2/s
+_NU_AIR = 1.48e-5
+# Surface tension is set to ZERO, matching the Wolf Dynamics KCS reference.
+# At model scale We >> 1 so it is physically negligible, but the CSF force
+# sigma*kappa*grad(alpha) is evaluated on our ~15:1 interface cells sitting on
+# refineMesh hanging nodes, where it is a known source of spurious currents —
+# i.e. it contributes nothing but noise to exactly the cells that matter.
+_SIGMA_WATER = 0.0
 
 
 def sixdof_properties(mass_kg: float, cog: tuple[float, float, float],
                       k_roll: float, k_pitch: float, k_yaw: float,
                       lwl: float, awp_m2: float, symmetric: bool,
-                      rho: float = 998.8, zeta: float = 0.3) -> dict:
+                      i_l_m4: float | None = None,
+                      rho: float = _RHO_WATER, zeta: float = 0.3) -> dict:
     """Mass, inertia and damper coefficients for the sixDoF motion dict.
 
     THE HALVING LIVES HERE, not in the caller. A symmetric case meshes half the
@@ -137,9 +152,14 @@ def sixdof_properties(mass_kg: float, cog: tuple[float, float, float],
     c_lin = zeta * 2.0 * m_eff * omega_n         # N s/m
 
     i_pitch = m * k_pitch ** 2
-    # Angular critical damping on the pitch mode, restoring stiffness rho*g*I_L
-    # approximated through the same waterplane: k_theta ~ rho*g*Awp*(lwl/2)^2.
-    k_theta = rho * _G * awp * (0.5 * lwl) ** 2
+    # Angular critical damping on the pitch mode. The restoring stiffness is
+    # rho*g*I_L, and I_L is MEASURED from the waterplane when the caller can
+    # supply it. The old approximation Awp*(lwl/2)^2 treats the waterplane as
+    # two point areas at the ends: on KCS it gives 771030 N.m/rad against a
+    # true 194539 — 3.96x too stiff — which put the damper at zeta 0.597
+    # instead of 0.30 and roughly doubled the settling time.
+    i_l = (i_l_m4 * half) if i_l_m4 is not None else (awp * (0.5 * lwl) ** 2)
+    k_theta = rho * _G * i_l
     omega_p = math.sqrt(k_theta / max(2.0 * i_pitch, 1e-9))
     c_ang = zeta * 2.0 * (2.0 * i_pitch) * omega_p
 
@@ -170,13 +190,37 @@ def motion_from_geometry(stl_path, lwl: float, symmetric: bool,
     means neutral placement, which is honest but will not reproduce a specific
     model's trim.
     """
-    from .post import stl_submerged_properties
+    from .post import (WaterplaneError, stl_submerged_properties,
+                       stl_waterplane_properties)
 
     props = stl_submerged_properties(stl_path, 0.0)
+    # The waterplane is MEASURED, not assumed. `cwp` remains only as the
+    # fallback for a geometry whose waterplane cannot be closed; on KCS the
+    # measured C_wp is 0.829 against the 0.80 assumption, and the measured I_L
+    # is what the pitch damper actually needs.
+    try:
+        wp = stl_waterplane_properties(stl_path, 0.0)
+        awp, i_l = wp["awp_m2"], wp["i_l_m4"]
+    except WaterplaneError:
+        awp, i_l = None, None
     tris = np.asarray(_read_stl_tris_for_motion(stl_path), float)
     keel_z = float(tris[:, :, 2].min())
     beam = 2.0 * float(np.abs(tris[:, :, 1]).max())
+    if awp is None:
+        awp = cwp * lwl * beam
 
+    if kg_above_keel is None:
+        # KG is the one mass property a hull SHAPE cannot supply — it depends
+        # on how the model is ballasted — and defaulting to VCB silently
+        # answers a different ship. MEASURED on KCS: VCB gives KG-above-keel
+        # 0.187 m against the published 0.2303 m, 19% low, and KG is the lever
+        # that sets trim. Say so rather than let it pass as a derived number.
+        import warnings
+        warnings.warn(
+            "no kg_above_keel given: VCG defaults to VCB (neutral ballast). "
+            "This is NOT a specific model's ballast condition — on KCS it is "
+            "19% below the published KG — and trim will not reproduce EFD.",
+            stacklevel=2)
     vcg = keel_z + kg_above_keel if kg_above_keel is not None else props["vcb"]
     return sixdof_properties(
         mass_kg=rho * props["volume_m3"],
@@ -184,7 +228,7 @@ def motion_from_geometry(stl_path, lwl: float, symmetric: bool,
         k_roll=k_roll_over_beam * beam,
         k_pitch=k_pitch_over_lwl * lwl,
         k_yaw=k_pitch_over_lwl * lwl,
-        lwl=lwl, awp_m2=cwp * lwl * beam, symmetric=symmetric, rho=rho)
+        lwl=lwl, awp_m2=awp, i_l_m4=i_l, symmetric=symmetric, rho=rho)
 
 
 def _read_stl_tris_for_motion(path):
@@ -394,7 +438,7 @@ rhoInf              1;              // unused by interFoam (it carries rho)
 report              on;
 value               uniform (0 0 0);
 
-accelerationRelaxation 0.4;
+accelerationRelaxation 0.3;   // reference value; 0.4 is a known instability path
 
 solver {{ type Newmark; }}
 
@@ -478,13 +522,22 @@ wallDist        { method meshWave; }
 
 FV_SOLUTION = """FoamFile { version 2.0; format ascii; class dictionary; object fvSolution; }
 solvers {
+  // MEASURED on runs/kcs_free, timestep 1: the alpha smoothSolver reported
+  // "No Iterations 1000" with Final residual 1.55e-08 against tolerance 1e-8 —
+  // it hit the DEFAULT maxIter and bailed UNCONVERGED, and MULES then blew
+  // alpha to [-81402, +39618] and died with an FPE in GAMGSolver::scale.
+  // nLimiterIter 3 is what starves the limiter. The Wolf Dynamics KCS
+  // reference (both fixed and KCS_Dynamic) uses nAlphaCorr 3, nLimiterIter 10,
+  // minIter 1 and tolerance 1e-10 — an order of magnitude more limiter work
+  // per step, which is exactly the budget a moving interface needs.
   "alpha.water.*" {
-    nAlphaCorr 2; nAlphaSubCycles 1; cAlpha 1;
-    MULESCorr yes; nLimiterIter 3; alphaApplyPrevCorr yes;
-    solver smoothSolver; smoother symGaussSeidel; tolerance 1e-8; relTol 0;
+    nAlphaCorr 3; nAlphaSubCycles 1; cAlpha 1; icAlpha 0;
+    MULESCorr yes; nLimiterIter 10; alphaApplyPrevCorr yes;
+    solver smoothSolver; smoother symGaussSeidel;
+    tolerance 1e-10; relTol 0; minIter 1;
   }
   "pcorr.*" { solver PCG; preconditioner DIC; tolerance 1e-5; relTol 0; }
-  p_rgh { solver GAMG; smoother DIC; tolerance 1e-7; relTol 0.01; }
+  p_rgh { solver GAMG; smoother DIC; tolerance 5e-8; relTol 0.001; }
   p_rghFinal { $p_rgh; relTol 0; }
   "(U|k|omega).*" { solver smoothSolver; smoother symGaussSeidel;
                     tolerance 1e-7; relTol 0.1; nSweeps 1; }
@@ -497,7 +550,12 @@ PIMPLE {
   // inherited from the previous mesh do not satisfy continuity on
   // the new one, and interFoam will not recover on its own.
   correctPhi yes; moveMeshOuterCorrectors no;
-  nNonOrthogonalCorrectors 0;
+  // MEASURED: runs/kcs_sym carries 11375 severely non-orthogonal faces (max
+  // 86.6) and runs/kcs_free had 1277 (max 90.2) — an unavoidable product of
+  // the post-snappy z-only refinement, whose hanging nodes leave skewed
+  // transitions. Solving that with ZERO non-orthogonal correctors biases the
+  // pressure gradient, and pressure is 49% of our drag. The reference uses 1.
+  nNonOrthogonalCorrectors 1;
 }
 relaxationFactors { equations { ".*" 1; } }
 """
@@ -534,11 +592,11 @@ regions (
 );
 """
 
-TRANSPORT = """FoamFile { version 2.0; format ascii; class dictionary; object transportProperties; }
+TRANSPORT = f"""FoamFile {{ version 2.0; format ascii; class dictionary; object transportProperties; }}
 phases (water air);
-water { transportModel Newtonian; nu 1.09e-06; rho 998.8; }
-air   { transportModel Newtonian; nu 1.48e-05; rho 1.2; }
-sigma 0.07;
+water {{ transportModel Newtonian; nu {_NU_WATER:.6g}; rho {_RHO_WATER:.6g}; }}
+air   {{ transportModel Newtonian; nu {_NU_AIR:.6g}; rho {_RHO_AIR:.6g}; }}
+sigma {_SIGMA_WATER:.6g};
 """
 
 GRAVITY = """FoamFile { version 2.0; format ascii; class uniformDimensionedVectorField; object g; }
@@ -562,9 +620,20 @@ boundaryField {{
   bottom     {{ type slip; }}
   side1      {{ type slip; }}
   side2      {{ type slip; }}
-  hull       {{ type noSlip; }}
+  hull       {{ {hull_u} }}
 }}
 """
+
+# A MOVING wall needs movingWallVelocity, not noSlip. noSlip pins the face
+# velocity to zero in the ABSOLUTE frame and omits the mesh-motion flux, so a
+# hull that is sinking and trimming has a spurious mass flux through its own
+# surface. That is the leading suspect for runs/kcs_free dying on timestep 1:
+# pcorr ground through 254 iterations, then the alpha solve hit its iteration
+# ceiling unconverged. The Wolf Dynamics KCS reference uses movingWallVelocity
+# on the hull in BOTH its fixed and its free case; we keep noSlip when the mesh
+# does not move, where the two are equivalent and noSlip is clearer.
+_HULL_U_FIXED = "type noSlip;"
+_HULL_U_MOVING = "type movingWallVelocity; value uniform (0 0 0);"
 
 FIELD_P_RGH = """FoamFile { version 2.0; format ascii; class volScalarField; object p_rgh; }
 dimensions [1 -1 -2 0 0 0 0];
@@ -928,9 +997,19 @@ def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
         loc_x=-1.97 * lwl, loc_z=0.137 * lwl,
         loc_y=0.31 * lwl if symmetric else 0.0)
 
-    # turbulence inlet: I = 2%, length scale 1% LWL
-    k_in = 1.5 * (0.02 * speed) ** 2 + 1e-8
-    w_in = k_in ** 0.5 / (0.09 ** 0.25 * 0.01 * lwl)
+    # TURBULENCE INLET. The length scale is 1% of the BOUNDARY LAYER, not 1% of
+    # the ship. MEASURED against the Wolf Dynamics KCS reference (k 7.233e-4,
+    # omega 60.78): their inlet eddy viscosity is nu_t/nu = 11.9; ours was
+    # 1968 — 165x — because the scale was 0.01*Lwl = 72.8 mm instead of ~0.8 mm,
+    # and omega 1.35 1/s barely decays before reaching the hull. Excess
+    # freestream nu_t thickens the boundary layer and RAISES skin friction,
+    # which is the direction our C_T error already points (we over-predict).
+    # delta ~ 0.37 L Re^-0.2 is the flat-plate estimate; 1% of it is the scale.
+    re_l = max(speed * lwl / _NU_WATER, 1e4)
+    delta = 0.37 * lwl * re_l ** -0.2
+    turb_len = 0.01 * delta
+    k_in = 1.5 * (0.01 * speed) ** 2 + 1e-8      # I = 1%, matching the reference
+    w_in = k_in ** 0.5 / (0.09 ** 0.25 * turb_len)
 
     sysd, cons, zero = out / "system", out / "constant", out / "0.orig"
     # Checkpoint ~10 times per run. On a machine that thermal-sleeps mid-run
@@ -938,12 +1017,25 @@ def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
     # ~1.7 h of fine-grid wall time thrown away each time. purgeWrite 3 keeps
     # the disk bounded regardless.
     write_int = max(end_time / 10.0, 0.5)
-    # Aref for the coefficient: the wetted surface the CFD actually sees.
+    # Aref must be the area the PATCH INTEGRAL actually covers, so a symmetric
+    # case gets HALF the hull's wetted surface. MEASURED on runs/kcs_sym at
+    # t=13.7063: forceCoeffs reported Cd 2.2158e-3 while force.dat gives
+    # 4.4316e-3 — exactly 2x, because the STL spans the full beam while the
+    # patch is half of it. gate2m.py is correct (it doubles the drag and uses
+    # the full-hull area); forceCoeffs was silently wrong on EVERY symmetric
+    # run, which disabled the independent cross-check that exists precisely to
+    # catch a factor-of-two.
     from .post import stl_wetted_area
     try:
         aref = stl_wetted_area(out / 'constant' / 'triSurface' / 'hull.stl', 0.0)
-    except Exception:
-        aref = 1.0
+        if symmetric:
+            aref *= 0.5
+    except Exception as exc:
+        # Falling back to 1.0 silently turns every reported coefficient into
+        # the raw force with a plausible-looking name. Refuse instead.
+        raise RuntimeError(
+            f"cannot compute Aref from the hull STL, so forceCoeffs would be "
+            f"meaningless: {exc}") from exc
     sysd.joinpath("controlDict").write_text(
         CONTROL_DICT.format(end_time=end_time, dt=0.001, write_int=write_int,
                             speed_abs=abs(speed), lwl=lwl,
@@ -992,7 +1084,8 @@ def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
     cons.joinpath("transportProperties").write_text(TRANSPORT)
     cons.joinpath("g").write_text(GRAVITY)
     cons.joinpath("turbulenceProperties").write_text(TURBULENCE)
-    zero.joinpath("U").write_text(FIELD_U.format(u=speed))
+    zero.joinpath("U").write_text(FIELD_U.format(
+        u=speed, hull_u=_HULL_U_MOVING if free_motion else _HULL_U_FIXED))
     zero.joinpath("p_rgh").write_text(FIELD_P_RGH)
     zero.joinpath("alpha.water").write_text(FIELD_ALPHA)
     zero.joinpath("k").write_text(FIELD_K.format(k_in=f"{k_in:.3e}"))

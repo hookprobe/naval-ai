@@ -39,6 +39,17 @@ def cell_count(case: Path) -> int | None:
     return None
 
 
+def _is_symmetric(case: Path) -> bool:
+    """True when case.info records a half-domain. Missing receipt => full."""
+    info = case / "case.info"
+    if not info.exists():
+        return False
+    for line in info.read_text().splitlines():
+        if line.startswith("symmetric="):
+            return line.split("=", 1)[1].strip().lower() == "true"
+    return False
+
+
 def yplus_report(case: Path) -> str | None:
     """Last y+ line for the hull patch, if the yPlus function object ran.
 
@@ -83,6 +94,14 @@ def main() -> None:
             print(f"{g:8} MISSING (no forces under {args.root}/{g})")
             continue
         mean, std = mean_resistance(f, args.tail)
+        # A SYMMETRIC CASE MEASURES HALF THE HULL. gate2m.py doubles the drag
+        # from case.info; this script had NO symmetric handling at all, and
+        # runs/kcs_gci IS symmetric — so every number it printed for that
+        # triplet was exactly half, which is the "single easiest way to be
+        # exactly 2x wrong" that gate2m's own docstring warns about. Read the
+        # same receipt gate2m reads.
+        if _is_symmetric(Path(args.root) / g):
+            mean, std = 2.0 * mean, 2.0 * std
         means[g] = mean
         # settledness: drift between the two halves of the averaging tail;
         # > ~5% means the run is not stationary yet -> extend end-time
