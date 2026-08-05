@@ -144,3 +144,124 @@ def test_mission_parser_floor():
 def test_mission_parser_defaults_are_flagged():
     m = parse_mission("a nice boat please")
     assert "displacement" in m.notes and "speed" in m.notes
+
+
+# --------------------------------------------------------------------------
+# Weight / CG model — the spine BuildPlan2 tiers E and F feed into.
+# --------------------------------------------------------------------------
+
+def test_draft_is_measured_from_the_keel_not_inverted():
+    """`t_mean = t_design - wl` was inverted; it is exact only at wl = 0, which
+    is why every test passed. MEASURED on the mid hull: at wl = -0.40 the
+    volume collapses to 1.088 m^3 (barely immersed) while draft was reported
+    as 0.95 m — LARGER than the 0.55 m at wl = 0. Immersion is wl + t_design.
+
+    It propagated: cb = vol/(lwl*bmax*t_mean) came out ~0.11 instead of ~0.34,
+    and evaluate() feeds that cb to form_factor(), so the frictional form
+    factor was wrong at any off-design waterline.
+    """
+    from navalai.geometry import Hull
+    from navalai.hydrostatics import solve
+    from tests.test_phase0 import mid_params
+
+    h = Hull(mid_params())
+    t_design = -float(h.z_keel.min())
+
+    prev_vol = prev_draft = None
+    for wl in (0.3, 0.1, 0.0, -0.1, -0.3):
+        s = solve(h, wl=wl)
+        assert s.draft == pytest.approx(wl + t_design, abs=1e-9), wl
+        if prev_vol is not None:
+            # falling waterline => less volume AND less draft, together
+            assert s.volume < prev_vol, wl
+            assert s.draft < prev_draft, wl
+        prev_vol, prev_draft = s.volume, s.draft
+    assert solve(h, wl=0.0).draft == pytest.approx(t_design)
+
+
+def test_weight_items_reproduce_the_scalar_budget_exactly():
+    """Positioning the masses must not move them. If the item list and the old
+    five-bucket budget ever disagree on total or KG, one of them is wrong and
+    'one weight model, one truth' is already broken.
+    """
+    from navalai.energy import EnergySpec, weight_budget, weight_items
+    from navalai.geometry import Hull
+    from navalai.weights import aggregate
+    from tests.test_phase0 import mid_params
+
+    h = Hull(mid_params())
+    lwl, depth, t_design = float(h.x[-1]), 1.55, -float(h.z_keel.min())
+    surf, deck, spec = h.wetted_surface(0.0) * 1.6, h.deck_area(), EnergySpec()
+
+    wb = weight_budget(lwl, depth, surf, deck, spec)
+    agg = aggregate(weight_items(lwl, depth, surf, deck, spec, t_design))
+
+    assert agg.total_kg == pytest.approx(wb.total_kg, rel=1e-12)
+    assert agg.vcg_above_keel(t_design) == pytest.approx(wb.kg_above_keel,
+                                                         rel=1e-12)
+    # and the model now knows things it could not express before
+    assert 0.0 < agg.lcg_m < lwl
+    assert agg.tcg_m == pytest.approx(0.0)
+    assert agg.sigma_kg > 0.0
+
+
+def test_moving_mass_moves_the_centre_of_gravity_analytically():
+    """The whole point: a berth moved aft must move the CG, by the amount
+    statics says. Previously mass had no position, so an arrangement could not
+    trim or list the boat at all.
+    """
+    from navalai.weights import MassItem, aggregate
+
+    base = [MassItem("hull", 4000.0, x_m=5.0, z_m=-0.2),
+            MassItem("berth", 500.0, x_m=5.0, z_m=0.4)]
+    moved = [base[0], MassItem("berth", 500.0, x_m=7.0, z_m=0.4)]
+
+    a, b = aggregate(base), aggregate(moved)
+    # dLCG = m*d / total
+    assert b.lcg_m - a.lcg_m == pytest.approx(500.0 * 2.0 / 4500.0, rel=1e-12)
+    assert b.vcg_m == pytest.approx(a.vcg_m)          # z unchanged
+
+    # asymmetry produces a real TCG, which used to be inexpressible
+    listed = aggregate([base[0], MassItem("galley", 500.0, x_m=5.0, z_m=0.4,
+                                          y_m=1.2)])
+    assert listed.tcg_m == pytest.approx(500.0 * 1.2 / 4500.0, rel=1e-12)
+
+
+def test_slack_tank_raises_g_by_the_free_surface_moment():
+    """A slack tank raises G virtually by rho*i_t/displacement. For a wide flat
+    tank this is the difference between clearing a category GM floor and not,
+    so it is modelled rather than assumed small.
+    """
+    from navalai.weights import MassItem, aggregate
+
+    i_t = 0.9 * 0.6 ** 3 / 12.0                      # box tank l*b^3/12
+    items = [MassItem("hull", 4000.0, x_m=5.0, z_m=-0.2),
+             MassItem("water", 200.0, x_m=4.0, z_m=-0.3,
+                      fluid_rho=1000.0, fsm_i_t_m4=i_t, slack=True)]
+    agg = aggregate(items)
+    assert agg.free_surface_moment == pytest.approx(1000.0 * i_t)
+    assert agg.free_surface_correction() == pytest.approx(
+        1000.0 * i_t / 4200.0, rel=1e-12)
+
+    # a PRESSED tank has no free surface and must not be charged for one
+    pressed = aggregate([items[0],
+                         MassItem("water", 200.0, x_m=4.0, z_m=-0.3,
+                                  fluid_rho=1000.0)])
+    assert pressed.free_surface_correction() == 0.0
+
+
+def test_aggregate_refuses_to_invent_a_displacement():
+    """Honesty rule 1 applied to mass: an empty list is not zero mass, it is an
+    unanswered question. A silently-zero aggregate would float the boat on
+    nothing.
+    """
+    from navalai.weights import MassItem, aggregate
+
+    with pytest.raises(ValueError):
+        aggregate([])
+    with pytest.raises(ValueError):
+        MassItem("bad-tier", 10.0, x_m=1.0, z_m=0.0, tier="L9")
+    with pytest.raises(ValueError):
+        MassItem("negative", -1.0, x_m=1.0, z_m=0.0)
+    with pytest.raises(ValueError):
+        MassItem("slack-no-fsm", 10.0, x_m=1.0, z_m=0.0, slack=True)

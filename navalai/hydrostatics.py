@@ -48,7 +48,16 @@ def solve(hull: Hull, rho: float = RHO_WATER, wl: float = 0.0) -> HydroState:
     bm = ixx / vol
     bmax = 2.0 * float(b.max())
     lwl_eff = float(x[a > 1e-6].max() - x[a > 1e-6].min()) if (a > 1e-6).any() else 1e-9
-    t_mean = t_design - wl
+    # Immersion is measured from the KEEL (z = -t_design) up to the waterline
+    # plane (z = wl), so it is wl + t_design. The sign was inverted, which is
+    # exact only at wl = 0 — which is why every test passed. MEASURED on the
+    # mid hull: at wl = -0.40 the volume collapses to 1.088 m^3 (barely
+    # immersed) while draft was reported as 0.95 m, LARGER than the 0.55 m at
+    # wl = 0. It propagates: cb = vol/(lwl*bmax*t_mean) was then ~0.11 instead
+    # of ~0.34, and evaluate() feeds that cb to form_factor(), so the friction
+    # form factor k came out ~0.03 instead of ~0.29 — a large error in
+    # frictional resistance at any off-design waterline.
+    t_mean = t_design + wl
     cb = vol / max(lwl_eff * bmax * t_mean, 1e-12)
     amax = float(a.max()) * 2.0
     cp = vol / max(amax * lwl_eff, 1e-12)

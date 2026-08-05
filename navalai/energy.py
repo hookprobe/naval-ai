@@ -59,6 +59,50 @@ def weight_budget(lwl: float, depth: float, hull_surface: float,
                         total, kg)
 
 
+# Longitudinal placement of each bucket as a fraction of LWL from the transom.
+# Declared rather than assumed: previously there was no LCG at all, so these
+# were implicitly "wherever you like" and an arrangement could not trim the
+# boat. They reproduce a conventional distribution — machinery and tanks aft of
+# midships, accommodation amidships, payload slightly aft — and tiers E/F will
+# replace them item by item with real positions.
+LCG_FRACTION = {"structure": 0.50, "battery": 0.45, "panels": 0.52,
+                "outfit": 0.50, "payload": 0.48}
+# Vertical placement as a fraction of depth above the keel (the stack that used
+# to be inlined in weight_budget's kg calculation).
+VCG_FRACTION = {"structure": 0.55, "battery": 0.15, "panels": 1.02,
+                "outfit": 0.60, "payload": 0.70}
+
+
+def weight_items(lwl: float, depth: float, hull_surface: float,
+                 deck_area: float, spec: EnergySpec, t_design: float,
+                 panel_thickness_m: float = 0.015) -> list:
+    """The same five buckets, as positioned MassItems.
+
+    Same masses and the same VCG fractions as `weight_budget`, so nothing moves
+    numerically — this only gives each bucket a position so tiers E and F can
+    add to the SAME list instead of a parallel model. z is returned in the hull
+    frame (0 at the design waterline), which is why t_design is subtracted.
+    """
+    from .weights import MassItem
+
+    wb = weight_budget(lwl, depth, hull_surface, deck_area, spec,
+                       panel_thickness_m)
+    masses = {"structure": wb.structure_kg, "battery": wb.battery_kg,
+              "panels": wb.panel_kg, "outfit": wb.outfit_kg,
+              "payload": wb.payload_kg}
+    items = []
+    for name, m in masses.items():
+        items.append(MassItem(
+            id=name, mass_kg=m,
+            x_m=LCG_FRACTION[name] * lwl,
+            z_m=VCG_FRACTION[name] * depth - t_design,
+            # 15% on a first-principles build estimate; payload is the owner's
+            # to declare, so it carries none.
+            sigma_kg=0.0 if name == "payload" else 0.15 * m,
+            tier="L1", source="energy.weight_budget", basis="approx"))
+    return items
+
+
 @dataclass(frozen=True)
 class EnergyReport:
     speed: float
