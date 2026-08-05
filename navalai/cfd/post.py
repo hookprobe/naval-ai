@@ -66,35 +66,67 @@ def parse_forces_components(path: str | Path):
 
 
 def forces_path(case: str | Path) -> Path:
-    """Force history for a case, merging RESTART segments into one file.
+    """Force history for a case, merging every RESTART artefact into one file.
 
-    A run interrupted by thermal sleep and resumed writes a fresh
-    postProcessing/forces/<restart-time>/force.dat; reading only the `0/`
-    directory would silently analyse the pre-crash fragment and report it as
-    the whole run. Segments are concatenated in time order and later samples
-    win where they overlap (the resumed run recomputed them).
+    OpenFOAM produces restart fragments in TWO different ways, and missing
+    either one reports a fragment as the whole run:
+
+    1. A run resumed at a later time writes a fresh
+       postProcessing/forces/<restart-time>/force.dat.
+    2. A run restarted at the SAME start time does NOT overwrite force.dat —
+       it writes force_0.dat, then force_1.dat, beside it.
+
+    (2) bit us on KCS: force.dat held 18 lines from a run that had DIVERGED
+    (t=0.44542 repeated with forces escalating 1e11 -> 1e18 -> 1e24) while the
+    live 266-line run sat in force_0.dat next to it, and forces_path returned
+    the corpse. Both are collected here; where two files cover the same time,
+    the later-written one wins, because that is the run that superseded it.
     """
     root = Path(case) / "postProcessing" / "forces"
-    segs = sorted((d for d in root.glob("*/force.dat")),
-                  key=lambda p: float(p.parent.name))
+    segs = sorted(root.glob("*/force*.dat"),
+                  key=lambda p: (float(p.parent.name), _restart_index(p)))
+    segs = [s for s in segs if s.name != "force.merged.dat"]
     if not segs:
-        raise FileNotFoundError(f"no force.dat under {root}")
+        raise FileNotFoundError(f"no force*.dat under {root}")
     if len(segs) == 1:
         return segs[0]
 
     rows: dict[float, str] = {}
     for seg in segs:
+        seg_rows: dict[float, str] = {}
         for line in seg.read_text().splitlines():
             s = line.strip()
             if not s or s.startswith("#"):
                 continue
             try:
-                rows[float(_NUM.findall(s)[0])] = s
+                seg_rows[float(_NUM.findall(s)[0])] = s
             except (IndexError, ValueError):
                 continue
+        if not seg_rows:
+            continue
+        # RESTART SEMANTICS: a run that starts at t0 invalidates everything
+        # from t0 onward — those samples belong to an attempt that was
+        # superseded. Merging by per-sample overwrite is not enough: the dead
+        # KCS run had diverged at t=0.44542 (1e24 N) and the live re-run never
+        # sampled that exact instant, so the garbage survived the merge and sat
+        # in the record as the largest force in the history.
+        t0 = min(seg_rows)
+        rows = {t: r for t, r in rows.items() if t < t0}
+        rows.update(seg_rows)
     merged = root / "force.merged.dat"
     merged.write_text("\n".join(rows[t] for t in sorted(rows)) + "\n")
     return merged
+
+
+def _restart_index(p: Path) -> int:
+    """Order force.dat < force_0.dat < force_1.dat ... by write order."""
+    stem = p.stem
+    if "_" not in stem:
+        return -1
+    try:
+        return int(stem.rsplit("_", 1)[1])
+    except ValueError:
+        return -1
 
 
 def mean_resistance(path: str | Path, tail_frac: float = 0.3) -> tuple[float, float]:

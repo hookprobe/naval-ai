@@ -319,3 +319,68 @@ def test_case_writes_forceCoeffs_as_an_independent_cross_check():
     active = "\n".join(l for l in cd.splitlines()
                         if not l.strip().startswith("//"))
     assert "rho rhoInf;" not in active, "forces must use the real rho field"
+
+
+def test_restart_supersedes_the_attempt_it_replaced(tmp_path):
+    """A re-run must invalidate the samples of the attempt it replaced.
+
+    Found on KCS 2026-08-05. OpenFOAM restarting at the SAME start time does
+    not overwrite force.dat — it writes force_0.dat beside it. forces_path only
+    globbed `*/force.dat`, so it returned an 18-line corpse from a run that had
+    DIVERGED (t=0.44542 repeated, forces escalating 1e11 -> 1e18 -> 1e24) while
+    the live 266-line run sat in force_0.dat next to it.
+
+    Merging per-sample is not enough either: the live run never sampled that
+    exact instant, so 6.6e24 N survived the merge as the largest force in the
+    history — in the code path that produces the headline validation number.
+    """
+    d = tmp_path / "case" / "postProcessing" / "forces" / "0"
+    d.mkdir(parents=True)
+    hdr = "# Time total_x total_y total_z p_x p_y p_z v_x v_y v_z\n"
+
+    def row(t, fx):
+        return f"{t} {fx} 0 0 {fx} 0 0 0 0 0\n"
+
+    # the corpse: diverges, and repeats one instant three times
+    (d / "force.dat").write_text(
+        hdr + row(0.1, -200.0) + row(0.44542, 3.15e11)
+        + row(0.44542, 1.48e18) + row(0.44542, 6.63e24))
+    # the live re-run, from the beginning, healthy
+    (d / "force_0.dat").write_text(
+        hdr + "".join(row(0.01 + 0.5 * i, -60.0 - i) for i in range(20)))
+
+    from navalai.cfd import post
+
+    t, fx = post.parse_forces(post.forces_path(tmp_path / "case"))
+    assert max(abs(v) for v in fx) < 1e4, "a superseded divergence survived"
+    assert max(t) > 9.0, "the live run was not read"
+    assert not any(abs(v - 0.44542) < 1e-9 for v in t), "corpse sample kept"
+
+
+def test_later_restart_keeps_the_earlier_prefix(tmp_path):
+    """The other restart shape: resumed at a LATER time after a thermal nap.
+
+    Here the earlier segment is real data and must be kept up to the restart
+    instant — only samples at or after it are superseded.
+    """
+    root = tmp_path / "case" / "postProcessing" / "forces"
+    hdr = "# Time total_x total_y total_z p_x p_y p_z v_x v_y v_z\n"
+
+    def row(t, fx):
+        return f"{t} {fx} 0 0 {fx} 0 0 0 0 0\n"
+
+    (root / "0").mkdir(parents=True)
+    (root / "0" / "force.dat").write_text(
+        hdr + "".join(row(0.5 * i, -100.0) for i in range(1, 11)))   # to t=5.0
+    (root / "3").mkdir(parents=True)
+    (root / "3" / "force.dat").write_text(
+        hdr + "".join(row(3.0 + 0.5 * i, -80.0) for i in range(0, 5)))
+
+    from navalai.cfd import post
+
+    t, fx = post.parse_forces(post.forces_path(tmp_path / "case"))
+    assert min(t) == pytest.approx(0.5), "the pre-nap prefix was dropped"
+    assert max(t) == pytest.approx(5.0)
+    # everything from the restart instant on comes from the resumed run
+    assert all(f == pytest.approx(-80.0) for tt, f in zip(t, fx) if tt >= 3.0)
+    assert all(f == pytest.approx(-100.0) for tt, f in zip(t, fx) if tt < 3.0)

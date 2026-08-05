@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -42,15 +43,20 @@ from navalai.mission import MissionSpec
 
 def mesh_one(case: Path, np_procs: int = 1) -> dict:
     """blockMesh + surfaceFeatureExtract + snappyHexMesh + checkMesh."""
-    sh = (f"blockMesh -case {case} > {case}/l.bm 2>&1; "
-          f"surfaceFeatureExtract -case {case} > {case}/l.sf 2>&1; "
-          f"snappyHexMesh -overwrite -case {case} > {case}/l.sn 2>&1; "
-          f"checkMesh -case {case} > {case}/l.cm 2>&1")
+    # Run THE pipeline, not a copy of it. This used to inline
+    # blockMesh+snappy+checkMesh, which silently diverged the day meshing became
+    # staged (refine -> snap -> z-refine -> layers): it would have measured a
+    # layerless mesh and reported it as the unattended success rate.
+    runner = Path(__file__).resolve().parents[1] / "navalai/cfd/run-case.sh"
     t0 = time.time()
-    subprocess.run(["openfoam", "bash", "-c", sh], capture_output=True,
-                   timeout=7200)
-    cm = (case / "l.cm").read_text() if (case / "l.cm").exists() else ""
-    sn = (case / "l.sn").read_text() if (case / "l.sn").exists() else ""
+    subprocess.run(["openfoam", str(runner), str(case), str(np_procs)],
+                   capture_output=True, timeout=7200,
+                   env={**os.environ, "MESH_ONLY": "1"})
+    cm = (case / "log.checkMesh").read_text() if (case / "log.checkMesh").exists() else ""
+    sn = ""
+    for name in ("log.snappy.layers", "log.snappy"):
+        if (case / name).exists():
+            sn += (case / name).read_text()
 
     def grab(pat, text=None, cast=float, default=None):
         m = re.search(pat, text if text is not None else cm)
@@ -65,7 +71,14 @@ def mesh_one(case: Path, np_procs: int = 1) -> dict:
     wrong_n = grab(r"Error in face pyramids: (\d+) faces are incorrectly",
                    cast=int, default=0)
     cells = grab(r"cells:\s+(\d+)", cast=int, default=-1)
-    layers = re.findall(r"Added \d+ out of \d+ cells \(([\d.]+)%\)", sn)
+    # Layer coverage is the `patch faces layers avg thickness` table snappy
+    # prints at the END of the layer pass, as a MEAN LAYER COUNT. The
+    # "Added N out of M cells" lines are castellation iterations and read as
+    # 0.3% on a patch that is in fact fully layered.
+    from navalai.cfd.case import _MAX_LAYERS
+    lm = re.findall(r"^hull\s+(\d+)\s+([\d.]+)\s+([\d.eE+-]+)\s+([\d.eE+-]+)",
+                    sn, re.M)
+    layers = [100.0 * float(a[1]) / _MAX_LAYERS for a in lm]
     return {
         "cells": cells,
         "zero_volume_cells": zero,
@@ -75,8 +88,45 @@ def mesh_one(case: Path, np_procs: int = 1) -> dict:
         "failed_checks": grab(r"Failed (\d+) mesh checks", cast=int, default=0),
         "layer_pct": max((float(a) for a in layers), default=-1.0),
         "seconds": round(time.time() - t0, 1),
-        # the bar: a mesh interFoam will actually start on
+        # PROXY bar, kept for continuity with the earlier 75% measurement.
         "meshed": zero == 0 and wrong_n == 0 and cells > 0,
+    }
+
+
+def solve_one(case: Path, np_procs: int = 1) -> dict:
+    """Does interFoam actually run on this mesh? — the gate's REAL bar.
+
+    The proxy above (no zero-volume, no wrongly-oriented faces) turned out not
+    to predict it in either direction: the KCS case solves happily with 5
+    wrongly-oriented faces, and an own-hull mesh with a PERFECT checkMesh
+    (0 zero-volume, 0 wrongly-oriented, skew 3.44, 100% layer coverage) is
+    reported here alongside it. So measure the thing itself.
+
+    NOTE for whoever writes the next detector: do NOT test for the substring
+    "Floating point" in the log. Every interFoam log contains
+    "trapFpe: Floating point exception trapping enabled" in its BANNER, which
+    made a clean 0.5 s run read as a crash and briefly convinced me the whole
+    hull family was unsolvable. Judge by the time actually reached.
+    """
+    runner = Path(__file__).resolve().parents[1] / "navalai/cfd/run-case.sh"
+    t0 = time.time()
+    subprocess.run(["openfoam", str(runner), str(case), str(np_procs)],
+                   capture_output=True, timeout=7200)
+    log = case / "log.interFoam"
+    text = log.read_text() if log.exists() else ""
+    times = [float(m) for m in re.findall(r"^Time = ([\d.eE+-]+)", text, re.M)]
+    end = float(subprocess.run(
+        ["openfoam", "foamDictionary", "-entry", "endTime", "-value",
+         str(case / "system/controlDict")],
+        capture_output=True, text=True).stdout.strip() or 0)
+    reached = times[-1] if times else 0.0
+    return {
+        "solve_end_time": end,
+        "solve_reached": reached,
+        "solve_steps": len(times),
+        "fatal": "--> FOAM FATAL" in text,
+        "solve_seconds": round(time.time() - t0, 1),
+        "solves": bool(end) and reached >= end - 1e-9 and "--> FOAM FATAL" not in text,
     }
 
 
@@ -89,6 +139,9 @@ def main() -> int:
     ap.add_argument("--out", default=None, help="where cases go (temp if unset)")
     ap.add_argument("--keep", action="store_true", help="keep failing cases")
     ap.add_argument("--json", default=None, help="write the full record here")
+    ap.add_argument("--solve", type=float, default=0.0,
+                    help="also solve each case to this endTime [s] and report "
+                         "the rate that actually RUNS (the gate's real bar)")
     args = ap.parse_args()
 
     root = Path(args.out) if args.out else Path("/tmp/mesh_robustness")
@@ -107,9 +160,12 @@ def main() -> int:
     for i, x in enumerate(X):
         case = root / f"h{i:03d}"
         try:
-            write_resistance_case(Hull(x), args.speed, case, end_time=1.0,
+            write_resistance_case(Hull(x), args.speed, case,
+                                  end_time=args.solve or 1.0,
                                   scale=args.scale, np_procs=1)
             r = mesh_one(case)
+            if args.solve:
+                r.update(solve_one(case))
         except Exception as exc:                       # generation itself failed
             r = {"cells": -1, "zero_volume_cells": -1, "layer_pct": -1.0,
                  "max_skewness": -1.0, "seconds": 0.0, "meshed": False,
@@ -118,12 +174,21 @@ def main() -> int:
         rows.append(r)
         print(f"{i:3d} {r['cells']:9d} {r['layer_pct']:7.1f} "
               f"{r['zero_volume_cells']:8d} {r['max_skewness']:8.2f} "
-              f"{r['seconds']:6.1f}  {'ok' if r['meshed'] else 'FAILED'}")
+              f"{r['seconds']:6.1f}  {'ok' if r['meshed'] else 'FAILED'}"
+              + (f"  {'RUNS' if r.get('solves') else 'no-run'}"
+                 f" (t={r.get('solve_reached', 0):.3g})" if args.solve else ""))
         if r["meshed"] and not args.keep:
             shutil.rmtree(case, ignore_errors=True)
 
     ok = sum(1 for r in rows if r["meshed"])
     rate = 100.0 * ok / max(len(rows), 1)
+    if args.solve:
+        sok = sum(1 for r in rows if r.get("solves"))
+        srate = 100.0 * sok / max(len(rows), 1)
+        print(f"SOLVES to t={args.solve}: {sok}/{len(rows)} = {srate:.1f}%  "
+              f"(the gate's real bar)")
+        print(f"clean-checkMesh proxy:   {ok}/{len(rows)} = {rate:.1f}%  "
+              f"(reported for continuity with the earlier 75% figure)")
     print("-" * 62)
     print(f"meshed unattended: {ok}/{len(rows)} = {rate:.1f}%   "
           f"(plan bar >=95% on 200 hulls; this is N={len(rows)})")
