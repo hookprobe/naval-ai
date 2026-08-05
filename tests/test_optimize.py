@@ -22,3 +22,30 @@ def test_small_pareto_run_yields_feasible_diverse_front():
     assert max(whs) > min(whs) * 1.02
     # all in-bounds
     assert (res.X >= grammar.LOW - 1e-9).all() and (res.X <= grammar.HIGH + 1e-9).all()
+
+
+def test_optimizer_gm_floor_matches_the_rules_tier():
+    """PLM platform law: a product may configure the kernel, never bypass a
+    gate. The GM floor was hard-coded TWICE — 0.35 m in optimize.py and, for
+    category C, 0.45 m in ISO 12217 — and the copies drifted. NSGA-II
+    optimised to its own 0.35 bar and returned a GM 0.40 m hull: feasible by
+    its constraint, and then FAILED R-GM at the rules gate. The optimizer was
+    not "starving stability" — GM is both an objective and a constraint there.
+    It hit exactly the bar it was given, and the bar was wrong.
+    """
+    from navalai.mission import MissionSpec
+    from navalai.optimize import HullProblem, LatentHullProblem
+    from navalai.rules.iso12217 import gm_floor
+
+    for cat in ("A", "B", "C", "D"):
+        p = HullProblem(MissionSpec(design_category=cat))
+        assert p.gm_floor == gm_floor(cat), cat
+    # category C is the regression that motivated this
+    assert gm_floor("C") == 0.45
+    assert HullProblem(MissionSpec(design_category="C")).gm_floor == 0.45
+
+    # the latent problem must not drift either
+    class _G:
+        W = np.zeros((15, 8))
+    assert LatentHullProblem(MissionSpec(design_category="C"), _G()).gm_floor \
+        == gm_floor("C")

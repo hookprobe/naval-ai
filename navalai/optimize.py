@@ -19,6 +19,7 @@ from . import grammar
 from .evaluate import evaluate
 from .geometry import Hull
 from .mission import MissionSpec
+from .rules.iso12217 import gm_floor
 
 
 class HullProblem(Problem):
@@ -27,6 +28,12 @@ class HullProblem(Problem):
 
     def __init__(self, mission: MissionSpec):
         self.mission = mission
+        # Read the SAME floor the rules tier judges by, for the mission's own
+        # design category. These were two hard-coded copies (0.35 here, 0.45
+        # in ISO 12217 cat C) and they drifted, so the optimizer returned
+        # GM 0.40 m hulls that were feasible by its constraint and then failed
+        # R-GM at the gate.
+        self.gm_floor = gm_floor(mission.design_category)
         super().__init__(n_var=grammar.N_PARAMS, n_obj=3, n_ieq_constr=3,
                          xl=grammar.LOW, xu=grammar.HIGH)
 
@@ -41,7 +48,7 @@ class HullProblem(Problem):
             build_area = hull.wetted_surface(float(hull.z_sheer.max())) + hull.deck_area()
             F[i] = (ev.energy.wh_per_nm, build_area, -ev.gm_m)
             # buildability is a constraint, not a wish: 15 mm ply cold-bend
-            Gc[i] = (0.25 - ev.hydro.freeboard_min, 0.35 - ev.gm_m,
+            Gc[i] = (0.25 - ev.hydro.freeboard_min, self.gm_floor - ev.gm_m,
                      80.0 * 0.015 - hull.min_bend_radius())
         out["F"] = F
         out["G"] = Gc
@@ -54,6 +61,7 @@ class LatentHullProblem(Problem):
     def __init__(self, mission: MissionSpec, genome, z_range: float = 2.5):
         self.mission = mission
         self.genome = genome
+        self.gm_floor = gm_floor(mission.design_category)   # same source
         q = genome.W.shape[1]
         super().__init__(n_var=q, n_obj=3, n_ieq_constr=3,
                          xl=-z_range * np.ones(q), xu=z_range * np.ones(q))
@@ -70,7 +78,7 @@ class LatentHullProblem(Problem):
             build_area = hull.wetted_surface(float(hull.z_sheer.max())) + hull.deck_area()
             F[i] = (ev.energy.wh_per_nm, build_area, -ev.gm_m)
             # buildability is a constraint, not a wish: 15 mm ply cold-bend
-            Gc[i] = (0.25 - ev.hydro.freeboard_min, 0.35 - ev.gm_m,
+            Gc[i] = (0.25 - ev.hydro.freeboard_min, self.gm_floor - ev.gm_m,
                      80.0 * 0.015 - hull.min_bend_radius())
         out["F"] = F
         out["G"] = Gc
