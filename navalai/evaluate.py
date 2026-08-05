@@ -22,7 +22,7 @@ from .limits import (FREEBOARD_FLOOR_M, LIST_LIMIT_DEG, TRIM_LIMIT_DEG,
 from .mission import MissionSpec
 from .resistance import ResistanceResult, total_resistance
 from .rules.iso12215 import select_stock_thickness_m
-from .weights import MassAggregate, aggregate, trim_angle_deg
+from .weights import MassAggregate, MassItem, aggregate, trim_angle_deg
 
 
 # The ladder's inequality constraints, in one place, as g <= 0 == feasible.
@@ -50,6 +50,7 @@ class Evaluation:
     resistance: ResistanceResult | None = None
     energy: EnergyReport | None = None
     ply_thickness_m: float = 0.0    # DERIVED from ISO 12215-5, not declared
+    unaccounted_frac: float = 0.0   # displacement with no declared position
     eval_ms: float = 0.0
     badges: dict = field(default_factory=dict)   # quantity -> (tier, sigma)
     g: dict = field(default_factory=dict)        # constraint -> value, <=0 feasible
@@ -113,9 +114,34 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
     shell = hull.wetted_surface(0.0) * 1.6      # computed once, not twice
     deck = hull.deck_area()
     wb = weight_budget(p["LWL"], p["D"], shell, deck, mission.energy, t_ply)
-    agg = aggregate(weight_items(p["LWL"], p["D"], shell, deck, mission.energy,
-                                 t_design, t_ply))
+    items = weight_items(p["LWL"], p["D"], shell, deck, mission.energy,
+                         t_design, t_ply)
+    # THE UNACCOUNTED MASS IS DECLARED, NOT HIDDEN IN A max().
+    # `target = max(budget, mission_target)` floated the hull at the mission's
+    # displacement while KG, LCG and trim were computed from the budget alone.
+    # MEASURED at the 6 t mission: 3230 kg — 54% of displacement — had no
+    # declared position (77% at 12 t), and KG stayed pinned at 0.9330 m while
+    # GM swung 3.80 -> 1.78 -> 0.78 m across those targets. Every stability
+    # verdict, including the ISO R-GM pass, rested on a mass model that did not
+    # sum to the displacement.
+    #
+    # It is placed at the aggregate's OWN centre, so it moves no centre it has
+    # no right to move — putting it low would flatter GM, putting it high would
+    # punish it, and we do not know which is true. What it carries instead is a
+    # 50% sigma, so the ignorance is visible in the badge rather than absent
+    # from the model. Tier E/F arrangements will replace it item by item.
+    provisional = aggregate(items)
+    gap_kg = mission.displacement_target_kg - provisional.total_kg
+    if gap_kg > 0.0:
+        items.append(MassItem(
+            id="unaccounted", mass_kg=gap_kg,
+            x_m=provisional.lcg_m, z_m=provisional.vcg_m, y_m=0.0,
+            sigma_kg=0.5 * gap_kg, tier="L1",
+            source="mission displacement target minus the modelled budget",
+            basis="approx"))
+    agg = aggregate(items)
     target = max(agg.total_kg, mission.displacement_target_kg)
+    unaccounted_frac = gap_kg / max(target, 1e-9) if gap_kg > 0.0 else 0.0
     try:
         hs, wl = solve_to_displacement(hull, target, rho)
     except ValueError as e:
@@ -172,13 +198,22 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
         ok=len(viol) == 0, tier="L1", violations=tuple(viol), hydro=hs, wl=wl,
         weights=wb, masses=agg, gm_m=gm_m, gm_l_m=gm_l_m,
         trim_deg=trim, list_deg=heel, resistance=res, energy=en, g=g,
-        ply_thickness_m=t_ply,
+        ply_thickness_m=t_ply, unaccounted_frac=unaccounted_frac,
         eval_ms=(time.perf_counter() - t0) * 1e3,
+        # Sigmas that are DERIVED carry it; sigmas that are still a declared
+        # fraction say so. The mass model computes a real sigma
+        # (`agg.sigma_kg`, 178 kg / 6.4% on the reference hull, and much larger
+        # once the unaccounted mass declares its 50%) and evaluate() used to
+        # throw it away in favour of a flat 0.02*disp — a decoration in a
+        # column documented as one-sigma. KG uncertainty now reaches GM through
+        # the mass lever, so a boat whose weights are poorly known reports a
+        # correspondingly vague GM instead of a confident one.
         badges={
-            "displacement": ("L1", 0.02 * hs.disp_kg),
-            "GM": ("L1", 0.15 * abs(gm_m) + 0.05),
-            "resistance": ("L1", res.uncertainty),
-            "wh_per_nm": ("L1", en.wh_per_nm * 0.30),
+            "displacement": ("L1", agg.sigma_kg, "measured"),
+            "GM": ("L1", agg.sigma_kg / max(agg.total_kg, 1e-9)
+                   * abs(kg) + 0.05, "measured"),
+            "resistance": ("L1", res.uncertainty, "measured"),
+            "wh_per_nm": ("L1", en.wh_per_nm * 0.30, "assumed"),
         },
     )
 

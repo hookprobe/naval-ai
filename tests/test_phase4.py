@@ -76,9 +76,14 @@ def test_slider_eval_p95_under_100ms():
         assert out["tier"] == "L1"
     p95 = float(np.percentile(times, 95))
     assert p95 < 100.0, f"slider p95 {p95:.1f} ms"
-    # fidelity badges are mandatory on every quantity
+    # fidelity badges are mandatory on every quantity. `basis` joined the
+    # envelope: a band the user reads must declare whether it was PROPAGATED
+    # from a model or asserted as a fraction of its own value. The audit found
+    # every sigma in the UI was the latter — freeboard a constant 0.02,
+    # wh_per_nm literally 0.30 x value — which is a decoration, not a band.
     for q in out["quantities"].values():
-        assert set(q) == {"value", "tier", "sigma"}
+        assert set(q) == {"value", "tier", "sigma", "basis"}
+        assert q["basis"] in ("measured", "assumed")
 
 
 def test_http_server_smoke():

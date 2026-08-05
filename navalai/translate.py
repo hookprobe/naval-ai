@@ -18,6 +18,7 @@ from dataclasses import dataclass, replace
 from typing import Callable
 
 import json
+import math
 
 from .energy import EnergySpec
 from .evaluate import Evaluation
@@ -53,31 +54,63 @@ Mission: """
 def sanitize(raw: dict, floor: MissionSpec) -> MissionSpec:
     """Schema-filter + clamp an untrusted dict onto the rule-based floor."""
     m = replace(floor)
+    notes = [floor.notes] if floor.notes else []
     for k, (lo, hi) in _FIELD_RANGES.items():
         if k in raw:
             try:
                 val = float(raw[k])
-            except (TypeError, ValueError):
+                # NaN survives min/max: every comparison against it is False,
+                # so `min(max(nan, lo), hi)` returns nan and a nan
+                # displacement target then made evaluate() return ok=True with
+                # no violations while floating the hull at its own budget — a
+                # 6 t mission silently became a 2.8 t boat. Reject non-finite
+                # BEFORE clamping. `int()` moved inside the guard because
+                # int(float('nan')) raises, and sanitize() is public API.
+                if not math.isfinite(val):
+                    notes.append(f"LLM sent a non-finite {k}; floor kept")
+                    continue
+                val = min(max(val, lo), hi)
+                setattr(m, k, int(val) if k == "crew" else val)
+            except (TypeError, ValueError, OverflowError):
                 continue
-            val = min(max(val, lo), hi)
-            setattr(m, k, int(val) if k == "crew" else val)
-    if str(raw.get("design_category", "")).upper() in DESIGN_CATEGORIES:
-        m.design_category = str(raw["design_category"]).upper()
+
+    # DESIGN CATEGORY RATCHETS ONE WAY: stricter wins, never weaker.
+    # Gate 5's bar is "zero pathways for the LLM to mutate geometry or OVERRIDE
+    # A GATE". MEASURED: on an ocean brief the deterministic floor parses
+    # category A (GM floor 0.60 m); an LLM returning {"design_category":"D"}
+    # was accepted verbatim and the floor became 0.35 m — a 42% relaxation of a
+    # stability bar, with no note. `parse_mission` already detects exactly this
+    # conflict; sanitize() bypassed it. 'A' < 'B' < 'C' < 'D' orders severest
+    # first, so min() is the ratchet.
+    cat = str(raw.get("design_category", "")).upper()
+    if cat in DESIGN_CATEGORIES:
+        if cat > floor.design_category:
+            notes.append(f"LLM proposed category {cat}, weaker than the "
+                         f"rule-based floor {floor.design_category}; floor kept")
+        m.design_category = min(cat, floor.design_category)
+
     if isinstance(raw.get("waters"), str) and raw["waters"]:
-        m.waters = raw["waters"][:60]
+        # Whitelist: the raw string was persisted and echoed verbatim, so a
+        # payload could carry control characters and markup into the record.
+        m.waters = "".join(c for c in raw["waters"][:60]
+                           if c.isalnum() or c in " ,.+/-")
     e_raw = raw.get("energy") or {}
     if isinstance(e_raw, dict):
         e_kw = {}
         for k, (lo, hi) in _ENERGY_RANGES.items():
             if k in e_raw:
                 try:
-                    e_kw[k] = min(max(float(e_raw[k]), lo), hi)
-                except (TypeError, ValueError):
+                    v = float(e_raw[k])
+                    if not math.isfinite(v):
+                        continue
+                    e_kw[k] = min(max(v, lo), hi)
+                except (TypeError, ValueError, OverflowError):
                     pass
         if e_kw:
             base = {f: getattr(m.energy, f) for f in EnergySpec.__dataclass_fields__}
             base.update(e_kw)
             m.energy = EnergySpec(**base)
+    m.notes = "; ".join(n for n in notes if n)
     return m
 
 

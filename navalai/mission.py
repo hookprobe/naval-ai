@@ -57,7 +57,13 @@ def parse_mission(text: str) -> MissionSpec:
     cannot parse stays at a safe default and is listed in .notes. The LoRA
     translator (Phase 5, BuildPlan) plugs in above this floor; research finding
     S1.5: base LLMs are unreliable at structured params without fine-tuning."""
-    t = text.lower().replace(",", ".")
+    # Thousands separators are stripped BEFORE the decimal-comma substitution.
+    # MEASURED: "a 6,000 kg river cruiser" parsed to 6.000 kg and "1,500 kg"
+    # to 1.500 kg, because `.replace(",", ".")` ran over the whole string and
+    # `_NUM` then matched "6.000" as a decimal. `notes` came back EMPTY, so it
+    # read as a clean parse, and evaluate()'s max(budget, target) quietly
+    # substituted the weight model for the displacement the user asked for.
+    t = re.sub(r"(?<=\d),(?=\d{3}(?!\d))", "", text.lower()).replace(",", ".")
     m = MissionSpec(name=text.strip()[:70])
     unparsed = []
 
