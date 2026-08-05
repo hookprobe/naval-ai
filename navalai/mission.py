@@ -47,6 +47,9 @@ class MissionSpec:
 # --- deterministic keyword translator (rule-based floor; LLM hook sits above) --
 
 _NUM = r"(\d+(?:[.,]\d+)?)"
+# Unit separator: a space, a hyphen, or nothing. "9-metre" and "3-tonne" are
+# ordinary English and were silently unparsed while `\s*` only spanned spaces.
+_SEP = r"[\s-]*"
 
 
 def parse_mission(text: str) -> MissionSpec:
@@ -58,19 +61,19 @@ def parse_mission(text: str) -> MissionSpec:
     m = MissionSpec(name=text.strip()[:70])
     unparsed = []
 
-    if g := re.search(_NUM + r"\s*(?:t|tonne|tons?)\b", t):
+    if g := re.search(_NUM + _SEP + r"(?:tonnes?|tons?|t)\b", t):
         m.displacement_target_kg = float(g.group(1)) * 1000.0
-    elif g := re.search(_NUM + r"\s*kg\b", t):
+    elif g := re.search(_NUM + _SEP + r"kg\b", t):
         m.displacement_target_kg = float(g.group(1))
     else:
         unparsed.append("displacement (default 6 t)")
 
-    if g := re.search(_NUM + r"\s*(?:m|meter|metre)s?\b", t):
+    if g := re.search(_NUM + _SEP + r"(?:metres?|meters?|m)\b", t):
         m.lwl_hint_m = float(g.group(1))
 
-    if g := re.search(_NUM + r"\s*(?:kn|knot)s?", t):
+    if g := re.search(_NUM + _SEP + r"(?:knots?|kn)\b", t):
         m.cruise_speed_kn = float(g.group(1))
-    elif g := re.search(_NUM + r"\s*km/?h", t):
+    elif g := re.search(_NUM + _SEP + r"km/?h", t):
         m.cruise_speed_kn = float(g.group(1)) / 1.852
     else:
         unparsed.append("cruise speed (default 5 kn)")
@@ -88,11 +91,11 @@ def parse_mission(text: str) -> MissionSpec:
     else:
         unparsed.append("waters (default category C)")
 
-    if g := re.search(r"(\d+)\s*(?:crew|people|persons|berths)", t):
+    if g := re.search(r"(\d+)" + _SEP + r"(?:crew|people|persons|berths)", t):
         m.crew = int(g.group(1))
 
     solar = "solar" in t
-    if g := re.search(_NUM + r"\s*kwh", t):
+    if g := re.search(_NUM + _SEP + r"kwh", t):
         m.energy = EnergySpec(battery_kwh=float(g.group(1)))
     if solar and m.energy.battery_kwh == 30.0:
         pass  # defaults already solar-electric

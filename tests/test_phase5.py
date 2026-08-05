@@ -101,3 +101,37 @@ def test_requirement_grading_end_to_end():
     assert names["gm-floor"]["pass"] == (ev.gm_m >= 0.35)
     # every requirement carries clause provenance
     assert all(r["clause"] for r in report["requirements"])
+
+
+def test_mission_parser_handles_ordinary_english_units():
+    """Gate 5 regression, found by running the end-to-end demo (2026-08-05).
+
+    Two silent parse failures, both of which fell back to a DEFAULT rather than
+    erroring — the worst failure mode for a mission translator, because the
+    pipeline then optimises confidently for the wrong boat:
+
+      "3 tonnes"  -> 6000 kg (the default).  The alternation was
+                     (?:t|tonne|tons?)\\b: `t` fails the word boundary,
+                     `tonne` fails on the trailing s, `tons?` fails on the
+                     second n. The plural of "tonne" simply never matched.
+      "9-metre"   -> lwl_hint_m None.  The separator was \\s*, which cannot
+                     span a hyphen, though hyphenated units are ordinary
+                     English.
+    """
+    from navalai.mission import parse_mission
+
+    cases = [
+        # (text, displacement_kg, lwl_hint_m, cruise_kn)
+        ("6 tonne solar-electric liveaboard, 10 m, cruise 5 knots", 6000, 10.0, 5.0),
+        ("12 m dayboat, 3 tonnes, 6 knots", 3000, 12.0, 6.0),      # was 6000
+        ("a 9-metre cruiser, 4 t", 4000, 9.0, None),               # was None
+        ("7-tonne 11-metre trawler at 8 knots", 7000, 11.0, 8.0),  # both hyphenated
+        ("5000 kg launch, 6 m, 7 kn", 5000, 6.0, 7.0),
+        ("2 ton tender, 5 meters", 2000, 5.0, None),
+    ]
+    for text, disp, lwl, kn in cases:
+        s = parse_mission(text)
+        assert s.displacement_target_kg == disp, (text, s.displacement_target_kg)
+        assert s.lwl_hint_m == lwl, (text, s.lwl_hint_m)
+        if kn is not None:
+            assert s.cruise_speed_kn == kn, (text, s.cruise_speed_kn)
