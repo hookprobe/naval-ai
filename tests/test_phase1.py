@@ -115,8 +115,17 @@ def test_l1_evaluation_complete_and_fast():
     assert ev.energy.wh_per_nm > 0
     assert ev.gm_m is not None
     assert set(ev.badges) >= {"displacement", "GM", "resistance", "wh_per_nm"}
-    for _q, (tier, sigma) in ev.badges.items():
-        assert tier == "L1" and sigma > 0    # honesty: every number has a band
+    # honesty rule 1, tightened: every number carries a band AND says whether
+    # that band was PROPAGATED or merely declared. The audit found every sigma
+    # in the system was a hard-coded fraction of its own value while the one
+    # real uncertainty the mass model computes (agg.sigma_kg) was discarded —
+    # a band that is always 0.30 x value is a decoration, and calling it
+    # 'one-sigma' in the provenance DB was the dishonest part.
+    for _q, (tier, sigma, basis) in ev.badges.items():
+        assert tier == "L1" and sigma > 0
+        assert basis in ("measured", "assumed")
+    assert ev.badges["displacement"][2] == "measured", (
+        "displacement sigma must come from the weight model, not a fraction")
     # Gate 1 timing: warm evaluation under 50 ms
     evaluate(mid_params(), m)
     t0 = time.perf_counter()

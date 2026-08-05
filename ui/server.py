@@ -13,6 +13,7 @@ badge is not optional (BuildPlan honesty rule 1).
 from __future__ import annotations
 
 import json
+import math
 import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -100,9 +101,19 @@ def eval_payload(params: dict, mission_d: dict | None) -> dict:
     return out
 
 
-def _q(value: float, tier: str, sigma: float) -> dict:
+def _q(value: float, tier: str, sigma: float, basis: str = "assumed") -> dict:
+    """One quantity, badged. `basis` distinguishes a PROPAGATED sigma from a
+    declared fraction of the value — the audit found every band in the UI was
+    the latter (freeboard a constant 0.02, wh_per_nm literally 0.30 x value),
+    which is a decoration, not an uncertainty. Saying which is which costs one
+    string and stops the band being read as a measurement it is not."""
+    if not math.isfinite(value) or not math.isfinite(sigma):
+        # honesty rule 1: a non-finite quantity is a refusal, not a number.
+        # NaN is also not valid JSON (RFC 8259) and was being emitted raw.
+        return {"value": None, "tier": tier, "sigma": None,
+                "basis": basis, "state": "non-finite — refused"}
     return {"value": round(float(value), 3), "tier": tier,
-            "sigma": round(float(sigma), 3)}
+            "sigma": round(float(sigma), 3), "basis": basis}
 
 
 class Handler(BaseHTTPRequestHandler):
