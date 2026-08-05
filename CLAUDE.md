@@ -276,23 +276,56 @@ these was a real drift found by measurement, not a style preference:
 
 ## WHERE TO PICK UP (end of 2026-08-05 Mac session)
 
-1. **KCS solve is RUNNING** — `runs/kcs_iso`, 75 s (5 flow-throughs), ~16 h at
-   637k cells, resumable via `scripts/run_campaign.sh runs/kcs_iso 10`. When it
-   lands: `python -c "from navalai.cfd import post"` -> Ct against EFD
-   3.711e-3, and cross-check with the `forceCoeffs` FO (it caught the force
-   double-counting bug once already). Then `scripts/yplus_wetted.py` — with
-   full layer coverage the wetted y+ should finally be assessable.
-2. **Gate 2U re-measure** was launched on the fixed mesher
-   (`scripts/mesh_robustness.py --n 16`). It was 75% (2 of 8 hulls produced
-   zero-volume or wrongly-oriented faces) — the exact failure the isotropy fix
-   removes, so this is the gate most likely to flip GREEN. Bar is >=95%.
-3. Then the GCI triplet (scale 1, sqrt2, 2 — family verified r = 1.4175/1.4109)
-   and `data/baselines.json`, which still does not exist.
-4. Then: L3 into provenance (tier 'L3') + co-kriging L1->L3; parallel tracks
-   diffusion (PyTorch-MPS) and LoRA (mlx-lm), both GPU — OpenFOAM never uses it.
+**Gate 2M is now MACHINE-CHECKED, not prose.** `scripts/gate2m.py <case-or-root>`
+computes C_T, compares it to the KRISO EFD 3.711e-3 and the Tokyo-2015 scatter
+band, runs Roache GCI over a triplet, and prints PASS/FAIL. It REFUSES a verdict
+it cannot support: an unsettled grid (drift > 5% over the last fifth) is excluded
+and reported, and fewer than three grids gives "C_T comparison only, NO GCI".
 
-Still RED and honestly so: Gate 2M (needs the number above), Gate 2U (needs the
-re-measure), Gate 6R (REVIEW-GATED, needs a qualified human — not a code task).
+    python scripts/gate2m.py runs/kcs_sym        # live, single grid
+    python scripts/gate2m.py runs/kcs_gci        # the triplet, when it exists
+
+**Running now:** `runs/kcs_sym` — symmetric, 241,946 cells, 75 s, ~6.1 h,
+resumable (`openfoam scripts/run_campaign.sh runs/kcs_sym 10`).
+
+Two cost fixes that were sitting unused and cost 2.6x on every experiment:
+- `--symmetric` on make_case.py. The hull IS symmetric, so the full-width domain
+  computed a mirror image of itself: 637k cells -> 242k, 16.2 h -> 6.1 h.
+- `_FS_BOX["z"]` 0.05 -> 0.025. The fine band was +-0.36 m against a wave field
+  of roughly +-0.06 m — six times taller than the physics occupies.
+
+Then, in order:
+1. When `runs/kcs_sym` settles, `scripts/gate2m.py` gives the single-grid C_T.
+2. Build the triplet (`make_case.py --triplet --symmetric`) for the GCI. Budget
+   honestly: medium is ~3x coarse and fine ~8x, so ~3 days on this Mac.
+3. **Free sinkage and trim.** KCS Case 2.1 is towed FREE to sink and trim; we
+   solve FIXED. We are comparing against a different condition, and it is a
+   known part of the error. Needs `rigidBodyMotion` — code, not compute.
+4. Gate 2U against the bar it actually claims (`mesh_robustness.py --solve`),
+   not the clean-checkMesh proxy, which MEASURED as not predictive in either
+   direction: KCS solves with 5 wrongly-oriented faces, and an own-hull mesh
+   with a perfect checkMesh is in the same batch.
+5. Second anchor (Fridsma hard-chine, or DSYHS). KCS will never validate chine,
+   transom or spray physics — Gate 2M green is not small-craft validation.
+
+### Rendering: the free-surface isosurface does NOT work on refineMesh cells
+
+`scripts/render_case.py` produces noise on any case with `_REFINE_ROUNDS > 0`.
+Hanging-node cells are POLYHEDRA and ParaView cannot contour them; MergeBlocks,
+Tetrahedralize and ResampleToImage+mask were all tried and all failed. The older
+`renders/medium-t40-fixed.png` is clean because that mesh had no such cells.
+
+This is COSMETIC. The physics was verified numerically instead, and is sound:
+MEASURED on `runs/kcs_iso` at t=7.5 — **2.6 interface cells per column** (a clean
+VOF interface is 2-4), 45.4% water / 50.7% air, alpha bounded -6e-5..1, Phase-1
+volume constant to 0.005%. Do not re-diagnose the interface from the picture.
+
+Two render bugs that WERE real and are fixed: the hull patch selector is
+`/Root/boundary/hull` (NOT `/Root/patch/hull`, which silently yields 0 cells),
+and `ColorBy(disp, None)` throws on this ParaView — it was caught and reduced to
+a one-line note, so every wave render was produced with NO HULL IN IT. A missing
+hull and a broken interface at the hull then look identical, which is exactly the
+distinction the picture exists to make. Both now fail loudly.
 
 
 ## Verification

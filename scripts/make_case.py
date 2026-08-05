@@ -32,6 +32,9 @@ def main() -> None:
     ap.add_argument("--out", required=True)
     ap.add_argument("--speed", type=float, default=2.57)
     ap.add_argument("--end-time", type=float, default=40.0)
+    ap.add_argument("--symmetric", action="store_true",
+                help="half domain on y=0 (type symmetry). The hull is symmetric, so the other half computes a mirror image and tells us nothing: HALF the cells "
+                     "for the same answer.")
     ap.add_argument("--np", type=int, default=8, dest="np_procs")
     ap.add_argument("--scale", type=float, default=1.0)
     ap.add_argument("--triplet", action="store_true",
@@ -50,13 +53,13 @@ def main() -> None:
         def gen(out, s):
             return write_resistance_case_from_stl(
                 args.stl, args.lwl, args.speed, out, args.end_time, s,
-                args.np_procs)
+                args.np_procs, symmetric=args.symmetric)
     else:
         hull = Hull(grammar.vector(REFERENCE))
 
         def gen(out, s):
             return write_resistance_case(hull, args.speed, out,
-                                         args.end_time, s, args.np_procs)
+                                         args.end_time, s, args.np_procs, symmetric=args.symmetric)
 
     if args.triplet:
         for name, s in (("coarse", 1.0), ("medium", 2 ** 0.5), ("fine", 2.0)):
