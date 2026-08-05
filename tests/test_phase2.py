@@ -228,3 +228,88 @@ def test_tank_deepens_with_speed_instead_of_faking_deep_water(tmp_path):
         m = write_resistance_case(h, speed, tmp_path / f"u{speed}")
         half_lambda = math.pi * speed ** 2 / 9.81
         assert m["tank_depth"] >= half_lambda, (speed, m["tank_depth"])
+
+
+def _kcs_or_skip():
+    stl = Path(__file__).parents[1] / "data/benchmark_geom/kcs.stl"
+    if not stl.exists():
+        pytest.skip("KCS geometry not generated (see benchmarks/kcs.py recipe)")
+    return str(stl)
+
+
+def _background_cell(case):
+    """(dx, dy, dz) of the ungraded core blockMesh cell, in metres."""
+    d = (Path(case) / "system/blockMeshDict").read_text()
+    body = d[d.index("vertices"):d.index("blocks")]
+    verts = [tuple(map(float, m)) for m in re.findall(
+        r"\(\s*(-?[\d.eE+-]+)\s+(-?[\d.eE+-]+)\s+(-?[\d.eE+-]+)\s*\)", body)]
+    xs = sorted({v[0] for v in verts})
+    ys = sorted({v[1] for v in verts})
+    zs = sorted({v[2] for v in verts})
+    blocks = re.findall(
+        r"hex \([^)]*\)\s*\((\d+)\s+(\d+)\s+(\d+)\)\s*simpleGrading \(([^)]*)\)", d)
+    nx, ny, _, _ = blocks[0]
+    core = [(int(nz), i) for i, (_, _, nz, g) in enumerate(blocks)
+            if [float(v) for v in g.split()] == [1.0, 1.0, 1.0]]
+    assert core, "no ungraded core block -- the hull would sit in graded cells"
+    dz = min((zs[i + 1] - zs[i]) / nz for nz, i in core)
+    return (xs[-1] - xs[0]) / int(nx), (ys[-1] - ys[0]) / int(ny), dz
+
+
+# ---------------------------------------------------------------------------
+# Incident (2026-08-05): snappyHexMesh could not refine the hull past level
+# (2,3). Level (3,4) produced 3 zero-volume and 49 wrongly-oriented faces,
+# (4,5) produced 149 and 938, and checkMesh "Failed 5 mesh checks". Weeks of
+# snapControls/addLayers tuning changed nothing, because the cause was not in
+# either control set: the BACKGROUND CELL was 606 x 910 x 16 mm, a 38:1 slab.
+# snappyHexMesh refines ISOTROPICALLY (hexRef8 halves all three edges), so the
+# aspect ratio is PRESERVED at every level while the height shrinks in
+# absolute terms. Snap displacement scales with the LONG edge, so a few-mm
+# move was several cell-heights and folded the cell inside out.
+#
+# The fix derives dz from dx so the background is near-cubic; free-surface
+# thinness now comes from `refineMesh` in z ONLY, run AFTER snappy, which
+# never hands hexRef8 an anisotropic cell to snap. Measured after the fix:
+# (2,3)/(3,4)/(4,5) all give 0 zero-volume and 0 wrongly-oriented faces, and
+# layer coverage rose from 32% to 75%.
+def test_background_cell_is_near_isotropic(tmp_path):
+    from navalai.cfd import case as C
+
+    lwl, speed = 7.2786, 2.196
+    meta = C.write_resistance_case_from_stl(
+        _kcs_or_skip(), lwl, speed, tmp_path / "iso",
+        end_time=1.0, scale=1.0, np_procs=2)
+
+    dx, dy, dz = _background_cell(tmp_path / "iso")
+    aspect = max(dx, dy, dz) / min(dx, dy, dz)
+    assert aspect <= 3.0, (
+        f"background cell {dx*1e3:.0f} x {dy*1e3:.0f} x {dz*1e3:.0f} mm "
+        f"= {aspect:.1f}:1. snappy refines isotropically, so this ratio "
+        f"survives to every level and folds cells during snapping.")
+
+
+def test_refine_mesh_uses_a_valid_direction():
+    # The enum is (tan1 tan2 normal). `tan3` looks obvious and is FATAL:
+    # "tan3 is not in enumeration". It cost a full 75 s solve on an unrefined
+    # free surface, because run-case.sh swallowed the error (see next test).
+    from navalai.cfd import case as C
+    directions = re.search(r"directions\s*\(([^)]*)\)", C.REFINE_MESH).group(1)
+    for d in directions.split():
+        assert d in {"tan1", "tan2", "normal"}, f"invalid refineMesh direction {d!r}"
+
+
+def test_refine_mesh_failure_is_fatal():
+    # A refinement the case ASKED for that silently did not happen is a WRONG
+    # mesh, not a degraded one — it must not reach the solver.
+    script = (Path(__file__).parents[1] / "navalai/cfd/run-case.sh").read_text()
+    loop = script[script.index("refineMesh -dict"):][:200]
+    assert "exit 1" in loop, "a failed refineMesh round must abort the run"
+
+
+def test_stale_octree_levels_are_dropped_before_decompose():
+    # snappy leaves cellLevel/pointLevel in 0/ as well as constant/polyMesh;
+    # refineMesh -overwrite updates only the latter, so decomposePar died with
+    # "Size 230265 is not equal to the expected length 920407".
+    script = (Path(__file__).parents[1] / "navalai/cfd/run-case.sh").read_text()
+    assert "0/cellLevel" in script and "0/pointLevel" in script
+    assert script.index("0/cellLevel") < script.index("decomposePar -force")

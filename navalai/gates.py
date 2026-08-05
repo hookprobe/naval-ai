@@ -28,7 +28,12 @@ GATES = [
     ("Gate F", "panel unroll/DXF + Pareto dash + handoff receipt",
      "tests/test_stageF.py", None),
     ("Gate 2M", "KCS/JBC OpenFOAM calibration w/ per-case GCI",
-     None, "RED (measured 2026-08-05): KCS C_t 9.33e-3 vs EFD 3.711e-3, E%D -151%, outside the Tokyo-2015 scatter. Cause: only 16.3% of WETTED faces inside 30<=y+<=300. Not softened - see benchmarks/kcs.py"),
+     None, "RED (re-measured 2026-08-05 after fixing a force-parser bug): "
+     "C_t 4.283e-3 vs EFD 3.711e-3 = -15.4%, still outside the Tokyo-2015 "
+     "scatter 3.620-3.733e-3 (needs -14.7% to reach its top). The earlier "
+     "-151% figure was OUR double-counting bug, not the CFD. Remaining gap is "
+     "an ordinary coarse-mesh RANS error: 306k cells, y+ median 2475, fixed "
+     "sinkage/trim where Case 2.1 is free. No GCI triplet yet."),
     ("Gate 2U", "unattended meshing (plan: >=95% of a 200-hull batch)",
      None, "RED (measured 2026-08-05, N=8): 75.0% meshed unattended. 2 of 8 "
      "hulls produced zero-volume cells or wrongly oriented faces, both of "

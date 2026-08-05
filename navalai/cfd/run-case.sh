@@ -85,12 +85,20 @@ ROUNDS=0
 for _f in system/topoSetDict.*; do [ -e "$_f" ] && ROUNDS=$((ROUNDS + 1)); done
 if [ "$ROUNDS" -gt 0 ]; then
   for i in $(seq 1 "$ROUNDS"); do
-    say "free-surface refine round $i/$ROUNDS (x,y only, hull shielded) ..."
+    say "free-surface refine round $i/$ROUNDS (z only, hull shielded) ..."
     topoSet -dict "system/topoSetDict.$i" > "log.topoSet.$i" 2>&1 || \
-      { say "topoSet round $i failed — skipping remaining rounds"; break; }
+      { say "FATAL: topoSet round $i failed — see log.topoSet.$i"; exit 1; }
     refineMesh -dict system/refineMeshDict -overwrite > "log.refineMesh.$i" 2>&1 || \
-      { say "refineMesh round $i failed — skipping remaining rounds"; break; }
+      { say "FATAL: refineMesh round $i failed — see log.refineMesh.$i"; exit 1; }
   done
+
+  # snappy leaves its octree bookkeeping (cellLevel/pointLevel/polyMesh) in 0/
+  # as well as constant/polyMesh. refineMesh -overwrite updates only the latter,
+  # so 0/ keeps a cellLevel sized for the PRE-refinement mesh and decomposePar
+  # dies with "Size 230265 is not equal to the expected length 920407". These
+  # are mesh topology, not initial conditions — the mesh in constant/ is the
+  # authority, so drop the stale copies.
+  rm -rf 0/cellLevel 0/pointLevel 0/polyMesh 0/refinementHistory 0/surfaceIndex
 fi
 
 say "checkMesh ..."
