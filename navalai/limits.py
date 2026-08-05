@@ -36,8 +36,37 @@ FREEBOARD_FLOOR_M = 0.25
 # multiple of it. These two are consumed by the optimizer's bend constraint AND
 # by the weight model's panel thickness; keeping them together stops the sheet
 # changing in one place without the bend limit following.
+#
+# PLY_THICKNESS_M is the NOMINAL stock sheet — topsides, deck, and the floor for
+# anything the scantling rule does not size. It is NOT the bottom-panel
+# thickness. MEASURED 2026-08-05: ISO 12215-5 wants 15 mm only below
+# mLDC = 845 kg, so this sheet failed the platform's own rule for EVERY SKU in
+# PLM.md (Dayboat 1-3 t needs 15.2-16.9 mm, the 6 t Solar Liveaboard 18.24 mm).
+# The demo hid it by hand-passing provided_mm=20.0 — a fourth thickness that
+# existed nowhere else. The bottom panel is now DERIVED from the rule
+# (`rules.iso12215.select_stock_thickness_m`) instead of declared here, so the
+# contradiction is impossible by construction rather than by discipline.
 PLY_THICKNESS_M = 0.015
 BEND_RADIUS_RATIO = 80.0
+
+# Marine plywood is sold in discrete sheets, so a derived requirement of
+# 18.24 mm means you buy 21 mm and carry its weight. Rounding UP to stock is
+# what makes the derived thickness a buildable number rather than an arithmetic
+# result. Extend this tuple, do not round the requirement down to meet it.
+STOCK_PLY_THICKNESS_M = (0.006, 0.009, 0.012, 0.015, 0.018, 0.021, 0.025)
+
+# Transverse frame spacing [m] = the ISO 12215-5 panel short span `b`.
+# It lived as a bare 400 mm default inside the scantling checker while
+# `engineer.py` built bulkheads 1.4 m apart and modelled no frames between
+# them, so the two modules described different boats: at 1400 mm the same rule
+# wants 63.8 mm of plywood. One number, consumed by both.
+FRAME_SPACING_M = 0.40
+
+# ISO default person mass [kg]. It was declared only inside the rules tier,
+# where it drove the offset-load heel, while the weight budget carried a flat
+# 800 kg payload regardless of crew — so a 12-crew boat put 1020 kg on the rail
+# for the stability check and floated at exactly the 2-crew displacement.
+CREW_MASS_KG = 85.0
 
 
 def gm_floor(category: str) -> float:

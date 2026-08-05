@@ -60,8 +60,13 @@ def test_type_check_runs_before_geometry():
 # ---------------- bend radius ----------------
 
 def test_reference_hull_is_buildable():
+    # Imported, not retyped: `80.0 * 0.015` here was a third copy of the
+    # bend limit, and it would have gone on passing after the sheet became
+    # a DERIVED quantity — silently checking a boat we no longer build.
+    from navalai.limits import min_bend_radius_m
+
     h = Hull(mid_params())
-    assert h.min_bend_radius() > 80.0 * 0.015
+    assert h.min_bend_radius() > min_bend_radius_m()
 
 
 def test_extreme_rocker_flags_bend_limit():

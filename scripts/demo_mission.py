@@ -54,8 +54,14 @@ def main() -> None:
     for r in reqs["requirements"]:
         print(f"  [{'PASS' if r['pass'] else 'FAIL'}] {r['name']}: {r['detail']}")
 
+    # mLDC is the LOADED DISPLACEMENT, not the weight budget — feeding the
+    # budget (2769 kg where the boat floats at 6004 kg) under-specified the
+    # bottom panel by 8%. And the provided thickness is the DERIVED sheet the
+    # ladder actually built with; this line used to hand-pass 20.0 mm, a number
+    # that appeared nowhere else and was the only value that made R-TBM pass.
     rr = report(stability(ev, m.design_category, m.crew, p["BWL"])
-                + scantling(ev.weights.total_kg, provided_mm=20.0))
+                + scantling(ev.hydro.disp_kg,
+                            provided_mm=ev.ply_thickness_m * 1e3))
     print(f"\nrules tier R ({rr['disclaimer']}): {rr['passed']}/{rr['total']} pass")
     for f in rr["findings"]:
         print(f"  [{'PASS' if f['passed'] else 'FAIL'}] {f['rule_id']} "

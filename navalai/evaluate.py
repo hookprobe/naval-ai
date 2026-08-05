@@ -17,10 +17,11 @@ from .energy import (EnergyReport, WeightBudget, energy_report, weight_budget,
                      weight_items)
 from .geometry import RHO_WATER, Hull
 from .hydrostatics import HydroState, gm, gm_long, solve_to_displacement
-from .limits import (BEND_RADIUS_RATIO, FREEBOARD_FLOOR_M, LIST_LIMIT_DEG,
-                     PLY_THICKNESS_M, TRIM_LIMIT_DEG, gm_floor)
+from .limits import (FREEBOARD_FLOOR_M, LIST_LIMIT_DEG, TRIM_LIMIT_DEG,
+                     gm_floor, min_bend_radius_m)
 from .mission import MissionSpec
 from .resistance import ResistanceResult, total_resistance
+from .rules.iso12215 import select_stock_thickness_m
 from .weights import MassAggregate, aggregate, trim_angle_deg
 
 
@@ -48,6 +49,7 @@ class Evaluation:
     list_deg: float = 0.0                 # + = heel to starboard
     resistance: ResistanceResult | None = None
     energy: EnergyReport | None = None
+    ply_thickness_m: float = 0.0    # DERIVED from ISO 12215-5, not declared
     eval_ms: float = 0.0
     badges: dict = field(default_factory=dict)   # quantity -> (tier, sigma)
     g: dict = field(default_factory=dict)        # constraint -> value, <=0 feasible
@@ -98,15 +100,27 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
     # no number; it adds LCG, TCG and the free-surface moment, which the checks
     # below then have something to check.
     t_design = -float(hull.z_keel.min())
-    wb = weight_budget(p["LWL"], p["D"], hull.wetted_surface(0.0) * 1.6,
-                       hull.deck_area(), mission.energy)
-    agg = aggregate(weight_items(p["LWL"], p["D"], hull.wetted_surface(0.0) * 1.6,
-                                 hull.deck_area(), mission.energy, t_design))
+    # The bottom panel is DERIVED from ISO 12215-5 at the mission's loaded
+    # displacement and rounded up to a stock sheet — it is not a declared
+    # constant. Before this, `limits.PLY_THICKNESS_M` (15 mm) fed the structural
+    # mass and the bend-radius limit while the same rule independently demanded
+    # 18.24 mm for the same 6 t boat, and nothing in the ladder could see the
+    # contradiction because the only caller that compared them hand-passed a
+    # third value. mLDC is the mission target rather than the weight budget:
+    # ISO's mLDC is the loaded displacement, and using the budget would make the
+    # thickness depend on the mass it is about to change.
+    t_ply = select_stock_thickness_m(mission.displacement_target_kg)
+    shell = hull.wetted_surface(0.0) * 1.6      # computed once, not twice
+    deck = hull.deck_area()
+    wb = weight_budget(p["LWL"], p["D"], shell, deck, mission.energy, t_ply)
+    agg = aggregate(weight_items(p["LWL"], p["D"], shell, deck, mission.energy,
+                                 t_design, t_ply))
     target = max(agg.total_kg, mission.displacement_target_kg)
     try:
         hs, wl = solve_to_displacement(hull, target, rho)
     except ValueError as e:
         return Evaluation(False, "L1", (f"floatation: {e}",), weights=wb,
+                          ply_thickness_m=t_ply,
                           eval_ms=(time.perf_counter() - t0) * 1e3)
 
     # Free-surface correction is a VIRTUAL RISE of G, so it is subtracted from
@@ -123,7 +137,11 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
 
     gm_min = gm_floor(mission.design_category)
     r_min = hull.min_bend_radius()
-    r_req = BEND_RADIUS_RATIO * PLY_THICKNESS_M   # marine-ply cold-bend limit
+    # Call the helper rather than re-deriving it: `min_bend_radius_m` existed
+    # and had no callers while this line recomputed the same product inline.
+    # It now follows the DERIVED sheet, so a boat that needs thicker ply also
+    # gets a larger required bend radius — the coupling limits.py claimed.
+    r_req = min_bend_radius_m(t_ply)
     g = {
         "freeboard": FREEBOARD_FLOOR_M - hs.freeboard_min,
         "gm": gm_min - gm_m,
@@ -138,7 +156,7 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
         "gm": f"GM {gm_m:.2f} m < {gm_min:.2f} m "
               f"(category {mission.design_category} floor, ISO 12217)",
         "bend_radius": f"panel bend radius {r_min:.2f} m < {r_req:.2f} m "
-                       f"({PLY_THICKNESS_M * 1e3:.0f} mm ply cold-bend limit)",
+                       f"({t_ply * 1e3:.0f} mm ply cold-bend limit)",
         "trim": f"static trim {trim:+.2f} deg exceeds {TRIM_LIMIT_DEG:.1f} deg "
                 f"(LCG {agg.lcg_m:.2f} m vs LCB {hs.lcb:.2f} m)",
         "list": f"static list {heel:+.2f} deg exceeds {LIST_LIMIT_DEG:.1f} deg "
@@ -154,6 +172,7 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
         ok=len(viol) == 0, tier="L1", violations=tuple(viol), hydro=hs, wl=wl,
         weights=wb, masses=agg, gm_m=gm_m, gm_l_m=gm_l_m,
         trim_deg=trim, list_deg=heel, resistance=res, energy=en, g=g,
+        ply_thickness_m=t_ply,
         eval_ms=(time.perf_counter() - t0) * 1e3,
         badges={
             "displacement": ("L1", 0.02 * hs.disp_kg),

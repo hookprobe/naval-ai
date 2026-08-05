@@ -12,6 +12,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from .geometry import Hull
+from .limits import FRAME_SPACING_M
 
 SHEET_M2 = 1.22 * 2.44            # standard marine-ply sheet
 WASTE_FACTOR = 1.30               # nesting waste, approx
@@ -24,6 +25,7 @@ BULKHEAD_SPACING_M = 1.4
 class EngineerReport:
     panel_count: int
     bulkheads: int
+    frames: int                   # intermediate transverse frames, at FRAME_SPACING_M
     panel_area_m2: float          # developable shell + deck
     ply_sheets: int
     epoxy_kg: float
@@ -42,7 +44,14 @@ def assess(hull: Hull, wl: float = 0.0) -> EngineerReport:
     lwl = float(hull.x[-1])
     deck_panels = max(2, int(np.ceil(lwl / 2.44)) * 2)
     bulkheads = max(2, int(np.floor(lwl / BULKHEAD_SPACING_M)))
-    panels = 2 + 2 + 1 + deck_panels + bulkheads
+    # The scantling rule sizes the bottom panel for a span of FRAME_SPACING_M.
+    # Nothing used to BUILD that span: bulkheads sat 1.4 m apart with no
+    # intermediate structure, so the rule and the build described different
+    # boats — at 1.4 m the same rule wants 63.8 mm of plywood instead of 21.
+    # The frames the panel thickness presumes are now counted and built.
+    stations = max(1, int(np.floor(lwl / FRAME_SPACING_M)))
+    frames = max(0, stations - bulkheads)
+    panels = 2 + 2 + 1 + deck_panels + bulkheads + frames
 
     # interior: enclosed volume between load WL and sheer
     b_avg = hull.y_sheer            # half-breadth at sheer
@@ -52,7 +61,7 @@ def assess(hull: Hull, wl: float = 0.0) -> EngineerReport:
     sheets = int(np.ceil(area * WASTE_FACTOR / SHEET_M2))
     hours = HOURS_PER_M2 * area * (1.0 + 0.015 * panels)
     return EngineerReport(
-        panel_count=int(panels), bulkheads=bulkheads,
+        panel_count=int(panels), bulkheads=bulkheads, frames=frames,
         panel_area_m2=round(area, 1), ply_sheets=sheets,
         epoxy_kg=round(EPOXY_KG_PER_M2 * area, 1),
         interior_volume_m3=round(interior, 2),
