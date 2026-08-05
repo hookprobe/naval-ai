@@ -16,7 +16,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from navalai import grammar
-from navalai.cfd.case import write_resistance_case
+from navalai.cfd.case import motion_from_geometry, write_resistance_case
 from navalai.geometry import Hull
 
 REFERENCE = {
@@ -32,6 +32,13 @@ def main() -> None:
     ap.add_argument("--out", required=True)
     ap.add_argument("--speed", type=float, default=2.57)
     ap.add_argument("--end-time", type=float, default=40.0)
+    ap.add_argument("--free-motion", action="store_true",
+                help="release the hull in heave and pitch (sinkage and trim). "
+                     "KCS Case 2.1 is towed FREE, so a fixed solve answers a "
+                     "different question than the tank measured.")
+    ap.add_argument("--kg", type=float, default=None,
+                help="VCG above keel [m]. The only mass property a hull shape "
+                     "cannot supply; defaults to VCB (neutral) if omitted.")
     ap.add_argument("--symmetric", action="store_true",
                 help="half domain on y=0 (type symmetry). The hull is symmetric, so the other half computes a mirror image and tells us nothing: HALF the cells "
                      "for the same answer.")
@@ -57,13 +64,25 @@ def main() -> None:
         def gen(out, s):
             return write_resistance_case_from_stl(
                 args.stl, args.lwl, args.speed, out, args.end_time, s,
-                args.np_procs, symmetric=args.symmetric)
+                args.np_procs, symmetric=args.symmetric,
+                                         free_motion=motion)
     else:
         hull = Hull(grammar.vector(REFERENCE))
 
         def gen(out, s):
             return write_resistance_case(hull, args.speed, out,
                                          args.end_time, s, args.np_procs, symmetric=args.symmetric)
+
+    motion = None
+    if args.free_motion:
+        if not args.stl:
+            sys.exit("--free-motion currently needs --stl (mass and LCB come "
+                     "from the geometry)")
+        motion = motion_from_geometry(args.stl, args.lwl, args.symmetric,
+                                      kg_above_keel=args.kg)
+        print(f"free motion: mass {motion['mass']:.1f} kg, "
+              f"CoG ({motion['cog_x']:.3f}, {motion['cog_y']:.3f}, "
+              f"{motion['cog_z']:.3f}), Iyy {motion['iyy']:.0f} kg m^2")
 
     if args.triplet:
         # GCI depends on the RATIO between grids, not their absolute size, so

@@ -372,3 +372,105 @@ def test_mesh_is_froude_similar_at_any_hull_size(tmp_path):
     # ... and the wall spacing follows Reynolds, so it must SHRINK relative to
     # the hull as the hull grows.
     assert ref[-1]["t1_over_L"] < ref[0]["t1_over_L"] / 50
+
+
+# ---------------------------------------------------------------------------
+# Free sinkage and trim (2026-08-05). KCS Case 2.1 is towed FREE to sink and
+# trim; solving it fixed answers a different question than the tank measured,
+# and is a known part of the C_T error. These check the parts that can be
+# silently wrong without the solve ever complaining.
+def test_symmetric_case_carries_half_the_mass(tmp_path):
+    """The halving must live in the generator, not in the caller's head.
+
+    A symmetric case meshes half the hull and therefore feels half the
+    hydrodynamic force. If it carries the FULL mass it accelerates at half the
+    right rate and settles at the wrong sinkage. We already shipped a bug that
+    was exactly 2x wrong for the mirror-image reason (forces on a half model),
+    so this is not hypothetical.
+    """
+    from navalai.cfd.case import sixdof_properties
+
+    kw = dict(mass_kg=1000.0, cog=(3.0, 0.0, -0.1), k_roll=0.4, k_pitch=1.8,
+              k_yaw=1.8, lwl=7.2786, awp_m2=5.9)
+    full = sixdof_properties(symmetric=False, **kw)
+    half = sixdof_properties(symmetric=True, **kw)
+    assert half["mass"] == pytest.approx(0.5 * full["mass"])
+    for i in ("ixx", "iyy", "izz"):
+        assert half[i] == pytest.approx(0.5 * full[i]), i
+    # the centre of mass does NOT move: the half is a mirror of the whole
+    assert half["cog_x"] == full["cog_x"] and half["cog_z"] == full["cog_z"]
+
+
+def test_mass_and_lcg_come_from_the_geometry(tmp_path):
+    """Not from a published percentage — the two can disagree.
+
+    The KCS STL spans 0..7.7165 m against Lpp 7.2786 (bulb and rudder reach
+    past the perpendiculars), so "LCB -1.48% Lpp from midship" cannot even be
+    located in this file's coordinates. The hull knows where its own centre of
+    buoyancy is; ask it, and let mass = rho * volume so the model floats at its
+    own displacement rather than at an asserted one.
+    """
+    import benchmarks.kcs as KCS
+    from navalai.cfd.case import motion_from_geometry
+    from navalai.cfd.post import stl_submerged_properties
+
+    stl = _kcs_or_skip()
+    props = stl_submerged_properties(stl, 0.0)
+    published = KCS.GEOMETRY_CHECK["displacement_m3"]
+    assert props["volume_m3"] == pytest.approx(published, rel=0.01), (
+        f"submerged volume {props['volume_m3']:.4f} m^3 vs published "
+        f"{published:.4f} — geometry pipeline drifted")
+    # a symmetric hull must have TCB on the centreline; this catches a mirror
+    # or a unit error that displacement alone would not
+    assert abs(props["tcb"]) < 1e-3, props["tcb"]
+
+    m = motion_from_geometry(stl, KCS.LPP, symmetric=True, kg_above_keel=0.2303)
+    assert m["cog_x"] == pytest.approx(props["lcb"], rel=1e-9)
+    assert m["cog_y"] == 0.0
+    assert m["mass"] == pytest.approx(0.5 * 998.8 * props["volume_m3"], rel=1e-9)
+
+
+def test_motion_dict_releases_heave_and_pitch_only(tmp_path):
+    """Surge, sway, roll and yaw must stay constrained.
+
+    A hull free in surge accelerates away down the tank; free in roll it falls
+    over at the symmetry plane. Sinkage and trim are the two the tank measured.
+    """
+    import benchmarks.kcs as KCS
+    from navalai.cfd import case as C
+
+    stl = _kcs_or_skip()
+    motion = C.motion_from_geometry(stl, KCS.LPP, symmetric=True,
+                                    kg_above_keel=0.2303)
+    out = tmp_path / "free"
+    C.write_resistance_case_from_stl(stl, KCS.LPP, KCS.DESIGN_SPEED, out,
+                                     end_time=1.0, scale=0.5, np_procs=2,
+                                     symmetric=True, free_motion=motion)
+
+    d = (out / "constant" / "dynamicMeshDict").read_text()
+    assert "sixDoFRigidBodyMotion" in d
+    assert "line; direction (0 0 1)" in d.replace("\n", " "), "heave not released"
+    assert "axis; axis (0 1 0)" in d.replace("\n", " "), "pitch not released"
+    # dampers act on velocity, so they vanish at equilibrium and cannot bias
+    # the converged answer — but they must be present to survive the release
+    assert "linearDamper" in d and "sphericalAngularDamper" in d
+
+    pd = (out / "0.orig" / "pointDisplacement").read_text()
+    assert "hull" in pd and "calculated" in pd
+    # side1 is a `symmetry` patch here and is handled by setConstraintTypes;
+    # declaring it again is a duplicate-entry error at run time
+    assert "setConstraintTypes" in pd
+    assert "side1" not in pd, "symmetry patch must not be declared explicitly"
+
+    # a moving mesh needs correctPhi or the inherited fluxes violate continuity
+    assert "correctPhi yes" in (out / "system" / "fvSolution").read_text()
+
+
+def test_fixed_case_writes_no_motion_dict(tmp_path):
+    from navalai.cfd import case as C
+    out = tmp_path / "fixed"
+    C.write_resistance_case_from_stl(_kcs_or_skip(), 7.2786, 2.196, out,
+                                     end_time=1.0, scale=0.5, np_procs=2,
+                                     symmetric=True)
+    assert not (out / "constant" / "dynamicMeshDict").exists()
+    assert not (out / "0.orig" / "pointDisplacement").exists()

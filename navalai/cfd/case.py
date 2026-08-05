@@ -105,6 +105,93 @@ _NZ_PER_NX = 14.0 / 54.0
 _MAX_LAYERS = 3
 
 
+_G = 9.81   # matches constant/g in the generated case
+
+
+def sixdof_properties(mass_kg: float, cog: tuple[float, float, float],
+                      k_roll: float, k_pitch: float, k_yaw: float,
+                      lwl: float, awp_m2: float, symmetric: bool,
+                      rho: float = 998.8, zeta: float = 0.3) -> dict:
+    """Mass, inertia and damper coefficients for the sixDoF motion dict.
+
+    THE HALVING LIVES HERE, not in the caller. A symmetric case meshes half the
+    hull, so it feels half the hydrodynamic force — and must therefore carry
+    half the mass and half the inertia, or the model accelerates at twice the
+    right rate and settles at the wrong sinkage. Making a caller remember that
+    is how we ended up reporting forces that were exactly 2x wrong once already.
+
+    Radii of gyration are about the centre of mass, in metres. Dampers are set
+    from the HEAVE mode: the restoring stiffness of a floating body is
+    rho*g*Awp, and added mass at these frequencies is of order the displaced
+    mass, so m_eff ~ 2m. c_crit = 2*m_eff*omega_n, and we use a fraction zeta
+    of it. Damping acts on velocity, so it is exactly zero at equilibrium and
+    cannot bias the converged answer.
+    """
+    half = 0.5 if symmetric else 1.0
+    m = mass_kg * half
+    awp = awp_m2 * half
+
+    k_heave = rho * _G * awp                      # N/m
+    m_eff = 2.0 * m                              # + added mass, same order
+    omega_n = math.sqrt(k_heave / max(m_eff, 1e-9))
+    c_lin = zeta * 2.0 * m_eff * omega_n         # N s/m
+
+    i_pitch = m * k_pitch ** 2
+    # Angular critical damping on the pitch mode, restoring stiffness rho*g*I_L
+    # approximated through the same waterplane: k_theta ~ rho*g*Awp*(lwl/2)^2.
+    k_theta = rho * _G * awp * (0.5 * lwl) ** 2
+    omega_p = math.sqrt(k_theta / max(2.0 * i_pitch, 1e-9))
+    c_ang = zeta * 2.0 * (2.0 * i_pitch) * omega_p
+
+    return {
+        "mass": m, "cog_x": cog[0], "cog_y": cog[1], "cog_z": cog[2],
+        "ixx": m * k_roll ** 2, "iyy": i_pitch, "izz": m * k_yaw ** 2,
+        "inner": 0.05 * lwl, "outer": 0.17 * lwl,
+        "c_lin": c_lin, "c_ang": c_ang,
+    }
+
+
+def motion_from_geometry(stl_path, lwl: float, symmetric: bool,
+                        kg_above_keel: float | None = None,
+                        k_roll_over_beam: float = 0.40,
+                        k_pitch_over_lwl: float = 0.25,
+                        cwp: float = 0.80, rho: float = 998.8) -> dict:
+    """Free sinkage-and-trim properties, derived from the hull itself.
+
+    The model must FLOAT at its own displacement, so mass = rho * submerged
+    volume and LCG = LCB — taking either from a published percentage would be
+    a second source of truth that can disagree with the geometry we actually
+    mesh. (It also sidesteps a real problem: the KCS STL spans 0..7.7165 m
+    against Lpp 7.2786, because bulb and rudder reach past the perpendiculars,
+    so "-1.48% Lpp from midship" cannot be located in this file's coordinates.)
+
+    Only KG is not derivable from a hull shape — it depends on how the model is
+    ballasted — so it is the one number a caller may supply. Falling back to VCB
+    means neutral placement, which is honest but will not reproduce a specific
+    model's trim.
+    """
+    from .post import stl_submerged_properties
+
+    props = stl_submerged_properties(stl_path, 0.0)
+    tris = np.asarray(_read_stl_tris_for_motion(stl_path), float)
+    keel_z = float(tris[:, :, 2].min())
+    beam = 2.0 * float(np.abs(tris[:, :, 1]).max())
+
+    vcg = keel_z + kg_above_keel if kg_above_keel is not None else props["vcb"]
+    return sixdof_properties(
+        mass_kg=rho * props["volume_m3"],
+        cog=(props["lcb"], 0.0, vcg),
+        k_roll=k_roll_over_beam * beam,
+        k_pitch=k_pitch_over_lwl * lwl,
+        k_yaw=k_pitch_over_lwl * lwl,
+        lwl=lwl, awp_m2=cwp * lwl * beam, symmetric=symmetric, rho=rho)
+
+
+def _read_stl_tris_for_motion(path):
+    from .post import _read_stl_tris
+    return _read_stl_tris(path)
+
+
 def first_layer_thickness(speed: float, lwl: float, target_yplus: float,
                           nu: float = 1.09e-6) -> float:
     """Absolute first-layer THICKNESS [m] that lands the first cell centre at
@@ -288,6 +375,66 @@ boundary (
 # sidesteps hexRef8 — snappy cannot refine a mesh refineMesh has touched
 # ("cell N of level 0 uses more than 8 points of equal or lower level").
 # Earlier this refined x,y, which serves the HULL; the free surface needs z.
+DYNAMIC_MESH = """FoamFile {{ version 2.0; format ascii; class dictionary; object dynamicMeshDict; }}
+dynamicFvMesh       dynamicMotionSolverFvMesh;
+motionSolverLibs    (sixDoFRigidBodyMotion);
+motionSolver        sixDoFRigidBodyMotion;
+
+patches             (hull);
+// Morphing zone: rigid within innerDistance of the hull, undeformed beyond
+// outerDistance, blended between. Both scale with Lwl so the case is
+// Froude-similar at any hull size.
+innerDistance       {inner:.6f};
+outerDistance       {outer:.6f};
+
+centreOfMass        ({cog_x:.6f} {cog_y:.6f} {cog_z:.6f});
+mass                {mass:.6f};
+momentOfInertia     ({ixx:.6f} {iyy:.6f} {izz:.6f});
+rhoInf              1;              // unused by interFoam (it carries rho)
+report              on;
+value               uniform (0 0 0);
+
+accelerationRelaxation 0.4;
+
+solver {{ type Newmark; }}
+
+constraints
+{{
+    // Sinkage: translation along z ONLY (no surge, no sway).
+    heave  {{ sixDoFRigidBodyMotionConstraint line; direction (0 0 1); }}
+    // Trim: rotation about the transverse axis ONLY (no roll, no yaw).
+    pitch  {{ sixDoFRigidBodyMotionConstraint axis; axis (0 1 0); }}
+}}
+
+restraints
+{{
+    // Dampers act on VELOCITY, so they vanish at equilibrium and cannot bias
+    // the converged sinkage or trim — they only suppress the start-up
+    // transient, which is otherwise violent because the hull is released into
+    // a flow field that has not developed yet. Coefficients are a fraction of
+    // critical damping for the heave mode, derived rather than copied from a
+    // tutorial tuned for a different hull.
+    heaveDamper {{ sixDoFRigidBodyMotionRestraint linearDamper; coeff {c_lin:.1f}; }}
+    pitchDamper {{ sixDoFRigidBodyMotionRestraint sphericalAngularDamper; coeff {c_ang:.1f}; }}
+}}
+"""
+
+POINT_DISPLACEMENT = """FoamFile {{ version 2.0; format ascii; class pointVectorField; object pointDisplacement; }}
+dimensions      [0 1 0 0 0 0 0];
+internalField   uniform (0 0 0);
+boundaryField
+{{
+    #includeEtc "caseDicts/setConstraintTypes"
+    inlet      {{ type fixedValue; value uniform (0 0 0); }}
+    outlet     {{ type fixedValue; value uniform (0 0 0); }}
+    atmosphere {{ type fixedValue; value uniform (0 0 0); }}
+    bottom     {{ type fixedValue; value uniform (0 0 0); }}
+    {side1_pd_entry}
+    side2      {{ type fixedValue; value uniform (0 0 0); }}
+    hull       {{ type calculated; }}
+}}
+"""
+
 REFINE_MESH = """FoamFile { version 2.0; format ascii; class dictionary; object refineMeshDict; }
 set             c0;
 coordinateSystem global;
@@ -346,6 +493,10 @@ PIMPLE {
   // nOuterCorrectors 1 is PISO: valid only at Co<1. Running maxCo 5 in PISO
   // mode leaves the pressure-velocity coupling unconverged within the step.
   momentumPredictor no; nOuterCorrectors 2; nCorrectors 3;
+  // correctPhi is REQUIRED once the mesh moves: the face fluxes
+  // inherited from the previous mesh do not satisfy continuity on
+  // the new one, and interFoam will not recover on its own.
+  correctPhi yes; moveMeshOuterCorrectors no;
   nNonOrthogonalCorrectors 0;
 }
 relaxationFactors { equations { ".*" 1; } }
@@ -368,6 +519,17 @@ SET_FIELDS = """FoamFile { version 2.0; format ascii; class dictionary; object s
 defaultFieldValues ( volScalarFieldValue alpha.water 0 );
 regions (
   boxToCell { box (-1e6 -1e6 -1e6) (1e6 1e6 0);
+              fieldValues ( volScalarFieldValue alpha.water 1 ); }
+  // boxToFace as well, or the BOUNDARY faces keep the uniform 0 from 0.orig
+  // and the tank starts with every patch reading "pure air" while its cells
+  // read water. MEASURED: that left alpha = 0 on the outlet, and
+  // outletPhaseMeanVelocity divides by the water AREA of the patch — zero —
+  // so interFoam died with an FPE inside
+  // outletPhaseMeanVelocityFvPatchVectorField::updateCoeffs() on the first
+  // timestep of a MOVING-mesh run. A fixed run survives only because alpha's
+  // own boundary condition is evaluated from the internal field before U's
+  // outlet condition is asked for a mean; with correctPhi the order flips.
+  boxToFace { box (-1e6 -1e6 -1e6) (1e6 1e6 0);
               fieldValues ( volScalarFieldValue alpha.water 1 ); }
 );
 """
@@ -623,7 +785,8 @@ def write_resistance_case_from_stl(stl_path: str | Path, lwl: float,
                                    speed: float, out_dir: str | Path,
                                    end_time: float = 40.0, scale: float = 1.0,
                                    np_procs: int = 8,
-                                   symmetric: bool = False) -> dict:
+                                   symmetric: bool = False,
+                                   free_motion: dict | None = None) -> dict:
     """Same case generator, but for EXTERNAL geometry (KCS/JBC calibration).
 
     The STL must be watertight, in metres, with the free surface at z=0 and
@@ -635,12 +798,13 @@ def write_resistance_case_from_stl(stl_path: str | Path, lwl: float,
     (out / "constant" / "triSurface" / "hull.stl").write_bytes(data)
     stl_sha = hashlib.sha256(data).hexdigest()
     return _write_case_dicts(out, stl_sha, lwl, speed, end_time, scale,
-                             np_procs, symmetric)
+                             np_procs, symmetric, free_motion)
 
 
 def write_resistance_case(hull: Hull, speed: float, out_dir: str | Path,
                           end_time: float = 40.0, scale: float = 1.0,
-                          np_procs: int = 8, symmetric: bool = False) -> dict:
+                          np_procs: int = 8, symmetric: bool = False,
+                          free_motion: dict | None = None) -> dict:
     """Generate a COMPLETE, runnable interFoam resistance case.
 
     scale: background-mesh refinement multiplier (1.0 / sqrt(2) steps give
@@ -657,12 +821,13 @@ def write_resistance_case(hull: Hull, speed: float, out_dir: str | Path,
     stl_sha = hull_to_stl(hull, out / "constant" / "triSurface" / "hull.stl",
                           nx=nx, nz=nz)
     return _write_case_dicts(out, stl_sha, lwl, speed,
-                             end_time, scale, np_procs, symmetric)
+                             end_time, scale, np_procs, symmetric, free_motion)
 
 
 def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
                       end_time: float, scale: float, np_procs: int,
-                      symmetric: bool = False) -> dict:
+                      symmetric: bool = False,
+                      free_motion: dict | None = None) -> dict:
     (out / "system").mkdir(parents=True, exist_ok=True)
     # Initial fields live in 0.orig and are COPIED to 0 (the OpenFOAM tutorial
     # convention). setFields rewrites 0/alpha.water as a full non-uniform field
@@ -794,6 +959,21 @@ def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
     if staged:
         sysd.joinpath("snappyHexMeshDict.layers").write_text(SNAPPY_STUB.format(
             castellate="false", do_snap="false", do_layers="true", **dom))
+    if free_motion:
+        # Sinkage and trim. KCS Case 2.1 is towed FREE to sink and trim, so a
+        # fixed-attitude solve answers a different question than the one the
+        # tank measured — this is a known part of the C_T error, not a
+        # refinement detail.
+        cons.mkdir(parents=True, exist_ok=True)
+        cons.joinpath("dynamicMeshDict").write_text(
+            DYNAMIC_MESH.format(**free_motion))
+        # side1 is a `symmetry` patch when symmetric, and constraint patches are
+        # set by setConstraintTypes — declaring it again would clash.
+        zero.joinpath("pointDisplacement").write_text(
+            POINT_DISPLACEMENT.format(
+                side1_pd_entry="" if symmetric else
+                "side1      { type fixedValue; value uniform (0 0 0); }"))
+
     sysd.joinpath("refineMeshDict").write_text(REFINE_MESH)
     # Nested boxes, each round halving x,y inside it. Box 1 covers the hull and
     # near wake generously; each subsequent box tightens toward the hull, so the

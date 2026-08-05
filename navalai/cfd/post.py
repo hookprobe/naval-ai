@@ -458,3 +458,60 @@ def gci(f_coarse: float, f_medium: float, f_fine: float,
     gci_pct = 100.0 * 1.25 * abs(e21 / f_fine) / (refinement**p - 1.0)
     return GCIReport(f_fine, f_exact, p, gci_pct,
                      "Roache GCI, Fs=1.25, Richardson p (clamped 0.5..4)")
+
+
+def stl_submerged_properties(path, waterline: float = 0.0) -> dict:
+    """Submerged volume and its centroid (LCB/TCB/VCB) from a closed STL.
+
+    Why this exists rather than a published LCB percentage: the KCS STL spans
+    0..7.7165 m against an Lpp of 7.2786 m — the bulbous bow and the rudder
+    reach beyond the perpendiculars — so "-1.48% Lpp from midship" cannot be
+    located in this file's coordinates without knowing where the perpendiculars
+    fall. The geometry knows, so ask it.
+
+    Method: divergence theorem over the hull triangles BELOW the waterline,
+    clipped at it. The waterplane cap can be skipped entirely, which is what
+    makes this simple: on that cap the outward normal is +z, so it contributes
+    (1/3)(r.n) = z/3 = 0 to the volume, and n_x = n_y = 0 kills its contribution
+    to the x and y centroid integrals. Only VCB needs the cap, and it gets it
+    because z = waterline there is a constant, handled analytically below.
+
+    Returns {volume_m3, lcb, tcb, vcb} with centroid in the STL's own frame.
+    """
+    tris = np.asarray(_read_stl_tris(path), float)
+    tris = tris - np.array([0.0, 0.0, waterline])      # waterline -> z = 0
+
+    kept = []
+    for tri in tris:
+        z = tri[:, 2]
+        if (z <= 0).all():
+            kept.append(tri)
+            continue
+        if (z > 0).all():
+            continue
+        # Sutherland-Hodgman against the half-space z <= 0, then fan-triangulate
+        poly = []
+        for i in range(3):
+            a, b = tri[i], tri[(i + 1) % 3]
+            if a[2] <= 0:
+                poly.append(a)
+            if (a[2] <= 0) != (b[2] <= 0):
+                f = a[2] / (a[2] - b[2])
+                poly.append(a + f * (b - a))
+        for i in range(1, len(poly) - 1):
+            kept.append(np.array([poly[0], poly[i], poly[i + 1]]))
+
+    if not kept:
+        raise ValueError("no submerged geometry below the waterline")
+    T = np.asarray(kept)
+    a, b, c = T[:, 0], T[:, 1], T[:, 2]
+    n = np.cross(b - a, c - a)                       # 2 * area * unit normal
+
+    vol = float(np.einsum("ij,ij->i", a, np.cross(b, c)).sum() / 6.0)
+    # int x dV = 1/24 * sum n_x * [(a+b)^2 + (b+c)^2 + (c+a)^2]  (componentwise)
+    moment = (n * ((a + b) ** 2 + (b + c) ** 2 + (c + a) ** 2)).sum(axis=0) / 24.0
+    centroid = moment / (2.0 * vol)
+
+    return {"volume_m3": abs(vol),
+            "lcb": float(centroid[0]), "tcb": float(centroid[1]),
+            "vcb": float(centroid[2]) + waterline}
