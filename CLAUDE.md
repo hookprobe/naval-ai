@@ -211,6 +211,41 @@ Open and recorded (see ALIGNMENT.md): a SECOND benchmark anchor is owed. KCS
 shares no chine/transom/spray physics with the SKUs, so Gate 2M passing is not
 small-craft validation.
 
+## THE ARCHITECTURAL FIX (found 2026-08-05 by reading the reference case)
+
+**We are using snappyHexMesh in a way it cannot serve.** Compare
+`$FOAM_TUTORIALS/multiphase/interFoam/RAS/DTCHull` — the reference ship +
+interFoam + snappy case that ships with OpenFOAM:
+
+    ours                                DTCHull reference
+    coarse blockMesh (2 blocks)         multi-block blockMesh, 6 blocks in z,
+                                          fine near the waterline
+    snappy does ALL refinement          6 rounds of topoSet(box) + refineMesh
+      refinementSurfaces (2 3)..(4 5)     BEFORE snappy, in NESTED boxes
+      refinementRegions freeSurface
+    snappy snaps + adds layers          snappy: refinementSurfaces level (0 0),
+                                          refinementRegions {} — snap + layers ONLY
+
+and the decisive line, `system/refineMeshDict`:
+
+    directions ( tan1 tan2 );     // x and y ONLY, never z
+
+Free-surface ship meshes need ANISOTROPIC refinement: fine in x,y near the
+hull, fine in z only near the waterline, coarse in z near the keel.
+`refineMesh` does exactly that, directionally. **snappy refines ISOTROPICALLY**
+— it splits all three directions at once — so buying x,y resolution through
+snappy levels forces z refinement we do not want, and every level boundary is a
+hanging-node transition. Those transitions are where our meshes fail: wrongly
+oriented faces at (3 4), zero-volume cells at (4 5), 75% unattended success.
+
+So the plan is: blockMesh (multi-block z) → topoSet+refineMesh rounds in x,y →
+snappy with hull level (0 0) and no refinementRegions → layers. Refinement and
+snapping SEPARATED, which is why the reference gets clean meshes.
+
+Also worth knowing: DTCHull uses `relativeSizes true` with 3 layers and
+expansion 1.5 — it does NOT target y+ at all. It is a tutorial, not a
+validation case, so do not copy its layer numbers; copy its ARCHITECTURE.
+
 ## Gate 2M: KCS still does NOT mesh cleanly (open)
 
 The acceptance data and geometry pipeline are done (`benchmarks/kcs.py`,
