@@ -91,6 +91,9 @@ _Z_BANDS = dict(hull=0.09, wave=0.09)
 # halves the cell HEIGHT there, giving the interface the thin cells VOF needs
 # without ever handing snappy an anisotropic mesh to snap.
 _REFINE_ROUNDS = 3
+# z cells per x cell in the background. 14/54 reproduces the hand-tuned scale-1
+# mesh exactly; everything else follows from it.
+_NZ_PER_NX = 14.0 / 54.0
 
 # Layers snappy will actually INSERT on this hull, measured (coarse grid,
 # absolute first-layer thickness held at y+ 30):
@@ -693,21 +696,32 @@ def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
     # 0.055L draft with margin); za covers the crest.
     zh = -_Z_BANDS["hull"] * lwl
     za = _Z_BANDS["wave"] * lwl
+    # ONE BASE MESH, UNIFORMLY REFINED. Every count derives from nx, so the
+    # three grids are the same mesh at three resolutions rather than three
+    # separately-rounded meshes.
+    #
+    # They used to be computed independently — nx, ny and each of the four nz
+    # blocks rounded from `scale` on its own — and independent rounding is not
+    # a refinement family: the cell aspect wobbled 1.85 / 1.32 / 1.85 and the
+    # measured ratio came out r12 1.378, r23 1.452 (5.1% apart) against the
+    # sqrt(2) the triplet claims. Richardson extrapolation then measures a
+    # changing cell SHAPE mixed in with the changing cell SIZE, which is the
+    # same defect that made the v1 triplet oscillate.
     nx = max(int(round(54 * scale)), 20)
-    # ISOTROPIC background: dz is derived from dx so the cell is a cube. snappy
-    # preserves aspect ratio through refinement, so a cubic background gives
-    # cubic cells at every level — which is the only shape it snaps reliably.
     dx_bg = (2.0 * lwl + 2.5 * lwl) / nx
     ny = max(int(round((1.5 if symmetric else 3.0) * lwl / dx_bg)), 6)
-    # The z counts must SCALE WITH THE FAMILY or the GCI triplet stops being
-    # systematic: deriving them from dx_bg directly, round(1.08) and round(1.53)
-    # both give the same integer, so nz froze across coarse/medium and the
-    # measured r fell to 1.376 against the sqrt(2) the triplet claims. Instead
-    # fix the near-cubic count ONCE at scale 1 and scale that, which preserves
-    # the cell aspect at every level AND lets nz grow like nx and ny.
-    dx1 = 4.5 * lwl / 54
-    n_hull = max(int(round(max(int(round(abs(zh) / dx1)), 2) * scale)), 2)
-    n_wave = max(int(round(max(int(round(za / dx1)), 2) * scale)), 2)
+
+    # z resolution is tied to nx by a fixed constant, then apportioned across
+    # the four bands by their scale-1 shares (6:2:2:4 of 14) using largest
+    # remainder, so the total tracks nx exactly and the shares stay put.
+    nz_total = max(int(round(nx * _NZ_PER_NX)), 4)
+    shares = (6.0, 2.0, 2.0, 4.0)
+    exact = [nz_total * s / sum(shares) for s in shares]
+    counts = [max(int(e), 1) for e in exact]
+    for i in sorted(range(4), key=lambda i: exact[i] - int(exact[i]),
+                    reverse=True)[:max(nz_total - sum(counts), 0)]:
+        counts[i] += 1
+    nz_deep, n_hull, n_wave, nz_air = counts
     dz_core = abs(zh) / n_hull
 
     dom = dict(x0=-2.5 * lwl, x1=2.0 * lwl,
@@ -715,9 +729,7 @@ def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
                z0=-depth, zh=zh, za=za, z1=0.25 * lwl,
                side1_type="symmetry" if symmetric else "wall",
                nx=nx, ny=ny,
-               nz_deep=max(int(round(6 * scale)), 3),
-               nz_hull=n_hull, nz_wave=n_wave,
-               nz_air=max(int(round(4 * scale)), 2),
+               nz_deep=nz_deep, nz_hull=n_hull, nz_wave=n_wave, nz_air=nz_air,
                g_deep=float(_Z_EXPANSION), g_air=float(_Z_EXPANSION))
     assert depth >= half_lambda, "deep-water condition violated"
 

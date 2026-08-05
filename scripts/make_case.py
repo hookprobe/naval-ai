@@ -37,6 +37,10 @@ def main() -> None:
                      "for the same answer.")
     ap.add_argument("--np", type=int, default=8, dest="np_procs")
     ap.add_argument("--scale", type=float, default=1.0)
+    ap.add_argument("--anchor", choices=("coarse", "fine"), default="coarse",
+                help="which end of the GCI family scale 1.0 is. 'fine' builds "
+                     "DOWNWARD (cheap: the costly grid is one you already have); "
+                     "'coarse' builds upward (~12x more expensive).")
     ap.add_argument("--triplet", action="store_true",
                     help="write coarse/medium/fine at r=sqrt(2) for GCI")
     ap.add_argument("--stl", help="external hull STL (KCS/JBC calibration); "
@@ -62,7 +66,16 @@ def main() -> None:
                                          args.end_time, s, args.np_procs, symmetric=args.symmetric)
 
     if args.triplet:
-        for name, s in (("coarse", 1.0), ("medium", 2 ** 0.5), ("fine", 2.0)):
+        # GCI depends on the RATIO between grids, not their absolute size, so
+        # the family is built DOWNWARD from the finest grid that is affordable
+        # rather than upward from an arbitrary coarse one. Upward from scale 1
+        # costs ~12x the coarse grid (medium ~3x, fine ~8x); downward costs
+        # ~1.5x, because the expensive grid is the one already paid for.
+        # `--anchor fine` therefore makes scale 1.0 the FINE grid.
+        scales = {"fine": (1.0, 2 ** -0.5, 0.5),
+                  "coarse": (1.0, 2 ** 0.5, 2.0)}[args.anchor]
+        for name, s in zip(("coarse", "medium", "fine"),
+                           sorted(scales) if args.anchor == "fine" else scales):
             meta = gen(Path(args.out) / name, s)
             print(f"{name}: {meta['bg_cells']} bg cells -> {args.out}/{name}")
     else:

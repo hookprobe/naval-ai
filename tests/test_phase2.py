@@ -273,19 +273,29 @@ def _background_cell(case):
 # (2,3)/(3,4)/(4,5) all give 0 zero-volume and 0 wrongly-oriented faces, and
 # layer coverage rose from 32% to 75%.
 def test_background_cell_is_near_isotropic(tmp_path):
+    """EVERY scale in the family, not just scale 1.
+
+    This originally checked scale 1.0 only, and the coarse end broke exactly
+    where it was not looking: a floor of 2 on the z-count stopped dz scaling
+    with dx, so at scale 0.5 the cell was 1213 x 1213 x 328 mm = 3.7:1 and the
+    grid meshed with 128 wrongly-oriented faces and skewness 57 (the fine grid,
+    same geometry, gets 5 and 9.6). A GCI family is only a family if every
+    member is built the same way.
+    """
     from navalai.cfd import case as C
 
     lwl, speed = 7.2786, 2.196
-    meta = C.write_resistance_case_from_stl(
-        _kcs_or_skip(), lwl, speed, tmp_path / "iso",
-        end_time=1.0, scale=1.0, np_procs=2)
-
-    dx, dy, dz = _background_cell(tmp_path / "iso")
-    aspect = max(dx, dy, dz) / min(dx, dy, dz)
-    assert aspect <= 3.0, (
-        f"background cell {dx*1e3:.0f} x {dy*1e3:.0f} x {dz*1e3:.0f} mm "
-        f"= {aspect:.1f}:1. snappy refines isotropically, so this ratio "
-        f"survives to every level and folds cells during snapping.")
+    for scale in (0.5, 2 ** -0.5, 1.0, 2 ** 0.5, 2.0):
+        out = tmp_path / f"iso{scale:.3f}"
+        C.write_resistance_case_from_stl(
+            _kcs_or_skip(), lwl, speed, out,
+            end_time=1.0, scale=scale, np_procs=2)
+        dx, dy, dz = _background_cell(out)
+        aspect = max(dx, dy, dz) / min(dx, dy, dz)
+        assert aspect <= 3.0, (f"scale {scale}: "
+            f"cell {dx*1e3:.0f} x {dy*1e3:.0f} x {dz*1e3:.0f} mm = "
+            f"{aspect:.1f}:1. snappy refines isotropically, so this ratio "
+            f"survives to every level and folds cells during snapping.")
 
 
 def test_refine_mesh_uses_a_valid_direction():
@@ -313,3 +323,52 @@ def test_stale_octree_levels_are_dropped_before_decompose():
     script = (Path(__file__).parents[1] / "navalai/cfd/run-case.sh").read_text()
     assert "0/cellLevel" in script and "0/pointLevel" in script
     assert script.index("0/cellLevel") < script.index("decomposePar -force")
+
+
+def test_mesh_is_froude_similar_at_any_hull_size(tmp_path):
+    """The SAME generator must serve a 7 m tank model and a 230 m ship.
+
+    KCS is calibrated at MODEL scale because that is where the tank data is
+    (Lpp 7.2786 m, Re 1.26e7), while our own craft are meshed at 1:1. Those are
+    only the same validated code path if the mesh is geometrically similar at
+    constant Froude number — otherwise the benchmark certifies a mesh nobody
+    builds for a real boat.
+
+    MEASURED across a 31.6x size range at Fn 0.26: identical cell counts,
+    identical dx/L, identical cells-per-wavelength.
+
+    The near-wall spacing must NOT follow that similarity: y+ is a Reynolds
+    phenomenon, so t1/L falls 124x over the same range. A first layer that
+    scaled geometrically would be silently wrong at every scale but one.
+    """
+    import math
+
+    from navalai.cfd import case as C
+
+    stl, ref = _kcs_or_skip(), []
+    for k in (1.0, 4.0, 31.6):
+        lwl, speed = 7.2786 * k, 2.196 * math.sqrt(k)   # constant Froude
+        out = tmp_path / f"k{k}"
+        meta = C.write_resistance_case_from_stl(
+            stl, lwl, speed, out, end_time=1.0, scale=1.0,
+            np_procs=2, symmetric=True)
+        dx, dy, dz = _background_cell(out)
+        ref.append({
+            "cells": meta["bg_cells"],
+            "dx_over_L": dx / lwl, "dz_over_L": dz / lwl,
+            "cells_per_wavelength": meta["cells_per_wavelength"],
+            "t1_over_L": C.first_layer_thickness(
+                speed, lwl, C._TARGET_YPLUS) / lwl,
+        })
+
+    first = ref[0]
+    for r in ref[1:]:
+        assert r["cells"] == first["cells"], (r, first)
+        assert r["dx_over_L"] == pytest.approx(first["dx_over_L"], rel=1e-9)
+        assert r["dz_over_L"] == pytest.approx(first["dz_over_L"], rel=1e-9)
+        assert r["cells_per_wavelength"] == pytest.approx(
+            first["cells_per_wavelength"], rel=1e-6)
+
+    # ... and the wall spacing follows Reynolds, so it must SHRINK relative to
+    # the hull as the hull grows.
+    assert ref[-1]["t1_over_L"] < ref[0]["t1_over_L"] / 50

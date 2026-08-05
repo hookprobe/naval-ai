@@ -40,7 +40,7 @@ GATES = [
      "which kill interFoam on timestep 1. BuildPlan Risk #1. "
      "Re-measure: scripts/mesh_robustness.py --n 200"),
     ("Gate 6R", "ISO threshold parity vs licensed standard text",
-     None, "REVIEW-GATED: qualified-reviewer parity on basis='approx' values"),
+     "tests/test_phase6r.py", None),
 ]
 
 
