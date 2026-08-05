@@ -49,8 +49,9 @@ lifecycle, roadmap board — READ THIS FIRST), `NavalArchAI-BuildPlan.md`
   `stl_watertight_report` gates it. Open shells flood the interior.
 - alpha.water inlet must be height-stratified (`exprFixedValue`,
   z<0 → 1); `inletOutlet $internalField` drains the tank.
-- Waterline sits on a cell FACE **structurally**: blockMesh is TWO blocks
-  split at z=0. The old "nz multiple of 3" rule held only for the 1.5L/0.75L
+- Waterline sits on a cell FACE **structurally**: blockMesh splits at z=0.
+  (Now FOUR z-blocks — deep / hull / wave / air — with the two middle ones
+  ungraded and EQUAL at 0.09 Lwl; see the root-cause section below.) The old "nz multiple of 3" rule held only for the 1.5L/0.75L
   domain and silently broke systematic refinement (see next point).
 - **GCI needs a systematically refined FAMILY, not three meshes.** Snapping
   nz to a multiple of 3 gave z-ratios 1.333/1.5 → effective r = 1.297/1.368
@@ -64,10 +65,11 @@ lifecycle, roadmap board — READ THIS FIRST), `NavalArchAI-BuildPlan.md`
 - **maxAlphaCo sets dt, not the cell count.** At maxAlphaCo 1 the interface
   Courant pins dt≈0.003 s → 4.9 h for the COARSE grid alone, days for fine.
   Running at 2 (MULESCorr semi-implicit) is the compromise; 5 smears.
-- Free-surface z-grading makes ~20:1 cells where the hull pierces the
-  waterline ⇒ ~72 skew faces (max ~6) and ~50% prism-layer coverage.
-  MEASURED: removing the free-surface box does NOT fix either, so this is
-  inherent, not a bug. Judge it by the yPlus function object, not checkMesh.
+- ~~Free-surface z-grading makes ~20:1 cells ... inherent, not a bug.~~
+  **SUPERSEDED 2026-08-05.** It was not inherent: it was the 38:1 background
+  cell (root-cause section below). Removing the free-surface box did not fix it
+  because the box was never the cause. Layer coverage is now ~100% at n=3.
+  Judging y+ by the yPlus function object rather than checkMesh still stands.
 - **Size the near-wall cell in METRES, never `relativeSizes true`.**
   `first_layer_thickness()` derives it from the ITTC-57 line (0.706 mm at the
   reference condition). Verified: min y+ on the hull is 41.8 ⇒ a 0.985 mm
@@ -78,12 +80,15 @@ lifecycle, roadmap board — READ THIS FIRST), `NavalArchAI-BuildPlan.md`
   the 104 mm local hull cell, and 1.4 m is the background cell in y. Those are
   dry faces, and they dominate max/average. Only the MIN reflects the wetted,
   layered surface. A wetted-only (alpha.water-masked) y+ is still owed.
-- Layer count trades against insertion: MEASURED coverage n=3 → 50.3%,
-  n=5 → 36.5%, n=8 → 26.2%, n=15 → 11.2%; nLayerIter/nRelaxedIter change
-  nothing. Coverage wins (an uninserted layer controls no y+), so n=3 and the
-  stack does NOT bridge to the local cell — `case.info` records both numbers.
+- ~~Layer count trades against insertion: n=3 → 50.3% ... n=15 → 11.2%.~~
+  **SUPERSEDED 2026-08-05.** Those coverages were measured on the anisotropic
+  background and on single-pass snappy. With a near-cubic background and layers
+  added in their OWN pass after refinement, the KCS hull patch takes 3 of 3
+  layers over all 22881 faces. Coverage still wins over stack depth, so n=3
+  stays — but not because deeper stacks fail to insert.
 - **Deep layer stacks do not just fail to insert — they KILL the solve.**
-  Measured on KCS (which meshes cleanly, so this is not a geometry artefact):
+  Measured on the OLD anisotropic background; re-measure before trusting the
+  envelope, since the mechanism (folded cells) was the aspect ratio:
 
       config            cells   layer%  medY+  in-band%  zeroVol  solve
       (2,3) y+30  n3   306655    47.0    2477     6.1%       0    runs
@@ -149,145 +154,146 @@ lifecycle, roadmap board — READ THIS FIRST), `NavalArchAI-BuildPlan.md`
   reading only `0/` would report the pre-crash fragment as the whole run.
   writeInterval is end_time/10 so a nap costs ~10% of the run, not 20%.
 
-## Current campaign state (2026-08-04, Mac)
+## THE ROOT CAUSE, and the fix (MEASURED 2026-08-05 — supersedes all of the
+## snappy-tuning lore above)
 
-- Full pipeline proven end-to-end on the Mac (mesh+layers+solve+forces+GCI).
-- **Own-hull GCI triplet v1 is DEAD — do not use its numbers.** Even after the
-  waterline fix it gave p=nan / GCI 58.5% (oscillatory: -1202 / -738 / -1388 N).
-  Root causes were measured, not guessed: an unresolved free surface and a
-  non-systematic refinement family. Kept at `runs/gci_v1_unresolved/` as
-  evidence; `runs/gci/medium_nz25_stale` is the original mid-cell-waterline run.
-- v2 case generator (this session) rebuilds the mesh around those two causes:
-  two-block waterline split, graded free-surface slab, measured r, y+ reported.
-  Coarse mesh 297,712 cells at 20.3 cells/wavelength (v1: 45,606 at 5.1).
-- Runtime on 10 performance cores at maxAlphaCo 2, end-time 25 s:
-  coarse ~0.5 h, medium ~2 h, fine ~8.5 h (measured rate, not the runbook guess).
-## WHERE TO PICK UP (end of 2026-08-04/05 Mac session)
+**snappyHexMesh refines ISOTROPICALLY. Our background cell was 38:1.** That one
+sentence explains every meshing failure this project has had.
 
-**The blocker is the near-wall mesh, not the outer mesh.** The v2 mesh strategy
-works — coarse/medium are now MONOTONIC (-2639.4 → -2469.4 N, 297712 → 834760
-cells), unlike v1's oscillation. But `scripts/yplus_wetted.py` showed only
-**2.0% of WETTED hull faces are inside 30 ≤ y+ ≤ 300** (median 11431), so the
-wall functions are invalid where skin friction is made. Cross-checks agree:
-viscous drag is 2.62× the ITTC-57 line, and Ct 2.4e-2 against ~6.7e-3 from L1.
+`hexRef8` halves all three edges at once, so a cell's ASPECT RATIO is preserved
+at every refinement level while its height shrinks in absolute terms:
 
-The fine grid was deliberately NOT run: ~3 h to converge onto a wall model
-known to be invalid buys a precise wrong number.
+    background  606 x 910 x 16 mm   = 38:1
+    level 2     151 x 228 x  4.0 mm = 38:1
+    level 5      19 x  28 x  0.5 mm = 38:1
 
-Root cause: `refinementSurfaces hull level (2 3)` gives FLAT hull area only
-level 2 (~208 mm cells), which a 0.7 mm first layer cannot bridge in 3 layers,
-so layers mostly are not inserted. `_HULL_REFINE` and `_TARGET_YPLUS` in
-`navalai/cfd/case.py` are now the knobs.
+Snap displacement scales with the LONG edge (~57 mm), so moving a node a few
+millimetres moved it SEVERAL CELL HEIGHTS and folded the cell inside out. It
+predicts everything we could not explain:
+- (2,3) clean, (3,4) fails, (4,5) fails worse — refinement makes it WORSE
+- `addLayers false` gives a byte-identical broken mesh (the defect is in
+  castellation/snapping, not layers)
+- snap `tolerance` has no effect — it too scales with the long edge
+- the geometry checks out clean, because the geometry was never the problem
 
-Next steps, in order:
-1. Finish the near-wall sweep. It was cut short; PARTIAL result (2 s solves, so
-   read these as RELATIVE — the 25 s coarse run gave median 11431 / 2.0%):
+DTCHull starts from the same 42:1 background and refines **x,y only**, reaching
+0.66:1 BEFORE snappy snaps. Same conclusion, reached from the other side.
 
-       trial                  cells   layer%  t1 mm  wet med y+  in-band%
-       (2,3) y+30 n3         297712    50.3   0.706      7163      5.1
-       (3,4) y+30 n5         343675    48.6   0.706      3999      8.9
+**The fix, as implemented (do NOT re-derive this):**
+1. blockMesh derives `dz` from `dx` -> background is near-cubic (1.85:1).
+2. snappy pass 1: castellate + snap, **addLayers false**. Cubic cells snap fine.
+3. `topoSet` + `refineMesh directions (normal)` — z ONLY — in the free-surface
+   band, hull shielded by `surfaceToCell`. This is where interface thinness
+   comes from; it sidesteps hexRef8 entirely.
+4. snappy pass 2: **layers only**, on the z-refined mesh.
 
-   So raising hull refinement halves median y+ for only +15% cells — right
-   direction, nowhere near enough. UNTESTED and most promising: a THICKER
-   first layer aimed at the middle of the valid band rather than its edge
-   (y+ 100-150 → t1 2.4-3.5 mm) with level (4 5); a short stack bridges a
-   small cell far more easily than a 0.7 mm layer bridges a 208 mm one.
-   Sweep script: `~/.claude/jobs/*/tmp/wall_sweep.py` (re-create if the job
-   dir is gone; it is 5 configs × ~5 min). Adopt the winner into
-   `_HULL_REFINE` / `_TARGET_YPLUS` / `_MAX_LAYERS` + a gate test.
-   NOTE: `openfoam bash <script>` SEGFAULTS; the launcher execs its args, so
-   call `openfoam <script> ...` directly.
-2. Re-run the own-hull triplet ONCE with a valid wall treatment:
-   `openfoam scripts/run_campaign.sh runs/gci 10` (resumes across thermal naps).
-   Then `python scripts/post_gci.py runs/gci` → record `data/baselines.json`.
-3. **Gate 2M is otherwise READY.** Acceptance data is in `benchmarks/kcs.py`
-   (EFD Ct 3.711e-3 @ Fn 0.26, 13-group scatter 3.620–3.733e-3). Regenerate the
-   hull per the recipe in that file (validated to −0.09% on displacement), then
-   `make_case.py --stl data/benchmark_geom/kcs.stl --lwl 7.2786 --speed 2.196`.
-4. Then: L3 into provenance (tier 'L3') + co-kriging L1→L3; parallel tracks
-   diffusion (PyTorch-MPS) and LoRA (mlx-lm), both GPU — OpenFOAM never uses it.
+MEASURED on KCS after the fix — all three levels clean, where (3,4) and (4,5)
+were previously unusable:
+
+    refine   hull mm    cells  zeroVol  wrongOri   skew  layer%
+    (2,3)      75.9   164635        0         0    4.67    66.0
+    (3,4)      37.9   177436        0         0    5.69    76.4
+    (4,5)      19.0   230265        0         0    5.74    75.4
+
+`_HULL_REFINE` is now (4, 5). Full KCS mesh: 637k cells, hull patch fully
+layered (3 of 3 layers, near-wall 0.795 mm against a 0.706 mm target) where
+coverage used to be 32%. checkMesh: 4 open cells, 5 wrongly-oriented faces,
+77 skew — down from 72988 zero-volume cells.
+
+### The ORDER of steps 2-4 is forced from both sides — do not reorder
+
+- refineMesh must come AFTER snapping, or snappy sees anisotropic cells again.
+- refineMesh must come BEFORE layers. MEASURED with the rounds last: the min
+  z edge went 1.3e-4 -> 3.8e-5 -> **1.1e-5 m** over three rounds and checkMesh
+  found **72988 zero-volume cells**. An 11 micron cell inside a 0.7 mm boundary
+  layer is a DESTROYED boundary layer, not a fine one.
+
+### New gotchas from landing it
+
+- **There is no `tan3`.** The refineMesh direction enum is `(tan1 tan2 normal)`;
+  `normal` = tan1 ^ tan2 = +z. Asking for tan3 is FATAL.
+- **run-case.sh used to SWALLOW that error** and solve anyway — a full 75 s run
+  executed on an unrefined free surface. A refinement the case asked for that
+  silently did not happen is a WRONG mesh, not a degraded one. Now fatal.
+- **refineMesh does not maintain snappy's octree bookkeeping.** It updates
+  `constant/polyMesh` but leaves `0/cellLevel` sized for the pre-refinement
+  mesh, and decomposePar dies with "Size 230265 is not equal to the expected
+  length 920407". Both `0/` and `constant/polyMesh` copies are dropped before
+  the layer pass; layers use absolute thicknesses so they do not need levels.
+- **Isotropy fights the GCI family.** Deriving nz from dx directly, round(1.08)
+  and round(1.53) collapse to the same integer, so nz froze across
+  coarse/medium and measured r fell to 1.376 against the sqrt(2) the triplet
+  claims. Fix the near-cubic count once at scale 1 and SCALE it: r is now
+  1.4175 / 1.4109, spread 0.47%.
+- The two ungraded core z-bands are EQUAL (0.09 Lwl each). A thin 0.03 band
+  divided into the >=2 cells the family needs gave 109 mm cells against 607 mm
+  dx — 5.6:1, reintroducing the very anisotropy the fix removes.
+- `scripts/run_campaign.sh` now accepts a SINGLE case dir. It used to print
+  "skip coarse/medium/fine" then "done" — a successful-looking exit that ran
+  nothing.
+
+## Gate 2M: KCS meshes cleanly now; the NUMBER is still owed
+
+The mesh blocker is closed (above). Geometry pipeline and acceptance data were
+already done (`benchmarks/kcs.py`, displacement -0.09%; EFD Ct 3.711e-3 @
+Fn 0.26, 13-group scatter 3.620-3.733e-3).
+
+Still open: the 75 s (5 flow-through) KCS solve on the fixed mesh, ~16 h at
+637k cells on 10 ranks. Run it resumably:
+
+    openfoam scripts/run_campaign.sh runs/kcs_iso 10
+
+Last recorded Ct was 4.283e-3 = **-15.4%** against EFD, on the OLD 306k mesh
+with y+ median 2475 and 32% layer coverage. The new mesh addresses all three
+contributors, so this number should be re-measured before it is reasoned about.
+Then the GCI triplet (scale 1, sqrt2, 2) and `data/baselines.json`.
+
+Geometry notes that remain true: sewing is MANDATORY (`--deflection 0.001
+--sew-tol 1e-3`), run `surfaceCheck -checkSelfIntersection` (plain surfaceCheck
+calls a broken surface fine), and keep `symmetric=True` with `type symmetry`
+(NOT `symmetryPlane`).
 
 Open and recorded (see ALIGNMENT.md): a SECOND benchmark anchor is owed. KCS
 shares no chine/transom/spray physics with the SKUs, so Gate 2M passing is not
 small-craft validation.
 
-## THE ARCHITECTURAL FIX (found 2026-08-05 by reading the reference case)
+## Design-side invariants (audit 2026-08-05)
 
-**We are using snappyHexMesh in a way it cannot serve.** Compare
-`$FOAM_TUTORIALS/multiphase/interFoam/RAS/DTCHull` — the reference ship +
-interFoam + snappy case that ships with OpenFOAM:
+The recurring defect in this codebase is A NUMBER DECLARED TWICE. Every one of
+these was a real drift found by measurement, not a style preference:
 
-    ours                                DTCHull reference
-    coarse blockMesh (2 blocks)         multi-block blockMesh, 6 blocks in z,
-                                          fine near the waterline
-    snappy does ALL refinement          6 rounds of topoSet(box) + refineMesh
-      refinementSurfaces (2 3)..(4 5)     BEFORE snappy, in NESTED boxes
-      refinementRegions freeSurface
-    snappy snaps + adds layers          snappy: refinementSurfaces level (0 0),
-                                          refinementRegions {} — snap + layers ONLY
+- **Limits live in `navalai/limits.py`.** GM floor, freeboard floor, ply
+  thickness, bend-radius ratio, trim/list limits. `optimize.py` and
+  `evaluate.py` had private copies and they drifted (GM 0.35 vs 0.45).
+- **Constraints come from the ladder.** `evaluate.CONSTRAINT_NAMES` /
+  `Evaluation.g` is the ONE inequality vector; NSGA-II consumes it. Add a check
+  to `evaluate()` and the optimizer is constrained by it automatically.
+- **One weight model.** `weights.MassItem`/`aggregate` is the positioned truth;
+  `energy.weight_items` produces it and `dynamics.inertia` consumes it. There
+  were three placement tables and they disagreed by 0.7 m on payload LCG.
+- **`hydrostatics` owns both metacentres.** `bm_l` uses the parallel axis
+  through LCF, not midships.
 
-and the decisive line, `system/refineMeshDict`:
+## WHERE TO PICK UP (end of 2026-08-05 Mac session)
 
-    directions ( tan1 tan2 );     // x and y ONLY, never z
+1. **KCS solve is RUNNING** — `runs/kcs_iso`, 75 s (5 flow-throughs), ~16 h at
+   637k cells, resumable via `scripts/run_campaign.sh runs/kcs_iso 10`. When it
+   lands: `python -c "from navalai.cfd import post"` -> Ct against EFD
+   3.711e-3, and cross-check with the `forceCoeffs` FO (it caught the force
+   double-counting bug once already). Then `scripts/yplus_wetted.py` — with
+   full layer coverage the wetted y+ should finally be assessable.
+2. **Gate 2U re-measure** was launched on the fixed mesher
+   (`scripts/mesh_robustness.py --n 16`). It was 75% (2 of 8 hulls produced
+   zero-volume or wrongly-oriented faces) — the exact failure the isotropy fix
+   removes, so this is the gate most likely to flip GREEN. Bar is >=95%.
+3. Then the GCI triplet (scale 1, sqrt2, 2 — family verified r = 1.4175/1.4109)
+   and `data/baselines.json`, which still does not exist.
+4. Then: L3 into provenance (tier 'L3') + co-kriging L1->L3; parallel tracks
+   diffusion (PyTorch-MPS) and LoRA (mlx-lm), both GPU — OpenFOAM never uses it.
 
-Free-surface ship meshes need ANISOTROPIC refinement: fine in x,y near the
-hull, fine in z only near the waterline, coarse in z near the keel.
-`refineMesh` does exactly that, directionally. **snappy refines ISOTROPICALLY**
-— it splits all three directions at once — so buying x,y resolution through
-snappy levels forces z refinement we do not want, and every level boundary is a
-hanging-node transition. Those transitions are where our meshes fail: wrongly
-oriented faces at (3 4), zero-volume cells at (4 5), 75% unattended success.
+Still RED and honestly so: Gate 2M (needs the number above), Gate 2U (needs the
+re-measure), Gate 6R (REVIEW-GATED, needs a qualified human — not a code task).
 
-So the plan is: blockMesh (multi-block z) → topoSet+refineMesh rounds in x,y →
-snappy with hull level (0 0) and no refinementRegions → layers. Refinement and
-snapping SEPARATED, which is why the reference gets clean meshes.
-
-Also worth knowing: DTCHull uses `relativeSizes true` with 3 layers and
-expansion 1.5 — it does NOT target y+ at all. It is a tutorial, not a
-validation case, so do not copy its layer numbers; copy its ARCHITECTURE.
-
-## Gate 2M: KCS still does NOT mesh cleanly (open)
-
-The acceptance data and geometry pipeline are done (`benchmarks/kcs.py`,
-displacement -0.09%). The MESH is not. Every variant tried leaves ~9-10
-zero-volume cells and non-orthogonality **141.057 — the identical value every
-time**, i.e. one fixed unresolved feature. interFoam dies on the first
-timestep.
-
-Ruled OUT by measurement, so do not re-try these:
-- prism layers: `addLayers false` gives a byte-identical broken mesh, so the
-  defect is in castellation/snapping
-- refinement: it gets WORSE, not better — (2,3) 10 zero-vol / 55 wrong-ori,
-  (3,4) 9 / 82, (4,5) **149 / 938**. Degrading under refinement is the
-  signature of a surface defect that coarse cells step over
-- the STL slivers (8 triangles below quality 1e-3): welding merges nothing,
-  because they are three nearly COLLINEAR vertices, not coincident ones
-- the mirrored-hull keel seam: symmetry removed it (skewness 52.2 -> 9.5)
-
-**The EXPORT has been validated and is NOT the problem** (checked because the
-obvious suspicion was that we had exported it wrong and were chasing our own
-mistake). In pipeline order — scale to metres, translate, then sew:
-    sew 1e-4 m -> 2 shells, 17/18 faces, OCC valid = FALSE  (64 self-intersect)
-    sew 1e-3 m -> 1 shell,  18/18 faces, OCC valid = TRUE   (clean)
-Sewing is MANDATORY: unsewn, the tessellation self-intersects at 298-373
-locations because each patch tessellates independently. And run surfaceCheck
-WITH `-checkSelfIntersection` — plain surfaceCheck calls a broken surface fine.
-Best settings found: `--deflection 0.001 --sew-tol 1e-3`, then ear-clip
-capping ⇒ "Surface is not self-intersecting", displacement -0.07%.
-
-STILL UNEXPLAINED: on that verified-clean surface snappy STILL produces
-zero-volume cells, and always WORSE with refinement —
-    (2,3) 10-14 | (3,4) 9 | (4,5) 149 | (3,4)@scale2 (1.3M cells) 146, skew 303
-Refinement making things worse is not normal snappy behaviour. Removing the
-free-surface box helps skew a lot (63 -> 7) but leaves 7 zero-volume cells, so
-it is not the cause either. Untried next: finer ANGULAR deflection in
-BRepMesh (currently 0.5 rad ~ 28.6 deg, coarse for a bulbous bow), or
-obtaining a published ready-to-mesh KCS STL and skipping our geometry path.
-
-Symmetry (`symmetric=True`) is implemented and worth keeping regardless: half
-the cells, no mirror seam. Use `type symmetry`, NOT `symmetryPlane` — once the
-hull lies on the boundary snappy leaves faces of both orientations and
-symmetryPlane refuses.
 
 ## Verification
 
