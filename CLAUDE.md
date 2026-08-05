@@ -82,6 +82,22 @@ lifecycle, roadmap board — READ THIS FIRST), `NavalArchAI-BuildPlan.md`
   n=5 → 36.5%, n=8 → 26.2%, n=15 → 11.2%; nLayerIter/nRelaxedIter change
   nothing. Coverage wins (an uninserted layer controls no y+), so n=3 and the
   stack does NOT bridge to the local cell — `case.info` records both numbers.
+- **Deep layer stacks do not just fail to insert — they KILL the solve.**
+  Measured on KCS (which meshes cleanly, so this is not a geometry artefact):
+
+      config            cells   layer%  medY+  in-band%  zeroVol  solve
+      (2,3) y+30  n3   306655    47.0    2477     6.1%       0    runs
+      (3,4) y+150 n7   341342    11.5      -        -        0    dies t=8e-4
+      (3,4) y+200 n6   341398    13.1      -        -        0    dies t=8e-4
+      (4,5) y+200 n4   465251    30.0      -        -       20    dies
+
+  So n>=6 collapses coverage AND crashes interFoam on the first timestep, and
+  hull refinement level 5 reintroduces zero-volume cells even on the good
+  NAPA geometry. The usable envelope is narrow: refinement (2,3)-(3,4) and
+  n<=3.
+  NOTE: these sweeps solve only 4 s, so in-band% is LOWER than a settled run
+  (the same baseline reads 6.1% at 4 s and 16.3% at 20 s). Compare configs
+  against each other, not against the gate.
 - First-layer thickness is held CONSTANT across the triplet, so the GCI
   bounds OUTER-flow discretisation with the wall model fixed. Say so.
 - Deep water is a property of the WAVE: tank depth = max(0.6L, 1.5·λ/2),
