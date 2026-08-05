@@ -121,6 +121,18 @@ if [ "$ROUNDS" -gt 0 ]; then
     { say "FATAL: layer pass failed — see log.snappy.layers"; exit 1; }
 fi
 
+# ONE SOLVE AT A TIME. This Mac has 15 cores and np=10 is the measured optimum
+# for a SINGLE job. Three 10-rank jobs were once left running concurrently:
+# load average 51.5, every rank at ~46% of a core, and each case at roughly a
+# third of its proper speed — which reads as "the solver is slow" rather than
+# "you are oversubscribed 3x". Refuse rather than crawl.
+if pgrep -f "interFoam -parallel" > /dev/null 2>&1; then
+  say "FATAL: an interFoam solve is already running on this machine."
+  say "       $(pgrep -fl 'interFoam -parallel' | head -1)"
+  say "       np is per-MACHINE, not per-job. Wait for it, or kill it first."
+  exit 3
+fi
+
 say "checkMesh ..."
 checkMesh > log.checkMesh 2>&1 || true
 # Report mesh quality rather than bury it: free-surface grading leaves ~20:1
@@ -150,6 +162,17 @@ fi
 
 setFields > log.setFields 2>&1 || true
 if [ "$NP" -gt 1 ]; then
+  # Reconcile the rank count with the dict BEFORE meshing costs anything.
+  # A mismatch is only discovered by interFoam, which aborts after the whole
+  # mesh has been built — twice now. decomposeParDict is the case's own
+  # declaration, so rewrite it to what was actually asked for.
+  _WANT=$(foamDictionary -entry numberOfSubdomains -value system/decomposeParDict 2>/dev/null || echo "$NP")
+  if [ "$_WANT" != "$NP" ]; then
+    say "decomposeParDict says $_WANT ranks, run asked for $NP — using $NP"
+    foamDictionary -entry numberOfSubdomains -set "$NP" system/decomposeParDict > /dev/null
+    foamDictionary -entry hierarchicalCoeffs/n -set "($NP 1 1)" system/decomposeParDict > /dev/null 2>&1 || true
+    rm -rf processor*
+  fi
   say "decomposePar ($NP ranks) ..."
   decomposePar -force > log.decompose 2>&1
   say "interFoam -parallel (tail -f $CASE/log.interFoam to watch) ..."

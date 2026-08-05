@@ -18,6 +18,7 @@ It refuses to produce a verdict it cannot support:
 from __future__ import annotations
 
 import math
+import re
 import sys
 from pathlib import Path
 
@@ -39,6 +40,39 @@ def read_info(case: Path) -> dict:
             k, v = line.split("=", 1)
             out[k.strip()] = v.strip()
     return out
+
+
+def motion_result(case: Path) -> dict | None:
+    """Settled sinkage and trim from the sixDoF report, or None if fixed.
+
+    EFD gives both (sinkage -1.394e-2 m, trim -0.169 deg), so a free-motion run
+    is checked on three numbers rather than one. They are also the cheapest
+    sanity check there is: a hull that sinks the wrong way has a sign error
+    somewhere, and no amount of C_T agreement would reveal it.
+    """
+    log = case / "log.interFoam"
+    if not log.exists():
+        return None
+    text = log.read_text()
+    zs = [float(m) for m in re.findall(
+        r"Centre of rotation: \([-\d.eE+]+ [-\d.eE+]+ ([-\d.eE+]+)\)", text)]
+    # Orientation is row-major; R[0][2] = sin(pitch) for rotation about y.
+    sins = [float(m) for m in re.findall(
+        r"Orientation: \([-\d.eE+]+ [-\d.eE+]+ ([-\d.eE+]+)", text)]
+    if len(zs) < 20 or len(sins) < 20:
+        return None
+    n = max(len(zs) // 5, 1)
+    z0 = zs[0]
+    sink = float(np.mean(zs[-n:])) - z0
+    sink_prev = float(np.mean(zs[-2 * n:-n])) - z0
+    trim = math.degrees(math.asin(max(-1.0, min(1.0, float(np.mean(sins[-n:]))))))
+    trim_prev = math.degrees(math.asin(max(-1.0, min(1.0,
+                                                     float(np.mean(sins[-2 * n:-n]))))))
+    return {
+        "sinkage_m": sink, "trim_deg": trim,
+        "sink_drift": abs(sink - sink_prev) / max(abs(sink), 1e-9),
+        "trim_drift": abs(trim - trim_prev) / max(abs(trim), 1e-9),
+    }
 
 
 def grid_result(case: Path) -> dict | None:
@@ -112,6 +146,21 @@ def main() -> int:
               f"{r['drag_n']:9.1f} {r['ct']:10.4e} "
               f"{KCS.error_vs_efd(r['ct']):+7.1f} {100*r['drift']:6.1f}%  "
               f"{'yes' if r['settled'] else 'NO'}")
+
+    # Free-motion runs are checked on sinkage and trim as well, since EFD
+    # reports both and they are what a fixed-attitude solve gets wrong.
+    for case, r in zip(cases, rows):
+        mo = motion_result(case)
+        if not mo:
+            continue
+        print(f"\n{r['name']}: FREE sinkage/trim")
+        print(f"  sinkage {mo['sinkage_m']*1e3:+7.2f} mm  "
+              f"(EFD {KCS.EFD['sinkage_m']*1e3:+.2f} mm, "
+              f"{100*(mo['sinkage_m']-KCS.EFD['sinkage_m'])/abs(KCS.EFD['sinkage_m']):+.1f}%)"
+              f"  drift {100*mo['sink_drift']:.1f}%")
+        print(f"  trim    {mo['trim_deg']:+7.3f} deg (EFD {KCS.EFD['trim_deg']:+.3f} deg, "
+              f"{100*(mo['trim_deg']-KCS.EFD['trim_deg'])/abs(KCS.EFD['trim_deg']):+.1f}%)"
+              f"  drift {100*mo['trim_drift']:.1f}%")
 
     usable = [r for r in rows if r["settled"]]
     if not usable:
