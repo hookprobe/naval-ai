@@ -83,6 +83,28 @@ def n_layers_to_bridge(t1: float, cell: float, expansion: float) -> int:
     return int(max(3, min(20, round(n))))
 
 
+def _as_symmetric(text: str) -> str:
+    """Rewrite the y=0 patch (`side1`) as a symmetry plane in a field file.
+
+    Calm-water resistance on a port/starboard-symmetric hull only needs half
+    the domain, and the half domain is strictly better here than mirroring:
+    Uses the general `symmetry` type, NOT `symmetryPlane`: once the hull
+    surface lies exactly ON the boundary, snappy leaves faces of both
+    orientations there and symmetryPlane refuses ("normal (0 1 0) differs from
+    the average normal (0 -1 0)"). OpenFOAM names this fix in the error itself.
+
+    the Tokyo-2015 KCS ships as a HALF body whose keel-line vertices sit at
+    y = 2.4 mm, so mirroring lays a ~4.8 mm sliver ribbon down the whole keel
+    (measured triangle quality 4.8e-4 there). snappy then produced 14
+    zero-volume cells and 73 wrongly oriented faces at EVERY refinement level
+    tried, up to 914k cells, and interFoam died on the first timestep.
+    Symmetry removes the seam entirely — and halves the cell count.
+    """
+    import re as _re
+    return _re.sub(r"side1\s*\{[^}]*\}", "side1      { type symmetry; }",
+                   text)
+
+
 def _interface_dz(height: float, n: int, expansion: float) -> float:
     """Height of the cell touching the waterline in a graded block.
 
@@ -149,7 +171,7 @@ boundary (
   outlet     {{ type patch; faces ((0 4 7 3) (4 8 11 7)); }}
   atmosphere {{ type patch; faces ((8 9 10 11)); }}
   bottom     {{ type wall;  faces ((0 3 2 1)); }}
-  side1      {{ type wall;  faces ((0 1 5 4) (4 5 9 8)); }}
+  side1      {{ type {side1_type};  faces ((0 1 5 4) (4 5 9 8)); }}
   side2      {{ type wall;  faces ((3 7 6 2) (7 11 10 6)); }}
 );
 """
@@ -339,7 +361,7 @@ castellatedMeshControls {{
   features ( {{ file "hull.eMesh"; level 3; }} );
   refinementSurfaces {{ hull {{ level ({hull_lvl_min} {hull_lvl_max}); }} }}
   refinementRegions {{ freeSurface {{ mode inside; levels ((1e15 {fs_level})); }} }}
-  locationInMesh ({loc_x} 0.0 {loc_z});
+  locationInMesh ({loc_x} {loc_y} {loc_z});
   allowFreeStandingZoneFaces true; resolveFeatureAngle 30;
 }}
 snapControls {{ nSmoothPatch 3; tolerance 2.0; nSolveIter 50; nRelaxIter 5; }}
@@ -462,7 +484,8 @@ def stl_watertight_report(path: Path) -> dict:
 def write_resistance_case_from_stl(stl_path: str | Path, lwl: float,
                                    speed: float, out_dir: str | Path,
                                    end_time: float = 40.0, scale: float = 1.0,
-                                   np_procs: int = 8) -> dict:
+                                   np_procs: int = 8,
+                                   symmetric: bool = False) -> dict:
     """Same case generator, but for EXTERNAL geometry (KCS/JBC calibration).
 
     The STL must be watertight, in metres, with the free surface at z=0 and
@@ -473,12 +496,13 @@ def write_resistance_case_from_stl(stl_path: str | Path, lwl: float,
     data = Path(stl_path).read_bytes()
     (out / "constant" / "triSurface" / "hull.stl").write_bytes(data)
     stl_sha = hashlib.sha256(data).hexdigest()
-    return _write_case_dicts(out, stl_sha, lwl, speed, end_time, scale, np_procs)
+    return _write_case_dicts(out, stl_sha, lwl, speed, end_time, scale,
+                             np_procs, symmetric)
 
 
 def write_resistance_case(hull: Hull, speed: float, out_dir: str | Path,
                           end_time: float = 40.0, scale: float = 1.0,
-                          np_procs: int = 8) -> dict:
+                          np_procs: int = 8, symmetric: bool = False) -> dict:
     """Generate a COMPLETE, runnable interFoam resistance case.
 
     scale: background-mesh refinement multiplier (1.0 / sqrt(2) steps give
@@ -495,11 +519,12 @@ def write_resistance_case(hull: Hull, speed: float, out_dir: str | Path,
     stl_sha = hull_to_stl(hull, out / "constant" / "triSurface" / "hull.stl",
                           nx=nx, nz=nz)
     return _write_case_dicts(out, stl_sha, lwl, speed,
-                             end_time, scale, np_procs)
+                             end_time, scale, np_procs, symmetric)
 
 
 def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
-                      end_time: float, scale: float, np_procs: int) -> dict:
+                      end_time: float, scale: float, np_procs: int,
+                      symmetric: bool = False) -> dict:
     (out / "system").mkdir(parents=True, exist_ok=True)
     # Initial fields live in 0.orig and are COPIED to 0 (the OpenFOAM tutorial
     # convention). setFields rewrites 0/alpha.water as a full non-uniform field
@@ -524,10 +549,15 @@ def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
     half_lambda = math.pi * speed ** 2 / 9.81
     depth = max(0.6 * lwl, 1.5 * half_lambda)
 
-    dom = dict(x0=-2.5 * lwl, x1=2.0 * lwl, y0=-1.5 * lwl, y1=1.5 * lwl,
+    # A symmetric case models only y >= 0 and closes it with a symmetry plane:
+    # half the cells for the same resolution, and no mirrored-geometry seam.
+    y_half = 1.5 * lwl
+    dom = dict(x0=-2.5 * lwl, x1=2.0 * lwl,
+               y0=0.0 if symmetric else -y_half, y1=y_half,
                z0=-depth, z1=0.25 * lwl,
+               side1_type="symmetry" if symmetric else "wall",
                nx=max(int(round(54 * scale)), 20),
-               ny=max(int(round(24 * scale)), 10),
+               ny=max(int(round((12 if symmetric else 24) * scale)), 8),
                nzw=max(int(round(20 * scale)), 8),
                nza=max(int(round(8 * scale)), 4),
                g_water=1.0 / _Z_EXPANSION, g_air=float(_Z_EXPANSION))
@@ -557,12 +587,14 @@ def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
         fs_level=fs_level, fs_dz_bg=max(dz_w, dz_a),
         # slab thick enough to hold the wave through its whole vertical travel
         fs_x0=_FS_BOX["x0"] * lwl, fs_x1=_FS_BOX["x1"] * lwl,
-        fs_y0=-_FS_BOX["y"] * lwl, fs_y1=_FS_BOX["y"] * lwl,
+        fs_y0=0.0 if symmetric else -_FS_BOX["y"] * lwl,
+        fs_y1=_FS_BOX["y"] * lwl,
         fs_z0=-_FS_BOX["z"] * lwl, fs_z1=_FS_BOX["z"] * lwl,
         # locationInMesh: in the air, far upstream of the hull. The old
         # (-2.0L, 0.35L) sat ABOVE the new tank roof and off a round multiple
         # of the cell size; both are mesh-generation failures.
-        loc_x=-1.97 * lwl, loc_z=0.137 * lwl)
+        loc_x=-1.97 * lwl, loc_z=0.137 * lwl,
+        loc_y=0.31 * lwl if symmetric else 0.0)
 
     # turbulence inlet: I = 2%, length scale 1% LWL
     k_in = 1.5 * (0.02 * speed) ** 2 + 1e-8
@@ -593,6 +625,11 @@ def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
     zero.joinpath("omega").write_text(FIELD_OMEGA.format(w_in=f"{w_in:.3e}"))
     zero.joinpath("nut").write_text(FIELD_NUT)
 
+    if symmetric:
+        for f in ("U", "p_rgh", "alpha.water", "k", "omega", "nut"):
+            fp = zero / f
+            fp.write_text(_as_symmetric(fp.read_text()))
+
     # working copy: run-case.sh restores this from 0.orig before every re-mesh
     import shutil
     if (out / "0").exists():
@@ -612,6 +649,7 @@ def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
         f"cells_per_wavelength={cells_per_wave:.1f}\n"
         f"target_yplus={_TARGET_YPLUS}\nfirst_layer_m={t1:.6e}\n"
         f"n_layers={n_layers}\nn_layers_to_fully_bridge={n_ideal}\n"
+        f"symmetric={symmetric}\n"
         "NOTE: layers are capped for insertion success, so the stack does NOT\n"
         "  bridge to the local cell; y+ is controlled on layered faces only.\n"
         "  Check postProcessing/yPlus for what was actually achieved.\n"

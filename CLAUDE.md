@@ -195,6 +195,40 @@ Open and recorded (see ALIGNMENT.md): a SECOND benchmark anchor is owed. KCS
 shares no chine/transom/spray physics with the SKUs, so Gate 2M passing is not
 small-craft validation.
 
+## Gate 2M: KCS still does NOT mesh cleanly (open)
+
+The acceptance data and geometry pipeline are done (`benchmarks/kcs.py`,
+displacement -0.09%). The MESH is not. Every variant tried leaves ~9-10
+zero-volume cells and non-orthogonality **141.057 — the identical value every
+time**, i.e. one fixed unresolved feature. interFoam dies on the first
+timestep.
+
+Ruled OUT by measurement, so do not re-try these:
+- prism layers: `addLayers false` gives a byte-identical broken mesh, so the
+  defect is in castellation/snapping
+- refinement: it gets WORSE, not better — (2,3) 10 zero-vol / 55 wrong-ori,
+  (3,4) 9 / 82, (4,5) **149 / 938**. Degrading under refinement is the
+  signature of a surface defect that coarse cells step over
+- the STL slivers (8 triangles below quality 1e-3): welding merges nothing,
+  because they are three nearly COLLINEAR vertices, not coincident ones
+- the mirrored-hull keel seam: symmetry removed it (skewness 52.2 -> 9.5)
+
+The live lead is `surfaceCheck -checkSelfIntersection` (run it WITH the flag;
+plain surfaceCheck reports the surface as fine):
+    sewn at 1e-4          -> 64 self-intersections
+    sewn at 1e-3 (raw)    -> NONE, clean
+    after my capping      -> 5, at y~0.5095, z -0.009..0.096
+So the raw sewn half hull is clean and OUR post-processing breaks it. The
+centroid-fan cap was genuinely invalid (a fan only works on a convex loop) and
+is now ear-clipping, but 5 intersections remain and their z does NOT match the
+cap plane (0.1332) — so the cap is not the whole story. Next: bisect the
+remaining post-processing, or cap in OCC before tessellation instead.
+
+Symmetry (`symmetric=True`) is implemented and worth keeping regardless: half
+the cells, no mirror seam. Use `type symmetry`, NOT `symmetryPlane` — once the
+hull lies on the boundary snappy leaves faces of both orientations and
+symmetryPlane refuses.
+
 ## Verification
 
 - `python -m pytest tests/ -q` (expect all green, ~3 min) and
