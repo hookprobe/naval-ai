@@ -32,8 +32,37 @@ def parse_forces(path: str | Path):
         if len(nums) < 7:
             continue
         t.append(nums[0])
-        fx.append(nums[1] + nums[4])       # pressure-x + viscous-x
+        # Column layout, from the file's own header:
+        #   Time | total_x total_y total_z | pressure_x .. | viscous_x ..
+        # so the drag is column 1. This previously read `nums[1] + nums[4]`,
+        # i.e. total_x + pressure_x — DOUBLE-COUNTING the pressure term, while
+        # the comment claimed "pressure-x + viscous-x". It inflated every drag
+        # this project has reported: KCS C_t read 9.33e-3 against OpenFOAM's own
+        # forceCoeffs value of 4.26e-3, and the own-hull triplet was wrong by
+        # the same mechanism. Cross-check any change here against forceCoeffs.
+        fx.append(nums[1])
     return np.array(t), np.array(fx)
+
+
+def parse_forces_components(path: str | Path):
+    """(t, pressure_x, viscous_x) — the split the total hides.
+
+    Kept separate from parse_forces so the components are read from their OWN
+    columns (4 and 7) rather than inferred, which is how they got confused in
+    the first place.
+    """
+    t, fp, fv = [], [], []
+    for line in Path(path).read_text().splitlines():
+        s = line.strip()
+        if not s or s.startswith("#"):
+            continue
+        nums = [float(x) for x in _NUM.findall(s)]
+        if len(nums) < 10:
+            continue
+        t.append(nums[0])
+        fp.append(nums[4])
+        fv.append(nums[7])
+    return np.array(t), np.array(fp), np.array(fv)
 
 
 def forces_path(case: str | Path) -> Path:

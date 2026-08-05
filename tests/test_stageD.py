@@ -4,6 +4,7 @@ synthetic data."""
 
 import numpy as np
 import pytest
+from pathlib import Path
 
 from navalai.cfd.post import gci, mean_resistance, parse_forces
 from navalai.dynamics import (inertia, lifting, mooring,
@@ -114,13 +115,22 @@ def test_mooring_and_lifting(wb):
 # ---------------- CFD post ----------------
 
 def test_forces_parser_and_mean(tmp_path):
+    """NOTE the fixture format. It used to write only two vectors,
+    (pressure)(viscous), and assert that parse_forces SUMMED them. Real
+    OpenFOAM writes THREE — total, pressure, viscous — so the fixture matched
+    the parser's bug rather than the file it claims to represent, and that is
+    exactly why the double-counting survived. Fixture now mirrors the real
+    header.
+    """
     f = tmp_path / "force.dat"
-    rows = ["# Time (px py pz) (vx vy vz)"]
+    rows = ["# Time  total_x total_y total_z  pressure_x pressure_y pressure_z"
+            "  viscous_x viscous_y viscous_z"]
     rng = np.random.default_rng(1)
     for i in range(200):
         t = i * 0.1
         drag = -300.0 + (50.0 if t < 10 else 0.0) + rng.normal(0, 2)
-        rows.append(f"{t:.2f} ({drag * 0.8:.3f} 0 0) ({drag * 0.2:.3f} 0 0)")
+        rows.append(f"{t:.2f} ({drag:.3f} 0 0) ({drag * 0.8:.3f} 0 0) "
+                    f"({drag * 0.2:.3f} 0 0)")
     f.write_text("\n".join(rows))
     t, fx = parse_forces(f)
     assert len(t) == 200
@@ -249,3 +259,59 @@ def test_wetted_area_clips_at_the_waterline(tmp_path):
     assert ct == pytest.approx(1000.0 / (0.5 * 1000.0 * 5.0 * 4.0), rel=1e-9)
     with pytest.raises(ValueError):
         resistance_coefficient(100.0, 0.0, 2.0)
+
+
+def test_force_parser_reads_the_total_not_total_plus_pressure():
+    """The bug that inflated every drag this project has reported.
+
+    OpenFOAM's force.dat header is:
+        Time | total_x total_y total_z | pressure_x .. | viscous_x ..
+    parse_forces did `nums[1] + nums[4]`, i.e. total_x + pressure_x — it
+    DOUBLE-COUNTED pressure, while its comment claimed "pressure-x + viscous-x".
+    Caught only by running OpenFOAM's own forceCoeffs as an independent
+    cross-check: our KCS C_t read 9.33e-3 against forceCoeffs' 4.26e-3.
+
+    Every case dict now also writes forceCoeffs so the two can be compared.
+    """
+    from navalai.cfd.post import parse_forces, parse_forces_components
+
+    f = Path(__file__).parent / "_force_fixture.dat"
+    f.write_text(
+        "# Time  total_x total_y total_z  pressure_x pressure_y pressure_z  "
+        "viscous_x viscous_y viscous_z\n"
+        # total = pressure + viscous, exactly as OpenFOAM writes it
+        "1.0 (-100.0 0 0) (-70.0 0 0) (-30.0 0 0)\n"
+        "2.0 (-110.0 0 0) (-75.0 0 0) (-35.0 0 0)\n")
+    try:
+        t, fx = parse_forces(f)
+        assert list(fx) == [-100.0, -110.0], f"got {fx} (double-counted?)"
+        # the old bug would have produced -170 / -185
+        assert -170.0 not in list(fx)
+
+        t2, fp, fv = parse_forces_components(f)
+        assert list(fp) == [-70.0, -75.0]
+        assert list(fv) == [-30.0, -35.0]
+        # components must reconstruct the total
+        assert list(fp + fv) == list(fx)
+    finally:
+        f.unlink(missing_ok=True)
+
+
+def test_case_writes_forceCoeffs_as_an_independent_cross_check():
+    """forces and forceCoeffs must both be present: the parser bug above was
+    invisible until OpenFOAM's own coefficient disagreed with ours."""
+    from navalai.cfd.case import write_resistance_case
+    from navalai.geometry import Hull
+    from tests.test_phase0 import mid_params
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as d:
+        write_resistance_case(Hull(mid_params()), 2.57, Path(d) / "c")
+        cd = (Path(d) / "c" / "system" / "controlDict").read_text()
+    assert "forceCoeffs" in cd and "Aref" in cd
+    # `rho rhoInf` charges water density to the DRY topsides (air), which
+    # inflated the viscous term by ~1.56x on KCS. Check the ACTIVE entries,
+    # not the comment that explains why it is absent.
+    active = "\n".join(l for l in cd.splitlines()
+                        if not l.strip().startswith("//"))
+    assert "rho rhoInf;" not in active, "forces must use the real rho field"

@@ -182,9 +182,24 @@ purgeWrite      3;
 // checked in the render rather than assumed.
 adjustTimeStep  yes;  maxCo 5;  maxAlphaCo 2;  maxDeltaT 0.1;
 functions {{
+  // NO `rho rhoInf` here. That entry makes the FO charge WATER density to
+  // every face including the DRY topsides, which sit in air (1.2 kg/m3).
+  // MEASURED on KCS at t=75.97: forces reported 153.16 N where forceCoeffs,
+  // which reads the real rho field, reported 98.03 N — a factor 1.56, all of
+  // it in the viscous term. The reference DTCHull case sets rhoInf only.
   forces {{
     type forces; libs (forces); patches (hull);
-    rho rhoInf; rhoInf 998.8; CofR (0 0 0);
+    rhoInf 998.8; CofR (0 0 0);
+    writeControl timeStep; writeInterval 10;
+  }}
+  // OpenFOAM's own coefficient, as an independent cross-check on our
+  // post-processing. It caught a double-counting bug in parse_forces that had
+  // inflated every drag this project reported.
+  forceCoeffs {{
+    type forceCoeffs; libs (forces); patches (hull);
+    rhoInf 998.8; CofR (0 0 0);
+    liftDir (0 0 1); dragDir (-1 0 0); pitchAxis (0 1 0);
+    magUInf {speed_abs}; lRef {lwl}; Aref {aref:.6f};
     writeControl timeStep; writeInterval 10;
   }}
   // The build plan specifies wall functions at y+ ~ 30 (SJTU KCS pipeline).
@@ -707,8 +722,16 @@ def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
     # ~1.7 h of fine-grid wall time thrown away each time. purgeWrite 3 keeps
     # the disk bounded regardless.
     write_int = max(end_time / 10.0, 0.5)
+    # Aref for the coefficient: the wetted surface the CFD actually sees.
+    from .post import stl_wetted_area
+    try:
+        aref = stl_wetted_area(out / 'constant' / 'triSurface' / 'hull.stl', 0.0)
+    except Exception:
+        aref = 1.0
     sysd.joinpath("controlDict").write_text(
-        CONTROL_DICT.format(end_time=end_time, dt=0.001, write_int=write_int))
+        CONTROL_DICT.format(end_time=end_time, dt=0.001, write_int=write_int,
+                            speed_abs=abs(speed), lwl=lwl,
+                            aref=max(aref, 1e-6)))
     sysd.joinpath("blockMeshDict").write_text(BLOCKMESH.format(**dom))
     sysd.joinpath("snappyHexMeshDict").write_text(SNAPPY_STUB.format(**dom))
     sysd.joinpath("refineMeshDict").write_text(REFINE_MESH)
