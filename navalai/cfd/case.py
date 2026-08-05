@@ -64,6 +64,13 @@ _Z_BANDS = dict(hull=0.09, wave=0.03, dz=0.0022)
 # refineMesh rounds. Each halves x and y inside a box that tightens toward the
 # hull, so the near-hull cell is background/2**rounds in x,y while z keeps the
 # blockMesh value. 4 rounds take a 0.61 m background cell to ~38 mm.
+# DISABLED (0). Kept, working, and documented — but it refines the FREE
+# SURFACE, and the open blocker is y+ at the WALL. It does not touch the
+# near-wall cell, so it cannot move Gate 2M. It is also expensive: on KCS,
+# starting from a 1.07M-cell snapped mesh, round 1 -> 3.89M and round 2 ->
+# 11.49M cells (x4 per round inside the slab), which round 3 would have taken
+# past this machine's 24 GB. Turn it on only when wave resolution is the
+# binding constraint AND there is memory to spare.
 _REFINE_ROUNDS = 0
 
 # Layers snappy will actually INSERT on this hull, measured (coarse grid,
@@ -103,25 +110,27 @@ def n_layers_to_bridge(t1: float, cell: float, expansion: float) -> int:
 
 
 def _refine_boxes(lwl: float, symmetric: bool) -> list[dict]:
-    """Nested boxes for the refineMesh rounds, outermost first.
+    """Nested boxes for the post-snappy free-surface refinement, outermost first.
 
-    Each round halves x and y inside its box, so nesting them grades the
-    refinement in space. The boxes shrink toward the hull in x and y but keep
-    a generous z span: z costs nothing here because refineMesh does not refine
-    z, and a tall box simply means the whole water column under the hull gets
-    the finer x,y.
+    These are THIN in z and wide in x,y: their job is the wave field, not the
+    hull. An earlier version reused tall hull-refinement boxes here and round 2
+    alone selected 4,017,529 cells — refining most of the domain three times
+    would have been ~64 M cells. The wave lives in a slab a few percent of LWL
+    around z=0; everything below it is still water and everything above is air.
+
+    Each round halves x,y inside its box, and each box is tighter than the last
+    so the refinement grades in space rather than in one jump.
     """
     boxes = []
     for i in range(_REFINE_ROUNDS):
-        f = 1.0 - i / (_REFINE_ROUNDS + 1.0)      # 1.0, 0.8, 0.6, 0.4 ...
-        bx0 = -(0.9 + 1.2 * f) * lwl
-        bx1 = (1.05 + 0.45 * f) * lwl
-        by = (0.25 + 0.65 * f) * lwl
-        bz0 = -(0.10 + 0.25 * f) * lwl
-        bz1 = (0.05 + 0.10 * f) * lwl
+        f = 1.0 - i / (_REFINE_ROUNDS + 1.0)          # 1.0, 0.75, 0.5 ...
+        bx0 = -(0.6 + 1.3 * f) * lwl                  # wake astern
+        bx1 = (1.02 + 0.30 * f) * lwl                 # a little ahead of the bow
+        by = (0.18 + 0.55 * f) * lwl                  # Kelvin wedge
+        bz = (0.020 + 0.030 * f) * lwl                # THIN slab around z=0
         boxes.append(dict(bx0=bx0, bx1=bx1,
-                          by0=0.0 - (0.0 if symmetric else by), by1=by,
-                          bz0=bz0, bz1=bz1))
+                          by0=0.0 if symmetric else -by, by1=by,
+                          bz0=-bz, bz1=bz))
     return boxes
 
 
@@ -250,12 +259,19 @@ writeMesh       no;
 """
 
 TOPO_SET = """FoamFile {{ version 2.0; format ascii; class dictionary; object topoSetDict; }}
+// Free-surface band MINUS a shield around the hull. The shield matters: this
+// runs AFTER snappy, so the prism layers already exist, and directionally
+// splitting them would destroy the y+ they were built for.
 actions (
   {{ name c0; type cellSet; action new; source boxToCell;
      box ({bx0} {by0} {bz0}) ({bx1} {by1} {bz1}); }}
+  {{ name c0; type cellSet; action subtract; source surfaceToCell;
+     file "constant/triSurface/hull.stl";
+     outsidePoints (({loc_x} {loc_y} {loc_z}));
+     includeCut false; includeInside false; includeOutside false;
+     nearDistance {shield_m:.6f}; curvature -100; }}
 );
 """
-
 FV_SCHEMES = """FoamFile { version 2.0; format ascii; class dictionary; object fvSchemes; }
 ddtSchemes      { default Euler; }
 gradSchemes     { default Gauss linear; }
@@ -699,8 +715,12 @@ def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
     # Nested boxes, each round halving x,y inside it. Box 1 covers the hull and
     # near wake generously; each subsequent box tightens toward the hull, so the
     # refinement is graded in space rather than in one jump.
-    for i, frac in enumerate(_refine_boxes(lwl, symmetric), start=1):
-        sysd.joinpath(f"topoSetDict.{i}").write_text(TOPO_SET.format(**frac))
+    stack = t1 * (_LAYER_EXPANSION ** n_layers - 1) / (_LAYER_EXPANSION - 1)
+    shield = max(2.5 * stack, 0.004 * lwl)
+    for i, box in enumerate(_refine_boxes(lwl, symmetric), start=1):
+        sysd.joinpath(f"topoSetDict.{i}").write_text(
+            TOPO_SET.format(shield_m=shield, loc_x=dom["loc_x"],
+                            loc_y=dom["loc_y"], loc_z=dom["loc_z"], **box))
     sysd.joinpath("fvSchemes").write_text(FV_SCHEMES)
     sysd.joinpath("fvSolution").write_text(FV_SOLUTION)
     sysd.joinpath("decomposeParDict").write_text(DECOMPOSE.format(np=np_procs))
