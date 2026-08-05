@@ -364,12 +364,44 @@ addLayersControls {{
   minMedialAxisAngle 90; nBufferCellsNoExtrude 0; nLayerIter 50;
   nRelaxedIter 20;
 }}
+// v2606 REQUIRES a `relaxed` sub-dict once layer addition reaches
+// nRelaxedIter, and dies with "Entry 'relaxed' not found in dictionary" —
+// a FATAL IO ERROR after the mesh is already built. It stayed hidden while
+// nSurfaceLayers was 3 (iteration 20 was never reached) and only surfaced
+// when the near-wall fix asked for 6 layers.
 meshQualityControls {{ maxNonOrtho 65; maxBoundarySkewness 20; maxInternalSkewness 4;
   maxConcave 80; minVol 1e-13; minTetQuality 1e-15; minArea -1; minTwist 0.02;
   minDeterminant 0.001; minFaceWeight 0.05; minVolRatio 0.01; minTriangleTwist -1;
-  nSmoothScale 4; errorReduction 0.75; }}
+  nSmoothScale 4; errorReduction 0.75;
+  // Limits snappy falls back to for the final nRelaxedIter layer iterations.
+  // Relax ONLY the angle/skew checks. The volume and twist checks are what
+  // stand between us and degenerate cells, and relaxing them is not a
+  // trade-off — it is fatal. MEASURED: with minTwist/minFaceWeight loosened,
+  // snappy kept 11976 illegal faces (concave / zero-area / negative pyramid
+  // volume) and interFoam then drove deltaT to 2.9e-40 while the Courant
+  // number stayed ~9, i.e. a cell whose local Courant no timestep can fix,
+  // and died with an FPE in the GAMG pressure solve. A dropped layer costs
+  // accuracy; a degenerate cell costs the whole run.
+  relaxed {{ maxNonOrtho 75; maxBoundarySkewness 25; maxInternalSkewness 6;
+    maxConcave 80; minVol 1e-13; minTetQuality 1e-15; minArea -1;
+    minTwist 0.02; minDeterminant 0.001; minFaceWeight 0.05;
+    minVolRatio 0.01; minTriangleTwist -1; }}
+}}
 writeFlags (scalarLevels); mergeTolerance 1e-6;
 """
+
+
+def stl_resolution(lwl: float, target_edge: float) -> tuple[int, int]:
+    """(nx, nz) giving a hull triangulation of roughly `target_edge` metres.
+
+    The STL must be FINER than the cells that snap to it or the mesher snaps
+    to facets. MEASURED: the default 80x16 gives ~112 mm triangles on a 10 m
+    hull — adequate against the 104 mm cells of hull refinement level 3, but
+    the limiting surface as soon as the hull is refined to level 4-5 (52/26 mm)
+    to get the near-wall spacing y+ needs. Keeps the original 1:5 nz:nx ratio.
+    """
+    nx = int(min(max(round(lwl / max(target_edge, 1e-6)), 80), 600))
+    return nx, int(min(max(round(nx * 0.2), 16), 120))
 
 
 def hull_to_stl(hull: Hull, path: Path, nx: int = 80, nz: int = 16) -> str:
@@ -455,8 +487,14 @@ def write_resistance_case(hull: Hull, speed: float, out_dir: str | Path,
     """
     out = Path(out_dir)
     (out / "constant" / "triSurface").mkdir(parents=True, exist_ok=True)
-    stl_sha = hull_to_stl(hull, out / "constant" / "triSurface" / "hull.stl")
-    return _write_case_dicts(out, stl_sha, float(hull.x[-1]), speed,
+    lwl = float(hull.x[-1])
+    # Triangulate finer than the smallest cell that will snap to this surface,
+    # or snappy snaps to facets and the layer stack sits on a faceted wall.
+    bg_dx = (2.0 * lwl - (-2.5 * lwl)) / max(int(round(54 * scale)), 20)
+    nx, nz = stl_resolution(lwl, 0.5 * bg_dx / 2 ** _HULL_REFINE[1])
+    stl_sha = hull_to_stl(hull, out / "constant" / "triSurface" / "hull.stl",
+                          nx=nx, nz=nz)
+    return _write_case_dicts(out, stl_sha, lwl, speed,
                              end_time, scale, np_procs)
 
 
