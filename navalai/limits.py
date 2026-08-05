@@ -50,3 +50,13 @@ def gm_floor(category: str) -> float:
 def min_bend_radius_m(thickness_m: float = PLY_THICKNESS_M) -> float:
     """Minimum cold-bend radius [m] for a plywood sheet of `thickness_m`."""
     return BEND_RADIUS_RATIO * thickness_m
+
+
+# Static attitude from the ARRANGEMENT alone (no crew movement, no seaway).
+# Not an ISO number: 12217 governs stability, not trim. This is the design
+# bar we hold ourselves to, so that moving mass has a consequence the ladder
+# can report. MEASURED on the mid hull with the default bucket placement:
+# trim +0.91 deg, list 0.00 deg — so the bar is a real constraint, not a
+# rubber stamp, and not one tuned to whatever the current model happens to give.
+TRIM_LIMIT_DEG = 2.0
+LIST_LIMIT_DEG = 2.0

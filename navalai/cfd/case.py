@@ -472,7 +472,7 @@ boundaryField {
 """
 
 SNAPPY_STUB = """FoamFile {{ version 2.0; format ascii; class dictionary; object snappyHexMeshDict; }}
-castellatedMesh true; snap true; addLayers true;
+castellatedMesh {castellate}; snap {do_snap}; addLayers {do_layers};
 geometry {{
   hull.stl {{ type triSurfaceMesh; name hull; }}
   freeSurface {{ type searchableBox; min ({fs_x0} {fs_y0} {fs_z0});
@@ -767,7 +767,16 @@ def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
                             speed_abs=abs(speed), lwl=lwl,
                             aref=max(aref, 1e-6)))
     sysd.joinpath("blockMeshDict").write_text(BLOCKMESH.format(**dom))
-    sysd.joinpath("snappyHexMeshDict").write_text(SNAPPY_STUB.format(**dom))
+    # Two passes: snap first (needs cubic cells), layers last (must not be
+    # z-refined afterwards). With no refineMesh rounds the second dict is
+    # unused and pass 1 does everything, so the single-pass case is unchanged.
+    staged = _REFINE_ROUNDS > 0
+    sysd.joinpath("snappyHexMeshDict").write_text(SNAPPY_STUB.format(
+        castellate="true", do_snap="true",
+        do_layers="false" if staged else "true", **dom))
+    if staged:
+        sysd.joinpath("snappyHexMeshDict.layers").write_text(SNAPPY_STUB.format(
+            castellate="false", do_snap="false", do_layers="true", **dom))
     sysd.joinpath("refineMeshDict").write_text(REFINE_MESH)
     # Nested boxes, each round halving x,y inside it. Box 1 covers the hull and
     # near wake generously; each subsequent box tightens toward the hull, so the

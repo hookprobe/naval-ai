@@ -30,8 +30,22 @@ latest_of() {
   echo "$best"
 }
 
-for GRID in coarse medium fine; do
+# A single case directory is a campaign of one. Without this, pointing the
+# script at one case printed "skip coarse/medium/fine (no case dir)" followed
+# by "done" — a SUCCESSFUL-looking exit that ran nothing, which is exactly the
+# failure mode that loses an overnight run.
+GRIDS="coarse medium fine"
+if [ -d "$ROOT/system" ]; then
+  GRIDS="."
+  echo "[campaign] single case: $ROOT"
+elif [ ! -d "$ROOT/coarse" ] && [ ! -d "$ROOT/medium" ] && [ ! -d "$ROOT/fine" ]; then
+  echo "[campaign] FATAL: $ROOT is neither a case (no system/) nor a triplet root" >&2
+  exit 2
+fi
+
+for GRID in $GRIDS; do
   CASE="$ROOT/$GRID"
+  [ "$GRID" = "." ] && CASE="$ROOT"
   [ -d "$CASE" ] || { echo "[campaign] skip $GRID (no case dir)"; continue; }
   END="$(end_time_of "$CASE" 2>/dev/null || echo 0)"
 

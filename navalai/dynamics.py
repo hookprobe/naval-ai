@@ -11,7 +11,6 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .energy import WeightBudget
 from .geometry import G, Hull
 
 RHO_AIR = 1.225
@@ -29,31 +28,50 @@ class InertiaReport:
     kyy: float           # pitch gyradius / LWL
 
 
-def inertia(hull: Hull, wb: WeightBudget) -> InertiaReport:
+# Each bucket's OWN gyradius about its own centre, as (rx of beam, ry of Lwl).
+# Positions are NOT here: they come from the mass items, so there is exactly
+# one placement model. There used to be a third copy of the placement inlined
+# below, and it had drifted — payload sat at 0.55*Lwl here against 0.48*Lwl in
+# energy.LCG_FRACTION, i.e. 0.7 m apart on a 10 m boat, and the panels 1.00*D
+# against 1.02*D. Inertia was therefore computed about a CG the stability model
+# did not agree with.
+_OWN_GYRADIUS = {"structure": (0.40, 0.29), "battery": (0.25, 0.05),
+                 "panels": (0.45, 0.30), "outfit": (0.30, 0.25),
+                 "payload": (0.30, 0.15)}
+
+
+def inertia(hull: Hull, items) -> InertiaReport:
     """Component-lumped inertia about the composite CG.
 
-    Masses: structure smeared over the shell strip-wise, battery low amidship,
-    panels at deck, outfit + payload mid-depth — same stack as the VCG model.
+    `items` is the list[MassItem] from `energy.weight_items` (or a tier E/F
+    arrangement that extends it) — the same positioned model stability uses.
+    Item z is in the hull frame (0 at the design waterline); inertia works
+    above the keel, so t_design is added back here.
     """
     L = float(hull.x[-1])
     B = 2.0 * float(hull.y_chine.max())
-    D = float(hull.z_sheer.max() - hull.z_keel.min())
-    m = wb.total_kg
-    parts = [
-        # (mass, x, z, own gyradius fractions rx(of B), ry(of L))
-        (wb.structure_kg, 0.50 * L, 0.55 * D, 0.40, 0.29),
-        (wb.battery_kg,   0.45 * L, 0.15 * D, 0.25, 0.05),
-        (wb.panel_kg,     0.50 * L, 1.00 * D, 0.45, 0.30),
-        (wb.outfit_kg,    0.50 * L, 0.60 * D, 0.30, 0.25),
-        (wb.payload_kg,   0.55 * L, 0.70 * D, 0.30, 0.15),
-    ]
-    xg = sum(mm * x for mm, x, *_ in parts) / m
-    zg = sum(mm * z for mm, _x, z, *_ in parts) / m
-    ixx = sum(mm * ((rx * B) ** 2 + (z - zg) ** 2) for mm, _x, z, rx, _ry in parts)
-    iyy = sum(mm * ((ry * L) ** 2 + (x - xg) ** 2 + (z - zg) ** 2)
-              for mm, x, z, _rx, ry in parts)
-    izz = sum(mm * ((ry * L) ** 2 + (rx * B) ** 2 + (x - xg) ** 2)
-              for mm, x, _z, rx, ry in parts)
+    t_design = -float(hull.z_keel.min())
+    m = math.fsum(i.mass_kg for i in items)
+    if m <= 0:
+        raise ValueError("no mass: refusing to invent an inertia")
+
+    parts = []
+    for i in items:
+        # An item the table does not know gets a compact default rather than a
+        # silent zero — zero own-inertia would understate roll for a big item.
+        rx, ry = _OWN_GYRADIUS.get(i.id, (0.30, 0.20))
+        parts.append((i.mass_kg, i.x_m, i.z_m + t_design, i.y_m, rx, ry))
+
+    xg = math.fsum(mm * x for mm, x, *_ in parts) / m
+    zg = math.fsum(mm * p[2] for p in parts for mm in (p[0],)) / m
+    yg = math.fsum(p[0] * p[3] for p in parts) / m
+    ixx = math.fsum(mm * ((rx * B) ** 2 + (z - zg) ** 2 + (y - yg) ** 2)
+                    for mm, _x, z, y, rx, _ry in parts)
+    iyy = math.fsum(mm * ((ry * L) ** 2 + (x - xg) ** 2 + (z - zg) ** 2)
+                    for mm, x, z, _y, _rx, ry in parts)
+    izz = math.fsum(mm * ((ry * L) ** 2 + (rx * B) ** 2
+                          + (x - xg) ** 2 + (y - yg) ** 2)
+                    for mm, x, _z, y, rx, ry in parts)
     return InertiaReport(m, ixx, iyy, izz,
                          math.sqrt(ixx / m) / B, math.sqrt(iyy / m) / L)
 
@@ -70,8 +88,13 @@ def mooring(hull: Hull, wind_ms: float = 25.0, current_ms: float = 1.5,
             line_angle_deg: float = 30.0) -> MooringReport:
     """Single bow line, storm wind + river current abeam-worst-case."""
     L = float(hull.x[-1])
-    lateral_above = 2.0 * float(np.trapezoid(
-        np.maximum(hull.z_sheer, 0.0), hull.x))          # windage area approx
+    # Lateral PROJECTED area — one side of the profile, not both. The factor 2
+    # here doubled it (20.8 m^2 on a 10 m hull with 1.04 m mean freeboard, where
+    # the side profile is 10.4 m^2) while the underwater area below carried no
+    # such factor, so wind and current were computed on inconsistent conventions
+    # and the line tension came out roughly 2x.
+    lateral_above = float(np.trapezoid(
+        np.maximum(hull.z_sheer, 0.0), hull.x))
     lateral_below = float(np.trapezoid(
         np.maximum(-hull.z_keel, 0.0), hull.x))
     fw = 0.5 * RHO_AIR * CD_LATERAL * lateral_above * wind_ms**2

@@ -1,5 +1,7 @@
 """Gate 1: Wigley Michell anchor, hydrostatics physics, full L1 eval < 50 ms."""
 
+import pathlib
+
 import time
 
 import numpy as np
@@ -265,3 +267,81 @@ def test_aggregate_refuses_to_invent_a_displacement():
         MassItem("negative", -1.0, x_m=1.0, z_m=0.0)
     with pytest.raises(ValueError):
         MassItem("slack-no-fsm", 10.0, x_m=1.0, z_m=0.0, slack=True)
+
+
+# ---------------------------------------------------------------------------
+# "One weight model, one truth" — audit 2026-08-05. The positioned model in
+# weights.py existed only in ITS OWN TESTS: evaluate() read a separate scalar
+# budget, and dynamics.inertia() inlined a THIRD copy of the placement that had
+# drifted (payload 0.55*Lwl against 0.48*Lwl in energy.LCG_FRACTION — 0.7 m
+# apart on a 10 m boat). So an arrangement could move mass with no effect on
+# stability, and inertia was taken about a CG stability did not agree with.
+def test_placement_is_declared_in_exactly_one_place():
+    import navalai.dynamics as D
+    import navalai.energy as E
+    src = pathlib.Path(D.__file__).read_text()
+    body = src[src.index("def inertia("):src.index("def mooring(")]
+    # positions must come from the items, never from a local fraction table
+    assert "i.x_m" in body and "i.z_m" in body
+    for frac in ("0.55 * L", "0.45 * L", "0.70 * D", "1.00 * D"):
+        assert frac not in body, f"dynamics.inertia re-declares placement: {frac}"
+    assert set(D._OWN_GYRADIUS) == set(E.LCG_FRACTION) == set(E.VCG_FRACTION)
+
+
+def test_moving_mass_aft_trims_the_boat():
+    """The point of a positioned model: mass that moves must have a consequence.
+
+    Before this was wired up, evaluate() took KG from a scalar budget and had no
+    LCG at all, so a 500 kg battery could sit anywhere with identical output.
+    """
+    import numpy as np
+
+    from navalai.evaluate import evaluate
+    from navalai.mission import parse_mission
+    import navalai.energy as E
+
+    m = parse_mission("a 10 metre solar boat for 6 people, 3 tonnes, category C")
+    base = evaluate(np.array(mid_params()), m)
+    assert base.masses is not None and base.gm_l_m is not None
+
+    orig = dict(E.LCG_FRACTION)
+    try:
+        E.LCG_FRACTION["battery"] = orig["battery"] - 0.25   # 2.5 m aft
+        moved = evaluate(np.array(mid_params()), m)
+    finally:
+        E.LCG_FRACTION.clear()
+        E.LCG_FRACTION.update(orig)
+
+    assert moved.masses.lcg_m < base.masses.lcg_m, "LCG did not move"
+    assert moved.trim_deg < base.trim_deg, "moving mass aft did not trim it aft"
+    assert abs(moved.trim_deg - base.trim_deg) > 0.05, "trim response is inert"
+
+
+def test_slack_tank_lowers_gm_through_the_free_surface_moment():
+    from navalai.weights import MassItem, aggregate
+
+    dry = [MassItem("hull", 2000.0, 5.0, 0.2)]
+    slack = dry + [MassItem("tank", 200.0, 4.0, -0.3, fluid_rho=1000.0,
+                            fsm_i_t_m4=0.35, slack=True)]
+    a_dry, a_slack = aggregate(dry), aggregate(slack)
+    assert a_dry.free_surface_correction() == 0.0
+    # FSC = sum(rho*i_t)/displacement, a VIRTUAL RISE of G, so it must be > 0
+    assert a_slack.free_surface_correction() == pytest.approx(
+        1000.0 * 0.35 / 2200.0, rel=1e-12)
+
+
+def test_lateral_areas_use_the_same_convention():
+    """Wind and current must both act on ONE side of the profile.
+
+    Measured before the fix: 20.84 m^2 windage against a 10.42 m^2 side profile
+    (the factor 2 was applied above the waterline only), so line tension came
+    out about 2x while the underwater area was correct.
+    """
+    import numpy as np
+
+    from navalai.dynamics import mooring
+    h = Hull(mid_params())
+    side_profile = float(np.trapezoid(np.maximum(h.z_sheer, 0.0), h.x))
+    mo = mooring(h, wind_ms=25.0, current_ms=0.0)
+    implied = mo.wind_force_n / (0.5 * 1.225 * 1.0 * 25.0 ** 2)
+    assert implied == pytest.approx(side_profile, rel=1e-9)

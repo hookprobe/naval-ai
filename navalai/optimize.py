@@ -16,30 +16,25 @@ from pymoo.optimize import minimize
 from pymoo.termination import get_termination
 
 from . import grammar
-from .evaluate import evaluate
+from .evaluate import CONSTRAINT_NAMES, evaluate
 from .geometry import Hull
 from .mission import MissionSpec
-from .limits import gm_floor
 
 
 class HullProblem(Problem):
     """3 objectives: min Wh/NM, min build panel area (m^2), max GM (as -GM).
-    2 inequality constraints (g <= 0): freeboard floor, GM floor."""
+    Inequality constraints (g <= 0) are the ladder's own — CONSTRAINT_NAMES."""
 
     def __init__(self, mission: MissionSpec):
         self.mission = mission
-        # Read the SAME floor the rules tier judges by, for the mission's own
-        # design category. These were two hard-coded copies (0.35 here, 0.45
-        # in ISO 12217 cat C) and they drifted, so the optimizer returned
-        # GM 0.40 m hulls that were feasible by its constraint and then failed
-        # R-GM at the gate.
-        self.gm_floor = gm_floor(mission.design_category)
-        super().__init__(n_var=grammar.N_PARAMS, n_obj=3, n_ieq_constr=3,
+        # Constraint values (and therefore the GM floor, the freeboard floor
+        # and the bend limit) come from evaluate() — see CONSTRAINT_NAMES.
+        super().__init__(n_var=grammar.N_PARAMS, n_obj=3, n_ieq_constr=len(CONSTRAINT_NAMES),
                          xl=grammar.LOW, xu=grammar.HIGH)
 
     def _evaluate(self, X, out, *_args, **_kwargs):
         F = np.full((len(X), 3), 1e9)
-        Gc = np.full((len(X), 3), 1e3)
+        Gc = np.full((len(X), len(CONSTRAINT_NAMES)), 1e3)
         for i, x in enumerate(X):
             ev = evaluate(x, self.mission)
             if ev.tier == "L0" or ev.hydro is None or ev.energy is None:
@@ -47,9 +42,10 @@ class HullProblem(Problem):
             hull = Hull(x)
             build_area = hull.wetted_surface(float(hull.z_sheer.max())) + hull.deck_area()
             F[i] = (ev.energy.wh_per_nm, build_area, -ev.gm_m)
-            # buildability is a constraint, not a wish: 15 mm ply cold-bend
-            Gc[i] = (0.25 - ev.hydro.freeboard_min, self.gm_floor - ev.gm_m,
-                     80.0 * 0.015 - hull.min_bend_radius())
+            # Constraints come from the ladder itself, so a check added there
+            # (trim and list, most recently) constrains the search immediately
+            # instead of producing optima the ladder then rejects.
+            Gc[i] = [ev.g[k] for k in CONSTRAINT_NAMES]
         out["F"] = F
         out["G"] = Gc
 
@@ -61,15 +57,14 @@ class LatentHullProblem(Problem):
     def __init__(self, mission: MissionSpec, genome, z_range: float = 2.5):
         self.mission = mission
         self.genome = genome
-        self.gm_floor = gm_floor(mission.design_category)   # same source
         q = genome.W.shape[1]
-        super().__init__(n_var=q, n_obj=3, n_ieq_constr=3,
+        super().__init__(n_var=q, n_obj=3, n_ieq_constr=len(CONSTRAINT_NAMES),
                          xl=-z_range * np.ones(q), xu=z_range * np.ones(q))
 
     def _evaluate(self, Z, out, *_args, **_kwargs):
         X = self.genome.decode(Z)              # gate-projected to feasibility
         F = np.full((len(X), 3), 1e9)
-        Gc = np.full((len(X), 3), 1e3)
+        Gc = np.full((len(X), len(CONSTRAINT_NAMES)), 1e3)
         for i, x in enumerate(X):
             ev = evaluate(x, self.mission)
             if ev.tier == "L0" or ev.hydro is None or ev.energy is None:
@@ -77,9 +72,10 @@ class LatentHullProblem(Problem):
             hull = Hull(x)
             build_area = hull.wetted_surface(float(hull.z_sheer.max())) + hull.deck_area()
             F[i] = (ev.energy.wh_per_nm, build_area, -ev.gm_m)
-            # buildability is a constraint, not a wish: 15 mm ply cold-bend
-            Gc[i] = (0.25 - ev.hydro.freeboard_min, self.gm_floor - ev.gm_m,
-                     80.0 * 0.015 - hull.min_bend_radius())
+            # Constraints come from the ladder itself, so a check added there
+            # (trim and list, most recently) constrains the search immediately
+            # instead of producing optima the ladder then rejects.
+            Gc[i] = [ev.g[k] for k in CONSTRAINT_NAMES]
         out["F"] = F
         out["G"] = Gc
 

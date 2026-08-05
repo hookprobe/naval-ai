@@ -20,7 +20,8 @@ class HydroState:
     disp_kg: float
     lcb: float            # m from transom
     kb: float             # m above keel (baseline = keel at midship, z=-T)
-    bm: float             # m
+    bm: float             # m, transverse
+    bm_l: float           # m, longitudinal (about the transverse axis at F)
     awp: float            # m^2 waterplane
     lcf: float            # m from transom
     b_wl_max: float
@@ -46,6 +47,13 @@ def solve(hull: Hull, rho: float = RHO_WATER, wl: float = 0.0) -> HydroState:
     lcf = 2.0 * float(np.trapezoid(b * x, x)) / max(awp, 1e-12)
     ixx = (2.0 / 3.0) * float(np.trapezoid(b**3, x))
     bm = ixx / vol
+    # Longitudinal waterplane inertia about the TRANSVERSE axis through the
+    # centre of flotation (parallel-axis, so it must use lcf and not midships).
+    # Without this there is no GM_L, and without GM_L `weights.trim_angle_deg`
+    # has no denominator — which is why the trim check could not exist and an
+    # arrangement could move 500 kg aft with no consequence anywhere.
+    i_l = 2.0 * float(np.trapezoid(b * (x - lcf) ** 2, x))
+    bm_l = i_l / vol
     bmax = 2.0 * float(b.max())
     lwl_eff = float(x[a > 1e-6].max() - x[a > 1e-6].min()) if (a > 1e-6).any() else 1e-9
     # Immersion is measured from the KEEL (z = -t_design) up to the waterline
@@ -64,6 +72,7 @@ def solve(hull: Hull, rho: float = RHO_WATER, wl: float = 0.0) -> HydroState:
     fb = float((hull.z_sheer - wl).min())
     return HydroState(
         draft=t_mean, volume=vol, disp_kg=rho * vol, lcb=lcb, kb=kb, bm=bm,
+        bm_l=bm_l,
         awp=awp, lcf=lcf, b_wl_max=bmax, cb=cb, cp=cp,
         wetted=hull.wetted_surface(wl), freeboard_min=fb,
     )
@@ -72,6 +81,16 @@ def solve(hull: Hull, rho: float = RHO_WATER, wl: float = 0.0) -> HydroState:
 def gm(state: HydroState, kg: float) -> float:
     """Transverse metacentric height. kg measured above keel plane."""
     return state.kb + state.bm - kg
+
+
+def gm_long(state: HydroState, kg: float) -> float:
+    """Longitudinal metacentric height [m]. kg measured above keel plane.
+
+    Typically ~Lwl in magnitude, i.e. two orders above transverse GM, which is
+    exactly why trim is stiff and small LCG errors show up as tenths of a
+    degree rather than a capsize.
+    """
+    return state.kb + state.bm_l - kg
 
 
 def solve_to_displacement(hull: Hull, target_kg_mass: float,
