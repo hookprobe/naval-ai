@@ -1,0 +1,8 @@
+# Optional tiers. Their tests `importorskip`, so a gate whose suite depends on
+# one of these reports SKIPPED (never GREEN) when it is absent — see
+# navalai/gates.py::status_of and the Gate 7 test that pins it.
+capytaine      # L2 BEM seakeeping        -> Gate 2
+mujoco         # dynamics cross-check     -> Gate D
+cadquery       # STEP/IGES export         -> Gate C
+cadquery-ocp   # OCP kernel, iges2stl.py  -> Gate 2M geometry path
+torch          # diffusion upgrade (MPS on Apple silicon)

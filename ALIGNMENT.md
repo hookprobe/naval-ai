@@ -88,6 +88,35 @@ hardware/software this machine lacks).
      deck/topsides whose y+ inverts to a 0.18–1.4 m first cell and dominates
      it; read the min.
 
+## Gate 2M: FIRST CALIBRATION RUN — RED, and it settles the open question
+
+KCS Case 2.1, Fn 0.260, 306,655 cells, t = 0..20 s (2026-08-05):
+
+| quantity | value |
+|---|---|
+| C_t, our RANS | **9.33e-3** |
+| C_t, EFD (KRISO tank) | 3.711e-3 |
+| E%D | **-151%** — 2.5x too high |
+| Tokyo-2015 13-group scatter | 3.620e-3 .. 3.733e-3 |
+| inside the band | **NO** |
+| wetted faces in 30 <= y+ <= 300 | **16.3%** (median y+ 2475) |
+| tail drift | 4.5% (bar is 5%) — only ~1.3 flow-throughs, so marginally settled |
+
+**The gate is RED and stays RED.** Recorded rather than softened (honesty rule 6).
+
+What it BUYS, which is the whole reason KCS exists: the own-hull C_T/C_F ~ 9.8
+is **our setup, not the hull**. The same pipeline on a hull with published tank
+data reads 2.5x high, so the bias is in the machinery. Before this run that was
+un-decidable — a perfectly converged own-hull GCI could not distinguish the two.
+
+Direction is consistent across both hulls: the wall treatment. KCS is smooth and
+still only lands 16.3% of wetted faces in the wall-function band (own chined
+hull: 2.0%). Skin friction is where the error is, and y+ is why.
+
+Caveat kept in view: 20 s is ~1.3 flow-throughs and drift is 4.5%, so a longer
+run is owed. A 2.5x error is far too large to be transient, but the number
+should be re-measured once the near-wall mesh is fixed.
+
 ## Open, measured, not yet closed (Gate 2M campaign)
 
 | Item | Measurement | Consequence |

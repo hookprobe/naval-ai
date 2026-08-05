@@ -63,3 +63,30 @@ def test_corrupted_model_never_deploys(stocked, monkeypatch):
     base = json.loads((d / "base.json").read_text())
     assert base["wh_per_nm"]["median_rel_err"] == pytest.approx(
         rep.baseline["median_rel_err"])
+
+
+def test_gate_runner_never_reports_green_for_a_suite_that_ran_nothing():
+    """Honesty rule 6, applied to the gate runner itself.
+
+    pytest exits 0 when every test SKIPS, and the runner used to decide GREEN
+    purely on the return code. So a machine lacking an optional dependency
+    (capytaine, mujoco, cadquery) would have printed "Gate 2 GREEN" while
+    verifying nothing at all — a soft green produced by the tool meant to
+    prevent soft greens. Found while adding CI, which would have baked it in.
+    """
+    from navalai.gates import counts, status_of
+
+    assert counts(" 13 passed in 0.11s")["passed"] == 13
+    assert counts(" 4 skipped in 0.01s") == {"passed": 0, "failed": 0,
+                                             "skipped": 4, "error": 0}
+
+    # the actual bug: all-skipped exits 0 and must NOT be GREEN
+    label, is_fail = status_of(0, counts(" 4 skipped in 0.01s"))
+    assert label.startswith("SKIPPED"), label
+    assert "GREEN" not in label
+
+    assert status_of(0, counts(" 13 passed in 0.1s")) == ("GREEN", False)
+    assert status_of(1, counts(" 1 failed, 3 passed in 1s"))[1] is True
+    # a partial skip still counts as green, but says so out loud
+    lab, fail = status_of(0, counts(" 9 passed, 2 skipped in 1s"))
+    assert lab == "GREEN (2 skipped)" and fail is False

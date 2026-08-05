@@ -7,6 +7,7 @@ what hardware/software the remaining evidence needs — never faked green.
 
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 
@@ -27,14 +28,46 @@ GATES = [
     ("Gate F", "panel unroll/DXF + Pareto dash + handoff receipt",
      "tests/test_stageF.py", None),
     ("Gate 2M", "KCS/JBC OpenFOAM calibration w/ per-case GCI",
-     None, "METAL-GATED: needs an OpenFOAM machine (cfd templates + run-case.sh + GCI post ready)"),
+     None, "RED (measured 2026-08-05): KCS C_t 9.33e-3 vs EFD 3.711e-3, E%D -151%, outside the Tokyo-2015 scatter. Cause: only 16.3% of WETTED faces inside 30<=y+<=300. Not softened - see benchmarks/kcs.py"),
     ("Gate 6R", "ISO threshold parity vs licensed standard text",
      None, "REVIEW-GATED: qualified-reviewer parity on basis='approx' values"),
 ]
 
 
-def main() -> int:
-    failures = 0
+def counts(output: str) -> dict:
+    """Parse pytest's summary line into {passed, failed, skipped, errors}."""
+    out = {"passed": 0, "failed": 0, "skipped": 0, "error": 0}
+    for line in reversed(output.strip().splitlines()):
+        found = re.findall(r"(\d+) (passed|failed|skipped|error|errors)", line)
+        if found:
+            for n, what in found:
+                out[what.rstrip("s") if what != "passed" else "passed"] = int(n)
+            break
+    return out
+
+
+def status_of(returncode: int, c: dict) -> tuple[str, bool]:
+    """(label, counts_as_failure).
+
+    A gate is GREEN only if tests actually RAN and passed. pytest exits 0 when
+    every test SKIPS — so a machine without capytaine would have reported
+    "Gate 2 GREEN" while verifying nothing. That is precisely the soft-green
+    the honesty rules forbid, so a suite that ran nothing is SKIPPED, never
+    GREEN, and --strict makes it a failure (use that in CI).
+    """
+    if returncode != 0 or c["failed"] or c["error"]:
+        return "RED", True
+    if c["passed"] == 0:
+        return "SKIPPED (no tests ran — missing dependency?)", False
+    if c["skipped"]:
+        return f"GREEN ({c['skipped']} skipped)", False
+    return "GREEN", False
+
+
+def main(argv: list[str] | None = None) -> int:
+    argv = sys.argv[1:] if argv is None else argv
+    strict = "--strict" in argv          # CI: skipped gates are not acceptable
+    failures = skipped_gates = 0
     print(f"{'gate':8} {'scope':45} status")
     print("-" * 78)
     for name, scope, suite, blocked in GATES:
@@ -43,11 +76,17 @@ def main() -> int:
             continue
         r = subprocess.run([sys.executable, "-m", "pytest", suite, "-q",
                             "--no-header", "-x"], capture_output=True, text=True)
-        ok = r.returncode == 0
-        failures += 0 if ok else 1
+        c = counts(r.stdout)
+        label, is_fail = status_of(r.returncode, c)
+        failures += 1 if is_fail else 0
+        if label.startswith("SKIPPED"):
+            skipped_gates += 1
         tail = r.stdout.strip().splitlines()[-1] if r.stdout.strip() else ""
-        print(f"{name:8} {scope:45} {'GREEN' if ok else 'RED'}  ({tail})")
-    return 1 if failures else 0
+        print(f"{name:8} {scope:45} {label}  ({tail})")
+    if skipped_gates:
+        print(f"\n{skipped_gates} gate(s) ran no tests. "
+              f"{'FAILING (--strict).' if strict else 'Install the optional deps to verify them.'}")
+    return 1 if (failures or (strict and skipped_gates)) else 0
 
 
 if __name__ == "__main__":
