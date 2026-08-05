@@ -6,8 +6,46 @@ Hydrodynamics, "Report of the Results for KCS Resistance & Self-Propulsion
 the workshop proceedings bundle `All_20160729.zip` as
 `Day2-AM2-KCS-Resistance_SP-Kim.pdf` (pages 2, 5, 6, 8).
 
-GEOMETRY: that bundle is proceedings PDFs only. The hull comes separately as
-`KCS.igs` (I-DEAS Master Series 7, 2000-02-18, 194 unsewn NURBS patches).
+GEOMETRY — USE `kcs_cfd_ready_final.igs` (NAPA export), NOT `KCS.igs`.
+Two sources were tried and the difference decides whether the case runs at all:
+
+  KCS.igs                    I-DEAS Master Series 7 (2000), 194 entities ->
+                             18 faces, HALF body, mm, z=0 at the KEEL.
+                             Needs mirroring; mirroring lays a ~4.8 mm sliver
+                             ribbon down the keel because its centreline
+                             vertices sit at y = 2.4 mm. Meshes to 14
+                             zero-volume cells and 73 wrongly oriented faces,
+                             and interFoam dies on the first timestep. At
+                             sew tolerance 1e-4 it is OCC-INVALID (2 shells).
+
+  kcs_cfd_ready_final.igs    NAPA, "TOIGES IGES,HULL,PTOL=0.002", 1558
+                             entities -> 649 faces, FULL hull, FULL SCALE in
+                             mm, and z=0 ALREADY at the design waterline.
+                             No mirroring, no z-shift. Sews to ONE valid shell
+                             at every tolerance from 1e-5 up.
+
+Working recipe (produces 0 zero-volume cells, 0 wrongly oriented faces,
+Failed 1 mesh check — the same as our own hull — and interFoam runs):
+
+    python scripts/iges2stl.py downloads/kcs_cfd_ready_final.igs /tmp/k.stl \\
+        --scale 3.164609e-05 --sew-tol 1e-5 --deflection 0.004
+    # then, in python: weld_vertices(tol=5e-5) -> cap_planar_holes(
+    #   only_axis=2, only_value=<deck z, 0.40214>, only_tol=3e-3)
+
+  --scale 3.164609e-05  = 0.001 / (230 / 7.2786): mm full-scale -> m at 1:31.5995
+  --deflection 0.004    MEASURED, and NOT "finer is better": self-intersections
+                        after welding go 0.0005 -> 6, 0.001 -> 7, 0.002 -> 9,
+                        0.004 -> 3. Only 0.004 meshes with no zero-volume cells.
+  weld_vertices         the raw tessellation carries a ZERO-LENGTH edge and
+                        zero-area triangles; welding drops 24 of them and cuts
+                        self-intersections 22 -> 7.
+
+A handful of residual self-intersections is expected and tolerable here: Case
+2.1 is run WITH the rudder, and an appendage genuinely intersecting the hull is
+a union, which snappy resolves.
+
+The older half-body path is kept in the notes below only as the record of why
+it does not work.
 Neither the IGES nor the derived STL is committed — workshop geometry may carry
 redistribution terms — so both are gitignored and REGENERATED from this recipe:
 
