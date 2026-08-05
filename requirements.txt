@@ -1,0 +1,5 @@
+# Core — everything the gate ladder needs to run.
+numpy
+scipy
+pymoo
+pytest

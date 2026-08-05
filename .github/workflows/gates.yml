@@ -1,0 +1,50 @@
+name: gate ladder
+
+# PLM.md §5 makes `python -m navalai.gates` the single source of gate truth,
+# and §3 step 5 says a gate goes GREEN only by meeting its bar. Until now
+# nothing enforced that outside a developer's own shell.
+#
+# Deliberately NOT --strict here: this runner installs only the core
+# requirements, so the tiers needing capytaine / mujoco / cadquery report
+# SKIPPED. That is honest and visible in the log. It is NOT green — the runner
+# refuses to call a suite that ran no tests GREEN. The metal gates (2M, needing
+# OpenFOAM) and review gates (6R, needing a qualified human) can never run here
+# by design.
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  ladder:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: install core requirements
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: test suite
+        run: python -m pytest tests/ -q
+
+      - name: gate ladder
+        run: python -m navalai.gates
+
+      - name: which gates could not be verified here
+        if: always()
+        run: |
+          echo "Gates whose suites skipped need the optional tiers:"
+          cat requirements-optional.txt
+          echo
+          echo "Gate 2M needs an OpenFOAM machine; Gate 6R needs a qualified reviewer."
+          echo "Neither can be verified in CI — see PLM.md section 5."
