@@ -432,3 +432,114 @@ supplies both the design category and the energy plan that the requirements are
 graded against (B-section, D). Each is individually fixable; the pattern is what
 lets a green ladder mean less than it says — and it is why the fix plan opens by
 making the gates unfakeable rather than by fixing physics.
+
+---
+
+## R · Reconciled against the code, 2026-08-06
+
+**THE FINDING ROWS ABOVE ARE NOT EDITED AND MUST NOT BE.** They are the audit
+of `5bbffb7`, and every one of them was true of that tree. What was missing is
+the other half: `navalai/gaps.py` imported all 119 as `Open`, which is this
+DOCUMENT'S state, and by the following day roughly seventy of them had been
+closed in code with nothing propagating it. That is section J's own diagnosis
+— a machine-readable fact living in prose — applied to section J's own queue.
+
+`scripts/reconcile_gaps.py` is the propagation, and it does not read commit
+messages. Each of the 119 rows carries a PREDICATE over the checkout: a gap is
+CLOSED only when a named symbol, test or file demonstrably does the thing the
+row says is missing, OPEN when the predicate is false, and NEEDS-HUMAN when no
+predicate can honestly be written. `python scripts/reconcile_gaps.py` re-runs
+it; **Gate SR** (`tests/test_reconcile_gaps.py`) guards it.
+
+| measured | CRITICAL | HIGH | MED | LOW | total |
+|---|---|---|---|---|---|
+| Closed | 17 | 38 | 22 | 6 | **83** |
+| Open | 3 | 15 | 11 | 4 | **33** |
+| Needs human | 0 | 1 | 1 | 1 | **3** |
+| | 20 | 54 | 34 | 11 | **119** |
+
+Still open, worst first: **D11, E2, F1** (CRITICAL); **B4, B5, D9, D10, E5, E6,
+E7, E9, F2, F4, F16, G7, G8, I1, I5** (HIGH); **A6c, E1b, E8, E13, E15, F3, F5,
+F17, H1, I13, I14** (MED); **C9, E14, E17, E18** (LOW). NEEDS-HUMAN: **A6b**
+(a correction to A6, closed by the same code — whether a correction row is
+itself closeable is a judgement), **J9** (a commit-compliance ratio is a
+property of history, not of a checkout; its actionable half — `gate2m.py` has
+no test — IS done), **J10** (a working tree at one instant).
+
+### The negative control, and what it caught
+
+The register was audited at `5bbffb7`, so every predicate must report OPEN
+there: a check that cannot fail on the defect cannot verify the fix. Running
+all 119 against `git archive 5bbffb7` found **four that reported CLOSED on the
+broken tree**, three of which would have closed a live gap:
+
+- **D15** — `gates.yml` already contained the string `--strict`, inside a
+  comment reading *"Deliberately NOT --strict here"*, and already `cat`-ed
+  `requirements-optional.txt` without installing it.
+- **D16** — the `-x` was written `"--no-header", "-x"`, which the pattern
+  `g.suite, "-x"` never matched in either direction.
+- **F16 / F17** — `not ledger_has("Gate 2M")` is TRUE when there is no ledger,
+  and at `5bbffb7` `data/gate-ledger.json` had not been written. **An absent
+  record read as a green gate — gap D3's exact shape, rebuilt inside the tool
+  that checks for it.**
+
+All 83 closures now flip: CLOSED today, OPEN at `5bbffb7`.
+
+### The incident that cost 332 log records
+
+Gap **B4** is *"payload_kg is a flat 800 kg regardless of crew"*. Its first
+predicate asked whether `navalai/energy.py` mentions `crew`, and line 19 reads
+
+    payload_kg: float = 800.0          # crew + stores + water
+
+— the word is in the COMMENT ON THE DEFECT. B4 reported CLOSED and `--apply`
+wrote it to Closed in an append-only log **that has no reopen edge**; 332
+transitions had to be unwound.
+
+The hazard is structural rather than careless, and it is worth stating plainly
+because it will catch the next tool too: **the comments in this codebase are
+unusually good, so the vocabulary of every OPEN gap appears verbatim in the
+file that would close it.** Predicates about behaviour now read a
+comment-and-docstring-blanked view of the source; only predicates about prose
+(F19's attribution, J7's supersessions, J8's retraction) read the raw text.
+
+### Rows whose text is now WRONG about the code
+
+Recorded here rather than edited into the tables above.
+
+- **F4** — *"No L2 number ever leaves the module with a convergence-derived
+  sigma"* is **false now**: `evaluate.revalidate` solves two meshes and badges
+  `unc_rel` from their difference. What survives is the narrower letter of the
+  row — `SeakeepingResult` is still constructed nowhere. Read F4 as being about
+  the unused dataclass, not about L2 uncertainty.
+- **D11** — the measured figures (*31.98% raw / 77.60% clipped*) are stale.
+  Re-measured 2026-08-06 with `raw_feasibility(600, seed=0)`: **GMM 79.3%,
+  pPCA 88.7%**, both still short of the 99% bar. The metric defect the row
+  names is fixed; the CLAUSE is not, which is why it stays open — see below.
+- **C2** — the demo no longer hides C1 (it passes `ev.ply_thickness_m`), but
+  the row's second citation, `tests/test_phase6.py:87`, still contains
+  `provided_mm=20.0`. It is now an ordinary above-requirement unit-test value,
+  not a fourth undeclared thickness.
+
+### Three findings this reconciliation produced
+
+1. **The gap queue does not survive a clone.** `data/evolution/` is in
+   `.gitignore`, so `data/evolution/gaps.jsonl` — the append-only log that is
+   supposed to be the machine-readable half of this document — is a local
+   artifact. On a fresh checkout the queue is empty and every closure recorded
+   here is gone. That is **gap D3's shape** (`data/baselines.json` untracked ->
+   the first retrain always deployed) and **J5's** (benchmark geometry
+   gitignored -> a validation that silently skipped). It is why D11 below
+   cannot simply be filed in the queue and forgotten.
+2. **Gate 4's raw-feasibility shortfall is recorded in a prose `scope`
+   string.** `navalai/gates.py` states the miss (79.3% / 88.7% against >=99%)
+   in the row's scope text, and `Gate.detail` is documented in the same file as
+   *"human context; NEVER load-bearing"* — the scope is no more load-bearing.
+   The gate prints GREEN, no ledger row owns the clause, and nothing fails if
+   the number gets worse. **That is gap D1** (a measured miss erased by editing
+   a prose string) surviving in the one place D1's own fix did not reach. D11
+   is therefore recorded OPEN, and its clearing condition is a ledger row.
+3. **`tests/test_reconcile_gaps.py` needed a gate row it could not add
+   itself** — file ownership put `navalai/gates.py` with another agent. It was
+   added as **Gate SR** in `1ad6f8b`, along with four other orphaned suites.
+   Worth noting as a coordination cost of concurrent agents, not a defect.
