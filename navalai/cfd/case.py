@@ -1548,6 +1548,14 @@ def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
         f"nx={dom['nx']}\nny={dom['ny']}\n"
         f"nz_total={dom['nz_deep'] + dom['nz_hull'] + dom['nz_wave'] + dom['nz_air']}\n"
         f"cells_bg={bg_cells}\n"
+        # THE FLOW-THROUGH TIME, so a reader never has to reconstruct the
+        # domain to know whether a run is long enough to mean anything. The
+        # 2026-08-06 re-audit found EVERY run in the repository sitting at
+        # 0.13-0.70 of ONE flow-through while conclusions were drawn from
+        # them, and nothing in case.info made that visible.
+        f"domain_length_m={dom['x1'] - dom['x0']:.4f}\n"
+        f"flow_through_s={(dom['x1'] - dom['x0']) / speed:.4f}\n"
+        f"end_time_flow_throughs={end_time * speed / (dom['x1'] - dom['x0']):.3f}\n"
         f"wavelength_m={wavelength:.4f}\ntank_depth_m={abs(dom['z0']):.4f}\n"
         f"fs_dz_m={fs_dz:.5f}\nfs_dx_m={dx:.5f}\n"
         f"cells_per_wavelength={cells_per_wave:.1f}\n"

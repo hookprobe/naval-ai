@@ -933,3 +933,55 @@ def test_case_info_receipts_are_rewritten_not_appended():
         assert f'echo "{key}=' not in src, (
             f"{key} must go through _mq_record, which drops the previous line")
     assert src.index("_mq_record()") < src.index("_mq_record layers_achieved")
+
+
+def test_a_run_under_one_flow_through_is_never_called_settled(tmp_path):
+    """Stationarity is not a low drift number.
+
+    MEASURED 2026-08-06 on runs/beach — symmetric KCS, 10.4 s against a 14.92 s
+    flow-through, i.e. 0.70 — gate2m printed `settled: yes` on 3.3% drift and
+    reported a C_T for it. Splitting the SAME force history into eight windows
+    shows the pressure component swinging 1.80x -> 4.64x -> 3.14x of its
+    expected 20.8 N with no trend, while viscous sits flat at 1.10-1.22x
+    ITTC-57. The drift test is applied to the TOTAL, the total is dominated by
+    the stable viscous part, and the component that is actually wrong is free
+    to oscillate underneath a passing number. The re-audit found every run in
+    the repository between 0.13 and 0.70 of one flow-through, with conclusions
+    drawn from all of them.
+
+    The floor is ONE flow-through and it is physics, not a tuned constant: a
+    domain the free stream has not yet crossed still contains its initial
+    condition.
+    """
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "gate2m_ft", _ROOT / "scripts" / "gate2m.py")
+    g2 = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(g2)
+
+    lwl, speed = 7.2786, 2.196
+    flow_through = 4.5 * lwl / speed          # 14.92 s
+
+    def _case(name, t_end):
+        d = tmp_path / name
+        (d / "postProcessing" / "forces" / "0").mkdir(parents=True)
+        (d / "case.info").write_text(
+            f"lwl={lwl}\nspeed_ms={speed}\nsymmetric=True\ncells_bg=16245\n"
+            f"domain_length_m={4.5 * lwl:.4f}\n")
+        # A perfectly flat history: drift is identically 0, so ONLY the
+        # flow-through rule can refuse it.
+        rows = "\n".join(
+            f"{t_end * i / 200:.6f} (60 0 0) (0 0 0) (0 0 0) "
+            f"(40 0 0) (0 0 0) (0 0 0) (0 0 0) (0 0 0) (0 0 0)"
+            for i in range(1, 201))
+        (d / "postProcessing" / "forces" / "0" / "force.dat").write_text(rows)
+        return d
+
+    short = g2.grid_result(_case("short", 0.70 * flow_through))
+    long_ = g2.grid_result(_case("long", 2.00 * flow_through))
+    assert short["drift"] == pytest.approx(0.0, abs=1e-9)
+    assert short["flow_throughs"] == pytest.approx(0.70, rel=1e-2)
+    assert not short["settled"], (
+        "0.70 of a flow-through with zero drift must NOT be settled — this is "
+        "exactly runs/beach, which the gate reported a C_T for")
+    assert long_["settled"], "2.0 flow-throughs with zero drift must settle"

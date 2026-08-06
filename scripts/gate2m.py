@@ -166,11 +166,37 @@ def grid_result(case: Path) -> dict | None:
     s_wetted = post.stl_wetted_area(str(stl), waterline=0.0) if stl.exists() else float("nan")
     ct = drag / (0.5 * RHO * s_wetted * speed ** 2) if s_wetted == s_wetted else float("nan")
 
+    # STATIONARITY IS NOT A LOW DRIFT NUMBER. It also requires that the flow
+    # have crossed the domain at least once, and NOTHING checked that.
+    #
+    # MEASURED 2026-08-06 on runs/beach — symmetric KCS, 10.4 s of a 14.92 s
+    # flow-through, i.e. 0.70 — this function returned `settled: yes` on a 3.3%
+    # drift, and the gate printed a C_T for it. Splitting the same history into
+    # eight windows shows the PRESSURE component swinging 1.80x -> 4.64x ->
+    # 3.14x of its expected value with no trend, while the viscous component
+    # sits at a flat 1.10-1.22x ITTC-57. The drift test is applied to the TOTAL,
+    # the total is dominated by the stable viscous part, and the part that is
+    # actually wrong is free to oscillate underneath a passing number.
+    #
+    # The re-audit found EVERY run in this repository between 0.13 and 0.70 of
+    # one flow-through with conclusions drawn from all of them.
+    #
+    # The floor is ONE flow-through and it is a physical argument, not a tuned
+    # constant: a domain the free stream has not yet crossed still contains its
+    # initial condition, so no average over it can be stationary. It is a
+    # NECESSARY condition, nowhere near a sufficient one — CLAUDE.md's target
+    # for a settled KCS run is 75 s = 5.0 flow-throughs — so anything under 5
+    # is reported as under-run even when it passes.
+    dom_len = float(info.get("domain_length_m", 0.0)) or 4.5 * lwl
+    flow_through_s = dom_len / speed
+    fts = float(t[-1]) / flow_through_s
     return {
         "name": case.name, "cells": int(info.get("cells_bg", 0)),
         "t_end": float(t[-1]), "drag_n": drag, "ct": ct, "drift": drift,
-        "settled": drift <= SETTLE_TOL, "s_wetted": s_wetted,
+        "flow_throughs": fts,
+        "settled": drift <= SETTLE_TOL and fts >= 1.0, "s_wetted": s_wetted,
         "speed": speed, "lwl": lwl,
+        "domain_assumed": "domain_length_m" not in info,
     }
 
 
@@ -242,14 +268,32 @@ def main() -> int:
           f"U {KCS.DESIGN_SPEED} m/s, Lpp {KCS.LPP} m")
     print(f"EFD (KRISO): C_T = {KCS.EFD['ct']:.4e}   "
           f"Tokyo-2015 scatter {lo:.3e} .. {hi:.3e}\n")
-    print(f"{'grid':>8} {'bg cells':>9} {'t_end':>7} {'drag N':>9} "
-          f"{'C_T':>10} {'E%D':>7} {'drift':>7}  settled")
-    print("-" * 74)
+    print(f"{'grid':>12} {'bg cells':>9} {'t_end':>7} {'flow-thru':>9} "
+          f"{'drag N':>9} {'C_T':>10} {'E%D':>7} {'drift':>7}  settled")
+    print("-" * 88)
     for r in rows:
-        print(f"{r['name']:>8} {r['cells']:9d} {r['t_end']:7.1f} "
+        print(f"{r['name']:>12} {r['cells']:9d} {r['t_end']:7.1f} "
+              f"{r['flow_throughs']:9.2f} "
               f"{r['drag_n']:9.1f} {r['ct']:10.4e} "
               f"{KCS.error_vs_efd(r['ct']):+7.1f} {100*r['drift']:6.1f}%  "
               f"{'yes' if r['settled'] else 'NO'}")
+    if any(r["domain_assumed"] for r in rows):
+        print("NOTE: case.info predates `domain_length_m`; the flow-through "
+              "count assumes the 4.5 Lwl default domain.")
+    for r in rows:
+        if r["drift"] <= SETTLE_TOL and r["flow_throughs"] < 1.0:
+            print(f"NOT SETTLED: {r['name']} has {100*r['drift']:.1f}% drift "
+                  f"but only {r['flow_throughs']:.2f} of a flow-through. A "
+                  f"domain the free stream has not crossed still holds its "
+                  f"initial condition; a low drift there is the slow part of "
+                  f"an oscillation, not stationarity. (MEASURED on runs/beach "
+                  f"at 0.70: 3.3% drift on the total while the PRESSURE part "
+                  f"swung 1.80x-4.64x of expected.)")
+        elif r["settled"] and r["flow_throughs"] < 5.0:
+            print(f"UNDER-RUN: {r['name']} is settled by the drift test at "
+                  f"{r['flow_throughs']:.2f} flow-throughs. The target for a "
+                  f"KCS resistance number is 5.0 (75 s). Treat this as a "
+                  f"trend, not a result.")
 
     # Free-motion runs are checked on sinkage and trim as well, since EFD
     # reports both and they are what a fixed-attitude solve gets wrong.

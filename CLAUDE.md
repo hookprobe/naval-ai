@@ -454,13 +454,34 @@ mesh, ending in a WARNING phrased as a thermal problem. A nap always leaves a
 LATER checkpoint than the attempt started from; a divergence leaves the same
 one. Two attempts with no progress is now `exit 4`.
 
-## Flow-throughs: state this, always
+## Flow-throughs: the gate now counts them, and refuses below one
 
 Domain length is 4.5 Lwl, so at KCS Fn 0.26 ONE flow-through is
 32.75 m / 2.196 m/s = **14.92 s**. `--end-time 20` is **1.34 flow-throughs**;
-the 75 s figure quoted for a settled KCS run is 5.0. Any number from under one
-flow-through describes startup, not resistance, and the re-audit found every run
-in the repository sitting at 0.13-0.70.
+the 75 s figure quoted for a settled KCS run is 5.0. The re-audit found every
+run in the repository at 0.13-0.70 with conclusions drawn from all of them.
+
+**A low drift is not stationarity, and MEASURED on `runs/beach` the difference
+is not academic.** At 10.4 s = **0.70** of a flow-through, gate2m printed
+`settled: yes` on 3.3% drift and reported a C_T. The same force history in eight
+windows:
+
+    window (s)   pressure N   x expected   viscous N   x ITTC-57
+     2.62-3.91      37.50        1.80        78.52       1.21
+     3.91-5.21      64.66        3.11        75.25       1.16
+     7.81-9.11      96.53        4.64        77.42       1.20
+     9.11-10.40     65.31        3.14        74.82       1.16
+
+The pressure part swings 2.6x with no trend while viscous sits flat. The drift
+test is applied to the TOTAL, the total is dominated by the STABLE viscous part,
+and the part that is actually wrong oscillates underneath a passing number.
+
+`grid_result` therefore requires drift <= 5% **and** >= 1.0 flow-throughs. The
+floor is physics, not a tuned constant — a domain the free stream has not
+crossed still holds its initial condition — and it is necessary, not sufficient:
+anything settled under 5.0 is printed as `UNDER-RUN`. `case.info` now records
+`domain_length_m`, `flow_through_s` and `end_time_flow_throughs`; a case
+predating them gets the 4.5 Lwl assumption, said out loud.
 
 ## Gate 2M: KCS meshes cleanly now; the NUMBER is still owed
 
