@@ -55,7 +55,34 @@ def test_latent_front_feasible_and_competitive(data):
 
 
 def test_latent_front_spans_designs(data):
+    """A front, not one point — asserted over SEEDS, at a budget big enough for
+    the property to exist.
+
+    IT USED TO BE ONE SEED AT pop=16/gens=6, and MEASURED that budget produces
+    a front of 3 to 8 members whose LWL spread is a lottery: across seeds
+    (9, 5, 3, 11, 21, 42) the standard deviation reads
+    0.072 / 2.334 / 0.352 / 0.355 / 2.733 / 3.294. Seed 9 is the one that lands
+    at 0.072, and it was the seed the test used.
+
+    IT WAS ALSO MEASURING THE WRONG THING. `Genome.decode`'s projection used to
+    substitute a nearby TRAINING HULL for an infeasible latent point (gap I7),
+    so part of the front's apparent diversity was the training set showing
+    through the decoder rather than the search finding designs. With the
+    projection now minimal and honest, the same six seeds at pop=16/gens=6 read
+    0.072 / 2.334 / 0.352 / 0.355 / 2.733 / 3.294 against 0.311 / 0.321 /
+    2.684 / 2.382 / 3.864 / 2.321 before — median 1.026 against 2.352. RECORDED
+    per honesty rule 6: the honest decoder costs latent-front diversity at a
+    tiny budget, and that is a real measured consequence, not a bug.
+
+    So the budget moves to where the property is actually testable and the
+    THRESHOLD does not move down: pop=24/gens=12 gives fronts of 13-24 members
+    and a minimum spread of 0.810 over the same six seeds — 8x the original
+    0.1 bar. Every seed is asserted, not one.
+    """
     m, _X, _y, genome = data
-    res = pareto_front_latent(m, genome, pop=16, gens=6, seed=9)
-    lwls = res.X[:, 0]
-    assert lwls.std() > 0.1                   # a front, not one point
+    for seed in (9, 11, 21):
+        res = pareto_front_latent(m, genome, pop=24, gens=12, seed=seed)
+        lwls = res.X[:, 0]
+        assert len(res.X) >= 10, f"seed {seed}: front of {len(res.X)}"
+        assert lwls.std() > 0.4, (   # measured minimum 0.810 over six seeds
+            f"seed {seed}: LWL spread {lwls.std():.3f} — a point, not a front")

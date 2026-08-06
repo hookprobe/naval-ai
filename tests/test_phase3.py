@@ -1,13 +1,16 @@
 """Gate 3: co-kriging beats single-fidelity on Forrester; GP honest on our L1
 physics; OOD queries escalate; batched EI infill works."""
 
+import warnings
+
 import numpy as np
 import pytest
 
 from navalai import grammar
 from navalai.evaluate import evaluate
 from navalai.mission import MissionSpec
-from navalai.surrogate import (GP, CoKriging, OODRefusal, batch_infill,
+from navalai.surrogate import (GP, CoKriging, InfillStarved, OODRefusal,
+                               RhoDegenerate, batch_infill,
                                expected_improvement, forrester_hi,
                                forrester_lo)
 
@@ -198,11 +201,20 @@ def test_cokriging_ood_consults_the_low_fidelity_gp():
     term is extrapolating (`gp_lo.is_ood` all True) while the delta-GP has
     neighbours (`gp_delta.is_ood` all False), so the old code answered "in
     support" for a prediction half of which was a guess.
+
+    RECORDED (honesty rule 6): this fixture now also trips the `RhoDegenerate`
+    identifiability warning, and that is CORRECT, not incidental. `forrester_lo`
+    restricted to [0, 0.5] is nearly flat there, so `m_lo` over the HF points is
+    almost constant, LF/HF correlation is -0.236, and rho beats rho=0 by 0.52
+    nats. rho genuinely is not identified from this data; the fixture is built
+    to strand the LF GP and it succeeds at that in both senses. The warning is
+    asserted here so it cannot go quiet without a test noticing.
     """
     X_lo = np.linspace(0.0, 0.5, 11)[:, None]
     X_hi = np.linspace(0.0, 1.0, 11)[:, None]
-    ck = CoKriging.fit(X_lo, forrester_lo(X_lo[:, 0]),
-                       X_hi, forrester_hi(X_hi[:, 0]))
+    with pytest.warns(RhoDegenerate, match="NOT IDENTIFIED"):
+        ck = CoKriging.fit(X_lo, forrester_lo(X_lo[:, 0]),
+                           X_hi, forrester_hi(X_hi[:, 0]))
     probes = np.array([[0.7], [0.8], [0.9]])
     assert ck.gp_lo.is_ood(probes).all()
     assert not ck.gp_delta.is_ood(probes).any(), (
@@ -223,3 +235,214 @@ def test_batched_ei_infill_targets_minimum():
                   + np.eye(3)) > 0.03          # spread, not clustered
     ei = expected_improvement(gp, cand, float(forrester_hi(X[:, 0]).min()))
     assert ei[idx[0]] == pytest.approx(ei.max())
+
+
+# ---------------------------------------------------------------------------
+# I2 — rho was selected by the WRONG criterion
+# ---------------------------------------------------------------------------
+
+def _rho_case(n_hi: int, lf_lo: float = 0.0, lf_hi: float = 1.0, n_lo: int = 21):
+    X_lo = np.linspace(lf_lo, lf_hi, n_lo)[:, None]
+    X_hi = np.linspace(0.0, 1.0, n_hi)[:, None]
+    return X_lo, forrester_lo(X_lo[:, 0]), X_hi, forrester_hi(X_hi[:, 0])
+
+
+def test_rho_recovers_a_known_ar1_coefficient_and_does_not_drift_with_data():
+    """`CoKriging.fit` scanned rho and kept the one minimising the delta-GP's
+    ABSOLUTE leave-one-out RMSE, under a comment claiming that was "the KOH MLE
+    spirit". LOO-RMSE carries the units of delta, so it is minimised by
+    whichever rho makes the residual SMALL — a residual-magnitude minimiser,
+    not an estimator, and it behaved like one.
+
+    `forrester_lo` is an EXACT AR(1) partner of `forrester_hi` with
+    rho_true = 2.0 (`lo = 0.5*hi + 10(x-0.5) - 5`), so the right answer is known
+    to the last digit. MEASURED, |rho_hat - 2.0|:
+
+        n_hi    old (LOO-RMSE)    new (joint KOH log-likelihood)
+           6        0.0663              0.0045
+           8        0.0401              0.0004
+          10        0.0018              0.0001
+          12        0.0227              0.0003
+          15        0.0491              0.0001
+          20        0.0790              0.0001
+          25        0.0991              0.0013
+
+    The old column is non-monotone and then walks steadily AWAY from the truth
+    as data is added — the one thing an estimator may never do. That is the
+    property this test pins: not just accuracy at one n, but that MORE DATA
+    DOES NOT MAKE IT WORSE. The old criterion fails both arms.
+    """
+    errs = {}
+    for n_hi in (6, 10, 15, 25):
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", RhoDegenerate)  # must not warn here
+            ck = CoKriging.fit(*_rho_case(n_hi))
+        errs[n_hi] = abs(ck.rho - 2.0)
+        assert ck.rho_warning == ""
+        assert ck.rho_evidence > 5.0, (
+            f"n_hi={n_hi}: an exact AR(1) partner must be worth many nats "
+            f"over rho=0, got {ck.rho_evidence:.2f}")
+    assert max(errs.values()) < 0.02, errs
+    assert errs[25] <= errs[6] + 1e-9, (
+        f"recovery DEGRADES with data: {errs} — this is the old criterion's "
+        f"signature (0.0663 at n=6 walking to 0.0991 at n=25)")
+
+
+def test_rho_is_scale_free():
+    """A coefficient in `f_hi = rho*f_lo + delta` is dimensionless: multiply
+    both fidelities by 1000 and rho must not move. A criterion built on the
+    absolute size of the residual has no reason to obey that; the likelihood
+    does, because the process variance is profiled."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RhoDegenerate)
+        X_lo, y_lo, X_hi, y_hi = _rho_case(12)
+        a = CoKriging.fit(X_lo, y_lo, X_hi, y_hi).rho
+        b = CoKriging.fit(X_lo, 1000 * y_lo, X_hi, 1000 * y_hi).rho
+    assert abs(a - b) < 1e-3, f"rho moved {a:.4f} -> {b:.4f} under a pure rescale"
+
+
+def test_rho_does_not_collapse_when_the_lf_model_is_confined_but_informative():
+    """THE CASE THE REGISTER FILED: broad high fidelity, narrow low fidelity —
+    which is the situation every real campaign is in, because the cheap model
+    is run where the expensive one has not been.
+
+    MEASURED with the old criterion, LF = `forrester_lo` on a sub-interval and
+    HF spanning [0, 1]:
+
+        LF span    n_hi    old rho
+        [0, 0.3]     12    -0.6422
+        [0, 0.4]     12    -0.7209
+        [0, 0.35]    16    -0.4281
+        [0.3, 1.0]   20    +2.6574 (and the register's own probe hit  0.0000)
+
+    A negative rho against a positively-correlated partner means the fit is
+    SUBTRACTING the cheap model, and rho = 0 discards it outright — in both
+    cases while still calling itself co-kriging and emitting nothing.
+
+    Here the LF data is confined to [0.3, 1.0] but genuinely informative
+    (LF/HF correlation +0.857). MEASURED after the fix: rho = 2.18 against a
+    truth of 2.0, worth 8.36 nats over rho = 0, no warning, and the co-kriging
+    RMSE beats single-fidelity kriging on the same HF points (0.0014 vs
+    0.0017) — which is the product claim, not just the coefficient.
+    """
+    X_lo, y_lo, X_hi, y_hi = _rho_case(20, lf_lo=0.3, lf_hi=1.0, n_lo=9)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", RhoDegenerate)
+        ck = CoKriging.fit(X_lo, y_lo, X_hi, y_hi)
+    assert ck.lf_hf_corr > 0.5
+    assert abs(ck.rho) > 0.5, f"rho collapsed to {ck.rho:.4f}"
+    assert ck.rho > 0, "sign-flipped a positively-correlated low-fidelity model"
+    assert ck.rho_evidence > 2.0
+    assert ck.rho_warning == ""
+
+    Xt = np.linspace(0, 1, 200)[:, None]
+    yt = forrester_hi(Xt[:, 0])
+    gp = GP.fit(X_hi, y_hi)
+    assert (np.sqrt(np.mean((ck.predict(Xt)[0] - yt) ** 2))
+            < np.sqrt(np.mean((gp.predict(Xt)[0] - yt) ** 2)))
+
+
+def test_a_useless_low_fidelity_model_is_announced_not_swallowed():
+    """The register's complaint was not only that rho was wrong, it was "with
+    NO DIAGNOSTIC". A scalar rho with no provenance is how rho = -0.64 on a
+    positively-correlated partner went unnoticed.
+
+    Two degenerate shapes, both MEASURED:
+      - LF replaced by white noise: the fitted rho ranges over
+        +2.22 / -2.36 / +4.02 / +0.45 / -1.63 across five seeds — pure noise
+        fitting — and beats rho=0 by 0.06 to 0.96 nats, i.e. not at all.
+      - LF a constant: rho is structurally unidentifiable (`rho * const` is
+        absorbed by the delta-GP's mean) and the old scan ran out to
+        rho = 2,378,233.8, which then multiplies the LF sigma into every
+        prediction and makes every query out of support.
+    """
+    X_lo = np.linspace(0, 1, 21)[:, None]
+    X_hi = np.linspace(0, 1, 12)[:, None]
+    y_hi = forrester_hi(X_hi[:, 0])
+
+    for seed in range(5):
+        noise = np.random.default_rng(seed).standard_normal(21)
+        with pytest.warns(RhoDegenerate, match="NOT IDENTIFIED"):
+            ck = CoKriging.fit(X_lo, noise, X_hi, y_hi)
+        assert ck.rho_evidence < 2.0 and ck.rho_warning
+        with pytest.raises(ValueError, match="co-kriging refused"):
+            CoKriging.fit(X_lo, noise, X_hi, y_hi, strict=True)
+
+    const = np.full(21, 3.0) + 1e-9 * np.random.default_rng(0).standard_normal(21)
+    with pytest.warns(RhoDegenerate, match="CONSTANT"):
+        ck = CoKriging.fit(X_lo, const, X_hi, y_hi)
+    assert ck.rho == 0.0, "an unidentifiable rho must be 0, not 2.4e6"
+
+
+# ---------------------------------------------------------------------------
+# I4 — batched infill was defeated exactly where it exists
+# ---------------------------------------------------------------------------
+
+def test_infill_diversity_is_measured_in_the_candidate_box_not_the_training_span():
+    """The mutual-distance filter normalised with `gp._norm`, i.e. by the span
+    of the few HIGH-FIDELITY TRAINING points. You infill where you have NOT
+    been, so that span is systematically narrower than the candidate box, and
+    the error runs in the dangerous direction: a small training span INFLATES
+    every normalised distance, the filter passes everything, and the batch
+    collapses onto the EI peak.
+
+    MEASURED, HF points drawn on [0.40, 0.55], candidates on [0, 1],
+    min_dist = 0.05, k = 5 — delivered minimum separation:
+
+        n_candidates    old      new
+                  21    0.0500   0.0500
+                  51    0.0200   0.0600
+                 101    0.0100   0.0500
+                 201    0.0100   0.0500
+
+    The requested separation is 0.05 and the old delivered separation falls to
+    the candidate grid spacing: at 101 candidates it picked 0.36, 0.37, 0.63,
+    0.64, 0.65 — two experiments billed as five expensive runs. Note the bug
+    HIDES on a coarse grid, where the grid itself enforces the spacing; the
+    original gate test used 101 candidates but only k=3 and a 0.03 bar.
+    """
+    rng = np.random.default_rng(0)
+    X_hi = rng.uniform(0.40, 0.55, (8, 1))
+    gp = GP.fit(X_hi, forrester_hi(X_hi[:, 0]))
+    y_best = float(forrester_hi(X_hi[:, 0]).min())
+    for n_cand in (51, 101, 201):
+        cand = np.linspace(0, 1, n_cand)[:, None]
+        picks = np.sort(cand[batch_infill(gp, cand, y_best, k=5, min_dist=0.05), 0])
+        gap = float(np.min(np.abs(picks[:, None] - picks[None, :])
+                           + 1e9 * np.eye(len(picks))))
+        assert gap >= 0.05 - 1e-9, (
+            f"n_cand={n_cand}: asked for 0.05 separation, delivered {gap:.4f} "
+            f"at {picks} — the filter is rounding, not filtering")
+
+
+def test_a_short_infill_batch_raises_instead_of_shrinking_the_compute_plan():
+    """It returned a short array and said nothing. MEASURED on a 51-point
+    candidate grid at min_dist 0.05: asked 20/40/60, got 20/40/51 under the
+    training-span normalisation and 17 under the honest one. A caller sizes a
+    cluster booking on k; a batch that quietly halves is a compute plan that
+    quietly halves."""
+    rng = np.random.default_rng(0)
+    X_hi = rng.uniform(0.40, 0.55, (8, 1))
+    gp = GP.fit(X_hi, forrester_hi(X_hi[:, 0]))
+    cand = np.linspace(0, 1, 51)[:, None]
+    assert len(batch_infill(gp, cand, 0.0, k=10)) == 10
+    with pytest.raises(InfillStarved) as e:
+        batch_infill(gp, cand, 0.0, k=40)
+    assert e.value.k == 40 and 0 < len(e.value.chosen) < 40
+    short = batch_infill(gp, cand, 0.0, k=40, strict=False)
+    assert len(short) == len(e.value.chosen)
+
+
+def test_infill_bounds_override_a_candidate_set_that_does_not_span_the_box():
+    """A candidate set drawn as a random SAMPLE need not reach the box corners,
+    so inferring the box from it slightly over-states the spacing. `bounds=`
+    is the explicit escape hatch, and it must actually bind."""
+    rng = np.random.default_rng(1)
+    X_hi = rng.uniform(0.40, 0.55, (8, 1))
+    gp = GP.fit(X_hi, forrester_hi(X_hi[:, 0]))
+    cand = np.sort(rng.uniform(0.2, 0.8, (200, 1)), axis=0)
+    picks = np.sort(cand[batch_infill(gp, cand, 0.0, k=4, min_dist=0.1,
+                                      bounds=(np.array([0.0]), np.array([1.0]))), 0])
+    gap = float(np.min(np.abs(picks[:, None] - picks[None, :])
+                       + 1e9 * np.eye(len(picks))))
+    assert gap >= 0.1 - 1e-9, picks

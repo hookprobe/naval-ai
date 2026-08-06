@@ -18,11 +18,12 @@ Honesty rules implemented here:
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass, field
 
 import numpy as np
 from scipy.linalg import cho_factor, cho_solve
-from scipy.optimize import minimize
+from scipy.optimize import minimize, minimize_scalar
 
 
 class OODRefusal(RuntimeError):
@@ -217,6 +218,23 @@ class GP(_Escalates):
              - np.einsum("ij,ji->i", k, cho_solve(self._chol, k.T)))
         return mean, np.sqrt(np.maximum(v, 1e-14))
 
+    def posterior_cov(self, X: np.ndarray) -> np.ndarray:
+        """FULL joint posterior covariance at X, not just its diagonal.
+
+        The co-kriging likelihood needs this one. A GP's extrapolation error is
+        a smooth function reverting to the prior mean, so it is strongly
+        CORRELATED between neighbouring query points; treating it as
+        independent per-point noise overstates how much independent information
+        those points carry and over-penalises the term it multiplies. MEASURED:
+        the diagonal form drove rho to exactly 0.0000 on three of the
+        narrow-LF cases in `CoKriging.fit`'s table — the register's own failure
+        mode, reproduced by the fix meant to remove it.
+        """
+        Xn = self._norm(X)
+        k = self.var * _rbf(Xn, self.X, self.ls)
+        C = self.var * _rbf(Xn, Xn, self.ls) - k @ cho_solve(self._chol, k.T)
+        return 0.5 * (C + C.T)
+
     def support_distance(self, X: np.ndarray) -> np.ndarray:
         """Distance from each query to the nearest TRAINING point, normalised."""
         return _nn_distance(self._norm(X), self.X)
@@ -269,6 +287,20 @@ class GP(_Escalates):
         return (s > sigma_frac * np.sqrt(self.var)) | far
 
 
+class RhoDegenerate(RuntimeWarning):
+    """rho was selected at a value that makes the co-kriging model a lie.
+
+    Two shapes, both MEASURED (see `CoKriging.fit`):
+      - |rho| below `rho_floor`: `predict` is then `0 * m_lo + m_delta`, i.e.
+        single-fidelity kriging on the high-fidelity points, while the object
+        still calls itself CoKriging and still carries a low-fidelity GP that
+        contributes nothing. Silently discarding the cheap model is the one
+        outcome a multi-fidelity method must never do quietly.
+      - the optimum sits ON a scan endpoint: the scan did not bracket it, so
+        the reported rho is a boundary artefact, not an estimate.
+    """
+
+
 @dataclass
 class CoKriging(_Escalates):
     """Kennedy-O'Hagan AR(1): f_hi = rho * f_lo + delta."""
@@ -276,6 +308,14 @@ class CoKriging(_Escalates):
     gp_lo: GP
     gp_delta: GP
     rho: float
+    # Selection diagnostics — recorded on the object because a scalar rho with
+    # no provenance is exactly what let rho = -0.64 pass unnoticed.
+    nll: float = float("nan")            # joint KOH negative log-likelihood
+    lf_hf_corr: float = float("nan")     # Pearson corr(m_lo(X_hi), y_hi)
+    loo_rmse: float = float("nan")       # of the selected delta-GP
+    rho_evidence: float = float("nan")   # nats of nll(rho=0) - nll(rho_hat)
+    rho_scan: tuple = ()                 # (lo, hi) of the final scan bracket
+    rho_warning: str = ""                # "" when the fit is clean
 
     @property
     def prior_var(self) -> float:
@@ -299,22 +339,182 @@ class CoKriging(_Escalates):
 
     @staticmethod
     def fit(X_lo: np.ndarray, y_lo: np.ndarray,
-            X_hi: np.ndarray, y_hi: np.ndarray, seed: int = 0) -> "CoKriging":
+            X_hi: np.ndarray, y_hi: np.ndarray, seed: int = 0,
+            n_scan: int = 25, refine: int = 12, rho_floor: float = 0.05,
+            rho_max: float = 50.0, min_evidence: float = 2.0,
+            strict: bool = False) -> "CoKriging":
+        """Fit the AR(1) pair, selecting rho by the JOINT KOH LOG-LIKELIHOOD.
+
+        IT USED TO MINIMISE THE DELTA-GP'S *ABSOLUTE* LEAVE-ONE-OUT RMSE, and
+        the comment beside it claimed that was "the KOH MLE spirit". It is not:
+        LOO-RMSE carries the units of delta, so the criterion is minimised by
+        whatever rho makes the residual SMALL, not by whatever rho makes the
+        residual most LIKELY under its own fitted covariance. A magnitude
+        minimiser is not an estimator, and it behaved like one.
+
+        MEASURED, LF = `forrester_lo` (an EXACT AR(1) partner with
+        rho_true = 2.0, so the right answer is known to the last digit):
+
+            n_hi   old (LOO-RMSE)   new (KOH NLL)
+              6        1.9337           1.9955
+              8        2.0401           1.9996
+             10        2.0018           2.0001
+             12        1.9773           1.9997
+             15        1.9509           1.9999
+             20        1.9210           2.0001
+             25        1.9009           2.0013
+
+        The old column is NON-MONOTONE and then walks steadily AWAY from 2.0 as
+        data is added — the one thing an estimator may never do. More data made
+        it worse because more high-fidelity points give delta more room to be
+        small somewhere other than the truth. Worst error 0.0991 against 0.0045.
+
+        Worse, MEASURED on a broad-HF / narrow-LF case (LF on [0, 0.3], HF on
+        [0, 1], the situation every real campaign is in, since the cheap model
+        is run where the expensive one has not been):
+
+            LF span   n_hi   old rho
+            [0, 0.3]    12   -0.6422
+            [0, 0.4]    12   -0.7209
+            [0, 0.35]   16   -0.4281
+            [0, 0.3]    20   +0.3045
+
+        A NEGATIVE rho on a low-fidelity model that is a positively-correlated
+        half of the truth means the fit is subtracting the cheap model, and at
+        +0.30 it is discarding three-quarters of it. Either way the object
+        still reports itself as co-kriging and emits no diagnostic at all.
+
+        The criterion here is the marginal likelihood of the high-fidelity data
+        under the KOH model (`_koh_nll`), and it carries the term that fixes
+        the case above: the low-fidelity mean at X_hi is itself a PREDICTION,
+        so `rho^2 * Sigma_lo(X_hi)` joins the covariance. Where the LF GP is
+        extrapolating that is large and the likelihood declines to lean on it
+        rather than inverting its sign. `Sigma_lo` is the FULL posterior
+        covariance, not its diagonal — the diagonal form drove rho to exactly
+        0.0000 on three narrow-LF cases, reproducing the very failure it was
+        added to remove (see `GP.posterior_cov`).
+
+        The bracket is re-centred and doubled while the optimum sits on an end
+        (up to 3 times), then golden-section-refined. What is left over is
+        RECORDED, not swallowed: `rho_warning` is non-empty and a
+        `RhoDegenerate` warning is raised when
+
+          - |rho| < `rho_floor`, i.e. the low-fidelity model is being discarded;
+          - the optimum still sits on a scan endpoint after four expansions;
+          - `rho_evidence` — nll(rho=0) minus nll(rho_hat), in nats — is below
+            `min_evidence`, i.e. the fit cannot beat single-fidelity kriging
+            and the value of rho is whatever the noise preferred. MEASURED with
+            an LF model replaced by white noise: rho lands anywhere from -2.36
+            to +4.02 across five seeds and buys 0.06 to 0.96 nats.
+
+        Pass `strict=True` to make those a refusal instead of a warning.
+        """
+        X_hi = np.atleast_2d(np.asarray(X_hi, float))
+        y_hi = np.asarray(y_hi, float)
         gp_lo = GP.fit(X_lo, y_lo, seed=seed)
-        m_lo_at_hi, _ = gp_lo.predict(X_hi)
-        # rho: centered-covariance start, then pick the candidate whose residual
-        # the delta-GP explains best (leave-one-out error) — the KOH MLE spirit
+        m_lo_at_hi, _s = gp_lo.predict(X_hi)
+        cov_lo_at_hi = gp_lo.posterior_cov(X_hi)
         mc = m_lo_at_hi - m_lo_at_hi.mean()
         rho0 = float(np.dot(mc, y_hi - y_hi.mean()) / max(np.dot(mc, mc), 1e-12))
-        span = max(abs(rho0), 0.5)
-        best_rho, best_gp, best_err = rho0, None, np.inf
-        for rho in np.linspace(rho0 - 1.5 * span, rho0 + 1.5 * span, 25):
-            delta = y_hi - rho * m_lo_at_hi
-            gp_d = GP.fit(X_hi, delta, seed=seed + 1, restarts=1)
-            err = _loo_error(gp_d)
-            if err < best_err:
-                best_rho, best_gp, best_err = float(rho), gp_d, err
-        return CoKriging(gp_lo, best_gp, best_rho)
+        yc = y_hi - y_hi.mean()
+        corr = float(np.dot(mc, yc)
+                     / max(np.sqrt(np.dot(mc, mc) * np.dot(yc, yc)), 1e-300))
+
+        # A CONSTANT low-fidelity mean makes rho structurally unidentifiable:
+        # `rho * const` is absorbed by the delta-GP's own mean, so the
+        # likelihood is FLAT in rho and rho0 divides by ~0. MEASURED on an LF
+        # model that is a constant plus 1e-6 noise: the scan ran out to
+        # rho = 2,378,233.8, which then multiplies s_lo into the predictive
+        # sigma and makes every query out of support. Named and handled.
+        if float(np.std(mc)) <= 1e-6 * max(float(np.std(y_hi)), 1e-300):
+            msg = (f"the low-fidelity mean is CONSTANT over the high-fidelity "
+                   f"points (std {np.std(mc):.3g}); rho is not identifiable "
+                   f"and is set to 0 — this model is single-fidelity kriging")
+            if strict:
+                raise ValueError("co-kriging refused: " + msg)
+            warnings.warn(msg, RhoDegenerate, stacklevel=2)
+            gp_d = GP.fit(X_hi, y_hi, seed=seed + 1, restarts=1)
+            return CoKriging(gp_lo, gp_d, 0.0,
+                             nll=_koh_nll(gp_d, cov_lo_at_hi, 0.0),
+                             lf_hf_corr=corr, loo_rmse=float(_loo_error(gp_d)),
+                             rho_evidence=0.0, rho_scan=(0.0, 0.0),
+                             rho_warning=msg)
+
+        cache: dict[float, tuple[float, GP]] = {}
+
+        def score(rho: float) -> tuple[float, GP]:
+            r = round(float(rho), 12)
+            if r not in cache:
+                gp_d = GP.fit(X_hi, y_hi - r * m_lo_at_hi,
+                              seed=seed + 1, restarts=1)
+                cache[r] = (_koh_nll(gp_d, cov_lo_at_hi, r), gp_d)
+            return cache[r]
+
+        span = max(abs(rho0), 0.5) * 1.5
+        lo, hi = max(rho0 - span, -rho_max), min(rho0 + span, rho_max)
+        on_edge = False
+        for _expand in range(4):
+            grid = np.linspace(lo, hi, n_scan)
+            vals = [score(r)[0] for r in grid]
+            j = int(np.argmin(vals))
+            on_edge = j in (0, n_scan - 1)
+            if not on_edge:
+                break
+            # the optimum is outside the bracket: re-centre on it and double
+            centre, span = float(grid[j]), (hi - lo)
+            lo = max(centre - span, -rho_max)
+            hi = min(centre + span, rho_max)
+
+        # golden-section refinement inside the bracketing triple
+        a = float(grid[max(j - 1, 0)])
+        b = float(grid[min(j + 1, n_scan - 1)])
+        gr = 0.5 * (np.sqrt(5.0) - 1.0)
+        c, d = b - gr * (b - a), a + gr * (b - a)
+        for _ in range(max(refine, 0)):
+            if score(c)[0] < score(d)[0]:
+                b, d = d, c
+                c = b - gr * (b - a)
+            else:
+                a, c = c, d
+                d = a + gr * (b - a)
+        best_rho = min(list(cache), key=lambda r: cache[r][0])
+        best_nll, best_gp = cache[best_rho]
+        # How much the low-fidelity model is WORTH, in nats: the likelihood
+        # ratio of the fitted rho against rho = 0, which IS single-fidelity
+        # kriging on the HF points. A co-kriging model that cannot beat that is
+        # a co-kriging model with nothing to co-krige.
+        evidence = float(score(0.0)[0] - best_nll)
+
+        notes = []
+        if on_edge:
+            notes.append(
+                f"rho={best_rho:.4f} sits on a scan endpoint after 4 bracket "
+                f"expansions ([{lo:.3f}, {hi:.3f}]) — this is a boundary "
+                f"artefact, not an estimate")
+        if abs(best_rho) < rho_floor:
+            notes.append(
+                f"rho={best_rho:.4f} is below the floor {rho_floor}: the "
+                f"low-fidelity model contributes nothing and this object is "
+                f"single-fidelity kriging wearing a co-kriging name "
+                f"(LF/HF correlation {corr:+.3f})")
+        if evidence < min_evidence:
+            notes.append(
+                f"rho is NOT IDENTIFIED: the fitted rho={best_rho:.4f} beats "
+                f"rho=0 by only {evidence:.2f} nats against a bar of "
+                f"{min_evidence} (LF/HF correlation {corr:+.3f}). The "
+                f"low-fidelity data carries no usable information about the "
+                f"high-fidelity function here, and the value of rho is "
+                f"whatever the noise preferred")
+        msg = "; ".join(notes)
+        if msg:
+            if strict:
+                raise ValueError("co-kriging refused: " + msg)
+            warnings.warn(msg, RhoDegenerate, stacklevel=2)
+        return CoKriging(gp_lo, best_gp, float(best_rho),
+                         nll=float(best_nll), lf_hf_corr=corr,
+                         loo_rmse=float(_loo_error(best_gp)),
+                         rho_evidence=evidence,
+                         rho_scan=(float(lo), float(hi)), rho_warning=msg)
 
     def predict(self, X: np.ndarray):
         m_lo, s_lo = self.gp_lo.predict(X)
@@ -348,6 +548,54 @@ def _loo_error(gp: GP) -> float:
     return float(np.sqrt(np.mean(resid**2)))
 
 
+def _koh_nll(gp_delta: GP, cov_lo_at_hi: np.ndarray, rho: float) -> float:
+    """Negative log marginal likelihood of y_hi under the KOH AR(1) at `rho`.
+
+        y_hi ~ N(rho*m_lo(X_hi) + mu_delta,  rho^2 * Sigma_lo(X_hi) + K_delta)
+
+    The low-fidelity mean fed into `delta = y_hi - rho * m_lo` is a PREDICTION,
+    not data. A criterion that treats it as data leans on the LF model exactly
+    where the LF model is guessing, which is how the old rule ended up choosing
+    a NEGATIVE rho against a positively-correlated LF partner. `Sigma_lo` is
+    the FULL posterior covariance for the reason recorded on
+    `GP.posterior_cov`.
+
+    delta is a deterministic shift of y_hi given the LF GP, so the Jacobian is
+    1 and this is exactly log p(y_hi | rho) up to the rho-free LF factor of the
+    joint — i.e. maximising it maximises the joint KOH likelihood in rho.
+
+    THE PROCESS VARIANCE IS PROFILED, and that is not a detail. `GP.fit` pins
+    `var` to the EMPIRICAL variance of its labels, so at a fixed var the whole
+    scale dependence of the likelihood collapses into `(n/2) log var(delta)` —
+    which is a monotone function of |delta| and reinstates the exact
+    residual-magnitude criterion this rewrite exists to remove. MEASURED on the
+    4-point Forrester case (rho_true = 2.0): at fixed var the profile bottomed
+    at rho = 0.98 (delta small and wiggly) instead of 2.0 (delta LARGE and
+    perfectly linear, hence very likely under a smooth GP). Profiling var over
+    the correlation matrix lets smoothness pay for magnitude, which is what a
+    likelihood is for.
+    """
+    n = len(gp_delta.X)
+    R = (_rbf(gp_delta.X, gp_delta.X, gp_delta.ls)
+         + (gp_delta.nugget + 1e-10) * np.eye(n))
+    S = (rho * rho) * np.asarray(cov_lo_at_hi, float)
+    yc = gp_delta.y - gp_delta.mu
+    const = 0.5 * n * np.log(2.0 * np.pi)
+
+    def nll(log_v: float) -> float:
+        K = np.exp(log_v) * R + S
+        try:
+            c = cho_factor(K, lower=True)
+        except np.linalg.LinAlgError:
+            return 1e12
+        return float(0.5 * yc @ cho_solve(c, yc)
+                     + np.log(np.diag(c[0])).sum() + const)
+
+    v0 = np.log(max(float(gp_delta.var), 1e-300))
+    res = minimize_scalar(nll, bounds=(v0 - 25.0, v0 + 10.0), method="bounded")
+    return float(min(res.fun, nll(v0)))
+
+
 def expected_improvement(gp, X: np.ndarray, y_best: float) -> np.ndarray:
     """EI for minimisation — the batched-infill acquisition (BuildPlan 1.2)."""
     from scipy.stats import norm
@@ -357,19 +605,79 @@ def expected_improvement(gp, X: np.ndarray, y_best: float) -> np.ndarray:
     return (y_best - m) * norm.cdf(z) + s * norm.pdf(z)
 
 
+class InfillStarved(RuntimeError):
+    """`batch_infill` could not honour k under the diversity constraint.
+
+    It used to return a short array and say nothing. A batch method whose whole
+    reason to exist is "run k expensive simulations at once instead of one per
+    cycle" cannot silently deliver fewer than k: the caller sizes a compute
+    budget on k, and MEASURED it asked for 60 and got 51 with no signal.
+    """
+
+    def __init__(self, message: str, chosen: np.ndarray, k: int):
+        super().__init__(message)
+        self.chosen = chosen
+        self.k = k
+
+
 def batch_infill(gp, candidates: np.ndarray, y_best: float, k: int,
-                 min_dist: float = 0.05) -> np.ndarray:
-    """Pick k EI-ranked candidates with mutual distance (batched, not 1/cycle)."""
-    ei = expected_improvement(gp, candidates, y_best)
+                 min_dist: float = 0.05, bounds: tuple | None = None,
+                 strict: bool = True) -> np.ndarray:
+    """Pick k EI-ranked candidates with mutual distance (batched, not 1/cycle).
+
+    `min_dist` is a fraction of the CANDIDATE BOX per axis, which is the only
+    box the caller can reason about. It used to be a fraction of the GP's
+    TRAINING span — `gp._norm` — and that is the span of the few high-fidelity
+    points already run, not of the region being searched.
+
+    The two spans are different by construction (you infill where you have NOT
+    been), and the error is in the dangerous direction: a small training span
+    INFLATES every normalised distance, so the diversity filter passes
+    everything and the batch collapses onto the EI peak. MEASURED, HF points
+    drawn on [0.40, 0.55], candidates on [0, 1], min_dist 0.05, k=5:
+
+        n_candidates   picks                              min gap
+                 21    0.25 0.30 0.35 0.65 0.70            0.0500
+                 51    0.34 0.36 0.38 0.64 0.66            0.0200
+                101    0.36 0.37 0.63 0.64 0.65            0.0100
+                201    0.36 0.37 0.63 0.64 0.65            0.0100
+
+    The requested separation is 0.05 and the delivered separation falls to the
+    candidate grid spacing — the filter is not filtering, it is rounding. Five
+    CFD runs at 0.36, 0.37, 0.63, 0.64, 0.65 is two experiments billed as five.
+    Note the failure HIDES at coarse candidate grids: at 21 candidates the grid
+    itself enforces 0.05, so a test written on a coarse grid passes.
+
+    `bounds=(lo, hi)` overrides the inferred box for the case where the
+    candidate set is a sample rather than a grid and does not span the design
+    space. Short batches raise `InfillStarved` unless `strict=False`.
+    """
+    C = np.atleast_2d(np.asarray(candidates, float))
+    if bounds is None:
+        lo, hi = C.min(0), C.max(0)
+    else:
+        lo, hi = np.asarray(bounds[0], float), np.asarray(bounds[1], float)
+    span = np.where(hi - lo < 1e-12, 1.0, hi - lo)
+    Xn = (C - lo) / span
+
+    ei = expected_improvement(gp, C, y_best)
     order = np.argsort(-ei)
     chosen: list[int] = []
-    Xn = gp._norm(candidates) if isinstance(gp, GP) else gp.gp_delta._norm(candidates)
     for idx in order:
         if len(chosen) == k:
             break
         if all(np.linalg.norm(Xn[idx] - Xn[j]) > min_dist for j in chosen):
             chosen.append(int(idx))
-    return np.array(chosen, dtype=int)
+    out = np.array(chosen, dtype=int)
+    if len(out) < k and strict:
+        raise InfillStarved(
+            f"asked for {k} infill points at min_dist {min_dist} in the "
+            f"candidate box but only {len(out)} survive the diversity filter. "
+            f"Widen the candidate set, lower min_dist, or pass strict=False "
+            f"and size the compute budget on len(result) — a short batch "
+            f"returned silently is a compute plan that quietly shrinks.",
+            out, k)
+    return out
 
 
 # ---- the standard multi-fidelity test problem (Forrester et al. 2007) -------

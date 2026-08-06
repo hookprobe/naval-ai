@@ -30,6 +30,160 @@ def test_harvest_records_all_quantities(stocked):
     assert len(y2) == 60
 
 
+# ---------------------------------------------------------------------------
+# I11 — the "frozen benchmark" was the TRAINING DISTRIBUTION
+# ---------------------------------------------------------------------------
+
+def test_the_frozen_suite_is_not_the_training_draw(stocked):
+    """It was `sample_valid(25, mission, seed=4242)` — the SAME generator over
+    the SAME box as training, with a different seed. Every point was
+    interpolation, so a model that had quietly specialised on the middle of the
+    box scored exactly as well on it as an honest one, and the gate could not
+    see distribution shift at all. `benchmarks/` was never imported by this
+    module while README and PLM described the frozen suite as being built from
+    the plan's KCS/JBC/5415 anchors.
+
+    The suite now has two arms, both fixed forever:
+      - hulls carrying a PUBLISHED hull's proportions (`BENCHMARK_PROBES`),
+        whose coordinates come from a paper and therefore cannot drift;
+      - hulls from a design-space wedge that `harvest()` refuses to train on.
+
+    MEASURED: the suite is 27 points, 2 benchmark + 25 held-out region; uniform
+    L0-feasible sampling lands in that wedge 1.3% of the time, and with
+    `exclude_heldout` the 60 harvested training rows contain ZERO of them.
+    """
+    from navalai.flywheel import (BENCHMARK_PROBES, frozen_suite,
+                                  in_heldout_region)
+
+    prov, m, _d, _n = stocked
+    X, y, labels = frozen_suite(m)
+    assert len(X) == len(y) == len(labels) >= 20
+    assert np.isfinite(y).all()
+
+    bench = [ell for ell in labels if ell.startswith("benchmark:")]
+    assert len(bench) == len(BENCHMARK_PROBES), labels
+    assert not any("REJECTED" in ell or "NO_L1" in ell for ell in bench), (
+        f"a benchmark probe stopped being L0-legal: {bench}")
+
+    region = np.array([ell == "heldout_region" for ell in labels])
+    assert region.sum() >= 20
+    assert in_heldout_region(X[region]).all()
+
+    # ...and the training data must not be in the held-out region, or "held
+    # out" is a word rather than a fact.
+    Xtr, _ytr = prov.training_matrix("L1", "wh_per_nm")
+    assert in_heldout_region(Xtr).sum() == 0, (
+        f"{in_heldout_region(Xtr).sum()} training rows sit inside the "
+        f"benchmark's held-out wedge")
+
+
+def test_the_benchmark_itself_is_checked_for_drift():
+    """A benchmark whose own truth moves is not a benchmark. `REFERENCE_CW` in
+    benchmarks/wigley.py is a Michell wave-resistance curve on a converged
+    grid; `benchmark_integrity()` recomputes it and refuses if the physics
+    underneath has drifted. MEASURED: 0.000% deviation at all seven Froude
+    numbers, in 0.07 s — cheap enough to run on every retrain."""
+    from navalai.flywheel import benchmark_integrity
+
+    dev = benchmark_integrity()
+    assert len(dev) >= 5
+    assert max(dev.values()) < 0.02, dev
+
+
+# ---------------------------------------------------------------------------
+# I12 — `log` of a signed quantity
+# ---------------------------------------------------------------------------
+
+def test_gm_is_not_log_transformed(stocked):
+    """`retrain` did `GP.fit(X, np.log(y))` unconditionally and `_find_q`
+    explicitly advertises the `"gm"` path. GM is SIGNED — a negative
+    metacentric height is a boat that capsizes, which is exactly the region a
+    stability surrogate must represent.
+
+    MEASURED over the 60 harvested hulls in this fixture: min GM = -0.983 m
+    with 22 of 60 negative, so `np.log` produced 22 NaNs and the failure
+    surfaced (if at all) as a Cholesky error several frames away.
+
+    The relative-error METRIC is signed too: |pred - y| / |y| is unbounded at
+    the zero crossing, so an identity-transformed quantity is scored in units
+    of the target's own spread and `RetrainReport.err_kind` says which number
+    a reader is holding. MEASURED on this fixture: GM read 0.369 as a
+    "relative" error, dominated by points near GM = 0, against 0.224 as a
+    spread-normalised one.
+    """
+    from navalai.flywheel import NonPositiveTarget, transform_for
+
+    prov, m, d, _n = stocked
+    _X, ygm = prov.training_matrix("L1", "GM_m")
+    assert (ygm <= 0).sum() > 0, (
+        "no negative GM in the harvest; this trap needs a fixture that has one")
+
+    assert transform_for("gm").name == "identity"
+    with pytest.raises(NonPositiveTarget, match="signed quantity"):
+        transform_for("wh_per_nm").fwd(ygm)
+
+    gp, rep = retrain(prov, m, "gm", baseline_path=d / "gm.json", bootstrap=True)
+    assert rep.transform == "identity" and rep.err_kind == "spread-normalised"
+    assert np.isfinite(rep.median_rel_err) and np.isfinite(rep.coverage_2sigma)
+    assert gp is not None and np.isfinite(gp.predict(np.atleast_2d(_X[:3]))[0]).all()
+
+
+# ---------------------------------------------------------------------------
+# I10 — Gate 7's SECOND clause was never built
+# ---------------------------------------------------------------------------
+
+def test_retrain_records_its_wall_clock_and_gates_on_it(stocked, tmp_path):
+    """Gate 7's bar is "surrogate error decreases release-over-release AND full
+    mission -> validated-hull wall-clock drops with each cycle". The only
+    `time.` in this module was a JSON timestamp, `RetrainReport` had no timing
+    field, and no test asserted one — half of Gate 7 was unbuilt while the gate
+    reported GREEN.
+
+    MEASURED on this fixture: a retrain is 0.60 s and the recorded baseline now
+    carries `wall_clock_s` / `best_wall_clock_s` beside the error metrics. The
+    tolerance is 3x rather than something tight, because this Mac thermally
+    throttles (CLAUDE.md records a Thermal Emergency Sleep mid-campaign) and a
+    bar that machine weather can trip is a bar people learn to ignore.
+    """
+    prov, m, _d, _n = stocked
+    bp = tmp_path / "wall.json"
+    gp, rep = retrain(prov, m, "wh_per_nm", baseline_path=bp, bootstrap=True)
+    assert gp is not None and rep.passed_gate
+    assert rep.wall_clock_s > 0.0 and np.isfinite(rep.wall_clock_s)
+    assert rep.wall_clock_regressed is False
+    base = json.loads(bp.read_text())["wh_per_nm"]
+    assert base["wall_clock_s"] > 0 and base["best_wall_clock_s"] > 0
+    assert base["suite"] == "frozen_suite"
+
+    # A retrain that got much slower does not deploy, even with good metrics.
+    base["best_wall_clock_s"] = rep.wall_clock_s / 100.0
+    bp.write_text(json.dumps({"wh_per_nm": base}))
+    gp2, rep2 = retrain(prov, m, "wh_per_nm", baseline_path=bp)
+    assert rep2.wall_clock_regressed is True
+    assert gp2 is None and not rep2.passed_gate
+
+
+def test_the_mission_to_validated_hull_cycle_is_timed():
+    """The second half of Gate 7's clause 2: the timed path is the PRODUCT's
+    path — parse a mission in natural language, search, and put the winner
+    through the ladder until it validates. MEASURED at the small fixed budget
+    used here: 0.25 s total (parse 0.3 ms, search 0.20 s over 48 evaluations,
+    validate 53 ms), returning an L1-validated hull.
+
+    The budget is fixed on purpose. This number is a REGRESSION detector, and
+    two runs at different budgets compare nothing.
+    """
+    from navalai.flywheel import cycle_time
+
+    c = cycle_time()
+    assert c["validated"] is True and c["tier"] == "L1"
+    assert c["params"] is not None and len(c["params"]) == 15
+    assert c["total_s"] > 0
+    assert c["parse_s"] + c["search_s"] + c["validate_s"] == pytest.approx(
+        c["total_s"], rel=1e-6)
+    assert c["n_evals"] > 0
+
+
 def test_retrain_from_provenance_and_baseline_written(stocked):
     prov, m, d, _n = stocked
     # bootstrap=True is now REQUIRED to create the first baseline. Without it a
@@ -179,7 +333,7 @@ def test_the_regression_gate_does_not_ratchet_downhill(tmp_path):
     for _ in range(10):
         med, cov = med * 1.24, cov - 0.14      # just inside the OLD tolerance
         with mock.patch.object(F, "_metrics", return_value=(med, cov)), \
-             mock.patch.object(F, "sample_valid", return_value=(None, None)), \
+             mock.patch.object(F, "frozen_suite", return_value=(None, None, [])), \
              mock.patch.object(F.GP, "fit", staticmethod(lambda *a, **k: object())):
             _gp, rep = F.retrain(_stub_prov(), None, baseline_path=bp)
         deployed += bool(rep.passed_gate)
@@ -197,7 +351,7 @@ def test_absolute_floors_bind_even_without_history(tmp_path):
     bp.write_text("{}")
     with mock.patch.object(F, "_metrics",
                            return_value=(F.HARD_MAX_MEDIAN_REL_ERR * 1.1, 0.95)), \
-         mock.patch.object(F, "sample_valid", return_value=(None, None)), \
+         mock.patch.object(F, "frozen_suite", return_value=(None, None, [])), \
          mock.patch.object(F.GP, "fit", staticmethod(lambda *a, **k: object())):
         _gp, rep = F.retrain(_stub_prov(), None, baseline_path=bp)
     assert rep.passed_gate is False
@@ -218,7 +372,7 @@ def test_a_missing_baseline_refuses_instead_of_passing(tmp_path):
 
     missing = tmp_path / "nope.json"
     with mock.patch.object(F, "_metrics", return_value=(0.407, 0.9)), \
-         mock.patch.object(F, "sample_valid", return_value=(None, None)), \
+         mock.patch.object(F, "frozen_suite", return_value=(None, None, [])), \
          mock.patch.object(F.GP, "fit", staticmethod(lambda *a, **k: object())):
         with pytest.raises(FileNotFoundError, match="frozen benchmark"):
             F.retrain(_stub_prov(), None, baseline_path=missing)
