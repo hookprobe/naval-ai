@@ -1,7 +1,7 @@
 # NavalAI Product Line Management (PLM)
 
 > One validated design kernel. Many vessel products. Every claim gated.
-> This file is the management layer any Claude Code instance (or human)
+> This file is the management layer any coding-agent session (or human)
 > picks up to know WHAT we build, WHO owns it, and HOW work becomes truth.
 
 ## 1 · The platform ("one system")
@@ -61,7 +61,7 @@ change and goes through the lifecycle below.
 7. **Retirement** — dead parameters, superseded stand-ins (e.g. GMM when
    diffusion lands), stale rules: removed with a note, never left ambiguous.
 
-## 4 · Roles (each mappable to a Claude instance or a human)
+## 4 · Roles (each mappable to an agent session or a human)
 
 | Role | Owns | Machine |
 |---|---|---|
