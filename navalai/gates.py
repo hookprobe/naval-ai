@@ -91,6 +91,15 @@ GATES = [
     # was backwards: it is the one whose disappearance would be least noticed.
     Gate("Gate 0G", "the ladder cannot be talked into passing",
          "tests/test_gate_integrity.py"),
+    # Gate 0G's sibling, split out for the reason Gate 1H was: the ladder should
+    # show WHICH clause is covered by what. 0G guards the STATUS machinery (a
+    # verdict cannot be reworded, a row cannot vanish, a skipped suite is not
+    # green). This one guards the boundary between the registry and the ledger:
+    # a bar that a green suite MISSES must be a typed RED row with a ledger
+    # watermark, never a sentence in a `scope`. Gate 4 carried its miss in prose
+    # for a day and nothing could have failed on it (gap D11).
+    Gate("Gate 0R", "a missed clause is RED BY RECORD, never prose in a scope",
+         "tests/test_red_by_record.py"),
     Gate("Gate 0", "grammar/geometry/DB", "tests/test_phase0.py"),
     Gate("Gate 1", "L1 physics + Wigley anchor + <50ms", "tests/test_phase1.py"),
     # Gate 1's own bar names Holtrop-Mennen, and `grep -rin holtrop` used to hit
@@ -108,6 +117,13 @@ GATES = [
     # that actually floated.
     Gate("Gate 1C", "the constraint vector: complete, ordered, finite, and no "
          "undefined state reported as ideal", "tests/test_constraints_honest.py"),
+    # Registered on the suite's behalf, and the scope is its own header line
+    # rather than a guess: file ownership put navalai/gates.py with a different
+    # agent than tests/test_gapfix_physics.py, and an unregistered suite makes
+    # Gate 0G RED for a reason that has nothing to do with the code under test.
+    # The register already recorded this coordination cost once, for Gate SR.
+    Gate("Gate 1P", "the L1 physics core says what it actually computed",
+         "tests/test_gapfix_physics.py"),
     Gate("Gate 1b", "NSGA-II Pareto front", "tests/test_optimize.py"),
     Gate("Gate 2", "Capytaine BEM (Hulme anchor)", "tests/test_phase2.py"),
     Gate("Gate 2R", "CFD reference parity + GCI honesty",
@@ -120,22 +136,10 @@ GATES = [
     # what would be lost if the suite stopped running.
     Gate("Gate 3", "surrogate spine: GP + co-kriging rho, OOD refusal, "
          "batched-EI infill", "tests/test_phase3.py"),
-    # HONESTY RULE 6 IN THE REGISTRY ITSELF. This row printed a blanket GREEN
-    # while the suite's own headline bar — "raw generative draws are >=99%
-    # feasible" — is MISSED, because the test that measures it asserts the
-    # honest number (`f < 0.99`) rather than the bar. That is the right test and
-    # it was the wrong row: a reader of the ladder saw GREEN and had no way to
-    # learn that the plan's feasibility clause is not met.
-    #
-    # MEASURED 2026-08-06 with `raw_feasibility(600, seed=0)` on a generator fit
-    # to `sample_valid(120, MissionSpec(), seed=11)`: GMM 79.3%, pPCA 88.7%. The
-    # pPCA latent already in the repo BEATS the model shipped as the generative
-    # model. Both are far below 99%; the diffusion upgrade is what has to close
-    # it. The row cannot be a typed RED — a RED status row needs a ledger
-    # watermark, and the suite genuinely passes what it asserts — so the scope
-    # states the shortfall where the ladder prints it.
-    Gate("Gate 4", "generative + slider p95<100ms; raw feasibility RED "
-         "(GMM 79.3%, pPCA 88.7% vs the >=99% bar)", "tests/test_phase4.py"),
+    # The feasibility clause is NOT here. It is Gate 4F, below, because a
+    # shortfall stated in this row's `scope` was prose — see that row.
+    Gate("Gate 4", "generative + slider p95<100ms (raw feasibility: Gate 4F)",
+         "tests/test_phase4.py"),
     Gate("Gate 5", "mission translation + LLM seam", "tests/test_phase5.py"),
     Gate("Gate 6", "rules-as-code mechanics", "tests/test_phase6.py"),
     # Re-read against the suite 2026-08-06. Gate 7 has TWO clauses and the row
@@ -232,7 +236,14 @@ GATES = [
     # with a domain-scale period while viscous holds at 1.22-1.36x ITTC-57.
     # This row guards the DIAGNOSTIC: a force history too short to resolve a
     # period must REFUSE to report one rather than return a noisy number.
-    Gate("Gate 2R", "tank resonance is diagnosed, and a period is never "
+    # RENAMED 2026-08-07: this row landed as a second "Gate 2R", colliding with
+    # the CFD reference-parity row above. A gate NAME is the ledger's key —
+    # `judge_red`, the stale-entry check and Gate 0G's `reds == ledger` all
+    # index by it — and two rows sharing one collapse to a single set member, so
+    # a ledger entry could account for a red that was never measured. The suite
+    # named no gate in its own docstring, so nothing else moved. Uniqueness is
+    # now asserted by tests/test_red_by_record.py rather than left to review.
+    Gate("Gate 2T", "tank resonance is diagnosed, and a period is never "
          "claimed from too few cycles", "tests/test_tank_resonance.py"),
     # BuildPlan 2 V2.0. Its bar is provenance, not physics: "constants
     # importable, every one carries source+basis, no bare numbers".
@@ -250,6 +261,32 @@ GATES = [
     # practice values are not blessed — is Gate 6R-mech and stays green.
     Gate("Gate 6R-mech", "review-record mechanics + basis routing",
          "tests/test_phase6r.py"),
+    # GAP D11, and HONESTY RULE 6 APPLIED TO THIS FILE'S OWN REGISTRY.
+    #
+    # Gate 4's suite passes everything it asserts, so the row printed a blanket
+    # GREEN while the plan's headline generative bar — "raw draws are >=99%
+    # feasible" — was MISSED. The 2026-08-06 fix put the miss in Gate 4's
+    # `scope` string, and that was the defect wearing the fix's clothes: this
+    # file documents `detail` as "human context; NEVER load-bearing", and a
+    # `scope` is no more load-bearing than a `detail`. The measured shortfall
+    # could be deleted, softened or left to rot by editing one prose string, and
+    # nothing anywhere would fail — which is gap D1 ("RED" -> "AMBER" bought
+    # exit 0) surviving in the one place D1's own fix did not reach. MEASURED at
+    # the time: the ladder printed GREEN for Gate 4, the ledger had no row for
+    # it, and the number got no worse only because nobody re-ran it.
+    #
+    # So the clause is split into its own typed RED row, the same move as Gate
+    # 6R (a clause of Gate 6) and Gate 1H (a clause of Gate 1). It now prints
+    # RED first on every run, `judge_red` fails CI if the ledger does not
+    # account for it, and `review_by` stops it becoming furniture. THE NUMBERS
+    # ARE NOT REPEATED HERE — watermark, model, draw and owner are in
+    # data/gate-ledger.json, which is the single home for them (gap J1).
+    # tests/test_red_by_record.py is the fence, and it fails if any scope or
+    # detail string starts carrying a measurement again.
+    Gate("Gate 4F", "raw generative feasibility: UNFILTERED model draws vs the "
+         ">=99% bar (BuildPlan Phase 4)",
+         status=Verdict.RED,
+         detail="see data/gate-ledger.json for the measured watermark"),
     Gate("Gate 2M", "KCS/JBC OpenFOAM calibration w/ per-case GCI",
          status=Verdict.RED,
          detail="see data/gate-ledger.json for the measured watermark"),

@@ -29,7 +29,8 @@ _ROOT = pathlib.Path(__file__).resolve().parents[1]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from navalai.gaps import GapQueue, GapState, Severity   # noqa: E402
+from navalai.gaps import (GapQueue, GapState, Severity,   # noqa: E402
+                          import_gap_register)
 from navalai.pipeline import JsonlLog                   # noqa: E402
 
 
@@ -50,12 +51,41 @@ rg = _load()
 # coverage: every finding is answered, and nothing is invented
 # ---------------------------------------------------------------------------
 
-def _queue_source_ids() -> set[str]:
+def _answered() -> set[str]:
+    """Every finding this script has a verdict for, of any kind.
+
+    RETIRED belongs here for the same reason NEEDS-HUMAN does: it is an ANSWER.
+    What it must never be folded into is CLOSED — that distinction is asserted
+    separately, below.
+    """
+    return {c.source_id for c in rg.CHECKS} | set(rg.NEEDS_HUMAN) | set(rg.RETIRED)
+
+
+def _queue_source_ids(tmp_path=None) -> set[str]:
+    """The filed findings, from the live queue or reconstructed if absent.
+
+    THE REASON THIS IS NOT JUST `GapQueue()`: `data/evolution/` is gitignored,
+    so on a fresh clone the queue is EMPTY and this set is empty — and a
+    coverage assertion over an empty set passes while verifying nothing. That is
+    gap D3's shape ("prior is None -> ok = True") rebuilt inside the suite that
+    guards against it, and this repository has already shipped it once in this
+    very file (`not ledger_has("Gate 2M")` was true of a ledger that did not
+    exist). The findings are committed in docs/GAP-REGISTER.md, so the honest
+    move is to reconstruct rather than to skip.
+    """
     q = GapQueue()
-    return {g.source_id for g in q.all() if g.source_id}
+    if not q.all():
+        assert tmp_path is not None, "reconstruction needs a scratch path"
+        q = GapQueue(JsonlLog(tmp_path / "gaps.jsonl"))
+        import_gap_register(queue=q)
+    ids = {g.source_id for g in q.all() if g.source_id}
+    assert len(ids) == 119, (
+        f"{len(ids)} findings in the queue, expected the register's 119. An "
+        f"under-populated queue makes every coverage assertion below vacuous.")
+    return ids
 
 
-def test_every_queued_finding_gets_an_answer():
+def test_every_queued_finding_gets_an_answer(tmp_path):
     """No row may be silently skipped.
 
     `navalai.gaps._split_row` learned this: a parser that dropped the three
@@ -63,19 +93,18 @@ def test_every_queued_finding_gets_an_answer():
     disk — two HIGH and one CRITICAL finding, gone, with the importer saying
     "names no level". A reconciler that answers 100 of 119 has the same shape.
     """
-    answered = {c.source_id for c in rg.CHECKS} | set(rg.NEEDS_HUMAN)
-    missing = _queue_source_ids() - answered
+    missing = _queue_source_ids(tmp_path) - _answered()
     assert not missing, f"queued findings with no verdict: {sorted(missing)}"
 
 
-def test_nothing_is_answered_that_was_never_filed():
-    answered = {c.source_id for c in rg.CHECKS} | set(rg.NEEDS_HUMAN)
-    extra = answered - _queue_source_ids()
+def test_nothing_is_answered_that_was_never_filed(tmp_path):
+    extra = _answered() - _queue_source_ids(tmp_path)
     assert not extra, f"verdicts for findings that are not in the queue: {sorted(extra)}"
 
 
 def test_no_finding_is_answered_twice():
-    ids = [c.source_id for c in rg.CHECKS] + list(rg.NEEDS_HUMAN)
+    ids = ([c.source_id for c in rg.CHECKS] + list(rg.NEEDS_HUMAN)
+           + list(rg.RETIRED))
     dupes = {i for i in ids if ids.count(i) > 1}
     assert not dupes, f"two verdicts for one finding: {sorted(dupes)}"
 
@@ -95,6 +124,65 @@ def test_every_check_carries_evidence_that_could_be_a_verified_note():
 def test_needs_human_rows_say_WHY_no_predicate_exists():
     for sid, why in rg.NEEDS_HUMAN.items():
         assert len(why) > 60, f"{sid}: 'needs human' with no reason is a shrug"
+
+
+# ---------------------------------------------------------------------------
+# retirement (PLM.md section 3 step 7) — and the thing it must never look like
+# ---------------------------------------------------------------------------
+
+def test_a_retired_row_says_why_it_is_not_a_property_of_a_checkout():
+    """PLM section 3 step 7: "removed with a note, never left ambiguous".
+
+    The note is the whole of the retirement. J9 ("7 of 10 recent commits
+    comply") and J10 ("uncommitted CFD work sits in the working tree") are
+    propositions about a MOMENT — one about a sliding window of git history,
+    one about one machine at one instant — so no predicate over a checkout can
+    answer them stably, in either direction. That is a different claim from "we
+    have not written the predicate yet", which is what NEEDS-HUMAN means, and
+    the note is where the difference is stated.
+    """
+    assert set(rg.RETIRED) == {"J9", "J10"}, (
+        "retiring a row is a judgement, not a cleanup; a new one needs its own "
+        "note and its own commit")
+    for sid, why in rg.RETIRED.items():
+        assert len(why) > 200, f"{sid}: a retirement with a one-liner is a shrug"
+        assert "NOT A PROPERTY OF THE CHECKOUT" in why, (
+            f"{sid}: state the reason it cannot be a predicate, or it reads as "
+            f"'we gave up'")
+
+
+def test_a_retired_row_never_reads_as_fixed():
+    """THE HAZARD, and the only reason RETIRED is a separate verdict.
+
+    A reader scanning for what is left to do sees a column. If retirement
+    landed in the CLOSED column the two rows would read as work someone did,
+    and nothing was done to the code at all — the propositions were withdrawn.
+    """
+    rows = {r.source_id: r for r in rg.reconcile()}
+    for sid in rg.RETIRED:
+        assert rows[sid].verdict == rg.RETIRED_V
+        assert rows[sid].verdict != rg.CLOSED
+    assert rg.RETIRED_V not in (rg.CLOSED, rg.OPEN, rg.NEEDS)
+
+
+def test_apply_never_closes_a_retired_row(tmp_path):
+    """`--apply` writes into an append-only log with NO REOPEN EDGE. A
+    retirement written there as a closure is permanent and is a lie about the
+    code. B4 cost 332 unwound transitions for one wrong Closed."""
+    q, gid = _queue_with(tmp_path, source_id="J9")
+    rg.apply([rg.Row("J9", rg.RETIRED_V, rg.RETIRED["J9"])], q)
+    assert q.get(gid).state is GapState.OPEN
+
+
+def test_the_summary_counts_retired_in_its_own_column(tmp_path, capsys):
+    q = GapQueue(JsonlLog(tmp_path / "gaps.jsonl"))
+    import_gap_register(queue=q)
+    rg.report(rg.reconcile(), q)
+    out = capsys.readouterr().out
+    assert f"{len(rg.RETIRED)} retired" in out
+    assert "retired != fixed" in out, (
+        "the count is not enough — the word 'retired' beside a list of closures "
+        "is read as 'done' at a glance")
 
 
 # ---------------------------------------------------------------------------
@@ -348,6 +436,39 @@ def test_the_closures_are_discriminating_not_merely_true():
 # the invariant that matters after this session
 # ---------------------------------------------------------------------------
 
+def test_a6b_asks_for_the_recall_MEASUREMENT_not_merely_for_a_support_test(tmp_path):
+    """A6b was NEEDS-HUMAN on the grounds that it is "a correction to A6,
+    closed by the same code". If that were true it would not be a finding, and
+    its predicate would be indistinguishable from A6's — so this doctors a copy
+    of the tree the way `tests/test_pipeline.py` doctors a copy of
+    `run-case.sh`, and requires the two verdicts to come apart.
+
+    A6's clearing condition is that a support test EXISTS. A6b's is that the
+    support test is MEASURED against a restricted training support, because
+    A6b's finding is that the original experiment drew training and query hulls
+    from the same box and so contained no out-of-distribution query at all.
+    Remove the recall bar and only A6b may notice.
+    """
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "navalai").mkdir()
+    src = (_ROOT / "tests" / "test_phase3.py").read_text()
+    doctored = src.replace("assert r_new >= r_old + 0.10",
+                           "assert True   # the recall bar, removed")
+    assert doctored != src, "the recall assertion moved; re-aim this control"
+    (tmp_path / "tests" / "test_phase3.py").write_text(doctored)
+    (tmp_path / "navalai" / "surrogate.py").write_text(
+        (_ROOT / "navalai" / "surrogate.py").read_text())
+
+    a6 = next(c for c in rg.CHECKS if c.source_id == "A6")
+    a6b = next(c for c in rg.CHECKS if c.source_id == "A6b")
+    with rg.at_root(tmp_path):
+        assert a6.closed(), (
+            "A6 should still read closed here — the support test is untouched")
+        assert not a6b.closed(), (
+            "A6b closed on a tree with no recall measurement, i.e. it is "
+            "answering A6's question a second time")
+
+
 def test_no_gap_is_closed_in_the_queue_while_the_code_says_it_is_open():
     """THE DANGEROUS DIRECTION, and the only one this asserts.
 
@@ -374,15 +495,100 @@ def test_no_gap_is_closed_in_the_queue_while_the_code_says_it_is_open():
         f"wrong or the closure was. File a NEW gap; do not edit the log.")
 
 
-def test_the_queue_is_the_119_findings_the_register_holds():
+def test_the_queue_is_the_119_findings_the_register_holds(tmp_path):
     """Guard against a re-import doubling the queue, which would make every
     count in the report meaningless. `GapQueue.emit` is idempotent on
-    source_id; this is the assertion that it stayed that way."""
-    ids = [json.loads(line)["gap_id"]
-           for line in (_ROOT / "data" / "evolution" / "gaps.jsonl")
-           .read_text().splitlines() if line.strip()]
-    opened = [json.loads(line) for line in
-              (_ROOT / "data" / "evolution" / "gaps.jsonl").read_text().splitlines()
-              if line.strip() and json.loads(line)["kind"] == "open"]
+    source_id; this is the assertion that it stayed that way.
+
+    It reads the LIVE log only if this checkout has one. It used to read it
+    unconditionally and would therefore have died with FileNotFoundError on a
+    fresh clone — the very defect the tests below are about, sitting in the
+    assertion that counts the queue.
+    """
+    q = GapQueue(JsonlLog(tmp_path / "gaps.jsonl"))
+    rep = import_gap_register(queue=q)
+    assert len(rep.imported) == 119, (
+        f"{len(rep.imported)} findings imported from docs/GAP-REGISTER.md, "
+        f"expected 119")
+
+    live = _ROOT / "data" / "evolution" / "gaps.jsonl"
+    if not live.exists():
+        pytest.skip("no live queue in this checkout (gitignored; --rebuild it)")
+    recs = [json.loads(line) for line in live.read_text().splitlines()
+            if line.strip()]
+    opened = [r for r in recs if r["kind"] == "open"]
     assert len(opened) == 119, f"{len(opened)} findings filed, expected 119"
-    assert len(set(ids)) == len({r["gap_id"] for r in opened})
+    assert len({r["gap_id"] for r in recs}) == len({r["gap_id"] for r in opened})
+
+
+# ---------------------------------------------------------------------------
+# the queue does not survive a clone — and that is handled, not ignored
+# ---------------------------------------------------------------------------
+#
+# `data/evolution/` is gitignored deliberately (the reasoning is in
+# reconcile_gaps.py's module docstring: the log is DERIVED from two committed
+# sources, it is append-only with machine-minted ids so concurrent agents
+# produce unresolvable conflicts, and tracked files the tooling rewrites have
+# already cost this repository a dirty tree on every test run and an unasked
+# `git checkout --`). What that decision owes in return is exactly two
+# properties, and these are them.
+
+def test_an_absent_queue_is_loud_and_never_reads_as_no_gaps(tmp_path, capsys):
+    """THE FAILURE MODE, stated by this repository three times already: gap D3
+    (`data/baselines.json` missing -> `prior is None -> ok = True` -> the first
+    retrain always deployed), gap J5 (benchmark geometry ignored -> a validation
+    that silently skipped), and this script's own F16/F17 predicates, where
+    `not ledger_has("Gate 2M")` was TRUE of a ledger file that did not exist.
+
+    An empty queue must therefore be a banner and a non-zero exit, never a
+    report full of blanks that a reader skims as "nothing outstanding".
+    """
+    rc = rg.main(["--gaps", str(tmp_path / "nowhere" / "gaps.jsonl")])
+    out = capsys.readouterr().out
+    assert rc != 0, "an absent queue exited 0"
+    assert "THE GAP QUEUE IS EMPTY OR ABSENT" in out
+    assert "--rebuild" in out, "loud is not enough; it must say how to fix it"
+
+
+def test_the_queue_is_reconstructible_from_committed_files_alone(tmp_path):
+    """The other half. Loud is only acceptable if the fix is one command.
+
+    Reconstruction reads docs/GAP-REGISTER.md for the findings and
+    `reconcile_gaps.CHECKS` for their verdicts — both committed — so a fresh
+    clone reaches the same partition as the machine that recorded it, WITHOUT
+    the log being a tracked file that every agent appends to.
+    """
+    q = GapQueue(JsonlLog(tmp_path / "gaps.jsonl"))
+    rows = rg.reconcile()
+    n, moved = rg.rebuild(q, rows)
+    assert n == 119
+    measured_closed = {r.source_id for r in rows if r.verdict == rg.CLOSED}
+    assert len(moved) == len(measured_closed)
+    got = {g.source_id for g in q.all() if g.state is GapState.CLOSED}
+    assert got == measured_closed
+    # and nothing that is not CLOSED came along for the ride
+    for r in rows:
+        if r.verdict != rg.CLOSED:
+            assert q.by_source(r.source_id).state is GapState.OPEN
+
+
+def test_rebuild_is_idempotent(tmp_path):
+    """It has to be safe to run when you are not sure what state you are in;
+    otherwise nobody runs it. `emit` is idempotent on source_id and `apply`
+    skips an already-Closed gap, and this is the assertion that both stay so."""
+    q = GapQueue(JsonlLog(tmp_path / "gaps.jsonl"))
+    rows = rg.reconcile()
+    rg.rebuild(q, rows)
+    lines = len((tmp_path / "gaps.jsonl").read_text().splitlines())
+    n, moved = rg.rebuild(q, rows)
+    assert n == 0 and moved == []
+    assert len((tmp_path / "gaps.jsonl").read_text().splitlines()) == lines
+
+
+def test_the_gitignore_still_says_why_the_queue_is_not_tracked():
+    """A decision that is not written down is re-litigated by the next agent,
+    who will see a lost queue and track the file. The entry carries the reason
+    and the reconstruction command."""
+    ignore = (_ROOT / ".gitignore").read_text()
+    assert "data/evolution/" in ignore
+    assert "reconcile_gaps.py --rebuild" in ignore

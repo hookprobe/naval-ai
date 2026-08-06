@@ -36,4 +36,21 @@ selfInterPoints.obj
 # file the test suite rewrites on every run dirties the tree constantly and
 # conflicts on every cherry-pick. It is one machine's own history, not a
 # shared artefact -- the record that must survive is docs/GAP-REGISTER.md.
+#
+# TRACKING gaps.jsonl WAS PROPOSED 2026-08-07 AND REJECTED, deliberately. The
+# finding was real -- a fresh clone has no queue and none of the 83 recorded
+# closures -- but the file is the wrong fix for it:
+#   - the log is DERIVED. Every closure in it was written by --apply from a
+#     predicate over code that is already tracked, so committing it stores a
+#     conclusion beside its own evidence (a number declared twice, this
+#     codebase's recurring defect) and the log is the copy that goes stale.
+#   - it cannot be merged. It is append-only, four records per closure, and
+#     GapQueue.next_id mints ids by scanning the log it has: two agents closing
+#     two different gaps both mint G-120 and NEITHER side of the merge is
+#     right. data/exports/* taught the cheap version of this lesson already.
+# What the decision owes instead is reconstructibility and noise, and both are
+# now enforced by tests/test_reconcile_gaps.py:
+#     python scripts/reconcile_gaps.py --rebuild     # register + predicates
+# and an absent queue exits non-zero with a banner rather than reporting an
+# empty register as if there were nothing to do.
 data/evolution/

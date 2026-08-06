@@ -57,15 +57,17 @@ different Gate 2M numbers came to circulate at once (gap J1).
 | Gate | Scope | Verified by |
 |---|---|---|
 | Gate 0G | the ladder cannot be talked into passing | `tests/test_gate_integrity.py` (25 tests) |
+| Gate 0R | a missed clause is RED BY RECORD, never prose in a scope | `tests/test_red_by_record.py` (10 tests) |
 | Gate 0 | grammar/geometry/DB | `tests/test_phase0.py` (8 tests) |
 | Gate 1 | L1 physics + Wigley anchor + <50ms | `tests/test_phase1.py` (23 tests) |
 | Gate 1H | Holtrop-Mennen vs the 1982 worked example | `tests/test_holtrop.py` (56 tests) |
 | Gate 1C | the constraint vector: complete, ordered, finite, and no undefined state reported as ideal | `tests/test_constraints_honest.py` (16 tests) |
+| Gate 1P | the L1 physics core says what it actually computed | `tests/test_gapfix_physics.py` (13 tests) |
 | Gate 1b | NSGA-II Pareto front | `tests/test_optimize.py` (2 tests) |
 | Gate 2 | Capytaine BEM (Hulme anchor) | `tests/test_phase2.py` (18 tests) |
 | Gate 2R | CFD reference parity + GCI honesty | `tests/test_cfd_reference_parity.py` (49 tests) |
 | Gate 3 | surrogate spine: GP + co-kriging rho, OOD refusal, batched-EI infill | `tests/test_phase3.py` (17 tests) |
-| Gate 4 | generative + slider p95<100ms; raw feasibility RED (GMM 79.3%, pPCA 88.7% vs the >=99% bar) | `tests/test_phase4.py` (27 tests) |
+| Gate 4 | generative + slider p95<100ms (raw feasibility: Gate 4F) | `tests/test_phase4.py` (27 tests) |
 | Gate 5 | mission translation + LLM seam | `tests/test_phase5.py` (11 tests) |
 | Gate 6 | rules-as-code mechanics | `tests/test_phase6.py` (6 tests) |
 | Gate 7 | flywheel: frozen suite != training draw, monotone regression mark, wall clock, committed baseline | `tests/test_phase7.py` (15 tests) |
@@ -80,13 +82,14 @@ different Gate 2M numbers came to circulate at once (gap J1).
 | Gate S | the MDO spine: one terminal state per genome, append-only archive, legal-transition graph, unmeasured metric refused | `tests/test_pipeline.py` (48 tests) |
 | Gate SG | the gap queue: findings are work items, not prose | `tests/test_gaps.py` (18 tests) |
 | Gate R4 | the ladder is WIRED: every claimed tier reachable from evaluate(), L3 read from recorded evidence and never solved, tier R alone can refuse a design | `tests/test_ladder_wiring.py` (17 tests) |
-| Gate SR | gap state is derived from the code, not from prose | `tests/test_reconcile_gaps.py` (23 tests) |
+| Gate SR | gap state is derived from the code, not from prose | `tests/test_reconcile_gaps.py` (32 tests) |
 | Gate 2S | one settled_drag: one cell-count rule, one settledness rule, and a component that oscillates cannot hide under a stable total | `tests/test_settled_drag.py` (46 tests) |
 | Gate 4H | the surrogate refuses what it has not seen, and the feasibility bar measures the model rather than the sampler | `tests/test_surrogate_honesty.py` (13 tests) |
-| Gate 2R | tank resonance is diagnosed, and a period is never claimed from too few cycles | `tests/test_tank_resonance.py` (25 tests) |
+| Gate 2T | tank resonance is diagnosed, and a period is never claimed from too few cycles | `tests/test_tank_resonance.py` (25 tests) |
 | Gate V2.0 | refdata spine: every constant carries source + basis | `tests/test_refdata.py` (25 tests) |
 | Gate 2G | KCS benchmark geometry: present and accepted (scripts/fetch_benchmark_geom.py) | `tests/test_benchmark_geom.py` (2 tests) |
 | Gate 6R-mech | review-record mechanics + basis routing | `tests/test_phase6r.py` (10 tests) |
+| Gate 4F | raw generative feasibility: UNFILTERED model draws vs the >=99% bar (BuildPlan Phase 4) | **RED** — `data/gate-ledger.json` |
 | Gate 2M | KCS/JBC OpenFOAM calibration w/ per-case GCI | **RED** — `data/gate-ledger.json` |
 | Gate 2U | unattended meshing (plan: >=95% of a 200-hull batch) | **RED** — `data/gate-ledger.json` |
 | Gate 6R | ISO threshold parity vs licensed standard text | **RED** — `data/gate-ledger.json` |

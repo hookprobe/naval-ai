@@ -466,6 +466,13 @@ itself closeable is a judgement), **J9** (a commit-compliance ratio is a
 property of history, not of a checkout; its actionable half — `gate2m.py` has
 no test — IS done), **J10** (a working tree at one instant).
 
+> **The NEEDS-HUMAN line above is SUPERSEDED (2026-08-07) and the counts with
+> it — see section S.** All three were resolved: **A6b** was re-filed with a
+> predicate of its own (it is a defect, not a correction, and its clearing
+> condition differs from A6's), **J9** and **J10** were RETIRED under PLM §3
+> step 7. The 2026-08-06 numbers are left as written; they are the measurement
+> of that day.
+
 ### The negative control, and what it caught
 
 The register was audited at `5bbffb7`, so every predicate must report OPEN
@@ -543,3 +550,153 @@ Recorded here rather than edited into the tables above.
    itself** — file ownership put `navalai/gates.py` with another agent. It was
    added as **Gate SR** in `1ad6f8b`, along with four other orphaned suites.
    Worth noting as a coordination cost of concurrent agents, not a defect.
+
+---
+
+## S · The three findings of section R, resolved (2026-08-07)
+
+Section R ended by producing three findings of its own. This section records
+what was decided about each, because a finding a reconciliation produces and
+then forgets is the defect that reconciliation exists to stop.
+
+| measured | CRITICAL | HIGH | MED | LOW | total |
+|---|---|---|---|---|---|
+| Closed | 18 | 39 | 22 | 6 | **85** |
+| Open | 2 | 15 | 11 | 4 | **32** |
+| Needs human | 0 | 0 | 0 | 0 | **0** |
+| Retired | 0 | 0 | 1 | 1 | **2** |
+| | 20 | 54 | 34 | 11 | **119** |
+
+Measured against the tree as committed. Four further rows (**E6, E7, G8**
+HIGH, **E8** MED) read CLOSED in the working tree at the time of writing on
+another agent's uncommitted edits; `--apply` refuses to close on evidence that
+is not at HEAD, and so does this table. **RETIRED IS NOT CLOSED** — nothing was
+done to the code for those two rows; see below.
+
+### S1 · Gate 4's feasibility miss now has a row that can fail
+
+**D11 closes.** The shortfall lived in `navalai/gates.py`'s Gate 4 `scope`
+string — a measurement in a prose field, in a file whose own dataclass
+documents the neighbouring `detail` field as *"human context; NEVER
+load-bearing"*. The gate printed GREEN, no ledger row owned the clause, no
+`review_by` could expire, and nothing would have failed if the number got
+worse. That is **gap D1** (`"RED"` → `"AMBER"` bought exit 0) surviving in the
+one place D1's own fix did not reach: D1 typed the STATUS field and left the
+prose fields able to carry the only copy of a measurement.
+
+The clause is now **Gate 4F**, a typed RED row with a `data/gate-ledger.json`
+entry — watermark, units, bar, owner, `verify` command, `review_by`. The same
+split as Gate 6R (a clause of Gate 6) and Gate 1H (a clause of Gate 1). The
+99% bar was NOT softened; it is the BuildPlan's number, and the row is red
+against it. Re-measured 2026-08-07 for the entry: the shipped GMM and the pPCA
+latent, same fit, same draw — **the numbers are in the ledger and nowhere
+else**, which is gap J1's rule applied to the registry J1's fix created.
+
+`tests/test_red_by_record.py` (**Gate 0R**) is the fence, and it performs the
+attack rather than describing it: rewording the row buys nothing, deleting the
+ledger entry is a failure and not a silence, and **no gate row's `scope` or
+`detail` may contain a measured figure** — a rule that fails on the exact
+string this finding was about.
+
+### S2 · The queue is a cache: reconstructible and loud, not tracked
+
+**Decision: `data/evolution/gaps.jsonl` stays gitignored.** Tracking it was the
+obvious fix and it was rejected for reasons that are measurable rather than
+stylistic:
+
+- **The log is derived.** All 83 closures in it were written by `--apply` from
+  predicates over code that is already tracked. Committing it stores a
+  conclusion beside its own evidence — *a number declared twice*, this
+  codebase's recurring defect — and the log is the copy that goes stale. The
+  suite already carries
+  `test_no_gap_is_closed_in_the_queue_while_the_code_says_it_is_open` because
+  that divergence is possible.
+- **It cannot be merged.** Append-only, four records per closure, and
+  `GapQueue.next_id` mints ids by scanning the log it has: two agents closing
+  two different gaps both mint `G-120` and neither side of the merge is right.
+  `data/exports/*` and `renders/` taught the cheaper version of this lesson —
+  a tree dirtied by every test run, a conflict on every cherry-pick, and an
+  unasked `git checkout --`. `tests/test_pipeline.py::test_the_default_archive
+  _path_is_gitignored` pins the ignore for the archive sitting beside it.
+- **What must survive a clone already does:** `docs/GAP-REGISTER.md` holds the
+  findings and `scripts/reconcile_gaps.py` holds their verdicts.
+
+What the decision owes in return is two properties, and both are now enforced:
+
+    RECONSTRUCTIBLE   python scripts/reconcile_gaps.py --rebuild
+    LOUD              an absent queue is a banner and exit 2, never an empty
+                      report
+
+The loudness is not politeness. An empty queue produces a report in which every
+row reads `NOT IN QUEUE`, which skims as *"nothing outstanding"* — the same
+error as gap D3 (`prior is None -> ok = True`, so the first retrain always
+deployed), gap J5 (geometry ignored, so a validation silently skipped) and this
+script's own F16/F17, where `not ledger_has("Gate 2M")` was TRUE of a ledger
+file that did not exist. `.gitignore` carries the reasoning and the rebuild
+command so the next agent does not re-litigate it from a lost queue.
+
+### S3 · Coordination cost, again
+
+Gate SR needed a row it could not add itself; this session `tests/test_gapfix
+_physics.py` arrived from a concurrently-running agent with the same problem and
+was registered as **Gate 1P**, scope taken verbatim from the suite's own header
+line. Noted as a cost of disjoint file ownership, not as a defect.
+
+## S4 · Retired under PLM §3 step 7
+
+> *"dead parameters, superseded stand-ins, stale rules: removed with a note,
+> never left ambiguous"*
+
+A **RETIRED** row is not a fixed row and the reconciler will never let it read
+as one: it has its own verdict string, its own column in every summary, and no
+path into `--apply` — the gap log has no reopen edge, so a retirement written
+there as a closure would be permanent and false.
+
+The test for admission is narrow, and it is not "we could not write the
+predicate". It is that **the proposition is not about the thing a predicate
+reads**: both rows below assert something about a MOMENT IN HISTORY, so no
+check over a checkout can answer them stably in either direction. A NEEDS-HUMAN
+row is still a gap awaiting judgement; a retired row is not a gap.
+
+<!-- The first column is deliberately NOT headed `ID` and the second NOT `Sev`.
+     MEASURED 2026-08-07, minutes after this section was first written:
+     `navalai.gaps.import_gap_register` treats any table whose header begins
+     `| ID |` and contains `Sev` as a table of FINDINGS, so this retirement
+     record imported J9 and J10 a second time and the register grew from 119
+     rows to 121 — `tests/test_gaps.py` caught it. A section that documents the
+     removal of two findings must not file two findings. -->
+
+| Row | Sev as filed | Retired because | What was separable, and where it went |
+|---|---|---|---|
+| J9 | MED | *"7 of 10 recent commits comply with PLM §3 step 4"* is a statistic over a sliding window of git history. It re-answers itself every commit and was already stale when the register was written; no state a tree can be in makes it false. | Its actionable half — the row's own evidence sentence, *"`scripts/gate2m.py` has no test of its own"* — **is done**: `tests/test_cfd_reference_parity.py` (Gate 2R), including `test_gate2m_has_no_gci_of_its_own`. Enforcing commit-message compliance should be filed as a NEW finding naming a mechanism (a hook), not kept as a ratio nobody can re-derive. |
+| J10 | LOW | *"Uncommitted CFD work sits in the working tree"* describes one machine at one instant. It is true again right now, for an unrelated reason (concurrent agents), and will be true tomorrow. A condition no fix can move to false is a fact about how work happens here, not a gap. | Its real content — that a document read as truth may describe uncommitted code — is already mechanised where it belongs: `head_export()` refuses to close a gap on evidence that is not at HEAD, after doing exactly that for **A4** on another agent's in-flight edit. |
+
+### S5 · A6b re-filed as a defect of its own
+
+A6b was parked NEEDS-HUMAN as *"a correction to A6, closed by the same code —
+whether a correction row is itself closeable is a judgement"*. That reading
+cost the row its verdict, and it was wrong: A6b's own text ends **"what it
+lacked was RECALL"**, which is a defect with a different clearing condition
+from A6's.
+
+- **A6** closes when a support test EXISTS (`GP.support_distance`,
+  `is_ood(support_frac=...)`).
+- **A6b** closes only when that test is MEASURED against a **restricted**
+  training support — because A6b's finding is that the original experiment drew
+  training and query hulls from the same box and therefore contained no
+  out-of-distribution query at all. *Nothing can separate an empty set.*
+
+A predicate reading *"does a support test exist"* would answer A6 twice and
+A6b never. The predicate filed instead requires all three things the finding
+names: `GP.fit(X[inside])` rather than `GP.fit(X)`, recall computed on the
+excluded region for sigma alone and for sigma-plus-support, and the support
+term required to raise it by ≥ 0.10. All three are read from the
+comment-and-docstring-blanked view, because the word *recall* appears verbatim
+in the docstrings of both `surrogate.is_ood` and the test itself — the B4
+hazard exactly.
+
+Verified both ways: **OPEN at `5bbffb7`**, CLOSED now, and
+`test_a6b_asks_for_the_recall_MEASUREMENT_not_merely_for_a_support_test`
+doctors a copy of `tests/test_phase3.py` with the recall bar removed and
+requires A6b to go OPEN while A6 stays CLOSED. A predicate that cannot come
+apart from its neighbour is not answering its own row.

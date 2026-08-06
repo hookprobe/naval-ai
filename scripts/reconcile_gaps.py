@@ -38,11 +38,57 @@ day someone lands the fix this script notices without being edited.
                                                     # through the lifecycle
     python scripts/reconcile_gaps.py --diff         # rows whose queue state and
                                                     # measured state disagree
+    python scripts/reconcile_gaps.py --rebuild      # reconstruct the queue from
+                                                    # scratch (see below)
 
 `--apply` walks Open -> Investigating -> Prototype -> Verified -> Closed one
 legal step at a time (there is no shortcut edge and this script does not add
 one), and the Verified note carries the evidence string, because
 `GapQueue.advance` refuses a Verified with no measurement -- correctly.
+
+THE QUEUE DOES NOT SURVIVE A CLONE, AND THAT IS THE DESIGN
+----------------------------------------------------------
+
+`data/evolution/gaps.jsonl` is gitignored, so a fresh checkout has no queue at
+all and every one of the recorded closures is absent from it. That was filed as
+a finding (register section R) and it has the shape this repository keeps
+measuring -- gap D3 (`data/baselines.json` untracked, so the first retrain
+always deployed) and gap J5 (benchmark geometry ignored, so a validation
+silently skipped). The obvious fix is to track the file. It was considered and
+REJECTED, for three measured reasons:
+
+1. THE LOG IS DERIVED, NOT AUTHORED. Every one of the 83 closures in it was
+   written by `--apply` from a predicate in this file over code that IS
+   tracked. Committing it stores a conclusion next to its own evidence, which
+   is this codebase's recurring defect (a number declared twice) in its most
+   expensive form: when the two disagree the log is the one that is wrong, and
+   `test_no_gap_is_closed_in_the_queue_while_the_code_says_it_is_open` exists
+   because that can happen.
+2. IT WOULD CONFLICT ON EVERY CONCURRENT EDIT, UNRESOLVABLY. It is append-only
+   with four records per closure, and `GapQueue.next_id` mints ids by scanning
+   the log it has -- so two agents closing two different gaps both mint G-120,
+   and neither side of the merge can be taken. `data/exports/*` and `renders/`
+   already taught this repository the cheaper version of the lesson: tracked
+   files that the tooling rewrites dirtied the tree on every test run,
+   conflicted on every cherry-pick, and provoked an unasked `git checkout --`.
+   `tests/test_pipeline.py::test_the_default_archive_path_is_gitignored` pins
+   the ignore for the archive beside it.
+3. WHAT MUST SURVIVE A CLONE ALREADY DOES. The findings are
+   `docs/GAP-REGISTER.md` (tracked) and their verdicts are the predicates below
+   (tracked). The jsonl is a JOURNAL of applying one to the other.
+
+So the queue is treated as a CACHE with two properties instead:
+
+  RECONSTRUCTIBLE  `--rebuild` re-imports the register and re-applies every
+                   measured closure. It is idempotent -- `GapQueue.emit` is
+                   idempotent on source_id and `apply` skips already-Closed
+                   rows -- so it is safe on a populated queue too.
+  LOUD             an absent or empty queue is a banner and a non-zero exit,
+                   never an empty report. A missing record reading as "nothing
+                   to see" is exactly gap D3's shape, and this script has
+                   already made that error once: `not ledger_has("Gate 2M")`
+                   was TRUE when no ledger existed, so an absent record scored
+                   as a green gate inside the tool built to catch that.
 """
 
 from __future__ import annotations
@@ -61,7 +107,8 @@ _ROOT = Path(__file__).resolve().parents[1]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from navalai.gaps import GapQueue, GapState, Severity   # noqa: E402
+from navalai.gaps import (GapQueue, GapState, Severity,   # noqa: E402
+                          import_gap_register)
 
 
 # ---------------------------------------------------------------------------
@@ -331,27 +378,55 @@ class Check:
 
 
 # Rows for which NO predicate is honest. Recorded with the reason, never
-# guessed. Two are process audits (a claim about commits, a claim about a
-# working tree at one instant) and one asks whether dead code is REACHABLE,
-# which is a measurement over the parameter space and not a property of the
-# text.
-NEEDS_HUMAN: dict[str, str] = {
-    "J9": "a commit-compliance statistic ('7 of 10 recent commits comply') is "
-          "a property of history at one instant, not of the checkout. Its "
-          "actionable half IS done -- scripts/gate2m.py now has tests in "
-          "tests/test_cfd_reference_parity.py -- but no predicate can re-run "
-          "the audit that produced the ratio.",
-    "J10": "'uncommitted CFD work sits in the working tree' describes a moment, "
-           "not a state a checkout can be asked about. It is also true again "
-           "right now for an unrelated reason (concurrent agents), which is "
-           "precisely why it cannot be a predicate.",
-    "A6b": "recorded as a CORRECTION to A6 rather than a defect of its own. "
-           "Its substantive half -- the sigma test lacked RECALL on axes the "
-           "kernel ignores -- is closed by the same code as A6 "
-           "(surrogate._nn_distance, deliberately unweighted, plus "
-           "tests/test_phase3.py::test_support_distance_catches_what_sigma_"
-           "alone_misses). Whether a correction row is itself closeable is a "
-           "judgement for a human, not a predicate.",
+# guessed.
+#
+# This dict is currently EMPTY, and that is a result rather than an oversight:
+# its three occupants were each resolved on 2026-08-07 (two RETIRED below, one
+# re-filed with a predicate). It stays because "no predicate can honestly be
+# written" is a legitimate answer that the next finding may need, and deleting
+# the category would make the next reconciler guess instead. A row here is
+# reported NEEDS-HUMAN and is never closed by `--apply`.
+NEEDS_HUMAN: dict[str, str] = {}
+
+
+# Rows RETIRED under PLM.md section 3 step 7 ("dead parameters, superseded
+# stand-ins, stale rules: removed with a note, never left ambiguous").
+#
+# A retired row is NOT a fixed row, and this script must never let one read as
+# one: `RETIRED` is its own verdict, it is counted in its own column, and
+# `apply()` will not move it -- the gap log has no reopen edge, so writing a
+# retirement into it as a closure would be permanent and wrong.
+#
+# The test for admission is narrow. Both rows below assert something about a
+# MOMENT IN HISTORY rather than about a checkout, so no predicate over the code
+# can answer them stably -- not "we have not written the predicate yet" but
+# "the proposition is not about the thing the predicate reads". That is what
+# separates a retirement from a NEEDS-HUMAN: a NEEDS-HUMAN row is still a gap
+# awaiting a human's judgement, a retired row is not a gap.
+RETIRED: dict[str, str] = {
+    "J9": "NOT A PROPERTY OF THE CHECKOUT. '7 of 10 recent commits comply with "
+          "PLM section 3 step 4' is a statistic over a sliding window of git "
+          "history: it re-answers itself every commit, it was already stale "
+          "when the register was written, and 'fixing' it is not something a "
+          "tree can be in the state of. Its ACTIONABLE half was separable and "
+          "IS done -- the row's own evidence sentence is 'scripts/gate2m.py "
+          "has no test of its own', and it now has "
+          "tests/test_cfd_reference_parity.py (Gate 2R), including "
+          "test_gate2m_has_no_gci_of_its_own. What remains is a process audit, "
+          "which is what code review and the pre-push hook are for. Retired "
+          "2026-08-07; if commit-message compliance is to be enforced it "
+          "should be filed as a NEW finding naming a mechanism (a hook), not "
+          "kept as a ratio nobody can re-derive.",
+    "J10": "NOT A PROPERTY OF THE CHECKOUT. 'Uncommitted CFD work sits in the "
+           "working tree' describes one machine at one instant. It is true "
+           "again right now, for an unrelated reason (concurrent agents), and "
+           "will be true again tomorrow -- a condition that no fix can move to "
+           "false is not a gap, it is a fact about how work happens here. Its "
+           "real content -- that a document read as truth may describe "
+           "uncommitted code -- is already mechanised and is where it belongs: "
+           "`head_export()` in this file refuses to close a gap on evidence "
+           "that is not committed, after doing exactly that for A4 on another "
+           "agent's in-flight edit. Retired 2026-08-07.",
 }
 
 
@@ -398,6 +473,37 @@ CHECKS: tuple[Check, ...] = (
           lambda: defines("navalai/surrogate.py", "support_distance")
                   and has_code("navalai/surrogate.py", r"support_frac")
                   and has_code("tests/test_phase3.py", r"NO SEPARATION")),
+    # RE-FILED 2026-08-07. A6b was parked as NEEDS-HUMAN on the grounds that it
+    # is "a CORRECTION to A6, and whether a correction row is itself closeable
+    # is a judgement". That was the wrong reading of it, and it cost the row its
+    # verdict: A6b's own text ends "so the sigma test was not as broken as A6
+    # implies -- WHAT IT LACKED WAS RECALL", which is a defect of its own with a
+    # different clearing condition from A6's. A6 is closed by a support test
+    # EXISTING; A6b is closed only by that test being MEASURED against a
+    # restricted training support, because A6b's finding is that the original
+    # experiment drew training and query hulls from the same box and therefore
+    # contained no out-of-distribution query at all -- nothing can separate an
+    # empty set. A predicate that reads "does a support test exist" would answer
+    # A6 twice and A6b never.
+    #
+    # So the three things this predicate insists on are the three the finding
+    # names: the training support is RESTRICTED (GP.fit on X[inside], not X),
+    # RECALL on the excluded region is computed for sigma alone and for sigma
+    # plus support, and the support term is required to IMPROVE it by a margin.
+    # All three are read out of `code()`, because "recall" appears verbatim in
+    # the docstrings of both surrogate.is_ood and the test itself.
+    Check("A6b", "the missing half of the sigma test is RECALL, and "
+                "tests/test_phase3.py::test_support_distance_catches_what_"
+                "sigma_alone_misses measures it on a RESTRICTED training "
+                "support (GP.fit(X[inside]), queries outside it) and requires "
+                "the support term to raise it by >= 0.10",
+          lambda: defines("tests/test_phase3.py",
+                          "test_support_distance_catches_what_sigma_alone_misses")
+                  and has_code("tests/test_phase3.py", r"GP\.fit\(X\[inside\]")
+                  and has_code("tests/test_phase3.py",
+                               r"r_new = \(both & out\)\.sum\(\) / out\.sum\(\)")
+                  and has_code("tests/test_phase3.py",
+                               r"assert r_new >= r_old \+ 0\.10")),
     Check("A6c", "GP.fit no longer pins the ARD lengthscale bound at log(10.0), "
                 "or reports the saturation it hits",
           lambda: lacks_code("navalai/surrogate.py",
@@ -553,9 +659,19 @@ CHECKS: tuple[Check, ...] = (
                  "its one chosen seed (991)",
           lambda: has_code("tests/test_phase3.py",
                       r"parametrize\(\s*\"seed\"|for seed in range\(\d+\).*rel")),
-    Check("D11", "the >=99% raw-feasibility clause is recorded where a gate can "
-                 "FAIL on it (a ledger row), not only in a prose scope string",
-          lambda: ledger_has("Gate 4")),
+    # BOTH HALVES, deliberately. A ledger entry alone is a record no gate reads;
+    # a RED row alone fails CI with no owner, no watermark and no expiry. The
+    # clause is only recorded WHERE A GATE CAN FAIL ON IT when the two exist
+    # together -- which is also why `ledger_has` is not asked on its own here:
+    # at 5bbffb7 there was no ledger file at all, and every question of the form
+    # "is X absent from the ledger" answered YES from a file that did not exist.
+    Check("D11", "the >=99% raw-feasibility clause is Gate 4F -- a typed RED "
+                 "row in navalai/gates.py WITH a data/gate-ledger.json "
+                 "watermark, owner and review_by -- instead of a sentence in "
+                 "Gate 4's prose scope; tests/test_red_by_record.py is the fence",
+          lambda: ledger_has("Gate 4F")
+                  and has_code("navalai/gates.py", r'Gate\("Gate 4F"')
+                  and exists("tests/test_red_by_record.py")),
     Check("D12", "generative._conditioned draws DISJOINT candidate batches "
                  "against a reference cut, and the Gate 4 suite has a control",
           lambda: defines("navalai/generative.py", "_conditioned")
@@ -968,6 +1084,13 @@ CHECKS: tuple[Check, ...] = (
 
 CLOSED, OPEN, NEEDS = "CLOSED", "OPEN", "NEEDS-HUMAN"
 
+# A RETIRED row is not a fixed row. It gets its own verdict string, its own
+# column in every summary this script prints, and no path into `apply()` --
+# because the one thing that must never happen is a retirement being read as a
+# closure by someone scanning for what is left to do.
+RETIRED_V = "RETIRED"
+VERDICTS = (CLOSED, OPEN, NEEDS, RETIRED_V)
+
 
 @dataclass(frozen=True)
 class Row:
@@ -996,6 +1119,8 @@ def reconcile() -> list[Row]:
         rows.append(Row(chk.source_id, CLOSED if ok else OPEN, chk.evidence))
     for sid, why in NEEDS_HUMAN.items():
         rows.append(Row(sid, NEEDS, why))
+    for sid, why in RETIRED.items():
+        rows.append(Row(sid, RETIRED_V, why))
     return rows
 
 
@@ -1056,25 +1181,31 @@ def report(rows: list[Row], queue: GapQueue, by_priority: bool = False,
     print()
     if by_priority:
         order = [Severity.CRITICAL, Severity.HIGH, Severity.MED, Severity.LOW]
-        print(f"{'severity':10} {'closed':>7} {'open':>6} {'needs-human':>12} {'total':>6}")
-        print("-" * 46)
-        tot = {v: 0 for v in (CLOSED, OPEN, NEEDS)}
+        print(f"{'severity':10} {'closed':>7} {'open':>6} {'needs-human':>12} "
+              f"{'retired':>8} {'total':>6}")
+        print("-" * 55)
+        tot = {v: 0 for v in VERDICTS}
         for sev in order:
-            c = {v: 0 for v in (CLOSED, OPEN, NEEDS)}
+            c = {v: 0 for v in VERDICTS}
             for r in rows:
                 gap = idx.get(r.source_id)
                 if gap and gap.severity is sev:
                     c[r.verdict] += 1
                     tot[r.verdict] += 1
             print(f"{sev.value:10} {c[CLOSED]:7} {c[OPEN]:6} {c[NEEDS]:12} "
-                  f"{sum(c.values()):6}")
-        print("-" * 46)
+                  f"{c[RETIRED_V]:8} {sum(c.values()):6}")
+        print("-" * 55)
         print(f"{'TOTAL':10} {tot[CLOSED]:7} {tot[OPEN]:6} {tot[NEEDS]:12} "
-              f"{sum(tot.values()):6}")
+              f"{tot[RETIRED_V]:8} {sum(tot.values()):6}")
     else:
-        n = {v: sum(1 for r in rows if r.verdict == v) for v in (CLOSED, OPEN, NEEDS)}
+        n = {v: sum(1 for r in rows if r.verdict == v) for v in VERDICTS}
+        # "retired" is spelled out rather than folded into a total, because the
+        # whole hazard of retirement is that it looks like completion at a
+        # glance. A retired row is NOT fixed; nothing was done to the code.
         print(f"{len(rows)} rows: {n[CLOSED]} closed, {n[OPEN]} open, "
-              f"{n[NEEDS]} needs-human")
+              f"{n[NEEDS]} needs-human, {n[RETIRED_V]} retired "
+              f"(retired != fixed: see RETIRED in this file for why each one "
+              f"is not a property of the checkout)")
 
 
 # The lifecycle has no shortcut edge and this script does not invent one: a gap
@@ -1087,7 +1218,14 @@ _PATH_TO_CLOSED = (GapState.INVESTIGATING, GapState.PROTOTYPE,
 
 
 def apply(rows: list[Row], queue: GapQueue) -> list[str]:
-    """Move every measured-CLOSED gap to Closed. Returns the ids moved."""
+    """Move every measured-CLOSED gap to Closed. Returns the ids moved.
+
+    ONLY `CLOSED`. An OPEN row is a live gap, a NEEDS-HUMAN row is a live gap
+    awaiting judgement, and a RETIRED row is not a gap at all -- but none of the
+    three has been FIXED, and the queue's `Closed` state means fixed. There is
+    no reopen edge, so a wrong move here is permanent: the B4 incident cost 332
+    unwound transitions.
+    """
     idx = _queue_index(queue)
     moved: list[str] = []
     for r in rows:
@@ -1105,10 +1243,70 @@ def apply(rows: list[Row], queue: GapQueue) -> list[str]:
     return moved
 
 
+# The banner for an absent queue. It is deliberately not a warning line: this
+# script's job is to answer "what is still open", and answering it from an empty
+# queue produces a report in which every row reads NOT IN QUEUE -- which a
+# reader skims as "nothing to do" rather than "nothing was read". `not
+# ledger_has("Gate 2M")` returning True from a ledger that did not exist is the
+# same error, made by this same file, and it is why the exit code is non-zero.
+EMPTY_QUEUE = """\
+================================================================================
+THE GAP QUEUE IS EMPTY OR ABSENT: {path}
+
+`data/evolution/` is gitignored ON PURPOSE (see this file's module docstring),
+so a fresh clone has no queue and none of the recorded closures. That is not a
+loss: the findings live in docs/GAP-REGISTER.md and the verdicts are the
+predicates in this file, both of which are committed. The queue is a cache of
+applying one to the other, and it is rebuilt with one command:
+
+    python scripts/reconcile_gaps.py --rebuild
+
+Nothing below has been read from a queue. An empty queue is reported as empty,
+never as "no gaps".
+================================================================================"""
+
+
+def rebuild(queue: GapQueue, rows: list[Row]) -> tuple[int, list[str]]:
+    """Reconstruct the queue from the two committed sources.
+
+    docs/GAP-REGISTER.md supplies the findings; the predicates above supply
+    their verdicts. Returns (findings imported, gap ids moved to Closed).
+
+    Idempotent by construction: `GapQueue.emit` returns the existing gap for a
+    source_id it has already filed, and `apply` skips a gap that is already
+    Closed. Running it on a populated queue is therefore a no-op, which is what
+    makes it safe to reach for when you are not sure what state you are in.
+    """
+    report_ = import_gap_register(queue=queue)
+    return len(report_.imported), apply(rows, queue)
+
+
+def committed_only(rows: list[Row]) -> list[Row]:
+    """Downgrade closures whose evidence is not yet committed. See head_export."""
+    with head_export() as head:
+        with at_root(head):
+            committed = {r.source_id for r in reconcile() if r.verdict == CLOSED}
+    in_flight = [r.source_id for r in rows
+                 if r.verdict == CLOSED and r.source_id not in committed]
+    if in_flight:
+        print(f"\nCLOSED in the working tree but NOT at HEAD, so not closed "
+              f"here: {', '.join(in_flight)}")
+        print("  (uncommitted evidence may still be reverted; the gap log has "
+              "no reopen edge)")
+    return [r if (r.verdict != CLOSED or r.source_id in committed)
+            else Row(r.source_id, OPEN, r.evidence + "  [evidence is "
+                     "uncommitted work in flight; not closed]")
+            for r in rows]
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--apply", action="store_true",
                     help="move measured-CLOSED gaps through the lifecycle")
+    ap.add_argument("--rebuild", action="store_true",
+                    help="reconstruct the queue from docs/GAP-REGISTER.md plus "
+                         "the predicates in this file, then apply the measured "
+                         "closures (idempotent)")
     ap.add_argument("--by-priority", action="store_true",
                     help="counts by severity")
     ap.add_argument("--diff", action="store_true",
@@ -1122,25 +1320,27 @@ def main(argv: list[str] | None = None) -> int:
 
     queue = GapQueue(args.gaps) if args.gaps else GapQueue()
     rows = reconcile()
+
+    if args.rebuild:
+        if not args.no_require_committed:
+            rows = committed_only(rows)
+        n, moved = rebuild(queue, rows)
+        print(f"rebuilt {queue.log.path}: {n} findings imported from "
+              f"{'docs/GAP-REGISTER.md'}, {len(moved)} closed from the "
+              f"measured verdicts")
+        report(reconcile(), queue, by_priority=args.by_priority)
+        return 0
+
+    if not queue.all():
+        print(EMPTY_QUEUE.format(path=queue.log.path))
+        report(rows, queue, by_priority=args.by_priority, diff_only=args.diff)
+        return 2
+
     report(rows, queue, by_priority=args.by_priority, diff_only=args.diff)
 
     if args.apply:
         if not args.no_require_committed:
-            with head_export() as head:
-                with at_root(head):
-                    committed = {r.source_id for r in reconcile()
-                                 if r.verdict == CLOSED}
-            in_flight = [r.source_id for r in rows
-                         if r.verdict == CLOSED and r.source_id not in committed]
-            if in_flight:
-                print(f"\nCLOSED in the working tree but NOT at HEAD, so not "
-                      f"closed here: {', '.join(in_flight)}")
-                print("  (uncommitted evidence may still be reverted; the gap "
-                      "log has no reopen edge)")
-            rows = [r if (r.verdict != CLOSED or r.source_id in committed)
-                    else Row(r.source_id, OPEN, r.evidence + "  [evidence is "
-                             "uncommitted work in flight; not closed]")
-                    for r in rows]
+            rows = committed_only(rows)
         moved = apply(rows, queue)
         print(f"\nmoved to Closed: {len(moved)}")
         for m in moved:
