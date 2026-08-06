@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# Strip AI attribution from commit messages. The only author is `homepods`.
+#
+# Why a hook and not a note in CLAUDE.md: the assistant harness appends
+# `Co-Authored-By: Claude ...` by DEFAULT, so relying on the model to remember
+# not to means it lands whenever the reminder falls out of context. A hook
+# cannot forget. Prose says what we want; this makes it true.
+#
+# Enforced, not warned: the trailer is removed in place and the commit
+# proceeds. Rejecting the commit would just cost a retype of a long,
+# evidence-bearing message for something we can fix ourselves.
+set -euo pipefail
+
+msg="$1"
+before=$(wc -c < "$msg")
+
+# Drop the attribution trailers, then collapse any trailing blank lines the
+# removal leaves behind.
+grep -viE '^[[:space:]]*(co-authored-by:[[:space:]]*(claude|anthropic)|.*generated with \[claude code\]|assisted-by:|generated-by:)' \
+    "$msg" > "$msg.tmp" || true
+# strip trailing blank lines
+awk 'BEGIN{n=0} {lines[NR]=$0} END{for(i=NR;i>0;i--){if(lines[i] ~ /[^[:space:]]/){n=i;break}} for(i=1;i<=n;i++) print lines[i]}' \
+    "$msg.tmp" > "$msg"
+rm -f "$msg.tmp"
+
+after=$(wc -c < "$msg")
+if [ "$before" -ne "$after" ]; then
+    echo "commit-msg: stripped AI attribution trailer (only author is homepods)"
+fi
