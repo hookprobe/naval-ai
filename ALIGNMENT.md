@@ -11,7 +11,7 @@ hardware/software this machine lacks).
 | Plan item | Verdict | Evidence / fix |
 |---|---|---|
 | Hull grammar "type checker" (hierarchical AST, typologies) | **GAP → Stage B** | built: flat 15-param vector + 30 constraints (`grammar.py`). Missing: typology hierarchy dispatching per-type constraints. Fix: `ast.py` typed grammar with ≥2 typologies. |
-| Parameter constraint solver (math boundaries) | **ALIGNED** | 30+ closed-form checks, <0.05 ms, reasons reported (`grammar.check`) |
+| Parameter constraint solver (math boundaries) | **ALIGNED, with a corrected count** | closed-form checks, <0.05 ms, reasons reported (`grammar.check`). The "30+" this row used to claim was wrong and so was the plan's "49": the 2026-08-05 audit measured **9 live** constraints — 28 emitted, of which 15 are bound checks the optimiser cannot violate and 4 more are tautologies inside the declared bounds (0 hits in 400 000 in-bounds samples). Gap E4. |
 | — incl. plywood bend limits | **GAP → Stage B** | twist-rate proxy exists; true min-bend-radius vs sheet thickness missing. Fix: longitudinal panel curvature check. |
 | VAE → guaranteed-valid latent space | **DIVERGED + GAP → Stage B** | research: VAEs guarantee nothing, hard filter mandatory (kept). Built: PCA/GMM latent. Fix: proper 8-D probabilistic-PCA latent generative model (the linear-Gaussian VAE) + prior-sampling validity gate — the "8-D genome" of the original plan. |
 
@@ -32,7 +32,7 @@ hardware/software this machine lacks).
 |---|---|---|
 | MuJoCo/MJX dynamics (inertia, mooring, lifting) | **DIVERGED + GAP → Stage D** | research: MuJoCo has no free surface — hydro moved to Capytaine BEM (Hulme-anchored, GREEN). The valid MuJoCo scope (mass properties, mooring, lifting loads) was missing. Fix: `dynamics.py` analytic + MuJoCo cross-check when importable. |
 | GraphCast wave/weather boundary conditions | **DIVERGED → Stage D** | research: design needs climatology, not forecasts. Fix: JONSWAP spectra (Black Sea fetch-limited + riverine wake) coupled to Capytaine RAOs → response spectra. |
-| OpenFOAM snappyHexMesh + interFoam automation | **BLOCKED (partially GAP) → Stage D** | case generator built (deterministic, tested); `run-case.sh` referenced but MISSING; forces post-processor + GCI missing (both testable without OpenFOAM). Execution stays metal-gated. |
+| OpenFOAM snappyHexMesh + interFoam automation | **CLOSED (Stage D) — was BLOCKED, superseded 2026-08-06** | case generator, `run-case.sh`, forces post-processor and Roache GCI all built and tested. Execution is no longer metal-gated: OpenFOAM v2606 runs natively on the Mac node and KCS meshes and solves. What is open is a NUMBER, not a capability — Gate 2M is RED, measured, in `data/gate-ledger.json`. |
 | PostgreSQL per-hull metric aggregation | **DIVERGED** | SQLite with PG-compatible schema (single-node edge posture); every result carries hull-id, solver, version, uncertainty. Documented, not planned to change until multi-node. |
 
 ## Original Phase 4 — Autonomous Evolution & Learning
@@ -55,9 +55,19 @@ hardware/software this machine lacks).
 ## Scorecard
 
 - Before gap-closure: ALIGNED 4 · DIVERGED (research-grounded) 6 · GAP 11 · BLOCKED 1
-- **After gap-closure (stages B–F, all gates green): ALIGNED/CLOSED 15 ·
-  DIVERGED-with-receipts 6 · BLOCKED 1** (OpenFOAM execution — templates,
-  runner, and GCI post-processor all ready and tested on synthetic data).
+- **After gap-closure (stages B–F): ALIGNED/CLOSED 15 ·
+  DIVERGED-with-receipts 6 · BLOCKED 0.**
+  **UPDATED 2026-08-06 — the BLOCKED row is retired.** It read "OpenFOAM
+  execution — templates, runner and GCI post-processor all ready and tested on
+  synthetic data", which stopped being true when the Mac simulation node came
+  online: OpenFOAM v2606 runs natively, KCS meshes and solves, and Gate 2M is
+  RED on a MEASURED number rather than blocked on hardware. PLM §3 step 7
+  requires a superseded item to be removed with a note, never left ambiguous —
+  this is that note. "Blocked" and "measured and failing" are different claims,
+  and the second one is worse; leaving the first in place understated the
+  state of the work.
+  The clause "all gates green" is also removed: it was written before Gates 2M,
+  2U and 6R were red. `python -m navalai.gates` is the status.
 - Measured findings produced by the closure campaign:
   1. the 8-D genome costs ~2–3× surrogate accuracy vs the full 15-param
      vector (Stage E) — the original plan's 8-D assumption now has a price tag;
@@ -88,44 +98,41 @@ hardware/software this machine lacks).
      deck/topsides whose y+ inverts to a 0.18–1.4 m first cell and dominates
      it; read the min.
 
-## Gate 2M: FIRST CALIBRATION RUN — RED, and it settles the open question
+## Gate 2M: RAN, and RED
 
-KCS Case 2.1, Fn 0.260, 306,655 cells, t = 0..20 s (2026-08-05):
+**This section used to carry the measured table. It does not any more, and that
+is gap J1 being closed rather than information being lost.** One Gate 2M
+figure was written into README, PLM §5, PLM §6, this
+file and `docs/CFD-BLOCKER-BRIEF.md` in a single commit. Two later commits then
+invalidated it — a pressure double-counting bug, and a force parser reading a
+pre-restart fragment — and only `gates.py` was updated. Five figures ended up in
+circulation and only one of them was reproducible from any run directory in the
+repository.
 
-| quantity | value |
-|---|---|
-| C_t, our RANS | **9.33e-3** |
-| C_t, EFD (KRISO tank) | 3.711e-3 |
-| E%D | **-151%** — 2.5x too high |
-| Tokyo-2015 13-group scatter | 3.620e-3 .. 3.733e-3 |
-| inside the band | **NO** |
-| wetted faces in 30 <= y+ <= 300 | **16.3%** (median y+ 2475) |
-| tail drift | 4.5% (bar is 5%) — only ~1.3 flow-throughs, so marginally settled |
+So the measurement lives in exactly one place now: **`data/gate-ledger.json`**,
+which carries the watermark, the units and sign convention, the run it was
+measured on, the owner, the review-by date, and a superseded-by trail naming all
+five figures and what killed each. `python scripts/gate2m.py <run>` re-measures
+it. `docs/GAP-REGISTER.md` §F carries what is still wrong with the number.
+
+What the campaign BUYS, which is the whole reason KCS exists and does not depend
+on the value: the own-hull C_T/C_F ~ 9.8 is **our setup, not the hull**. The
+same pipeline on a hull with published tank data reads far high, so the bias is
+in the machinery. Before this run that was undecidable — a perfectly converged
+own-hull GCI could not distinguish the two.
 
 **The gate is RED and stays RED.** Recorded rather than softened (honesty rule 6).
-
-What it BUYS, which is the whole reason KCS exists: the own-hull C_T/C_F ~ 9.8
-is **our setup, not the hull**. The same pipeline on a hull with published tank
-data reads 2.5x high, so the bias is in the machinery. Before this run that was
-un-decidable — a perfectly converged own-hull GCI could not distinguish the two.
-
-Direction is consistent across both hulls: the wall treatment. KCS is smooth and
-still only lands 16.3% of wetted faces in the wall-function band (own chined
-hull: 2.0%). Skin friction is where the error is, and y+ is why.
-
-Caveat kept in view: 20 s is ~1.3 flow-throughs and drift is 4.5%, so a longer
-run is owed. A 2.5x error is far too large to be transient, but the number
-should be re-measured once the near-wall mesh is fixed.
 
 ## Open, measured, not yet closed (Gate 2M campaign)
 
 | Item | Measurement | Consequence |
 |---|---|---|
-| Prism-layer coverage on the hull | ~50% (swept: n=3 50.3% · n=5 36.5% · n=8 26.2% · n=15 11.2%; nLayerIter/nRelaxedIter change nothing) | y+ controlled on layered faces only. Layer config is IDENTICAL across the triplet, so GCI still bounds outer-flow discretisation — but absolute C_t carries a bias that Gate 2M (KCS vs Tokyo-2015) must quantify, not the triplet. |
-| 72 skew faces, max skewness 6.03 | isolated: removing the free-surface box does NOT fix it | inherent to ~20:1 graded cells where the hull pierces the waterline; v1 avoided it only by not resolving waves. Reported by run-case.sh rather than buried. |
-| Wetted-only (alpha-masked) y+ | implemented (`scripts/yplus_wetted.py`) | KCS 16.3% of wetted faces in band, own hull 2.0%. |
-| **Unattended meshing (plan Phase 2 bar: >=95% of 200 hulls)** | **75.0% at N=8** (`scripts/mesh_robustness.py`) | BuildPlan Risk #1 called this "the largest unknown"; it is now a number instead of a worry. 2 of 8 sampled valid hulls produced zero-volume cells or wrongly oriented faces. Gate 2U, RED. |
-| **The near-wall envelope is narrow and y+ cannot be fixed inside it** | on KCS: only hull refinement (2,3) with n<=3 layers both meshes clean AND solves. (3,4) meshes with 0 zero-volume cells but 18 wrongly oriented faces and dies on timestep 1; (4,5) reintroduces zero-volume cells; n>=6 collapses layer coverage to ~12% and also dies. A gentler startup deltaT (1e-5) does not rescue it. | So y+ ~2500 (16.3% in band) is what this pipeline can currently deliver, and Gate 2M's -151% error stands. Fixing it needs something outside mesh parameters. |
+| ~~Prism-layer coverage ~50% is the ceiling~~ | **SUPERSEDED 2026-08-05.** Those coverages were measured on an anisotropic background and single-pass snappy. With a near-cubic background and layers added in their OWN pass after refinement, the KCS hull patch takes its full stack over all 22 881 faces. | The sweep was measuring the background aspect ratio, not the layer algorithm. Coverage still beats stack depth, so n=3 stays — but not for the reason the old row gave. |
+| ~~72 skew faces are inherent to graded cells at the waterline~~ | **SUPERSEDED 2026-08-05.** Not inherent: the cause was a 38:1 background cell, and `hexRef8` refines ISOTROPICALLY, so refinement preserved the aspect ratio while shrinking the height. Removing the free-surface box never fixed it because the box was never the cause. | Deriving `dz` from `dx` (near-cubic background) plus z-only `refineMesh` after snapping took KCS from 72 988 zero-volume cells to 4 open cells / 5 wrongly-oriented faces / 77 skew. |
+| ~~The near-wall envelope is narrow and y+ cannot be fixed inside it~~ | **SUPERSEDED 2026-08-05, same root cause.** "(2,3) clean, (3,4) fails, (4,5) fails worse" was the aspect-ratio signature, not a wall-model limit: snap displacement scales with the LONG edge, so moving a node millimetres moved it several cell HEIGHTS and folded the cell. `_HULL_REFINE` is (4, 5) now, and all three levels mesh clean. | The old row's conclusion — "fixing it needs something outside mesh parameters" — was right for the wrong reason. It needed a different mesh *construction*, not different mesh *parameters*. |
+| Wetted-only (alpha-masked) y+ | implemented (`scripts/yplus_wetted.py`) | Read the MIN, never the patch average: the `hull` patch includes deck and topsides, which sit in air, and their y+ inverts to a first cell larger than the background cell. Dry faces dominate max and average. |
+| **Unattended meshing (plan Phase 2 bar: >=95% of 200 hulls)** | **Gate 2U, RED — watermark in `data/gate-ledger.json`** (`scripts/mesh_robustness.py`) | BuildPlan Risk #1 called this "the largest unknown"; it is a number instead of a worry. Two caveats travel with it: N=8 is a small sample, and the "converges" half of the bar has never been measured at all. |
+| **Pressure drag is 3-6x too high and grows with time** | OPEN, and it is the real blocker — see `docs/BuildPlan3-GapClosure.md` R5.5, which lists five hypotheses tested and eliminated at real compute cost. Viscous drag is now correct (1.15-1.22x ITTC-57). | Nothing downstream is trustworthy until it closes. A GCI would converge onto a wrong number more precisely, and a DSYHS or Fridsma validation would be corrupted identically. |
 | **Benchmark anchor set is wrong for the product line** | KCS is slender, displacement, Fn 0.26, no chines, no immersed transom, no spray. The SKUs (Solar Liveaboard, Dayboat) are chined semi-displacement craft with immersed transoms. | KCS calibrates the INSTRUMENT (free-surface capture, friction line, force integration, mesh convergence) and gives a bias floor — it does not validate small-craft physics. Per BuildPlan §1.3 (Islam & Guedes Soares 2019) V&V is case-specific. A second anchor sharing our dominant features is owed: DTMB 5415 (transom stern, already in the plan) or DSYHS / Series 62 for chined planing craft. Until then, Gate 2M's pass must NOT be read as small-craft validation. |
 
 ## Gap-closure stages

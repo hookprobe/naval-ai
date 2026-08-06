@@ -1,15 +1,36 @@
-"""Gate 6R — the parity review is RECORDED, not asserted.
+"""Gate 6R-mech — the parity review is RECORDED, not asserted.
 
 This gate cannot be closed by code: it asks whether our numeric thresholds
 match the licensed standard text, which needs a qualified human holding the
 purchased documents. What code CAN do is refuse to call it closed unless the
 verdict is attributable, and make sure a green 6R does not quietly bless
 things no standard governs.
+
+WHY THIS SUITE IS "6R-mech" AND GATE 6R ITSELF IS RED IN THE LEDGER.
+
+Gap D8 (audit 2026-08-05): `review.py` states in its own docstring that "a
+confirmation that cannot say WHO checked WHICH edition is not a review, it is
+a rumour", and then `is_complete()` checked `reviewer` and `confirmed` and NOT
+`editions` — whose two values both read "edition not recorded — set this".
+The parity gate was green on a record that admits it cannot name the document
+it checked.
+
+`is_complete()` now requires every edition to be set and dated. That flips the
+PARITY claim red, and it is recorded as red in `data/gate-ledger.json` with an
+owner and a review-by date rather than softened (honesty rule 6). What is
+still genuinely verifiable — that the record's MECHANICS work, that `basis`
+routes from the record rather than from the source, that nothing unreviewed
+leaks a 'standard' basis, and that our own practice values are not blessed by
+a green gate — is what this suite tests, and it is green.
+
+So: a test here asserting `is_complete()` would be asserting the defect. It
+asserts the refusal instead, and asserts that a properly filled record WOULD
+pass, so the clearing condition is executable and not just prose.
 """
 
 from navalai.rules import DISCLAIMER, RuleFinding, report
 from navalai.rules.review import (NOT_FROM_STANDARD, REVIEW, basis_for,
-                                  is_complete)
+                                  edition_defects, is_complete)
 
 
 def test_every_implemented_rule_has_a_review_verdict():
@@ -18,11 +39,43 @@ def test_every_implemented_rule_has_a_review_verdict():
     assert not missing, f"no review verdict recorded for {sorted(missing)}"
 
 
-def test_the_record_is_attributable():
+def test_the_record_names_a_reviewer_and_a_date():
     # A confirmation with no reviewer cannot be audited, so it does not count.
     # This is what stops the gate going green because someone edited a set.
-    assert is_complete()
     assert REVIEW["reviewer"] and REVIEW["date"]
+
+
+def test_the_record_cannot_yet_name_the_editions_it_checked():
+    """Gap D8, pinned. Gate 6R is RED in data/gate-ledger.json because of this.
+
+    Do NOT "fix" this test by asserting is_complete(). The way to make it flip
+    is to write the two dated editions into REVIEW["editions"] — at which point
+    this test is meant to fail, loudly, and be replaced by its opposite along
+    with the ledger entry.
+    """
+    defects = edition_defects()
+    assert defects, ("editions now look recorded — flip Gate 6R green in "
+                     "navalai/gates.py, delete its data/gate-ledger.json entry, "
+                     "and invert this test")
+    assert not is_complete()
+    for standard in ("ISO 12217-1", "ISO 12215-5"):
+        assert any(d.startswith(standard) for d in defects)
+
+
+def test_a_properly_filled_record_does_complete():
+    """The clearing condition is executable, not prose."""
+    filled = dict(REVIEW, editions={"ISO 12217-1": "ISO 12217-1:2022",
+                                    "ISO 12215-5": "ISO 12215-5:2019"})
+    assert edition_defects(filled) == []
+    assert is_complete(filled)
+
+
+def test_an_undated_edition_is_not_an_edition():
+    # "ISO 12217-1" identifies a standard; only ":2022" identifies the text
+    # somebody actually held and a later auditor can go and re-check.
+    for bad in ("ISO 12217-1", "", "edition not recorded — set this", "TBD"):
+        rec = dict(REVIEW, editions={"ISO 12217-1": bad})
+        assert not is_complete(rec), bad
 
 
 def test_basis_comes_from_the_record_not_the_source():

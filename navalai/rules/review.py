@@ -16,9 +16,20 @@ WHAT A CONFIRMATION HERE DOES AND DOES NOT MEAN
 
 Reviewing a threshold does not review the mechanics around it either; those
 are exercised by the gate tests independently.
+
+AND IT IS NOT THE QUESTION GATE 6 ASKS (gap D9). Gate 6R's scope is THRESHOLD
+parity: does the number in our source equal the number in the standard text.
+BuildPlan Gate 6's bar is VERDICT parity — the same verdict as a qualified
+reviewer on at least three reference designs, hand-calculated. Zero reference
+designs and zero hand calculations exist. A green 6R is therefore not evidence
+for Gate 6, and the reviewer of record is the project owner reviewing his own
+code, with no qualification recorded. Both facts are in `docs/GAP-REGISTER.md`
+so a future reader does not have to re-derive them from this file.
 """
 
 from __future__ import annotations
+
+import re
 
 # The reviewer's own record. `reviewer` and `editions` are provenance: a
 # confirmation that cannot say WHO checked WHICH edition is not a review, it
@@ -79,11 +90,56 @@ def basis_for(rule_id: str) -> str:
     return "standard" if rule_id in REVIEW["confirmed"] else "approx"
 
 
-def is_complete() -> bool:
+# An edition string has to name a DATED edition, because that is the only part
+# of it a later auditor can go and check. "ISO 12217-1" identifies a standard;
+# "ISO 12217-1:2022" identifies the text somebody actually held.
+_EDITION_YEAR = re.compile(r"\b(19|20)\d{2}\b")
+_PLACEHOLDER = ("not recorded", "tbd", "todo", "unknown", "?")
+
+
+def edition_defects(record: dict | None = None) -> list[str]:
+    """Every reason the record cannot name WHICH document was reviewed.
+
+    Returned as words rather than a bool so the gate ledger and any operator
+    can see what is missing without reading this file.
+    """
+    rec = REVIEW if record is None else record
+    out: list[str] = []
+    editions = rec.get("editions") or {}
+    if not editions:
+        return ["no editions recorded at all"]
+    for standard, edition in sorted(editions.items()):
+        text = str(edition or "").strip()
+        if not text:
+            out.append(f"{standard}: edition is empty")
+        elif any(p in text.lower() for p in _PLACEHOLDER):
+            out.append(f"{standard}: edition is a placeholder ({text!r})")
+        elif not _EDITION_YEAR.search(text):
+            out.append(f"{standard}: edition names no year ({text!r}) — an "
+                       f"undated edition cannot be re-checked")
+    return out
+
+
+def is_complete(record: dict | None = None) -> bool:
     """True when the record is attributable — the gate's real precondition.
 
     A confirmation with no reviewer and no edition cannot be audited, so it
     does not count. This is what stops Gate 6R going green because someone
     edited a set literal.
+
+    THE EDITIONS CLAUSE WAS MISSING, AND THE MODULE SAID SO ITSELF (gap D8,
+    audit 2026-08-05). The docstring above `REVIEW` reads "a confirmation that
+    cannot say WHO checked WHICH edition is not a review, it is a rumour" —
+    and then this function checked `reviewer` and `confirmed` and NOT
+    `editions`, which both read "edition not recorded — set this". Gate 6R was
+    GREEN on a record that admits in its own field values that it cannot name
+    the document it checked.
+
+    Adding the clause FLIPS GATE 6R RED. That is honesty rule 6 working as
+    designed, not a regression: the red is recorded in `data/gate-ledger.json`
+    with an owner and a review-by date, and it clears the moment a reviewer
+    writes the two dated editions in.
     """
-    return bool(REVIEW["reviewer"]) and bool(REVIEW["confirmed"])
+    rec = REVIEW if record is None else record
+    return (bool(rec.get("reviewer")) and bool(rec.get("confirmed"))
+            and not edition_defects(rec))
