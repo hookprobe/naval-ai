@@ -51,6 +51,7 @@ class Evaluation:
     energy: EnergyReport | None = None
     ply_thickness_m: float = 0.0    # DERIVED from ISO 12215-5, not declared
     unaccounted_frac: float = 0.0   # displacement with no declared position
+    hull_lwl_m: float = 0.0         # so requirements can check the mission
     eval_ms: float = 0.0
     badges: dict = field(default_factory=dict)   # quantity -> (tier, sigma)
     g: dict = field(default_factory=dict)        # constraint -> value, <=0 feasible
@@ -199,6 +200,7 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
         weights=wb, masses=agg, gm_m=gm_m, gm_l_m=gm_l_m,
         trim_deg=trim, list_deg=heel, resistance=res, energy=en, g=g,
         ply_thickness_m=t_ply, unaccounted_frac=unaccounted_frac,
+        hull_lwl_m=float(p["LWL"]),
         eval_ms=(time.perf_counter() - t0) * 1e3,
         # Sigmas that are DERIVED carry it; sigmas that are still a declared
         # fraction say so. The mass model computes a real sigma

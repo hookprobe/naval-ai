@@ -162,12 +162,30 @@ def requirements_from_mission(m: MissionSpec) -> list[Requirement]:
                        and ev.hydro.freeboard_min >= FREEBOARD_FLOOR_M,
             lambda ev: f"freeboard {ev.hydro.freeboard_min:.2f} m"
                        if ev.hydro else "n/a"),
+        # TWO-SIDED, because the one-sided form COULD NOT FAIL. evaluate()
+        # floats the hull to max(budget, target), so "disp >= 0.98*target" was
+        # true by construction. MEASURED: median delivered displacement was
+        # 2.12x the mission target, and a 400 kg dinghy brief was delivered at
+        # 2387 kg — +497% — printing "5/5 requirements pass".
         Requirement(
-            "carries-target", "mission displacement target",
+            "carries-target", "mission displacement target, +/-10%",
             lambda ev: ev.hydro is not None
-                       and ev.hydro.disp_kg >= 0.98 * m.displacement_target_kg,
-            lambda ev: f"displaces {ev.hydro.disp_kg:.0f} kg"
-                       if ev.hydro else "n/a"),
+                       and 0.98 * m.displacement_target_kg
+                       <= ev.hydro.disp_kg <= 1.10 * m.displacement_target_kg,
+            lambda ev: (f"displaces {ev.hydro.disp_kg:.0f} kg "
+                        f"({ev.hydro.disp_kg / m.displacement_target_kg:.2f}x "
+                        f"target)") if ev.hydro else "n/a"),
+        # The length the user ASKED for is a requirement, not a hint. It was
+        # parsed, clamped, prompted for and read by nothing: "10 m" delivered
+        # 18.58 m and still reported 5/5.
+        Requirement(
+            "length-hint", "stated LWL +/-10%",
+            lambda ev: (m.lwl_hint_m is None or ev.hydro is None
+                        or abs(ev.hull_lwl_m - m.lwl_hint_m)
+                        <= 0.10 * m.lwl_hint_m),
+            lambda ev: ("no length stated" if m.lwl_hint_m is None else
+                        f"LWL {ev.hull_lwl_m:.2f} m vs {m.lwl_hint_m:.2f} m "
+                        f"asked ({ev.hull_lwl_m / m.lwl_hint_m:.2f}x)")),
     ]
     if m.energy.battery_kwh > 0:
         reqs.append(Requirement(

@@ -69,5 +69,12 @@ def test_optimizer_gm_floor_matches_the_rules_tier():
                              _G()).n_ieq_constr == len(CONSTRAINT_NAMES)
     src = pathlib.Path(
         __file__).parents[1].joinpath("navalai/optimize.py").read_text()
-    for hard in ("0.25 -", "80.0 * 0.015", "gm_floor("):
+    # The ban is on RE-DECLARING a limit, not on consuming one. The original
+    # check listed "gm_floor(" because optimize.py used to compute its own GM
+    # bar; now it IMPORTS gm_floor from limits.py to build the GM band, which
+    # is the behaviour this test exists to enforce. Banning the call as well as
+    # the literal would forbid the fix.
+    for hard in ("0.25 -", "80.0 * 0.015"):
         assert hard not in src, f"optimize.py re-declares a limit: {hard}"
+    assert "from .limits import" in src, (
+        "optimize.py must take its bars from limits.py, not restate them")

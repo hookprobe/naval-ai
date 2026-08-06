@@ -81,11 +81,19 @@ class HullFamilyModel:
         """Performance-conditioned generation: keep draws whose score_fn is in
         the best `percentile` of a reference batch (the literal performance
         knob from the PVAE precedent — percentile in [0, 1], 1 = best)."""
+        # THE REFERENCE AND CANDIDATE BATCHES MUST BE DISJOINT.
+        # `ref` was drawn at seed+1 and the loop then incremented s from `seed`
+        # to seed+1, so the FIRST candidate batch was bit-identical to the
+        # batch that set the threshold. VERIFIED: np.array_equal(ref, cand0)
+        # was True, and a control ("score 64 plain draws, keep the best 10")
+        # reproduced this function's output exactly — 316.3 vs 316.3, 313.4 vs
+        # 313.4, 317.7 vs 317.7. It was selection dressed as conditioning, and
+        # the Gate 4 test would have passed for any sampler whatsoever.
         ref = self.sample(batch, seed=seed + 1)
         ref_scores = score_fn(ref)
         cut = np.quantile(ref_scores, 1.0 - percentile)  # lower score = better
         out = []
-        s = seed
+        s = seed + 1
         while len(out) < n:
             s += 1
             cand = self.sample(batch, seed=s)
@@ -96,6 +104,29 @@ class HullFamilyModel:
             if s - seed > 200:
                 raise RuntimeError("conditioned sampler starved")
         return np.array(out)
+
+    def raw_feasibility(self, n: int = 2000, seed: int = 0,
+                        clip: bool = True) -> float:
+        """Fraction of RAW model draws that pass L0 — the ShipGen-comparable
+        number, and the one Gate 4's >=99% bar is actually about.
+
+        `sample()` has `grammar.check` INSIDE its rejection loop, so measuring
+        feasibility there returns 100% by construction and says nothing about
+        the model. MEASURED with this method: raw GMM 31.98%, clipped to the
+        box 77.60%, against a 99% bar — and the pPCA latent already in the repo
+        scores 89.4%, i.e. the generative model is WORSE than something we
+        already have. That is the gap the diffusion upgrade has to close.
+        """
+        rng = np.random.default_rng(seed)
+        chol = [np.linalg.cholesky(c) for c in self.covs]
+        ok = 0
+        for _ in range(n):
+            j = rng.choice(len(self.weights), p=self.weights)
+            x = self.means[j] + chol[j] @ rng.standard_normal(self.means.shape[1])
+            if clip:
+                x = np.clip(x, grammar.LOW, grammar.HIGH)
+            ok += bool(grammar.check(x).ok)
+        return ok / n
 
     # ---------- 2-D latent map ----------
 

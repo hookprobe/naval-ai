@@ -53,9 +53,16 @@ class GP:
         var0 = max(float(yc.var()), 1e-12)
         rng = np.random.default_rng(seed)
 
-        def nll(log_ls):
-            ls = np.exp(log_ls)
-            K = var0 * _rbf(Xn, Xn, ls) + (nugget + 1e-10) * var0 * np.eye(n)
+        # THE NUGGET IS LEARNED, not fixed at 1e-8 jitter. With a fixed tiny
+        # nugget the GP INTERPOLATES: sigma -> 0 at every training point and
+        # the predictive variance is structurally too small everywhere else.
+        # MEASURED: 2-sigma coverage 0.85-0.91 against a nominal 0.95 on the
+        # Gate 3 GP, and injecting sigma=0.05 label noise dropped it to 0.782
+        # with std(z)=1.93. A surrogate whose band is too narrow is worse than
+        # one with no band, because the OOD test is built on that same sigma.
+        def nll(theta):
+            ls, nug = np.exp(theta[:-1]), np.exp(theta[-1])
+            K = var0 * _rbf(Xn, Xn, ls) + (nug + 1e-10) * var0 * np.eye(n)
             try:
                 c = cho_factor(K, lower=True)
             except np.linalg.LinAlgError:
@@ -63,14 +70,16 @@ class GP:
             a = cho_solve(c, yc)
             return float(0.5 * yc @ a + np.log(np.diag(c[0])).sum())
 
-        best, best_v = np.zeros(d), np.inf
+        best, best_v = np.zeros(d + 1), np.inf
+        bounds = [(np.log(1e-2), np.log(10.0))] * d + [(np.log(1e-8), np.log(0.5))]
         for r in range(restarts):
-            x0 = rng.uniform(np.log(0.05), np.log(2.0), d) if r else np.full(d, np.log(0.3))
-            res = minimize(nll, x0, method="L-BFGS-B",
-                           bounds=[(np.log(1e-2), np.log(10.0))] * d)
+            x0 = (np.append(rng.uniform(np.log(0.05), np.log(2.0), d),
+                            np.log(max(nugget, 1e-6))) if r
+                  else np.append(np.full(d, np.log(0.3)), np.log(max(nugget, 1e-6))))
+            res = minimize(nll, x0, method="L-BFGS-B", bounds=bounds)
             if res.fun < best_v:
                 best, best_v = res.x, res.fun
-        ls = np.exp(best)
+        ls, nugget = np.exp(best[:-1]), float(np.exp(best[-1]))
         K = var0 * _rbf(Xn, Xn, ls) + (nugget + 1e-10) * var0 * np.eye(n)
         c = cho_factor(K, lower=True)
         a = cho_solve(c, yc)
@@ -83,7 +92,10 @@ class GP:
         Xn = self._norm(X)
         k = self.var * _rbf(Xn, self.X, self.ls)
         mean = self.mu + k @ self._alpha
-        v = self.var - np.einsum("ij,ji->i", k, cho_solve(self._chol, k.T))
+        # The learned noise belongs in the PREDICTIVE variance too, or the
+        # band still collapses at the data even after learning it.
+        v = (self.var * (1.0 + self.nugget)
+             - np.einsum("ij,ji->i", k, cho_solve(self._chol, k.T)))
         return mean, np.sqrt(np.maximum(v, 1e-14))
 
     def is_ood(self, X: np.ndarray, sigma_frac: float = 0.6) -> np.ndarray:

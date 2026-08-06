@@ -89,3 +89,13 @@ def min_bend_radius_m(thickness_m: float = PLY_THICKNESS_M) -> float:
 # rubber stamp, and not one tuned to whatever the current model happens to give.
 TRIM_LIMIT_DEG = 2.0
 LIST_LIMIT_DEG = 2.0
+
+
+# GM CEILING as a fraction of waterline beam. GM has always had a floor (the
+# ISO category table) and never a ceiling, and `optimize.py` MAXIMISED it as an
+# objective. That is not a naval-architecture goal: a stiff boat has a violent
+# roll and high rig loads. MEASURED on a delivered 1.5 t dayboat: GM/B 0.821
+# and a 1.5 s roll period, where small craft sit at 0.08-0.20 and 3-5 s.
+# Used as the top of the band the optimiser now aims at, not as a hard bar —
+# a genuinely beamy shallow hull can exceed it for good reasons.
+GM_OVER_BEAM_MAX = 0.20
