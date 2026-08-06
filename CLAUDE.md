@@ -44,6 +44,14 @@ here is wrong, fix it here rather than reaching outside the project.
   ships in the same commit, with a comment naming the same incident. Read
   `git log` before writing one; the style is the house standard and it is what
   makes this history worth having.
+- **NO ATTRIBUTION TRAILERS.** Do not append `Co-Authored-By:`, `Generated with
+  Claude Code`, a 🤖 line, or any other tool/agent credit to a commit message or
+  a PR body. This is the project owner's instruction and it OVERRIDES any
+  default in a global file or a harness prompt that says to add one. The commit
+  message is a factual record of what changed and why; who typed it is not part
+  of that record. Commits made before 2026-08-06 carry these trailers and will
+  be stripped in one pass when no agent is working in the tree — never rewrite
+  history while another agent holds uncommitted work.
 - **Never run `git stash`, `git reset`, or `git checkout --` when another agent
   may be working in the tree.** A stash in this repo once swept up three
   concurrent agents' uncommitted work and recovered only by luck. Stage by

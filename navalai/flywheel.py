@@ -17,10 +17,18 @@ deployment gate exists to catch. `benchmarks/` was never imported here while
 README and PLM promoted it as the plan's KCS/JBC/5415 suite. `frozen_suite()`
 now builds from `benchmarks/` plus a design-space wedge that `harvest()`
 refuses to train on.
+
+AND A DEPLOYED MODEL LEAVES HERE WITH A GUARD ON IT (gap A4). `retrain`
+returned a bare `GP`, so the product's only route to a surrogate number was
+`predict()` — which answers everywhere, carries no tier, and never consults the
+support test written to stop exactly that. It now returns `DeployedSurrogate`,
+whose `query()` escalates an off-support design to the ladder and whose
+`predict()` refuses the rows it cannot support.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import time
 from dataclasses import dataclass, field
@@ -31,7 +39,7 @@ import numpy as np
 from . import db, grammar
 from .evaluate import evaluate, sample_valid
 from .mission import MissionSpec
-from .surrogate import GP
+from .surrogate import GP, OODRefusal
 
 
 # ---------------------------------------------------------------------------
@@ -55,8 +63,13 @@ class NonPositiveTarget(ValueError):
 class Transform:
     """How a quantity is modelled, and how to get back to physical units."""
 
+    # `name` is the ONLY field. There was a `positive_only: bool` beside it,
+    # read by nothing: every branch in fwd/inv/err_kind/error keys off `name`,
+    # and the flag merely restated `name == "log"`. That is this repo's
+    # recurring defect (CLAUDE.md rule 3, A NUMBER DECLARED TWICE) in its
+    # cheapest form -- two declarations of one fact, one drift away from a
+    # transform that log-scales a signed quantity. Audit 2026-08-06.
     name: str
-    positive_only: bool
 
     def fwd(self, y: np.ndarray) -> np.ndarray:
         y = np.asarray(y, float)
@@ -101,9 +114,32 @@ class Transform:
                                                                1e-12)
         return np.abs(self.inv(pred_z) - y) / np.maximum(np.abs(y), 1e-12)
 
+    # A SIGMA MUST CROSS THE TRANSFORM WITH ITS VALUE, and it is this pair that
+    # keeps honesty rule 1 true either side of a log. `GP.predict` reports a
+    # sigma in MODELLED space; the ladder's badge reports one in PHYSICAL units
+    # (`evaluate` gives wh_per_nm a sigma of 0.30 * value). Handing either one
+    # to a caller in the other space is a number wearing the wrong units, which
+    # in this repository is how `forceCoeffs` came out wrong by exactly 2x.
+    # Both directions live here, next to fwd/inv, so the conversion is declared
+    # once. First-order (delta method): for the log transform sigma_y = y *
+    # sigma_z. That is an approximation and it is named as one -- the exact
+    # log-normal spread is asymmetric, and at the 0.30 relative sigma this
+    # repository badges wh_per_nm with, the two differ by ~5%.
+    def sigma_fwd(self, y: float, sigma_y: float) -> float:
+        """Physical sigma -> modelled space."""
+        if self.name == "identity":
+            return abs(float(sigma_y))
+        return abs(float(sigma_y)) / max(abs(float(y)), 1e-12)
 
-LOG = Transform("log", True)
-IDENTITY = Transform("identity", False)
+    def sigma_inv(self, z: float, sigma_z: float) -> float:
+        """Modelled-space sigma -> physical units."""
+        if self.name == "identity":
+            return abs(float(sigma_z))
+        return abs(float(sigma_z)) * float(np.exp(z))
+
+
+LOG = Transform("log")
+IDENTITY = Transform("identity")
 
 # GM is signed; energy and resistance are strictly positive and span decades,
 # so the log is doing real work for them and is simply wrong for GM.
@@ -275,6 +311,189 @@ def _quantity_of(ev, quantity: str):
             "rt": ev.resistance.total}[quantity]
 
 
+# The ladder's own badge key for each modelled quantity. `evaluate` publishes
+# {value, tier, sigma, basis} per quantity in `Evaluation.badges`, and this map
+# is the ONLY place the two vocabularies are joined -- a surrogate that
+# escalates must report the ladder's sigma, not a second sigma model of its
+# own. `_quantity_of` above is the matching value lookup; the two are edited
+# together or not at all.
+_BADGE_OF = {"wh_per_nm": "wh_per_nm", "gm": "GM", "rt": "resistance"}
+
+# The tier a surrogate number wears. It is DELIBERATELY not a member of
+# `evaluate.TIER_ORDER`: `tier_rank("S1")` is -1, below L0, so a surrogate
+# answer can never satisfy a requirement stated in ladder tiers and can never
+# be promoted by a comparison. The escalated answer wears the tier of the
+# solver that actually produced it, which here is the ladder's L1.
+SURROGATE_TIER = "S1"
+LADDER_TIER = "L1"
+
+
+def suite_fingerprint(X, labels) -> str:
+    """Identity of the frozen benchmark: its labels and its COORDINATES.
+
+    A high-water mark is a comparison between two runs, and a comparison is
+    only valid if both were scored on the same benchmark. `baselines.json`
+    recorded `"suite": "frozen_suite"` -- a constant string that is true of
+    every suite this function could ever return, including a different one.
+    MEASURED (60-hull harvest at seed 7, wh_per_nm, against the committed
+    baseline): drop `wigley_like_proportions` from `BENCHMARK_PROBES` and the
+    suite goes 27 points -> 26 while `median_rel_err` moves 0.102623 ->
+    0.102540, i.e. **0.08%** — two orders of magnitude inside the 1.25
+    tolerance. The old gate compared that number against a mark measured on the
+    27-point suite and deployed, having silently changed what the mark means.
+    The same happens if a probe stops being L0-legal, since `frozen_suite`
+    records that in `labels` and carries on with fewer rows.
+
+    Coordinates, not TARGETS, on purpose. Hashing y would make every physics
+    change -- including an intended improvement -- a fingerprint mismatch, and
+    the physics behind the benchmark already has its own guard in
+    `benchmark_integrity()`. This hash answers the narrower question the
+    ratchet needs: "are these the same probe points?"
+    """
+    h = hashlib.sha256()
+    h.update(repr(list(labels)).encode())
+    A = np.asarray(X, float) if X is not None else np.zeros((0, 0))
+    h.update(str(A.shape).encode())
+    h.update(np.round(A, 9).tobytes())
+    return h.hexdigest()[:16]
+
+
+@dataclass
+class DeployedSurrogate:
+    """The ONLY caller-facing way to ask a deployed surrogate for a number.
+
+    GAP A4. `is_ood()` had two call sites in the whole repository and both were
+    in tests; `predict_or_escalate()` was then written to consume it and NOTHING
+    IN PRODUCTION CALLED THAT EITHER. `retrain` handed back a bare `GP`, whose
+    `predict()` answers everywhere with the same confidence-shaped tuple and no
+    tier at all. MEASURED on the shipped path (120 harvested hulls, wh_per_nm,
+    seed 21): a hull three box-widths outside the grammar box came back from
+    `gp.predict` as 770.9 Wh/NM with sigma 0.72 in log space -- a number that
+    looks like every other number this model produces -- while `gp.is_ood` on
+    the same vector said True and no caller was asking.
+
+    So the query path is the object, not a convention. `query()` runs the
+    support test first and, off support, ESCALATES TO THE LADDER (Gate 3's own
+    bar) rather than badging a guess; with escalation switched off it raises
+    `OODRefusal` carrying the sigma, the distance and the support radius. There
+    is no unguarded method on this object: `predict()` refuses the rows it
+    cannot support instead of answering them.
+
+    `gp` remains reachable, and that is not a loophole with a nice name: the
+    deployment gate has to MEASURE error at points the model would refuse (the
+    frozen suite is built to sit outside the training draw), and a measurement
+    is not a number handed to a caller. `frozen_ood_rate` records how much of
+    the benchmark that was.
+    """
+
+    gp: GP
+    quantity: str
+    mission: MissionSpec
+    transform: Transform
+    n_train: int
+    # Fraction of the frozen deployment benchmark this model would REFUSE.
+    # A receipt, not a bar: the benchmark's held-out wedge is deliberately
+    # outside the training draw, so a nonzero rate is the design working, and
+    # no honest bar can be set on it without a measurement that says which
+    # rates are pathological. MEASURED at the shipped configuration (120
+    # harvested hulls, wh_per_nm, harvest seed 21, holdout seed 4242): 1 of 27
+    # points, 3.7% -- the wedge is out of the training SAMPLE but inside the
+    # model's support radius (distances 0.73-1.10 against d_support 1.075),
+    # and the 10.4% median error there says the model really can interpolate
+    # into it. nan means it could not be measured, and nan is never a pass.
+    frozen_ood_rate: float = float("nan")
+    tier: str = SURROGATE_TIER
+
+    def query(self, x, escalate: bool = True) -> dict:
+        """One design -> {value, tier, sigma, quantity}, in PHYSICAL units.
+
+        Honesty rule 1 in one call: the value never leaves without the tier of
+        the solver that produced it and a sigma in the units of the value.
+        `tier` is `S1` for a supported surrogate answer and `L1` when the query
+        was off support and the ladder answered instead.
+        """
+        x = np.asarray(x, float)
+        if x.ndim != 1:
+            raise ValueError(
+                f"query() takes ONE design vector; got shape {x.shape}. Loop, "
+                f"or use predict() for the array path.")
+        z, tier, sz = self.gp.predict_or_escalate(
+            x, escalate_fn=self._ladder if escalate else None,
+            tier=self.tier, escalate_tier=LADDER_TIER)
+        return {"value": float(self.transform.inv(np.array([z]))[0]),
+                "tier": str(tier),
+                "sigma": self.transform.sigma_inv(float(z), float(sz)),
+                "quantity": self.quantity}
+
+    def predict(self, X: np.ndarray, escalate: bool = False):
+        """(mean, sigma) in MODELLED space for supported rows; refuses others.
+
+        Kept as the array path the flywheel's own tests use, but it is guarded:
+        an unsupported row raises `OODRefusal` naming it. A deployed model with
+        one unguarded method has no guard.
+        """
+        Q = np.atleast_2d(np.asarray(X, float))
+        mean, sigma = self.gp.predict(Q)
+        bad = np.flatnonzero(self.gp.is_ood(Q))
+        if len(bad) and not escalate:
+            d = self.gp.support_distance(Q)
+            raise OODRefusal(
+                f"rows {bad.tolist()} of this batch are outside the "
+                f"surrogate's support (worst nearest-training-point distance "
+                f"{d[bad].max():.3f} against a support radius of "
+                f"{self.gp.d_support:.3f}). predict() will not badge them; "
+                f"call query() per design, which escalates to the ladder.",
+                sigma=float(sigma[bad].max()), distance=float(d[bad].max()),
+                threshold=float(self.gp.d_support))
+        if len(bad):
+            for i in bad:
+                z, sz = self._ladder(Q[i])
+                mean[i], sigma[i] = z, sz
+        return mean, sigma
+
+    def _ladder(self, x) -> tuple[float, float]:
+        """Real physics for one off-support design, in MODELLED space.
+
+        `predict_or_escalate` mixes escalated and surrogate answers in one
+        array, so they must arrive in the SAME space and be inverted once, at
+        the top of `query()`. Answering here in physical units would put two
+        unit systems in one vector -- exactly the defect class this repository
+        keeps paying for.
+
+        It REFUSES rather than degrades. A hull the grammar rejects never
+        reaches L1, so `evaluate` returns tier L0 with no energy report, and an
+        escalation that cannot run is not an escalation: it is the surrogate's
+        guess with a better badge on it. `evaluate` also downgrades a
+        non-finite quantity's badge to `L1-INVALID`, and that is refused for
+        the same reason.
+        """
+        ev = evaluate(np.asarray(x, float), self.mission)
+        val = _quantity_of(ev, self.quantity)
+        badge = ev.badges.get(_BADGE_OF[self.quantity])
+        if val is None or not np.isfinite(val) or badge is None:
+            raise OODRefusal(
+                f"the query is outside the surrogate's support and the ladder "
+                f"cannot answer it either: evaluate() reached tier {ev.tier!r} "
+                f"and produced no usable {self.quantity} "
+                f"({'; '.join(ev.violations[:3]) or 'no violations recorded'}). "
+                f"There is no honest number for this design at any tier.")
+        tier_b, sigma_b, _basis = badge
+        if tier_b != LADDER_TIER:
+            raise OODRefusal(
+                f"the ladder answered the off-support query with a "
+                f"{tier_b!r} badge, which is evaluate()'s way of saying the "
+                f"quantity is not reportable. Refusing rather than passing it "
+                f"off as an escalation.")
+        try:
+            z = float(self.transform.fwd(np.array([val], float))[0])
+        except NonPositiveTarget as e:
+            raise OODRefusal(
+                f"the ladder's {self.quantity} for this off-support design "
+                f"({val:.6g}) cannot enter the '{self.transform.name}' "
+                f"model space: {e}") from e
+        return z, self.transform.sigma_fwd(val, float(sigma_b))
+
+
 # ---------------------------------------------------------------------------
 # harvest
 # ---------------------------------------------------------------------------
@@ -349,6 +568,22 @@ class RetrainReport:
     err_kind: str = "relative"
     suite: str = "frozen"
     labels: list = field(default_factory=list)
+    # WHICH benchmark these metrics describe (see `suite_fingerprint`), and
+    # whether it is the one the baseline was measured on. A mark compared
+    # across two different suites is not a comparison.
+    suite_fingerprint: str = ""
+    suite_mismatch: bool = False
+    # Share of the frozen suite this model would REFUSE to answer in
+    # production. A receipt; see `DeployedSurrogate.frozen_ood_rate`.
+    frozen_ood_rate: float = float("nan")
+    # EVERY reason the gate refused, in the order they were found. `passed_gate
+    # = False` with no reason attached is a verdict nobody can act on, and the
+    # caller had to re-derive it from four floats.
+    refusals: list = field(default_factory=list)
+    # Non-empty when an explicit bootstrap DROPPED a prior measured on a
+    # different suite. Not a refusal, and not silence either: a mark that
+    # disappeared without saying so is how a record gets quietly reset.
+    rebaselined: str = ""
 
 
 def _metrics(gp: GP, Xt: np.ndarray, yt: np.ndarray,
@@ -377,27 +612,55 @@ def retrain(prov: db.Provenance, mission: MissionSpec,
             bootstrap: bool = False, cycle: bool = False,
             wall_tol: float = WALL_CLOCK_TOL):
     """Retrain the GP from ALL provenance data for `quantity`; gate against
-    the frozen suite. Returns (gp_or_None, RetrainReport).
+    the frozen suite. Returns (DeployedSurrogate_or_None, RetrainReport).
 
-    THE GATE COMPARES AGAINST A HIGH-WATER MARK, NOT THE LAST VALUE.
-    Gate 7's bar is "surrogate error DECREASES release-over-release". The old
-    code accepted `med <= prior * 1.25` and then wrote the accepted (worse)
-    metric back as the new prior. MEASURED with a stubbed metric: ten
+    BOTH A RATCHET AND A FLOOR, AND NEITHER REPLACES THE OTHER (gap D4).
+    Gate 7's bar is "surrogate error DECREASES release-over-release", so the
+    direction of travel is the gate's whole subject and a fixed floor cannot
+    see it: a model drifting 0.10 -> 0.34 is a 3.4x degradation that never
+    trips a 0.35 bar. The old code compared against the LAST value and wrote
+    the accepted, worse metric back — MEASURED with a stubbed metric, ten
     consecutive retrains ALL passed while median_rel_err went 0.100 -> 0.859
-    (8.6x) and coverage went 0.950 -> -0.450. A negative probability passed,
-    because it was only ever compared to `prior - 0.15`. That is a ratchet
-    down the hill with a green light on it.
+    (8.6x) and coverage went 0.950 -> -0.450, a negative probability passing
+    because it was only ever compared to `prior - 0.15`. The comparison is now
+    against a MONOTONE HIGH-WATER MARK (`best_median_rel_err` /
+    `best_coverage_2sigma`), which is the ratchet.
 
-    The baseline now carries `best_median_rel_err` / `best_coverage_2sigma`,
-    which only ever improve. `tol` remains as a hard ceiling above the BEST
-    ever seen, so run-to-run noise does not block a genuine tie, but drift
-    cannot accumulate.
+    A pure ratchet is not enough either, for the reason a ratchet is never
+    enough: it says nothing about the FIRST model, which has no prior, and
+    `scripts/make_baseline.py` exists precisely to create one. That is what
+    HARD_MAX_MEDIAN_REL_ERR / HARD_MIN_COVERAGE_2SIGMA are for — they bind on a
+    bootstrap, where there is no history to ratchet against.
+
+    `tol` (1.25 above the record, not above the last release) is the release
+    valve on the lock-out the ratchet would otherwise be: a genuinely equal
+    retrain that lands 5% noisier than the record still deploys, while ten of
+    them cannot chain, because each is measured against the record rather than
+    against its predecessor. The one place the ratchet CAN lock out an honest
+    model is `best_wall_clock_s`, which is a property of the machine that set
+    it; `wall_tol` is 3x for that reason and `data/baselines.json` records the
+    caveat next to the number.
+
+    AND THE COMPARISON IS ONLY VALID ON ONE BENCHMARK. Both marks are refused
+    unless `suite_fingerprint` matches the baseline's — see that function for
+    the measured way a suite can shrink underneath a mark that keeps its name.
+    `benchmark_integrity()` is called first for the other half of the same
+    question: the suite's coordinates are fixed by the fingerprint, its PHYSICS
+    by the Wigley Michell curve. That call had no production caller either
+    (gap A4's shape, in this module) — it was written, tested once, and never
+    reached by the gate that depends on it.
 
     WALL CLOCK IS GATED THE SAME WAY (Gate 7 clause 2). `wall_clock_s` is
     recorded beside the error metrics against a monotone best, and a retrain
     more than `wall_tol` x slower than the fastest ever seen does not deploy.
     Pass `cycle=True` to also time the mission -> validated-hull path.
     """
+    # Before the clock starts: the benchmark's physics must not have moved, or
+    # none of the numbers below are comparable to the ones on disk. Outside the
+    # timed region on purpose — `wall_clock_s` means "the retrain", and 0.079 s
+    # of Michell integration is not that.
+    benchmark_integrity()
+
     t_start = time.perf_counter()
     tf = transform_for(quantity)
     X, y = prov.training_matrix("L1", _find_q(prov, quantity))
@@ -407,6 +670,16 @@ def retrain(prov: db.Provenance, mission: MissionSpec,
 
     Xt, yt, labels = frozen_suite(mission, quantity=quantity, seed=holdout_seed)
     med, cov = _metrics(gp, Xt, yt, tf)
+    fp = suite_fingerprint(Xt, labels)
+    # How much of its own deployment benchmark this model would refuse in
+    # production. Measured through the SAME support test the query path uses,
+    # so the receipt and the guard cannot disagree. Recorded as nan when the
+    # model or the suite is a stub — nan gates nothing here and reads as
+    # "not measured" rather than as a pass.
+    try:
+        frozen_ood = float(np.mean(gp.is_ood(Xt)))
+    except Exception:
+        frozen_ood = float("nan")
     wall = time.perf_counter() - t_start
     cyc = cycle_time()["total_s"] if cycle else None
 
@@ -427,24 +700,99 @@ def retrain(prov: db.Provenance, mission: MissionSpec,
     key = quantity
     prior = baseline.get(key)
 
+    # RE-BASELINING IS A DELIBERATE ACT, AND IT IS WHAT `bootstrap` MEANS.
+    # `scripts/make_baseline.py` writes into the file it also reads, so with a
+    # strict fingerprint check the regeneration path deadlocks: MEASURED on the
+    # first run after the check landed, all three quantities came back REFUSED
+    # against the very file the script exists to replace. A prior measured on a
+    # different suite is not evidence about this one, so on an explicit
+    # bootstrap it is DROPPED rather than compared — including its monotone
+    # bests, which is the whole point: a record set on another benchmark must
+    # not be carried into this one. The absolute floors still bind, so this is
+    # not a way to deploy a bad model.
+    if (prior is not None and bootstrap
+            and prior.get("suite_fingerprint") != fp):
+        prior = None
+        _rebaselined = (
+            f"re-baselined: the previous mark for {key!r} was measured on suite "
+            f"{baseline[key].get('suite_fingerprint') or 'NOT RECORDED'} and "
+            f"this run is on {fp}; the old bests are dropped rather than "
+            f"carried across benchmarks")
+    else:
+        _rebaselined = ""
+
     # Absolute floors first: these bind even on a bootstrap.
-    ok = (med <= HARD_MAX_MEDIAN_REL_ERR
-          and HARD_MIN_COVERAGE_2SIGMA <= cov <= 1.0)
+    refusals: list[str] = []
+    ok = True
+    if not med <= HARD_MAX_MEDIAN_REL_ERR:
+        ok = False
+        refusals.append(
+            f"median {tf.err_kind} error {med:.4g} is above the absolute floor "
+            f"{HARD_MAX_MEDIAN_REL_ERR} (no baseline or tolerance may move this)")
+    if not HARD_MIN_COVERAGE_2SIGMA <= cov <= 1.0:
+        ok = False
+        refusals.append(
+            f"2-sigma coverage {cov:.4g} is outside "
+            f"[{HARD_MIN_COVERAGE_2SIGMA}, 1.0] — a coverage above 1 or below "
+            f"the floor is a band that does not mean what it says")
+
     regressed = False
+    mismatch = False
     if prior is not None:
         best_wall = prior.get("best_wall_clock_s")
         if best_wall is not None and wall > best_wall * wall_tol:
             regressed = True
+            refusals.append(
+                f"wall clock {wall:.3f} s is more than {wall_tol}x the fastest "
+                f"retrain on record ({best_wall:.3f} s)")
+        # THE MARK AND THE METRIC MUST DESCRIBE THE SAME BENCHMARK. A baseline
+        # written before fingerprints exist cannot be shown to, so it is
+        # UNVERIFIABLE rather than fine: regenerate it deliberately with
+        # scripts/make_baseline.py. Defaulting an unmeasurable precondition to
+        # "pass" is the D3 defect one level up.
+        prior_fp = prior.get("suite_fingerprint")
+        if prior_fp != fp:
+            mismatch = True
+            ok = False
+            refusals.append(
+                f"the frozen suite this model was scored on ({fp}, "
+                f"{len(labels)} labels) is not the one the baseline was "
+                f"measured on ({prior_fp or 'NOT RECORDED'}). A high-water "
+                f"mark carried across two different benchmarks is not a "
+                f"comparison. Re-measure the baseline deliberately: "
+                f"python scripts/make_baseline.py")
     if ok and prior is not None:
-        best_med = prior.get("best_median_rel_err", prior["median_rel_err"])
-        best_cov = prior.get("best_coverage_2sigma", prior["coverage_2sigma"])
-        ok = med <= best_med * tol and cov >= best_cov - 0.15 and not regressed
+        best_med = prior.get("best_median_rel_err", prior.get("median_rel_err"))
+        best_cov = prior.get("best_coverage_2sigma",
+                             prior.get("coverage_2sigma"))
+        if best_med is None or best_cov is None:
+            ok = False
+            refusals.append(
+                "the baseline carries no mark for this quantity "
+                "(best_median_rel_err / best_coverage_2sigma absent) — there is "
+                "nothing to compare against, which is a refusal, not a pass")
+        else:
+            if not med <= best_med * tol:
+                ok = False
+                refusals.append(
+                    f"median {tf.err_kind} error {med:.4g} is above "
+                    f"{tol}x the best ever recorded ({best_med:.4g})")
+            if not cov >= best_cov - 0.15:
+                ok = False
+                refusals.append(
+                    f"2-sigma coverage {cov:.4g} is more than 0.15 below the "
+                    f"best ever recorded ({best_cov:.4g})")
+            if regressed:
+                ok = False
 
     report = RetrainReport(len(y), med, cov, ok, prior or {},
                            wall_clock_s=wall, cycle_s=cyc,
                            wall_clock_regressed=regressed,
                            transform=tf.name, err_kind=tf.err_kind,
-                           suite="frozen_suite", labels=labels)
+                           suite="frozen_suite", labels=labels,
+                           suite_fingerprint=fp, suite_mismatch=mismatch,
+                           frozen_ood_rate=frozen_ood, refusals=refusals,
+                           rebaselined=_rebaselined)
     if ok:
         prev_best_med = (prior or {}).get("best_median_rel_err", med)
         prev_best_cov = (prior or {}).get("best_coverage_2sigma", cov)
@@ -459,7 +807,11 @@ def retrain(prov: db.Provenance, mission: MissionSpec,
             "wall_clock_s": wall,
             "best_wall_clock_s": min(wall, prev_best_wall),
             "n_train": len(y), "utc": time.time(), "transform": tf.name,
-            "err_kind": tf.err_kind, "suite": "frozen_suite"}
+            "err_kind": tf.err_kind, "suite": "frozen_suite",
+            # WHICH suite, not just the word "suite" — the next run compares
+            # against this and refuses if the benchmark moved underneath it.
+            "suite_fingerprint": fp, "n_frozen": int(len(labels)),
+            "frozen_ood_rate": frozen_ood}
         if cyc is not None:
             baseline[key]["cycle_s"] = cyc
             baseline[key]["best_cycle_s"] = (
@@ -468,7 +820,12 @@ def retrain(prov: db.Provenance, mission: MissionSpec,
             baseline[key]["best_cycle_s"] = prev_best_cycle
         bp.parent.mkdir(parents=True, exist_ok=True)
         bp.write_text(json.dumps(baseline, indent=2))
-        return gp, report
+        # A DEPLOYED MODEL LEAVES HERE WRAPPED, not bare (gap A4). The bare GP
+        # answers any query with a confident-looking tuple and no tier;
+        # `DeployedSurrogate` has no unguarded method and escalates to the
+        # ladder off support.
+        return DeployedSurrogate(gp, quantity, mission, tf, int(len(y)),
+                                 frozen_ood_rate=frozen_ood), report
     return None, report          # degraded model never deploys
 
 
