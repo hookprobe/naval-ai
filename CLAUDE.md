@@ -6,7 +6,9 @@ tiered validation ladder (L0 algebraic → L1 Michell/hydrostatics → L2
 Capytaine BEM → L3 OpenFOAM RANS → R ISO rules) → manufacturing export.
 Canonical docs: `PLM.md` (product-line management: platform law, roles,
 lifecycle, roadmap board — READ THIS FIRST), `NavalArchAI-BuildPlan.md`
-(research-grounded plan),
+(research-grounded plan), `BuildPlan2-FullVessel.md` (arrangement, ergonomics,
+unsinkability), `BuildPlan3-MissionToOrder.md` (governance kernel, procurement,
+manufacturing, digital twin — the click-to-order line),
 `ALIGNMENT.md` (audit vs the original agentic-PLM plan), `README.md`
 (gate-status table), `MACBOOK.md` (Mac simulation-node runbook).
 

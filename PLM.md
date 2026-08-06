@@ -30,6 +30,16 @@ rule profiles, mission presets); it may never bypass a gate or fork physics.
 | **Solar Liveaboard** | 6 t, Danube/Black Sea, cat C/D | sharp-chine, 9–14 m | + ES-TRIN (todo) | reference product; demo green |
 | **Dayboat** | 1–3 t, cat D | pram/sharp-chine 4–7 m | cat D profile | latent (typology exists) |
 | **Full-Vessel Line v2** | + interior/exterior arrangement + unsinkability | + arrangement grammar | + ergonomics tier E + flotation tier F | PLANNED — see `BuildPlan2-FullVessel.md` |
+| **Kit-Line v3** | self-certifiable envelope: LH < 12 m, cat C/D | developable/plywood subspace (unchanged) | + policy profile `self-certifiable-eu` | PLANNED — see `BuildPlan3-MissionToOrder.md` |
+
+**Delivery mode is a product property, decided by governance, not by sales.**
+`BuildPlan3` §0: RCD Art. 20 lets **cat D**, and **cat C under 12 m built to
+harmonised standards**, use Module A (self-certification, no notified body);
+Art. 2(2)(a)(vii) puts **own-use builds outside the Directive** while they stay
+own-use. The same envelope keeps the design AI clear of EU AI Act Art. 6(1)(b),
+which requires third-party conformity assessment for the high-risk limb to bite.
+Outside that envelope a SKU acquires a notified body AND a high-risk
+classification in the same step.
 
 Adding a product = one mission preset + one grammar subspace + one rules
 profile. If it needs new physics or new grammar axes, that's a PLATFORM
@@ -61,6 +71,8 @@ change and goes through the lifecycle below.
 | **ml-engineer** | diffusion upgrade, LoRA translator, surrogate retrains | Mac |
 | **compliance** | rules tier, clause parity review queue (Gate 6R) | human-gated |
 | **ergonomics-architect** | arrangement grammar + tier E (v2, planned) | either |
+| **governance-architect** | `navalai/policy/`, legal envelope, delivery-mode routing (v3, planned) | either |
+| **supply-architect** | component contract, catalog curation, BOM closure (v3, planned) | either |
 
 Coordination: git is the handoff (pull → work → push). A role announces scope
 in its commit messages. Cross-role platform changes need a plan-doc update in
@@ -84,7 +96,8 @@ Current open items: **Gate 2M RED** (KCS C_t -151% vs EFD), **Gate 2U RED**
 | Guided tabular diffusion behind `HullFamilyModel` | ml-engineer | READY (PyTorch-MPS) |
 | LoRA mission translator above the sanitizing seam | ml-engineer | READY (mlx-lm) |
 | **Full-Vessel Line v2** (arrangement + ergonomics + unsinkability) | ergonomics-architect | PLAN PUBLISHED — `BuildPlan2-FullVessel.md` (research: 50 sources, 71/76 votes upheld); next: V2.0 refdata spine |
-| Standards/books purchase queue (ISO 15085:2024, 12217-3, 9094; ABYC H-41; Panero & Zelnik; Larsson & Eliasson) | compliance | QUEUED (basis='approx' floors ship meanwhile) |
+| **Mission→Order Line v3** (governance · procurement · manufacturing · twin) | governance-architect | PLAN PUBLISHED — `BuildPlan3-MissionToOrder.md` (sweep 2026-08-06: 28 searches, 8 primary docs fetched; **no adversarial panel — consultant endpoint down**, so every claim carries a [P]/[S] tag and [S] claims may not become gate thresholds). Next: V3.0 governance kernel. Hold the line on its structural gate — **delete the constitution and every physics result must be bit-identical**, else we have built a second constraint engine and re-created the `limits.py` drift bug at platform scale. |
+| Standards/books purchase queue (ISO 15085:2024, 12217-3, 9094; **ISO 12215-7 multihull loads — now TOP, it blocks any catamaran SKU**; **ABYC E-11/E-13**; DNV-RP-A204; ISO 19030-1/-2; ABYC H-41; Panero & Zelnik; Larsson & Eliasson) | compliance | QUEUED (basis='approx' floors ship meanwhile) |
 | ES-TRIN rules profile; ISO parity review | compliance | QUEUED |
 | CI/CD enforcement of the gate ladder | verification | **DONE** — `.github/workflows/gates.yml` + `.githooks/pre-push` (install: `scripts/install-hooks.sh`). Also fixed a soft-green in the runner itself: pytest exits 0 when every test SKIPS, so a missing optional dep used to print GREEN having verified nothing. |
 | Unattended-meshing robustness (plan Gate 2: >=95% of 200 random hulls) | cfd-engineer | **MEASURED, RED — Gate 2U.** 75.0% at N=8 (`scripts/mesh_robustness.py`). 2 of 8 sampled valid hulls produced zero-volume cells or wrongly oriented faces, both fatal to interFoam on timestep 1. BuildPlan Risk #1 is now a number, not a worry. Re-measure at N=200 when there is a spare machine-day. |
