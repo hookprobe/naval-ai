@@ -12,18 +12,27 @@
 set -euo pipefail
 
 msg="$1"
-before=$(wc -c < "$msg")
 
-# Drop the attribution trailers, then collapse any trailing blank lines the
-# removal leaves behind.
-grep -viE '^[[:space:]]*(co-authored-by:[[:space:]]*(claude|anthropic)|.*generated with \[claude code\]|assisted-by:|generated-by:)' \
-    "$msg" > "$msg.tmp" || true
-# strip trailing blank lines
-awk 'BEGIN{n=0} {lines[NR]=$0} END{for(i=NR;i>0;i--){if(lines[i] ~ /[^[:space:]]/){n=i;break}} for(i=1;i<=n;i++) print lines[i]}' \
+# A trailer is a line that STARTS with the key. Anchoring matters: this hook's
+# own commit message discusses `Co-Authored-By:` in prose, and an unanchored
+# match would delete the sentence describing the rule. Tested against that
+# message, which is the nastiest input this hook will ever see.
+PATTERN='^[[:space:]]*(co-authored-by[[:space:]]*:|assisted-by[[:space:]]*:|generated-by[[:space:]]*:|(🤖[[:space:]]*)?(co-)?generated with )'
+
+# Count first, so the receipt is only printed when a trailer was ACTUALLY
+# removed. The earlier version compared byte counts before and after, which
+# also fired when the only change was a trailing blank line — announcing a
+# strip that never happened. A hook that reports work it did not do is worse
+# than one that stays quiet, because it trains you to ignore its output.
+found=$(grep -ciE "$PATTERN" "$msg" || true)
+
+grep -viE "$PATTERN" "$msg" > "$msg.tmp" || true
+# Collapse the trailing blank lines the removal leaves behind. Git normalises
+# these anyway, so doing it unconditionally changes nothing that matters.
+awk '{lines[NR]=$0} END{n=0; for(i=NR;i>0;i--){if(lines[i] ~ /[^[:space:]]/){n=i;break}} for(i=1;i<=n;i++) print lines[i]}' \
     "$msg.tmp" > "$msg"
 rm -f "$msg.tmp"
 
-after=$(wc -c < "$msg")
-if [ "$before" -ne "$after" ]; then
-    echo "commit-msg: stripped AI attribution trailer (only author is homepods)"
+if [ "$found" -gt 0 ]; then
+    echo "commit-msg: stripped $found AI attribution trailer(s) — the only author is the repo owner"
 fi
