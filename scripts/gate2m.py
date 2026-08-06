@@ -47,6 +47,55 @@ def read_info(case: Path) -> dict:
     return out
 
 
+def gci_is_converged(gci_pct: float) -> bool:
+    """Does this GCI clear the bar — AND is it an uncertainty at all?
+
+    The test used to be the bare `gci <= GCI_BAR_PCT`, which is TRUE of
+    -27.027% — the value the old local `gci()` produced for a triplet that was
+    DIVERGING under refinement, and it printed VERDICT: PASS and exited 0.
+    An uncertainty is a magnitude, so a negative or non-finite one means the
+    estimator did not apply. That is a refusal, never a pass.
+    """
+    return (math.isfinite(gci_pct) and gci_pct >= 0.0
+            and gci_pct <= GCI_BAR_PCT)
+
+
+def benchmark_of(case: Path) -> str | None:
+    """Which benchmark hull this case IS, from its own receipts — or None.
+
+    THIS SCRIPT APPLIED `KCS.EFD`, `KCS.scatter_band()` AND `KCS.LPP` TO ANY
+    DIRECTORY IT WAS POINTED AT. REPRODUCED: `gate2m.py runs/wigley` — a Wigley
+    parabolic hull, Lwl 10.0 m at 2.971 m/s — printed
+
+        Gate 2M — KCS resistance, Fn 0.26, U 2.196 m/s, Lpp 7.2786 m
+          wigley  ...  C_T 5.9010e-03   E%D -59.0
+
+    i.e. it scored a hull that has never been in the KRISO tank against KRISO
+    tank data, under a header naming a speed the case was not run at. Every
+    figure on that line except C_T belonged to a different ship.
+
+    Identity comes from the STL hash, which is what `case.info` already
+    records and what `data/benchmark_geom/CHECKSUMS.json` already pins. A
+    `benchmark=` line (written by newer cases) is honoured first so a case can
+    declare itself without the checksum file being present.
+    """
+    info = read_info(case)
+    declared = info.get("benchmark", "").strip().lower()
+    if declared and declared != "unknown":
+        return declared
+    sha = info.get("stl_sha256", "")
+    if not sha:
+        return None
+    checks = Path(__file__).resolve().parents[1] / "data" / "benchmark_geom" / "CHECKSUMS.json"
+    if not checks.exists():
+        return None
+    import json
+    for name, entry in json.loads(checks.read_text()).items():
+        if isinstance(entry, dict) and entry.get("sha256") == sha:
+            return Path(name).stem.lower()
+    return None
+
+
 def motion_result(case: Path) -> dict | None:
     """Settled sinkage and trim from the sixDoF report, or None if fixed.
 
@@ -125,16 +174,42 @@ def grid_result(case: Path) -> dict | None:
     }
 
 
-def gci(f1: float, f2: float, f3: float, r12: float, r23: float) -> dict:
-    """Roache GCI on three grids, fine->coarse f1,f2,f3. r are refinement ratios."""
-    e12, e23 = f2 - f1, f3 - f2
-    if abs(e12) < 1e-15 or e12 * e23 <= 0:
-        return {"p": float("nan"), "gci_fine_pct": float("nan"),
-                "note": "oscillatory or zero change — Richardson does not apply"}
-    p = math.log(abs(e23 / e12)) / math.log(r12)
-    f_ext = f1 + e12 / (r12 ** p - 1.0)
-    gci_fine = 1.25 * abs(e12 / f1) / (r12 ** p - 1.0) * 100.0
-    return {"p": p, "f_extrapolated": f_ext, "gci_fine_pct": gci_fine, "note": ""}
+def gci_report(f_fine: float, f_med: float, f_coarse: float,
+               refinement: float) -> dict:
+    """Roache GCI, delegated to `navalai.cfd.post.gci` — the ONE implementation.
+
+    THIS SCRIPT USED TO CARRY ITS OWN COPY, and the copy was the less careful
+    of the two while being the one that printed PASS/FAIL. Three defects, all
+    REPRODUCED against the library version before this delegation landed:
+
+      (a) SIGN. It computed `f_ext = f1 + e12/(r^p - 1)` with `e12 = f2 - f1`,
+          which is Richardson with the sign inverted. On an exact triplet built
+          around f_exact = 3.711e-3 it extrapolated to 3.911e-3 — it moved AWAY
+          from the limit by exactly the amount it should have moved toward it,
+          and the printed "extrapolated C_T" was the fine grid's error doubled.
+      (b) NO SUB-FIRST-ORDER FALLBACK. `post.gci` drops to Roache's safer
+          Fs = 3.0 when the observed p is below first order, because 1/(r^p - 1)
+          collapses as p rises and Fs = 1.25 then flatters a triplet that is not
+          in the asymptotic range. MEASURED at p_true = 0.3: this script said
+          3.280% where `post.gci` says 7.872% — a 2.4x UNDERSTATEMENT, in the
+          exact direction that lets a sub-first-order family clear the 5% bar.
+      (c) NO SIGN GUARD ON THE GCI ITSELF. On a monotone but DIVERGING triplet
+          (fine 3.700e-3, medium 4.100e-3, coarse 4.300e-3) it returned
+          p = -2.000 and GCI = **-27.027%**, and `gci <= GCI_BAR_PCT` is true of
+          a negative number, so Gate 2M printed VERDICT: PASS and exited 0 on a
+          family that was getting WORSE under refinement. `post.gci` reports
+          1855.435% on the same input.
+
+    The `method` string is printed by the caller, so the reader can see WHICH
+    safety rule fired rather than inferring it from the magnitude.
+    """
+    rep = post.gci(f_coarse, f_med, f_fine, refinement)
+    note = ""
+    if not math.isfinite(rep.p_observed):
+        note = rep.method
+    return {"p": rep.p_observed, "f_extrapolated": rep.f_extrapolated,
+            "gci_fine_pct": rep.gci_fine_pct, "method": rep.method,
+            "note": note}
 
 
 def main() -> int:
@@ -143,6 +218,20 @@ def main() -> int:
         d for n in ("coarse", "medium", "fine") if (d := root / n).is_dir()]
     if not cases:
         sys.exit(f"no case or triplet under {root}")
+
+    # IDENTITY BEFORE JUDGEMENT. Gate 2M is a comparison against KRISO tank
+    # data for ONE hull; running it on anything else produces an E%D that is
+    # arithmetic without meaning (see `benchmark_of`).
+    marks = {benchmark_of(c) for c in cases}
+    if marks != {"kcs"}:
+        named = ", ".join(sorted(str(m) for m in marks))
+        sys.exit(
+            f"REFUSING a verdict: {root} is not a KCS case (identified as: "
+            f"{named}). Gate 2M compares C_T against the KRISO EFD 3.711e-3 "
+            f"and the Tokyo-2015 scatter, both of which belong to KCS at "
+            f"Fn 0.26. Judging another hull against them is not a failing "
+            f"gate, it is a meaningless number. Use scripts/post_gci.py for "
+            f"a non-benchmark case.")
 
     rows = [r for c in cases if (r := grid_result(c))]
     if not rows:
@@ -199,10 +288,23 @@ def main() -> int:
     fine, med, coarse = usable[-1], usable[-2], usable[-3]
     r12 = (med["cells"] / fine["cells"]) ** (1 / 3)
     r23 = (coarse["cells"] / med["cells"]) ** (1 / 3)
-    g = gci(fine["ct"], med["ct"], coarse["ct"], 1 / r12 if r12 < 1 else r12,
-            1 / r23 if r23 < 1 else r23)
+    r12 = 1 / r12 if r12 < 1 else r12
+    r23 = 1 / r23 if r23 < 1 else r23
+    # ONE ratio, and it must be one FAMILY. `post_gci.py` already warned when
+    # the two steps disagree; this script did not, and it is the one that
+    # prints PASS/FAIL. A family whose steps differ is not systematically
+    # refined and Richardson does not apply to it.
+    spread = 100.0 * abs(r23 - r12) / max(r12, r23)
+    refinement = (r12 * r23) ** 0.5
     print(f"\nrefinement ratios measured from cell counts: "
-          f"r12 {r12:.4f}  r23 {r23:.4f}")
+          f"r12 {r12:.4f}  r23 {r23:.4f}  (spread {spread:.2f}%, "
+          f"using r = {refinement:.4f})")
+    if spread > 5.0:
+        print(f"GCI: the two refinement steps differ by {spread:.1f}% — this is "
+              "NOT a systematically refined family.")
+        print("VERDICT: NO RESULT — fix the generator, do not average the ratio.")
+        return 2
+    g = gci_report(fine["ct"], med["ct"], coarse["ct"], refinement)
     if g["note"]:
         print(f"GCI: {g['note']}")
         print("VERDICT: NO RESULT — the triplet is not a convergent family.")
@@ -210,6 +312,7 @@ def main() -> int:
     print(f"observed order p = {g['p']:.2f}   "
           f"extrapolated C_T = {g['f_extrapolated']:.4e}   "
           f"GCI(fine) = {g['gci_fine_pct']:.2f}%")
+    print(f"GCI method: {g['method']}")
 
     ct, unc = fine["ct"], g["gci_fine_pct"] / 100.0 * fine["ct"]
     # UNCERTAINTY MUST NEVER WIDEN THE ACCEPTANCE REGION.
@@ -220,7 +323,13 @@ def main() -> int:
     # triplet failed where a careless one closed the gate. The bar is now two
     # independent conditions, both of which must hold.
     within_band = lo <= ct <= hi
-    converged = g["gci_fine_pct"] <= GCI_BAR_PCT
+    # A NEGATIVE OR NON-FINITE GCI IS NOT CONVERGENCE. `gci <= GCI_BAR_PCT` was
+    # the whole test, and it is satisfied by -27.027% — the figure the deleted
+    # local `gci()` returned for a DIVERGING triplet. An uncertainty is a
+    # magnitude; anything that is not a finite non-negative number means the
+    # estimator did not apply, which is a refusal, never a pass.
+    gci_pct = g["gci_fine_pct"]
+    converged = gci_is_converged(gci_pct)
     inside = within_band and converged
     print(f"\nC_T = {ct:.4e} +/- {unc:.2e} (GCI {g['gci_fine_pct']:.2f}%)   "
           f"E%D = {KCS.error_vs_efd(ct):+.1f}%")

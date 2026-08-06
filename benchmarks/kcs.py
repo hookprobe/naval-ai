@@ -67,9 +67,15 @@ Why each flag, all measured rather than assumed:
   --mirror-y      the distribution is a HALF body (y = 0 .. 0.5107 m)
   cap_planar_holes  closes the one remaining opening, the flat deck at z=+0.1332
 
-VALIDATION of the result (see GEOMETRY_CHECK): submerged volume 1.6474 m^3 vs
-published displacement 1.6489 m^3, i.e. -0.09%. That single number confirms the
-unit scale, the draft shift, the mirroring and the capping simultaneously.
+VALIDATION of the result (see GEOMETRY_CHECK): submerged volume 1.644484 m^3 vs
+published displacement 1.6488934 m^3, i.e. -0.267%. That single number confirms
+the unit scale, the draft shift, the mirroring and the capping simultaneously.
+(It read -0.09% here until 2026-08-06, against 1.6474 m^3. RE-MEASURED with
+`navalai.cfd.post.stl_submerged_properties` on the committed recipe's actual
+output — the file whose hash `data/benchmark_geom/CHECKSUMS.json` pins — the
+volume is 1.644484 m^3. The 0.18% disagreement was invisible because the test
+compares at rel=0.01. Two figures for one measurement is the J1 defect; the one
+kept is the one that can be re-run.)
 Wetted surface comes out +1.16% above the published bare-hull 9424 m^2 / 31.6^2,
 consistent with Case 2.1 being run WITH the rudder fitted.
 
@@ -78,7 +84,8 @@ fitted, LPP = 7.2786 m (model scale 1:31.6).
 
 WHY A CONTAINERSHIP CALIBRATES A SMALL-CRAFT TOOL — AND WHERE IT STOPS.
 KCS is not a design target; it is the ruler. It is the most heavily measured
-hull at model scale (KRISO EFD + 13 independent CFD groups), so it answers the
+hull at model scale (KRISO EFD + the 7 CFD groups transcribed in
+`SUBMITTED_CT_FINEST`), so it answers the
 one question our own hulls cannot: when the right answer is KNOWN, does this
 solver/mesh/wall-model produce it? Concretely, the own-hull coarse grid gives
 C_T/C_F ~ 9.8, which is implausible for any displacement hull — but with no
@@ -126,8 +133,13 @@ EFD = {
 }
 
 # Finest-grid CT submitted by each participant at Fn 0.26 (PDF p.5, x1e-3).
-# This is the "Tokyo-2015 scatter" the gate refers to — 13 groups, grids
-# 1.1M-6.6M cells, all VOF/two-equation except one RSM and one level-set.
+# This is the "Tokyo-2015 scatter" the gate refers to — SEVEN groups, which is
+# how many are transcribed below and how many the band is computed from.
+# It said "13 groups" here and "13 independent CFD groups" in the module
+# docstring, i.e. the band was attributed to nearly twice the evidence anyone
+# can check in this file. Whatever the workshop total was, the band this gate
+# uses is min/max over these seven rows, so seven is the number that may be
+# claimed. Transcribe the rest from the PDF and this comment moves with it.
 SUBMITTED_CT_FINEST = {
     "HHI": 3.714e-3,
     "KRISO": 3.707e-3,
@@ -153,12 +165,17 @@ REPORTED_GRID_UNCERTAINTY_PCT = {
 
 # Published model-scale particulars, and what the regenerated STL measured.
 # Volume is the strong check: it is sensitive to unit scale, draft shift and
-# mirroring all at once, so a 0.09% match is not a coincidence.
+# mirroring all at once, so a 0.27% match is not a coincidence.
+# THESE TWO NUMBERS DISAGREED WITH data/benchmark_geom/CHECKSUMS.json (gap
+# F18): this file said 1.6474 / -0.09%, the checksum record said 1.644484 /
+# -0.267% from re-running stl_submerged_properties on the committed file. The
+# checksum record wins because it is the one produced by re-measurement, and
+# the test's rel=0.01 had been hiding the 0.18% gap between them.
 GEOMETRY_CHECK = {
     "scale_ratio": 31.6,
     "displacement_m3": 52030 / 31.6 ** 3,     # 1.6489, from full-scale 52030
-    "measured_submerged_m3": 1.6474,
-    "displacement_error_pct": -0.09,
+    "measured_submerged_m3": 1.644484,
+    "displacement_error_pct": -0.267,
     "wetted_surface_m2": 9424 / 31.6 ** 2,    # 9.4376, bare hull
     "measured_wetted_m2": 9.5475,             # +1.16%: rudder is fitted
     "draft_m": 10.8 / 31.6,                   # 0.34178

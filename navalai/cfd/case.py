@@ -109,8 +109,52 @@ _Z_BANDS = dict(hull=0.09, wave=0.09)
 # halves the cell HEIGHT there, giving the interface the thin cells VOF needs
 # without ever handing snappy an anisotropic mesh to snap.
 _REFINE_ROUNDS = 3
+# Tank extents, as multiples of Lwl, DECLARED ONCE. The half-width appeared
+# three times — in `y_half` (which was computed and never read), in the
+# blockMesh `y0`/`y1` entries, and inside the ny expression — and it is the
+# third that decides the refinement family, so a drift between them would be
+# invisible until a GCI came out wrong.
+_DOMAIN_X = (-2.5, 2.0)                       # inlet .. outlet, x/Lwl
+_DOMAIN_LENGTH_L = _DOMAIN_X[1] - _DOMAIN_X[0]
+_DOMAIN_HALF_WIDTH_L = 1.5                    # y/Lwl, one side
+
+# THE BACKGROUND x COUNT AT scale = 1, IN ONE PLACE.
+# It was the literal `54` in two expressions — `_write_case_dicts` and
+# `write_resistance_case`'s STL-resolution estimate — which is this project's
+# documented anti-pattern (a number declared twice) in the file carrying the
+# two RED gates.
+#
+# 57, NOT 54, AND THE THREE IS THE WHOLE POINT. ny is nx/3 (symmetric) or 2nx/3
+# (full), so ny's own refinement ratio equals nx's only when nx divides by 3 at
+# EVERY member of the family. At 54 the family is 54 / 76 / 108 and only the
+# ends divide, so ny went 18 / 25 / 36 with ratios 1.3889 and 1.4400 against
+# nx's 1.4074 and 1.4211 — ny was rounding independently and its error is
+# largest on the SYMMETRIC domain, where the count is half the size.
+# MEASURED spread between the two refinement steps (|r23-r12| / max):
+#
+#     base   family        symmetric        full domain
+#      54    54/76/108     0.85%            0.47%
+#      57    57/81/114     0.03%            0.03%
+#
+# 57*sqrt(2) = 80.61 -> 81, which also divides by 3, and 114 = 2*57; so the
+# whole triplet is a multiple of 3 and ny is EXACT at every member. The cost is
+# measured and real: (57/54)^3 = +19% cells at every grid. That buys a family
+# whose two steps agree to 0.03% instead of 0.85%, which is what Richardson
+# extrapolation assumes and what CLAUDE.md's recorded 0.47% claimed while the
+# symmetric runs it recommends were at 0.85%.
+_NX_BASE = 57
+
+# y cells per x cell in the background, so ny is DERIVED from nx by a fixed
+# ratio rather than re-rounded from a float division of the domain width.
+# The half domain gets exactly half the cells of the full one — it must, or a
+# `--symmetric` run is not the full run with the mirror removed but a
+# different discretisation wearing the same scale number.
+_NY_PER_NX_HALF = _DOMAIN_HALF_WIDTH_L / _DOMAIN_LENGTH_L
+
 # z cells per x cell in the background. 14/54 reproduces the hand-tuned scale-1
-# mesh exactly; everything else follows from it.
+# mesh exactly; everything else follows from it. (At _NX_BASE 57 it gives 15,
+# and the background aspect ratio dx/dz_core is 1.75 against 1.85 at 54 — the
+# near-cubic property the isotropic-background fix depends on is preserved.)
 _NZ_PER_NX = 14.0 / 54.0
 
 # Layers snappy will actually INSERT on this hull, measured (coarse grid,
@@ -147,6 +191,18 @@ _LTS_ITERATIONS = 2000
 # nu twice and g four times — the project's own documented anti-pattern, in the
 # module that carries the two RED gates. They are constants now, and every
 # template and helper below formats them in rather than retyping them.
+#
+# THAT CLAIM WAS FALSE WHEN IT WAS WRITTEN, and a claim of single-sourcing is
+# worse than no claim: it stops the next reader from looking. RE-MEASURED
+# 2026-08-06 — rho 998.8 also appeared as `motion_from_geometry`'s default
+# argument and hardcoded in BOTH forces function objects (`forces` and
+# `forceCoeffs`), nu 1.09e-6 as `first_layer_thickness`'s default, and g 9.81
+# in the GRAVITY template (a plain string, so it could not format anything),
+# in the deep-water half-wavelength and in the wavelength receipt. Eight
+# restatements under a comment saying there were none.
+# `tests/test_cfd_gap_closure.py` now greps this file for the bare digits, the
+# way `tests/test_limits_single_source.py` does for limits.py, so the claim is
+# enforced instead of asserted.
 _G = 9.81               # matches constant/g in the generated case
 _RHO_WATER = 998.8      # kg/m^3, ~20 C fresh water
 _RHO_AIR = 1.2
@@ -213,7 +269,7 @@ def motion_from_geometry(stl_path, lwl: float, symmetric: bool,
                         kg_above_keel: float | None = None,
                         k_roll_over_beam: float = 0.40,
                         k_pitch_over_lwl: float = 0.25,
-                        cwp: float = 0.80, rho: float = 998.8) -> dict:
+                        cwp: float = 0.80, rho: float = _RHO_WATER) -> dict:
     """Free sinkage-and-trim properties, derived from the hull itself.
 
     The model must FLOAT at its own displacement, so mass = rho * submerged
@@ -275,7 +331,7 @@ def _read_stl_tris_for_motion(path):
 
 
 def first_layer_thickness(speed: float, lwl: float, target_yplus: float,
-                          nu: float = 1.09e-6) -> float:
+                          nu: float = _NU_WATER) -> float:
     """Absolute first-layer THICKNESS [m] that lands the first cell centre at
     `target_yplus`, via the ITTC-1957 flat-plate friction line.
 
@@ -405,7 +461,7 @@ functions {{
     // base drag from a wrongly-wetted transom; uniform would mean a numerical
     // artefact. Costs nothing at runtime.
     binData {{ nBin 20; direction (1 0 0); cumulative no; }}
-    rhoInf 998.8; CofR (0 0 0);
+    rhoInf {rho_water}; CofR (0 0 0);
     writeControl timeStep; writeInterval 10;
   }}
   // OpenFOAM's own coefficient, as an independent cross-check on our
@@ -413,7 +469,7 @@ functions {{
   // inflated every drag this project reported.
   forceCoeffs {{
     type forceCoeffs; libs (forces); patches (hull);
-    rhoInf 998.8; CofR (0 0 0);
+    rhoInf {rho_water}; CofR (0 0 0);
     liftDir (0 0 1); dragDir (-1 0 0); pitchAxis (0 1 0);
     magUInf {speed_abs}; lRef {lwl}; Aref {aref:.6f};
     writeControl timeStep; writeInterval 10;
@@ -663,8 +719,14 @@ PIMPLE {{
   momentumPredictor no; nOuterCorrectors {n_outer}; nCorrectors 3;
   // correctPhi is REQUIRED once the mesh moves: the face fluxes
   // inherited from the previous mesh do not satisfy continuity on
-  // the new one, and interFoam will not recover on its own.
-  correctPhi yes; moveMeshOuterCorrectors no;
+  // the new one, and interFoam will not recover on its own. It is
+  // written ONLY for a moving case: it used to be unconditional, so
+  // regenerating a FIXED case produced a different configuration
+  // from the one that produced the recorded Gate 2M numbers (it adds
+  // a pcorr solve at every startup and changes the order in which
+  // alpha's and U's boundary conditions are evaluated — the very
+  // ordering the setFields note below turns on).
+  {correct_phi}moveMeshOuterCorrectors no;
   // MEASURED: runs/kcs_sym carries 11375 severely non-orthogonal faces (max
   // 86.6) and runs/kcs_free had 1277 (max 90.2) — an unavoidable product of
   // the post-snappy z-only refinement, whose hanging nodes leave skewed
@@ -688,12 +750,18 @@ hull.stl {
 }
 """
 
-SET_FIELDS = """FoamFile { version 2.0; format ascii; class dictionary; object setFieldsDict; }
+SET_FIELDS = """FoamFile {{ version 2.0; format ascii; class dictionary; object setFieldsDict; }}
 defaultFieldValues ( volScalarFieldValue alpha.water 0 );
 regions (
-  boxToCell { box (-1e6 -1e6 -1e6) (1e6 1e6 0);
-              fieldValues ( volScalarFieldValue alpha.water 1 ); }
-  // boxToFace as well, or the BOUNDARY faces keep the uniform 0 from 0.orig
+  boxToCell {{ box (-1e6 -1e6 -1e6) (1e6 1e6 0);
+              fieldValues ( volScalarFieldValue alpha.water 1 ); }}
+{box_to_face});
+"""
+
+# Written for a MOVING case only. It was unconditional, which quietly changed
+# every regenerated FIXED case away from the configuration that produced the
+# recorded numbers — and the comment itself says a fixed run does not need it.
+SET_FIELDS_BOX_TO_FACE = """  // boxToFace as well, or the BOUNDARY faces keep the uniform 0 from 0.orig
   // and the tank starts with every patch reading "pure air" while its cells
   // read water. MEASURED: that left alpha = 0 on the outlet, and
   // outletPhaseMeanVelocity divides by the water AREA of the patch — zero —
@@ -704,7 +772,6 @@ regions (
   // outlet condition is asked for a mean; with correctPhi the order flips.
   boxToFace { box (-1e6 -1e6 -1e6) (1e6 1e6 0);
               fieldValues ( volScalarFieldValue alpha.water 1 ); }
-);
 """
 
 TRANSPORT = f"""FoamFile {{ version 2.0; format ascii; class dictionary; object transportProperties; }}
@@ -714,9 +781,9 @@ air   {{ transportModel Newtonian; nu {_NU_AIR:.6g}; rho {_RHO_AIR:.6g}; }}
 sigma {_SIGMA_WATER:.6g};
 """
 
-GRAVITY = """FoamFile { version 2.0; format ascii; class uniformDimensionedVectorField; object g; }
+GRAVITY = f"""FoamFile {{ version 2.0; format ascii; class uniformDimensionedVectorField; object g; }}
 dimensions [0 1 -2 0 0 0 0];
-value (0 0 -9.81);
+value (0 0 -{_G:.6g});
 """
 
 TURBULENCE = """FoamFile { version 2.0; format ascii; class dictionary; object turbulenceProperties; }
@@ -1021,13 +1088,51 @@ def stl_watertight_report(path: Path) -> dict:
             "signed_volume": vol}
 
 
+def layer_spec(lwl: float, speed: float, scale: float = 1.0) -> dict:
+    """The near-wall stack this case WOULD get at `scale`, without writing it.
+
+    Exists so `scripts/make_case.py --triplet` can pin the anchor grid's layer
+    count and hand it to every member. Deriving it inside each case is what
+    made the stack thin from 12.9*t1 to 7.4*t1 across a triplet whose own
+    case.info claimed the wall model was held fixed.
+    """
+    nx = max(int(round(_NX_BASE * scale)), 20)
+    hull_cell = _DOMAIN_LENGTH_L * lwl / nx / 2 ** _HULL_REFINE[0]
+    t1 = first_layer_thickness(speed, lwl, _TARGET_YPLUS)
+    n_ideal = n_layers_to_bridge(t1, hull_cell, _LAYER_EXPANSION)
+    return {"n_layers": min(n_ideal, _MAX_LAYERS), "n_ideal": n_ideal,
+            "first_layer_m": t1, "hull_cell_m": hull_cell, "nx": nx}
+
+
+def benchmark_of_sha(stl_sha: str) -> str | None:
+    """Name the benchmark hull this STL hash belongs to, or None.
+
+    `data/benchmark_geom/CHECKSUMS.json` already pins the hash of every
+    benchmark geometry, so the case can record WHICH SHIP it is instead of
+    leaving a downstream gate to assume. Gate 2M assumed, and scored a Wigley
+    hull against KRISO KCS tank data.
+    """
+    import json
+    checks = (Path(__file__).resolve().parents[2] / "data" /
+              "benchmark_geom" / "CHECKSUMS.json")
+    try:
+        entries = json.loads(checks.read_text())
+    except (OSError, ValueError):
+        return None
+    for name, entry in entries.items():
+        if isinstance(entry, dict) and entry.get("sha256") == stl_sha:
+            return Path(name).stem.lower()
+    return None
+
+
 def write_resistance_case_from_stl(stl_path: str | Path, lwl: float,
                                    speed: float, out_dir: str | Path,
                                    end_time: float = 40.0, scale: float = 1.0,
                                    np_procs: int = 8,
                                    symmetric: bool = False,
                                    free_motion: dict | None = None,
-                                   lts: bool | None = None) -> dict:
+                                   lts: bool | None = None,
+                                   n_layers: int | None = None) -> dict:
     """Same case generator, but for EXTERNAL geometry (KCS/JBC calibration).
 
     The STL must be watertight, in metres, with the free surface at z=0 and
@@ -1039,39 +1144,45 @@ def write_resistance_case_from_stl(stl_path: str | Path, lwl: float,
     (out / "constant" / "triSurface" / "hull.stl").write_bytes(data)
     stl_sha = hashlib.sha256(data).hexdigest()
     return _write_case_dicts(out, stl_sha, lwl, speed, end_time, scale,
-                             np_procs, symmetric, free_motion, lts)
+                             np_procs, symmetric, free_motion, lts, n_layers)
 
 
 def write_resistance_case(hull: Hull, speed: float, out_dir: str | Path,
                           end_time: float = 40.0, scale: float = 1.0,
                           np_procs: int = 8, symmetric: bool = False,
                           free_motion: dict | None = None,
-                          lts: bool | None = None) -> dict:
+                          lts: bool | None = None,
+                          n_layers: int | None = None) -> dict:
     """Generate a COMPLETE, runnable interFoam resistance case.
 
     scale: background-mesh refinement multiplier (1.0 / sqrt(2) steps give
     the GCI triplet). Templates are DTCHull-tutorial-derived; first-run
     tuning on the OpenFOAM machine is expected and normal.
+
+    n_layers: prism-layer count. Leave None for a single case (it is derived
+    from the local hull cell); PIN it across a GCI triplet, or the wall mesh
+    refines along with the outer mesh and the observed order p absorbs both.
     """
     out = Path(out_dir)
     (out / "constant" / "triSurface").mkdir(parents=True, exist_ok=True)
     lwl = float(hull.x[-1])
     # Triangulate finer than the smallest cell that will snap to this surface,
     # or snappy snaps to facets and the layer stack sits on a faceted wall.
-    bg_dx = (2.0 * lwl - (-2.5 * lwl)) / max(int(round(54 * scale)), 20)
+    bg_dx = _DOMAIN_LENGTH_L * lwl / max(int(round(_NX_BASE * scale)), 20)
     nx, nz = stl_resolution(lwl, 0.5 * bg_dx / 2 ** _HULL_REFINE[1])
     stl_sha = hull_to_stl(hull, out / "constant" / "triSurface" / "hull.stl",
                           nx=nx, nz=nz)
     return _write_case_dicts(out, stl_sha, lwl, speed,
                              end_time, scale, np_procs, symmetric,
-                             free_motion, lts)
+                             free_motion, lts, n_layers)
 
 
 def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
                       end_time: float, scale: float, np_procs: int,
                       symmetric: bool = False,
                       free_motion: dict | None = None,
-                      lts: bool | None = None) -> dict:
+                      lts: bool | None = None,
+                      n_layers: int | None = None) -> dict:
     (out / "system").mkdir(parents=True, exist_ok=True)
     # Initial fields live in 0.orig and are COPIED to 0 (the OpenFOAM tutorial
     # convention). setFields rewrites 0/alpha.water as a full non-uniform field
@@ -1093,7 +1204,7 @@ def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
     # ample at the Fn ~ 0.26 design point; a planing-speed case deepens itself
     # instead of quietly computing shallow-water resistance and calling it
     # deep-water resistance.
-    half_lambda = math.pi * speed ** 2 / 9.81
+    half_lambda = math.pi * speed ** 2 / _G
     # TANK DEPTH >= 1 SHIP LENGTH, not 0.6.
     # The deep-water WAVE criterion (depth > lambda/2) was already satisfied at
     # 0.6 L, but the snappyHexMesh user guide section 4.4.2 discussion of marine
@@ -1105,9 +1216,6 @@ def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
     # the most graded, cheapest part of the mesh.
     depth = max(1.0 * lwl, 1.5 * half_lambda)
 
-    # A symmetric case models only y >= 0 and closes it with a symmetry plane:
-    # half the cells for the same resolution, and no mirrored-geometry seam.
-    y_half = 1.5 * lwl
     # z bands. The uniform core spans the hull draft plus the wave, because
     # refineMesh cannot refine z at all — every z cell we need must exist in
     # blockMesh. zh reaches below the deepest keel we expect (0.09L covers a
@@ -1125,9 +1233,21 @@ def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
     # sqrt(2) the triplet claims. Richardson extrapolation then measures a
     # changing cell SHAPE mixed in with the changing cell SIZE, which is the
     # same defect that made the v1 triplet oscillate.
-    nx = max(int(round(54 * scale)), 20)
-    dx_bg = (2.0 * lwl + 2.5 * lwl) / nx
-    ny = max(int(round((1.5 if symmetric else 3.0) * lwl / dx_bg)), 6)
+    nx = max(int(round(_NX_BASE * scale)), 20)
+    dx_bg = _DOMAIN_LENGTH_L * lwl / nx
+    # ny FROM nx BY A FIXED RATIO, and the full domain is EXACTLY twice the
+    # half domain. It used to be `round((1.5 if symmetric else 3.0) * lwl /
+    # dx_bg)`, i.e. a second, independent rounding of a half-size number, and
+    # half-size is where rounding hurts most: MEASURED on the scale
+    # 1 / sqrt2 / 2 family at base 54, ny went 18 / 25 / 36 (ratios 1.3889 and
+    # 1.4400) while the full domain got 36 / 51 / 72 (1.4167 and 1.4118). The
+    # symmetric triplet's two refinement steps then disagreed by 0.85% against
+    # the full domain's 0.47% — and 51 is ODD, so the "half domain" was not
+    # half of anything, it was a third mesh. See `_NX_BASE` for the base change
+    # that makes nx divisible by 3 at every member, which is what makes this
+    # division exact.
+    ny_half = max(int(round(nx * _NY_PER_NX_HALF)), 6)
+    ny = ny_half if symmetric else 2 * ny_half
 
     # z resolution is tied to nx by a fixed constant, then apportioned across
     # the four bands by their scale-1 shares (6:2:2:4 of 14) using largest
@@ -1142,8 +1262,9 @@ def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
     nz_deep, n_hull, n_wave, nz_air = counts
     dz_core = abs(zh) / n_hull
 
-    dom = dict(x0=-2.5 * lwl, x1=2.0 * lwl,
-               y0=0.0 if symmetric else -1.5 * lwl, y1=1.5 * lwl,
+    dom = dict(x0=_DOMAIN_X[0] * lwl, x1=_DOMAIN_X[1] * lwl,
+               y0=0.0 if symmetric else -_DOMAIN_HALF_WIDTH_L * lwl,
+               y1=_DOMAIN_HALF_WIDTH_L * lwl,
                z0=-depth, zh=zh, za=za, z1=0.25 * lwl,
                side1_type="symmetry" if symmetric else "wall",
                nx=nx, ny=ny,
@@ -1156,16 +1277,34 @@ def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
     dx = (dom["x1"] - dom["x0"]) / dom["nx"] / 2 ** 2
     # z cell there after the z-only refineMesh rounds that follow snappy
     fs_dz = dz_core / 2 ** 2 / 2 ** _REFINE_ROUNDS
-    wavelength = 2 * math.pi * speed ** 2 / 9.81
+    wavelength = 2 * math.pi * speed ** 2 / _G
     # near-wall stack sized for the wall functions, bridging to the local
     # hull cell (background dx divided by the hull surface refinement level)
-    t1 = first_layer_thickness(speed, lwl, _TARGET_YPLUS)
     # Size the stack against the cell on FLAT hull area, which takes the MIN
     # refinement level — that is most of the hull, and it is where layers have
     # to bridge the furthest. Using the max level here flattered the estimate.
-    hull_cell = (dom["x1"] - dom["x0"]) / dom["nx"] / 2 ** _HULL_REFINE[0]
-    n_ideal = n_layers_to_bridge(t1, hull_cell, _LAYER_EXPANSION)
-    n_layers = min(n_ideal, _MAX_LAYERS)
+    # ONE derivation, shared with `layer_spec` so make_case.py can ask what the
+    # anchor grid would get WITHOUT writing a case to find out.
+    _spec = layer_spec(lwl, speed, scale)
+    t1, hull_cell, n_ideal = (_spec["first_layer_m"], _spec["hull_cell_m"],
+                              _spec["n_ideal"])
+    assert _spec["nx"] == dom["nx"], "layer_spec disagrees with the block mesh"
+    # THE WALL MODEL MUST BE FROZEN ACROSS A GCI TRIPLET, AND IT WAS NOT.
+    # case.info has told every reader "first-layer thickness is held constant
+    # across the GCI triplet, so the GCI bounds OUTER-flow discretisation, not
+    # the wall model", and CLAUDE.md repeats it. The first layer IS constant —
+    # `first_layer_thickness` depends only on speed and Lwl — but the LAYER
+    # COUNT is not, because `n_layers_to_bridge` reads `hull_cell`, which
+    # scales with nx. REPRODUCED on a scale 1 / sqrt2 / 2 symmetric KCS
+    # triplet at base 54: n_layers came out 7 / 6 / 5, so the prism stack
+    # height went 12.9*t1 -> 9.9*t1 -> 7.4*t1. The near-wall mesh was being
+    # refined at the same time as the outer mesh, and the observed order p
+    # absorbs BOTH — which is precisely the quantity the note says it excludes.
+    # `n_layers` is therefore pinned ONCE at the anchor scale by the caller
+    # (scripts/make_case.py --triplet) and passed to every member.
+    n_layers = min(n_ideal, _MAX_LAYERS) if n_layers is None else int(n_layers)
+    if n_layers < 1:
+        raise ValueError(f"n_layers must be >= 1, got {n_layers}")
 
     # LAYER PROPORTIONS ARE ASSERTED AT BUILD TIME, not discovered after a
     # multi-hour solve. OpenFOAM's shipped default is `finalLayerThickness 0.3`
@@ -1303,6 +1442,7 @@ def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
         CONTROL_DICT.format(
             end_time=end_time, dt=1 if lts else 0.001, write_int=write_int,
             speed_abs=abs(speed), lwl=lwl, aref=max(aref, 1e-6),
+            rho_water=f"{_RHO_WATER:.6g}",
             time_control=TIME_CONTROL_LTS if lts else TIME_CONTROL_TRANSIENT))
     sysd.joinpath("blockMeshDict").write_text(BLOCKMESH.format(**dom))
     # Two passes: snap first (needs cubic cells), layers last (must not be
@@ -1329,6 +1469,20 @@ def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
             POINT_DISPLACEMENT.format(
                 side1_pd_entry="" if symmetric else
                 "side1      { type fixedValue; value uniform (0 0 0); }"))
+    else:
+        # A CASE DIRECTORY MUST BE REGENERABLE INTO WHAT WAS ASKED FOR.
+        # These two files were only ever WRITTEN, never removed, so
+        # regenerating a case FIXED on top of a previously FREE one left
+        # `constant/dynamicMeshDict` and `0.orig/pointDisplacement` in place —
+        # and interFoam reads dynamicMeshDict if it exists. The result is a
+        # case that still sinks and trims while every receipt in it, including
+        # `free_motion=False` in case.info, says it does not. The existing test
+        # could not see it because it generates into a fresh `tmp_path`, which
+        # is exactly the one situation where the stale file cannot exist.
+        cons.mkdir(parents=True, exist_ok=True)
+        (cons / "dynamicMeshDict").unlink(missing_ok=True)
+        (zero / "pointDisplacement").unlink(missing_ok=True)
+        (out / "0" / "pointDisplacement").unlink(missing_ok=True)
 
     sysd.joinpath("refineMeshDict").write_text(REFINE_MESH)
     # Nested boxes, each round halving x,y inside it. Box 1 covers the hull and
@@ -1348,10 +1502,12 @@ def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
         pimple_time=("rDeltaTSmoothingCoeff 0.05; rDeltaTDampingCoeff 0.5;\n"
                      "  nAlphaSpreadIter 0; nAlphaSweepIter 0;" if lts else ""),
         # Under LTS the outer loop IS the pseudo-time march, so one is right.
-        n_outer=1 if lts else 2))
+        n_outer=1 if lts else 2,
+        correct_phi="correctPhi yes; " if free_motion else ""))
     sysd.joinpath("decomposeParDict").write_text(DECOMPOSE.format(np=np_procs))
     sysd.joinpath("surfaceFeatureExtractDict").write_text(SURFACE_FEATURES)
-    sysd.joinpath("setFieldsDict").write_text(SET_FIELDS)
+    sysd.joinpath("setFieldsDict").write_text(SET_FIELDS.format(
+        box_to_face=SET_FIELDS_BOX_TO_FACE if free_motion else ""))
     cons.joinpath("transportProperties").write_text(TRANSPORT)
     cons.joinpath("g").write_text(GRAVITY)
     cons.joinpath("turbulenceProperties").write_text(TURBULENCE)
@@ -1382,6 +1538,15 @@ def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
     cells_per_wave = wavelength / dx
     (out / "case.info").write_text(
         f"speed_ms={speed}\nlwl={lwl}\nscale={scale}\nstl_sha256={stl_sha}\n"
+        # WHICH SHIP THIS IS. scripts/gate2m.py compared ANY directory against
+        # the KRISO KCS tank data — `gate2m.py runs/wigley` printed E%D -59.0
+        # for a Wigley hull under a header naming KCS's speed and Lpp. The
+        # case now says what it is, from the STL hash the checksum record
+        # pins, so the gate can refuse a hull it has no experiment for.
+        f"benchmark={benchmark_of_sha(stl_sha) or 'unknown'}\n"
+        f"free_motion={bool(free_motion)}\n"
+        f"nx={dom['nx']}\nny={dom['ny']}\n"
+        f"nz_total={dom['nz_deep'] + dom['nz_hull'] + dom['nz_wave'] + dom['nz_air']}\n"
         f"cells_bg={bg_cells}\n"
         f"wavelength_m={wavelength:.4f}\ntank_depth_m={abs(dom['z0']):.4f}\n"
         f"fs_dz_m={fs_dz:.5f}\nfs_dx_m={dx:.5f}\n"
@@ -1396,11 +1561,21 @@ def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
         "NOTE: layers are capped for insertion success, so the stack does NOT\n"
         "  bridge to the local cell; y+ is controlled on layered faces only.\n"
         "  Check postProcessing/yPlus for what was actually achieved.\n"
-        "NOTE: first-layer thickness is held constant across the GCI triplet,\n"
-        "  so the GCI bounds OUTER-flow discretisation, not the wall model.\n"
+        "NOTE: first-layer thickness AND layer count are held constant across\n"
+        "  the GCI triplet (make_case.py --triplet pins n_layers at the anchor\n"
+        "  scale), so the GCI bounds OUTER-flow discretisation with the wall\n"
+        "  model fixed. Until 2026-08-06 only the THICKNESS was constant: the\n"
+        "  count followed the hull cell and went 7/6/5 across the family, so\n"
+        "  the prism stack thinned from 12.9*t1 to 7.4*t1 and p absorbed it.\n"
         "run: navalai/cfd/run-case.sh <this-dir> <np>\n"
         "Gate 2M = KCS/JBC resistance within Tokyo-2015 scatter, per-case GCI.\n")
     return {"stl_sha256": stl_sha, "speed": speed, "end_time": end_time,
             "scale": scale, "bg_cells": bg_cells,
+            # n_layers is returned so a triplet can PIN the anchor's value on
+            # every other member; first_layer_m was already constant by
+            # construction and is returned beside it so both halves of the
+            # "wall model held fixed" claim are checkable from the caller.
+            "n_layers": n_layers, "first_layer_m": t1,
+            "nx": dom["nx"], "ny": dom["ny"],
             "cells_per_wavelength": cells_per_wave, "fs_dz": fs_dz,
             "wavelength": wavelength, "tank_depth": abs(dom["z0"])}

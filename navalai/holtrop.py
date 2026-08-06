@@ -252,11 +252,41 @@ def form_factor(cp: float, lcb: float, b: float, lr: float,
                    * (1.0 - cp + 0.0225 * lcb) ** 0.6906)
 
 
+def wetted_surface_bracket(b: float, t: float, cm: float, cb: float,
+                           cwp: float) -> float:
+    """The regression's shape bracket — the term that can go NEGATIVE.
+
+    It carries `-0.003467 B/T`, and nothing in the 1982 paper bounds B/T, so a
+    sufficiently wide, shallow hull drives the bracket through zero and the
+    whole formula returns a negative AREA. Exposed as its own function so
+    `domain_errors` and `wetted_surface` test the identical expression rather
+    than each keeping a copy of the coefficients.
+    """
+    return (0.453 + 0.4425 * cb - 0.2862 * cm - 0.003467 * b / t
+            + 0.3696 * cwp)
+
+
 def wetted_surface(lwl: float, b: float, t: float, cm: float, cb: float,
                    cwp: float, abt: float) -> float:
     """Bare-hull wetted surface S [m^2] from the paper's regression."""
-    s = lwl * (2.0 * t + b) * math.sqrt(cm) * (
-        0.453 + 0.4425 * cb - 0.2862 * cm - 0.003467 * b / t + 0.3696 * cwp)
+    bracket = wetted_surface_bracket(b, t, cm, cb, cwp)
+    if bracket <= 0.0:
+        # A NEGATIVE WETTED SURFACE PROPAGATED ALL THE WAY TO A TOTAL.
+        # REPRODUCED with Particulars(lwl=100, b=39, tf=0.2, ta=0.2,
+        # volume=390, cm=0.9, cwp=0.7, lcb=0) at 6.0 m/s — B/T = 195, bracket
+        # = -6.8e-4 — giving S = -2.523 m^2, R_F = -77.70 N, R_A = -25.43 N and
+        # a total of 3.0e13 N, while `domain_errors()` returned EMPTY so
+        # `total()` never refused. This module's own contract is that it RAISES
+        # outside the formulae's domain; a negative area is as far outside as
+        # it gets. The bracket turns at B/T ~ 195 for this hull, and the exact
+        # crossover moves with C_B, C_M and C_WP, which is why it is tested as
+        # an expression and not as a B/T limit.
+        raise ValueError(
+            f"wetted-surface bracket = {bracket:.6f} <= 0 at B/T = {b / t:.1f} "
+            f"(C_B {cb:.3f}, C_M {cm:.3f}, C_WP {cwp:.3f}): the regression "
+            f"carries -0.003467 B/T and returns a NEGATIVE area here. There is "
+            f"no wetted surface to report, so there is no resistance either.")
+    s = lwl * (2.0 * t + b) * math.sqrt(cm) * bracket
     return s + 2.38 * abt / cb
 
 
@@ -540,6 +570,19 @@ def domain_errors(p: Particulars, speed: float,
         if 1.0 - cp - 0.0225 * p.lcb <= 0.0:
             out.append(f"1 - Cp - 0.0225 lcb = {1 - cp - 0.0225 * p.lcb:.4f} "
                        f"<= 0: negative base under the entrance angle's ^0.6367")
+    # THE WETTED SURFACE CAN GO NEGATIVE, AND NOTHING CAUGHT IT.
+    # See `wetted_surface` for the reproduction: B/T = 195 gave S = -2.523 m^2,
+    # R_F = -77.70 N and a total of 3.0e13 N with this function returning an
+    # empty tuple, so `total()` handed back a HoltropResult instead of
+    # refusing. `envelope_violations` did flag "B/T 195.00 outside [2.1, 4.0]",
+    # but that badges the result as out-of-support — it does not refuse it, and
+    # a negative area is not a support question, it is an impossibility.
+    bracket = wetted_surface_bracket(p.b, t, p.cm, cb, p.cwp)
+    if bracket <= 0.0:
+        out.append(
+            f"wetted-surface bracket = {bracket:.6f} <= 0 at B/T = "
+            f"{p.b / t:.1f}: S = L(2T + B) sqrt(C_M) * bracket returns a "
+            f"NEGATIVE area, and R_F, R_A and R_W are all built on it")
     if p.ie_deg is None:
         if p.cwp >= 1.0:
             out.append(f"Cwp = {p.cwp} >= 1: the entrance-angle regression "

@@ -103,8 +103,10 @@ lifecycle, roadmap board — READ THIS FIRST), `NavalArchAI-BuildPlan.md`
   NOTE: these sweeps solve only 4 s, so in-band% is LOWER than a settled run
   (the same baseline reads 6.1% at 4 s and 16.3% at 20 s). Compare configs
   against each other, not against the gate.
-- First-layer thickness is held CONSTANT across the triplet, so the GCI
-  bounds OUTER-flow discretisation with the wall model fixed. Say so.
+- First-layer thickness AND layer count are held CONSTANT across the triplet,
+  so the GCI bounds OUTER-flow discretisation with the wall model fixed. Say
+  so. (Until 2026-08-06 only the thickness was — see the n_layers note below.
+  The count is now pinned by `make_case.py --triplet` at the FINEST scale.)
 - Deep water is a property of the WAVE: tank depth = max(0.6L, 1.5·λ/2),
   λ = 2πU²/g. A fixed depth quietly returns shallow-water resistance.
 - Watch `Phase-1 volume fraction` in log.interFoam: it must stay constant.
@@ -223,8 +225,37 @@ coverage used to be 32%. checkMesh: 4 open cells, 5 wrongly-oriented faces,
 - **Isotropy fights the GCI family.** Deriving nz from dx directly, round(1.08)
   and round(1.53) collapse to the same integer, so nz froze across
   coarse/medium and measured r fell to 1.376 against the sqrt(2) the triplet
-  claims. Fix the near-cubic count once at scale 1 and SCALE it: r is now
-  1.4175 / 1.4109, spread 0.47%.
+  claims. Fix the near-cubic count once at scale 1 and SCALE it: r was then
+  1.4175 / 1.4109, spread 0.47% — **on the FULL domain, which nothing runs.**
+- **The 0.47% above described a mesh we do not use.** RE-MEASURED 2026-08-06:
+  `ny = round((1.5 if symmetric else 3.0)*lwl/dx_bg)` re-rounds a HALF-SIZE
+  number in the symmetric case, so the symmetric family — the one this file
+  recommends — came out 18/25/36 with spread **0.85%**, and the full domain's
+  ny was ODD (36/51/72), meaning the "half" domain was not half of anything but
+  a third mesh. Fixed by `_NX_BASE 54 -> 57` (57/81/114 are ALL multiples of 3,
+  so `ny = nx/3` is exact and tracks nx's ratio) and `ny_full = 2*ny_half`:
+
+      base   family        symmetric   full     symmetric == half of full
+       54    54/76/108     0.85%       0.47%    NO (38000 vs 77520/2)
+       57    57/81/114     0.03%       0.03%    YES
+
+  Cost is measured: (57/54)^3 = **+19% cells** at every grid. Coarse symmetric
+  goes 13608 -> 16245 bg cells. Any triplet generated before 2026-08-06
+  (including `runs/kcs_gci2`) is at the old base and is not this family.
+  The exactness holds only where nx is a multiple of 3, i.e. for
+  `--anchor coarse` (57/81/114). MEASURED for `--anchor fine`: 28/40/57,
+  spread **1.92%** (it was 1.7% at base 54). `make_case.py --triplet` now
+  PRINTS `family: r12 ... r23 ... spread ...` and flags anything over 1%, so
+  a non-uniform family is known at generation time rather than after the solve.
+- **A GCI triplet must freeze the LAYER COUNT, not just the first layer.**
+  case.info claimed the wall model was held fixed; only `first_layer_m` was.
+  `n_layers_to_bridge` reads the hull cell, which scales with nx, so a KCS
+  triplet ran 7/6/5 layers and the prism stack thinned 12.9*t1 -> 7.4*t1 —
+  p was absorbing two refinements. `make_case.py --triplet` now pins n_layers
+  once and passes it to every member. It pins at the **FINEST** grid, not at
+  scale 1: the stack has a fixed height in metres while the hull cell halves,
+  so the coarse grid's 7 layers give a 34.2 mm stack against the fine grid's
+  17.96 mm cell (ratio 1.90) and the generator refuses above 1.2.
 - The two ungraded core z-bands are EQUAL (0.09 Lwl each). A thin 0.03 band
   divided into the >=2 cells the family needs gave 109 mm cells against 607 mm
   dx — 5.6:1, reintroducing the very anisotropy the fix removes.
@@ -232,11 +263,46 @@ coverage used to be 32%. checkMesh: 4 open cells, 5 wrongly-oriented faces,
   "skip coarse/medium/fine" then "done" — a successful-looking exit that ran
   nothing.
 
+## What the 2026-08-06 re-audit changed about RUNNING things
+
+- **`gate2m.py` has no GCI of its own.** It carried a second copy beside
+  `navalai.cfd.post.gci`, missing every safety rule, and it was the copy that
+  printed PASS/FAIL. MEASURED: on a monotone but DIVERGING triplet (fine
+  3.700e-3, medium 4.100e-3, coarse 4.300e-3) it returned GCI = **-27.027%**,
+  and `gci <= 5.0` is TRUE of a negative number, so the gate printed
+  `VERDICT: PASS` and exited 0. It also understated a p=0.3 family by 2.4x
+  (3.280% vs 7.872%) and inverted the Richardson sign (3.911e-3 for a triplet
+  built around 3.711e-3). It now delegates, PRINTS the `method` string so you
+  can see which safety rule fired, and refuses a negative or non-finite GCI.
+- **`gate2m.py` refuses a case that is not KCS.** It applied `KCS.EFD` and
+  `KCS.scatter_band()` to any directory: `gate2m.py runs/wigley` printed
+  `C_T 5.9010e-03, E%D -59.0` for a Wigley hull under a header naming KCS's
+  speed and Lpp. Identity comes from `stl_sha256` in case.info matched against
+  `data/benchmark_geom/CHECKSUMS.json`; case.info now records `benchmark=`.
+- **`run-case.sh` guards, in order.** The concurrency check is now FIRST (it
+  used to sit after `rm -rf constant/polyMesh`, after the whole mesh build, and
+  after the resume early-exit — so in resuming mode it never fired at all) and
+  matches the serial path (`pgrep -x interFoam`). `MESH_ONLY=1` is EXEMPT, so
+  2-minute mesh sweeps run alongside a solve. `setFields` is FATAL (it was
+  `|| true`; a failure starts the tank as pure air and produces a complete,
+  plausible, meaningless force history). checkMesh now has a bar: **0**
+  zero-volume cells, **10** incorrectly-oriented faces (calibrated between the
+  fixed KCS mesh, 5 faces, which SOLVES, and the mirrored KCS.igs mesh, 73,
+  which dies on the first timestep). `--force` / `FORCE=1` overrides.
+- **Regenerating a FIXED case over a FREE one no longer leaves it moving.**
+  `dynamicMeshDict` and `pointDisplacement` were written and never removed, and
+  `correctPhi yes` plus the setFields `boxToFace` block were unconditional — so
+  a regenerated fixed case was not the configuration that produced the recorded
+  numbers. All four are now gated on `free_motion`.
+
 ## Gate 2M: KCS meshes cleanly now; the NUMBER is still owed
 
 The mesh blocker is closed (above). Geometry pipeline and acceptance data were
-already done (`benchmarks/kcs.py`, displacement -0.09%; EFD Ct 3.711e-3 @
-Fn 0.26, 13-group scatter 3.620-3.733e-3).
+already done (`benchmarks/kcs.py`, displacement **-0.267%** re-measured on the
+committed STL — the -0.09% previously recorded here and in kcs.py was a second
+figure for one measurement; EFD Ct 3.711e-3 @ Fn 0.26, **7**-group scatter
+3.620-3.733e-3 — the band is min/max over the seven rows transcribed in
+`SUBMITTED_CT_FINEST`, not the 13 the docstring used to claim).
 
 Still open: the 75 s (5 flow-through) KCS solve on the fixed mesh, ~16 h at
 637k cells on 10 ranks. Run it resumably:

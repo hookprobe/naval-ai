@@ -400,3 +400,79 @@ def test_declared_sigma_is_labelled_as_declared_not_sourced():
     assert hc.NOT_VERIFIED, "the unverified list must not be quietly emptied"
     assert any("sigma" in n for n in hc.NOT_VERIFIED)
     assert "1984" in doc, "the unimplemented branch must stay declared"
+
+
+# ==========================================================================
+# THE 2026-08-06 ADVERSARIAL RE-AUDIT (gap L1H-S): the regression can return a
+# NEGATIVE wetted surface, and nothing refused it.
+# ==========================================================================
+
+import pathlib as _pathlib
+
+_HOLTROP_SRC = _pathlib.Path(holtrop.__file__)
+
+
+def _code_lines(path) -> str:
+    """Source with comment lines and docstring prose dropped — the same scanner
+    shape as tests/test_limits_single_source.py, because the comments QUOTE the
+    coefficient on purpose and scanning raw text would fail on the
+    explanation."""
+    out, in_doc = [], False
+    for line in _pathlib.Path(path).read_text().splitlines():
+        stripped = line.strip()
+        if stripped.count('"""') == 1:
+            in_doc = not in_doc
+            continue
+        if in_doc or stripped.startswith("#"):
+            continue
+        out.append(line.split("  #")[0])
+    return "\n".join(out)
+
+
+def test_holtrop_refuses_a_negative_wetted_surface():
+    """REPRODUCED with Particulars(lwl=100, b=39, tf=0.2, ta=0.2, volume=390,
+    cm=0.9, cwp=0.7, lcb=0) at 6.0 m/s. The wetted-surface regression carries
+    -0.003467 B/T and nothing bounds B/T, so at B/T = 195 the bracket goes to
+    -6.75e-4 and the module returned
+
+        S     = -2.523 m^2
+        R_F   = -77.70 N
+        R_A   = -25.43 N
+        total = 3.0e13 N
+
+    with `domain_errors()` returning an EMPTY tuple, so `total()` handed back a
+    HoltropResult instead of refusing. `envelope_violations` did say "B/T
+    195.00 outside [2.1, 4.0]" — but that BADGES a result as out-of-support, it
+    does not refuse one, and a negative area is not a support question. This
+    module's own contract is that it RAISES outside the formulae's domain."""
+    from navalai import holtrop as H
+    p = H.Particulars(lwl=100, b=39, tf=0.2, ta=0.2, volume=390,
+                      cm=0.9, cwp=0.7, lcb=0)
+    errs = H.domain_errors(p, 6.0)
+    assert any("wetted-surface bracket" in e for e in errs), errs
+    with pytest.raises(ValueError, match="wetted-surface bracket"):
+        H.total(p, 6.0)
+    # direct callers get the same refusal, not a comfortable negative area
+    t = p.draught
+    cb = H.block_coefficient(p.volume, p.lwl, p.b, t)
+    with pytest.raises(ValueError, match="NEGATIVE area"):
+        H.wetted_surface(p.lwl, p.b, t, p.cm, cb, p.cwp, p.abt)
+
+
+def test_the_bracket_is_tested_as_an_expression_not_as_a_b_over_t_limit():
+    """The crossover moves with C_B, C_M and C_WP — it is ~195 for that hull
+    and elsewhere for another — so a hard B/T bar would be a guess. A normal
+    hull is unaffected, and the bracket is the single source both the guard
+    and the formula read."""
+    from navalai import holtrop as H
+    ok = H.Particulars(lwl=50, b=10, tf=3.0, ta=3.0, volume=750,
+                       cm=0.95, cwp=0.8, lcb=-1.0)
+    t = ok.draught
+    cb = H.block_coefficient(ok.volume, ok.lwl, ok.b, t)
+    assert H.wetted_surface_bracket(ok.b, t, ok.cm, cb, ok.cwp) > 0
+    assert H.wetted_surface(ok.lwl, ok.b, t, ok.cm, cb, ok.cwp, ok.abt) > 0
+    assert H.total(ok, 6.0).s > 0
+    src = _code_lines(_HOLTROP_SRC)
+    assert src.count("0.003467 * b / t") == 1, (
+        "the B/T term is evaluated in exactly one place, so the guard and the "
+        "formula can never disagree about where the bracket turns")

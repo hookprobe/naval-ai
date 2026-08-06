@@ -1,9 +1,23 @@
 #!/usr/bin/env bash
 # OpenFOAM resistance case runner (metal-gated: needs OpenFOAM 2306+).
-# Usage: ./run-case.sh <case-dir> [n-procs]
+# Usage: ./run-case.sh <case-dir> [n-procs] [--force]
 # Produces postProcessing/forces/0/force.dat consumed by navalai.cfd.post.
 set -euo pipefail
-CASE="${1:?usage: run-case.sh <case-dir> [n-procs]}"
+
+# --force (or FORCE=1) proceeds past a mesh-quality refusal. It exists so a
+# deliberate experiment on a known-bad mesh is possible; it must never be the
+# default, because a degenerate cell does not degrade a run, it invalidates it.
+FORCE="${FORCE:-0}"
+ARGS=()
+for a in "$@"; do
+  case "$a" in
+    --force) FORCE=1 ;;
+    *) ARGS+=("$a") ;;
+  esac
+done
+set -- "${ARGS[@]+"${ARGS[@]}"}"
+
+CASE="${1:?usage: run-case.sh <case-dir> [n-procs] [--force]}"
 NP="${2:-4}"
 
 [ -d "$CASE" ] || { echo "FATAL: case dir '$CASE' does not exist." \
@@ -15,6 +29,44 @@ command -v interFoam >/dev/null || { echo "FATAL: OpenFOAM not in PATH" \
 
 cd "$CASE"
 say() { echo "[$CASE] $1"; }
+
+# --- ONE SOLVE AT A TIME, CHECKED FIRST ------------------------------------
+# This Mac has 15 cores and np=10 is the measured optimum for a SINGLE job.
+# Three 10-rank jobs were once left running concurrently: load average 51.5,
+# every rank at ~46% of a core, and each case at roughly a third of its proper
+# speed — which reads as "the solver is slow" rather than "you are
+# oversubscribed 3x". Refuse rather than crawl.
+#
+# THIS CHECK USED TO SIT AFTER THE ENTIRE MESH BUILD, and everything about that
+# placement was wrong:
+#   - it came after `rm -rf constant/polyMesh processor*`, so a run that was
+#     about to be REFUSED had already destroyed the mesh it was refused for;
+#   - it came after the resume early-exit, so in the normal (resuming) mode —
+#     the mode this machine runs in, because it thermal-sleeps — it never fired
+#     at all, which is exactly when a second solve is most likely to be running;
+#   - it came BEFORE the MESH_ONLY exit, so the 2-minute mesh sweeps CLAUDE.md
+#     recommends running while a solve is in progress were refused, and
+#     `run_campaign.sh` retries exit 3 up to 20 times;
+#   - `pgrep -f "interFoam -parallel"` misses `interFoam` run serially (NP=1),
+#     which is the same machine and the same cores.
+# It is now first, it matches both paths by process name, and MESH_ONLY skips it
+# because meshing is not the thing that oversubscribes the box.
+# `pgrep -x interFoam` matches the SOLVER PROCESS by name, which is what both
+# the serial run and every mpirun rank actually is; the -f pattern additionally
+# catches the mpirun wrapper. Neither matches `tail -f .../log.interFoam`, which
+# a bare `pgrep -f interFoam` would — and CLAUDE.md tells people to run exactly
+# that, so a looser pattern would refuse runs because someone is watching one.
+solve_running() {
+  pgrep -x interFoam > /dev/null 2>&1 ||
+  pgrep -f "interFoam -parallel" > /dev/null 2>&1
+}
+if [ "${MESH_ONLY:-0}" != "1" ] && solve_running; then
+  say "FATAL: an interFoam solve is already running on this machine."
+  say "       $(pgrep -xl interFoam 2>/dev/null | head -1)"
+  say "       np is per-MACHINE, not per-job. Wait for it, or kill it first."
+  say "       (MESH_ONLY=1 sweeps are exempt and may run alongside a solve.)"
+  exit 3
+fi
 
 # --- resume support -------------------------------------------------------
 # This machine has no working cooling and has already lost a triplet to
@@ -121,18 +173,6 @@ if [ "$ROUNDS" -gt 0 ]; then
     { say "FATAL: layer pass failed — see log.snappy.layers"; exit 1; }
 fi
 
-# ONE SOLVE AT A TIME. This Mac has 15 cores and np=10 is the measured optimum
-# for a SINGLE job. Three 10-rank jobs were once left running concurrently:
-# load average 51.5, every rank at ~46% of a core, and each case at roughly a
-# third of its proper speed — which reads as "the solver is slow" rather than
-# "you are oversubscribed 3x". Refuse rather than crawl.
-if pgrep -f "interFoam -parallel" > /dev/null 2>&1; then
-  say "FATAL: an interFoam solve is already running on this machine."
-  say "       $(pgrep -fl 'interFoam -parallel' | head -1)"
-  say "       np is per-MACHINE, not per-job. Wait for it, or kill it first."
-  exit 3
-fi
-
 say "checkMesh ..."
 checkMesh > log.checkMesh 2>&1 || true
 # Report mesh quality rather than bury it: free-surface grading leaves ~20:1
@@ -180,6 +220,44 @@ else
   say "layers: ADDED ${_L_ADDED} of ${_L_WANT:-?} cells ($(awk -v a="$_L_ADDED" -v w="${_L_WANT:-1}" 'BEGIN{printf "%.1f", 100*a/w}')%), ${_L_SPEC}"
 fi
 grep -q 'Mesh OK' log.checkMesh || say "NOTE: checkMesh flagged $(grep -c 'Failed' log.checkMesh) check(s) — see log.checkMesh"
+
+# CHECKMESH HAD NO FATAL THRESHOLD AT ALL. It ran with `|| true` and the only
+# consequence was the NOTE above, so a mesh with degenerate cells went straight
+# into a multi-hour solve. Two counts are read, and they are treated
+# differently because the measurements say different things:
+#
+#   ZERO-VOLUME CELLS -> FATAL AT 1. Every mesh in this project that solved had
+#   zero (the fixed KCS meshes at all three refinement levels: 0, 0, 0); every
+#   mesh that died had some (72988 with the refineMesh rounds last, 20 on the
+#   (4,5)/n=4 sweep, 14 on the mirrored KCS.igs path). A cell of zero volume is
+#   CLAUDE.md's documented pathological-cell signature: no timestep can fix it,
+#   the adaptive controller shrinks deltaT to ~1e-40 and interFoam dies with an
+#   FPE in the GAMG p_rgh solve.
+#
+#   INCORRECTLY-ORIENTED FACES -> FATAL AT 10, not at 1, and the bar is
+#   CALIBRATED BETWEEN THE TWO MEASUREMENTS WE HAVE rather than set to the
+#   comfortable value:
+#       5  faces -> the fixed KCS mesh, which SOLVES (CLAUDE.md records it)
+#       73 faces -> the mirrored KCS.igs mesh, which dies on the first timestep
+#   Setting this to zero would refuse a mesh measured to work, which is the
+#   mirror image of softening a gate and just as dishonest. Move it when a
+#   measurement says to.
+_MQ_ZEROVOL=$(awk '/zero volume cells to set zeroVolumeCells/ {print $2}' log.checkMesh | tail -1)
+_MQ_WRONGOR=$(awk '/faces with incorrect orientation to set wrongOrientedFaces/ {print $2}' log.checkMesh | tail -1)
+_MQ_ZEROVOL=${_MQ_ZEROVOL:-0}; _MQ_WRONGOR=${_MQ_WRONGOR:-0}
+say "mesh quality: ${_MQ_ZEROVOL} zero-volume cell(s), ${_MQ_WRONGOR} incorrectly-oriented face(s)"
+echo "checkmesh_zero_volume_cells=${_MQ_ZEROVOL}" >> case.info
+echo "checkmesh_wrong_oriented_faces=${_MQ_WRONGOR}" >> case.info
+if [ "$_MQ_ZEROVOL" -gt 0 ] || [ "$_MQ_WRONGOR" -gt 10 ]; then
+  say "FATAL: mesh quality below the bar (${_MQ_ZEROVOL} zero-volume cells,"
+  say "       ${_MQ_WRONGOR} incorrectly-oriented faces; bars are 0 and 10)."
+  say "       A degenerate cell does not degrade a solve, it invalidates it:"
+  say "       deltaT collapses to ~1e-40 while Courant stays high and interFoam"
+  say "       dies in the GAMG p_rgh solve. Re-mesh; do not spend hours on this."
+  say "       Pass --force (or FORCE=1) to run it anyway, deliberately."
+  [ "$FORCE" = "1" ] || exit 1
+  say "       --force given: proceeding on a mesh that failed the bar."
+fi
 # TET-DECOMPOSITION RECEIPT. minTetQuality is DISABLED during layer addition
 # (see the meshQualityControls comment in case.py: enforcing it there made the
 # mesh measurably worse — 18 folded cells against 0). That is a knowing trade,
@@ -206,7 +284,21 @@ if [ "${MESH_ONLY:-0}" = "1" ]; then
   exit 0
 fi
 
-setFields > log.setFields 2>&1 || true
+# setFields IS NOT OPTIONAL, AND `|| true` SAID IT WAS.
+# It is what puts water in the tank: `0.orig/alpha.water` is uniform 0, and
+# every cell below z=0 is filled by the boxToCell entry here. If setFields
+# fails the solve starts in PURE AIR, runs to completion, writes forces, and
+# reports a drag that is ~1/800 of the right one — a plausible-looking number
+# from a tank with no water in it. The `boxToFace` entry (written only for
+# moving cases) is exactly the kind of selector that can be rejected on a
+# version mismatch, so this failure mode is reachable, not hypothetical.
+say "setFields ..."
+setFields > log.setFields 2>&1 || {
+  say "FATAL: setFields failed — see log.setFields."
+  say "       The tank would start as PURE AIR and the run would produce a"
+  say "       complete, plausible, meaningless force history."
+  exit 1
+}
 if [ "$NP" -gt 1 ]; then
   # Reconcile the rank count with the dict BEFORE meshing costs anything.
   # A mismatch is only discovered by interFoam, which aborts after the whole
