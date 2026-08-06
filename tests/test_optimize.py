@@ -7,7 +7,7 @@ import pytest
 import numpy as np
 
 from navalai import grammar
-from navalai.evaluate import evaluate
+from navalai.evaluate import evaluate, revalidate, tier_rank
 from navalai.mission import MissionSpec
 from navalai.optimize import pareto_front
 
@@ -16,16 +16,40 @@ def test_small_pareto_run_yields_feasible_diverse_front():
     m = MissionSpec(displacement_target_kg=6000, cruise_speed_kn=5)
     res = pareto_front(m, pop=24, gens=8, seed=3)
     assert len(res.X) >= 3, "front collapsed"
-    # every returned design must re-validate through the ladder (honesty rule 2)
+    # Every returned design must re-validate through the ladder (honesty rule 2).
+    #
+    # THIS ASSERTION USED TO READ `ev.tier == "L1"`, under this same comment
+    # citing honesty rule 2 — so the one test in the repository that claimed to
+    # enforce "any kept design re-validates UP the ladder" would have FAILED the
+    # moment a kept design actually escalated. It pinned the ceiling it was
+    # supposed to be raising, and it passed for the same reason the gap existed:
+    # `Evaluation.tier` was "L1" in 100% of ~2000 evaluations because nothing in
+    # the product could reach L2 at all.
+    #
+    # The invariant rule 2 actually asserts is MONOTONE PROMOTION: a
+    # re-validated design's badge may move up the ladder and must never move
+    # down.
     whs = []
     for x in res.X:
         ev = evaluate(x, m)
-        assert ev.tier == "L1" and ev.ok, ev.violations
+        assert ev.ok, ev.violations
+        assert tier_rank(ev.tier) >= tier_rank("L1"), (
+            f"a kept design came back at {ev.tier} — the ladder was not run")
         whs.append(ev.energy.wh_per_nm)
     # objective actually spans a range (front, not a point)
     assert max(whs) > min(whs) * 1.02
     # all in-bounds
     assert (res.X >= grammar.LOW - 1e-9).all() and (res.X <= grammar.HIGH + 1e-9).all()
+
+    # And the escalated case, which the old assertion made unreachable: a kept
+    # design taken up the ladder reports the HIGHER tier, and every L1 finding
+    # it was kept for survives the promotion.
+    pytest.importorskip("capytaine")
+    kept = evaluate(res.X[0], m)
+    up = revalidate(kept, m, "L2")
+    assert tier_rank(up.tier) > tier_rank(kept.tier)
+    assert up.tier == "L2" and up.ok == kept.ok
+    assert up.g == kept.g
 
 
 def test_optimizer_gm_floor_matches_the_rules_tier():

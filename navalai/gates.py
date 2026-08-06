@@ -106,6 +106,8 @@ GATES = [
          "tests/test_stageF.py"),
     Gate("Gate L", "one limit, one home; scantling derived from the rule",
          "tests/test_limits_single_source.py"),
+    Gate("Gate R3", "the ladder is climbable: L2 escalation, monotone tier "
+         "promotion, honest refusal of L3", "tests/test_ladder.py"),
     Gate("Gate 2M", "KCS/JBC OpenFOAM calibration w/ per-case GCI",
          status=Verdict.RED,
          detail="see data/gate-ledger.json for the measured watermark"),

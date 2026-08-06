@@ -46,6 +46,7 @@ Run `python3 -m navalai.gates`. Summary:
 | 5 | ≥90% mission briefs, hostile-LLM seam neutralised | GREEN (6) |
 | 6 | rules mechanics: right verdicts flip, fails closed, clauses cited | GREEN (6) |
 | 7 | flywheel: harvest → retrain → poisoned model refused | GREEN (4) |
+| R3 | ladder is climbable: `revalidate()` to L2, monotone tier promotion, L3 refused with its operator route named | GREEN (8) |
 | 2M | KCS/JBC OpenFOAM calibration, per-case GCI | **RED** — ran 2026-08-05 on the Mac: C_t 9.33e-3 vs EFD 3.711e-3 (−151%), outside the Tokyo-2015 scatter. Cause: 16.3% of wetted faces in the y+ band. Kept red. |
 | 6R | ISO thresholds parity vs licensed standard text | **REVIEW-GATED** (qualified reviewer) |
 

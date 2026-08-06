@@ -1,14 +1,22 @@
-"""The validation ladder orchestrator: L0 -> L1 (-> L2/L3 escalation hooks).
+"""The validation ladder orchestrator: L0 -> L1 -> L2 (-> L3, operator-run).
 
 Every result is tier-badged and uncertainty-carrying (BuildPlan honesty rule 1)
 and can be appended to the provenance DB (rule: nothing exists unless recorded).
+
+`evaluate()` climbs to L1. `revalidate()` is the escalation verb honesty rule 2
+("any kept design re-validates up the ladder") always described and never had:
+until it existed, `navalai.seakeeping` was imported outside the tests by exactly
+one caller — a print-only spot-check in `scripts/demo_mission.py` — and
+`navalai.cfd` only by operator CLIs, so `Evaluation.tier` read "L1" in 100% of
+~2000 evaluations. There was no code path by which a design could reach L2 at
+all, which makes rule 2 a sentence rather than a mechanism.
 """
 
 from __future__ import annotations
 
 import math
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 import numpy as np
 
@@ -44,6 +52,36 @@ from .weights import MassAggregate, MassItem, aggregate, trim_angle_deg
 # that "fails closed"; it was a print statement in a demo.
 CONSTRAINT_NAMES = ("freeboard", "gm", "bend_radius", "trim", "list", "rules")
 
+# The ladder, in order. A tier badge is only ever allowed to move RIGHT along
+# this tuple, and only when the solver named by that tier has actually run.
+TIER_ORDER = ("L0", "L1", "L2", "L3")
+
+
+def tier_rank(tier: str) -> int:
+    """Position on the ladder. Unknown badges rank below L0 rather than throw,
+    so a comparison can never silently promote something it does not know."""
+    base = tier.split("-")[0]          # 'L1-INVALID' is not an L1 result
+    return TIER_ORDER.index(base) if (base in TIER_ORDER
+                                      and base == tier) else -1
+
+
+class TierRefusal(RuntimeError):
+    """The ladder was asked for a tier it cannot honestly deliver here.
+
+    The point of a distinct exception is that the ONE thing escalation must
+    never do is return a lower-tier number wearing a higher-tier badge. Every
+    branch of revalidate() that cannot compute the tier it was asked for
+    raises; none of them degrades quietly.
+    """
+
+
+class TierUnavailable(TierRefusal):
+    """The solver for that tier is not installed on this machine."""
+
+
+class TierRequiresOperator(TierRefusal):
+    """That tier is a supervised campaign, not an in-process call."""
+
 
 @dataclass
 class Evaluation:
@@ -64,6 +102,12 @@ class Evaluation:
     unaccounted_frac: float = 0.0   # displacement with no declared position
     hull_lwl_m: float = 0.0         # so requirements can check the mission
     rules: dict = field(default_factory=dict)   # tier R, IN the ladder
+    seakeeping: dict = field(default_factory=dict)   # tier L2, when it has run
+    # The genome that produced this evaluation, so a kept design can be handed
+    # to revalidate() as itself rather than as a loose array the caller has to
+    # keep paired with it by hand. compare=False because an ndarray field makes
+    # dataclass __eq__ raise.
+    params: np.ndarray | None = field(default=None, repr=False, compare=False)
     eval_ms: float = 0.0
     badges: dict = field(default_factory=dict)   # quantity -> (tier, sigma)
     g: dict = field(default_factory=dict)        # constraint -> value, <=0 feasible
@@ -100,7 +144,7 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
 
     rep = grammar.check(params)
     if not rep.ok:
-        return Evaluation(False, "L0", rep.violations,
+        return Evaluation(False, "L0", rep.violations, params=np.asarray(params),
                           eval_ms=(time.perf_counter() - t0) * 1e3)
 
     hull = Hull(params)
@@ -159,7 +203,7 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
         hs, wl = solve_to_displacement(hull, target, rho)
     except ValueError as e:
         return Evaluation(False, "L1", (f"floatation: {e}",), weights=wb,
-                          ply_thickness_m=t_ply,
+                          ply_thickness_m=t_ply, params=np.asarray(params),
                           eval_ms=(time.perf_counter() - t0) * 1e3)
 
     # Free-surface correction is a VIRTUAL RISE of G, so it is subtracted from
@@ -241,7 +285,7 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
         weights=wb, masses=agg, gm_m=gm_m, gm_l_m=gm_l_m,
         trim_deg=trim, list_deg=heel, resistance=res, energy=en, g=g,
         ply_thickness_m=t_ply, unaccounted_frac=unaccounted_frac,
-        hull_lwl_m=float(p["LWL"]), rules=rules_rep,
+        hull_lwl_m=float(p["LWL"]), rules=rules_rep, params=np.asarray(params),
         eval_ms=(time.perf_counter() - t0) * 1e3,
         # Sigmas that are DERIVED carry it; sigmas that are still a declared
         # fraction say so. The mass model computes a real sigma
@@ -273,3 +317,139 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
         provenance.add_result(hid, "L1", "energy", "0.1", "wh_per_nm",
                               en.wh_per_nm, ev.badges["wh_per_nm"][1], {})
     return ev
+
+
+# Small on purpose. L2 escalation is meant to be affordable enough that a kept
+# design is re-validated as a matter of course rather than as an event: the
+# reference hull costs ~0.7 s for both meshes and the RAO together. Three
+# frequencies straddle the heave resonance of a small craft.
+_L2_OMEGAS = np.array([0.6, 1.0, 1.6])
+# Two mesh levels, so the sigma the L2 badge carries is a MEASURED
+# discretisation uncertainty and not a declared fraction. seakeeping.py's own
+# docstring names mesh sensitivity as mandatory (NREL/OMAE 2024); a single-mesh
+# BEM result has no basis for an error bar at all.
+_L2_MESHES = ((20, 5), (28, 7))
+
+
+def revalidate(design, mission: MissionSpec, target_tier: str = "L2",
+               provenance: db.Provenance | None = None,
+               rho: float = RHO_WATER, omegas: np.ndarray | None = None
+               ) -> Evaluation:
+    """Re-validate a kept design UP the ladder and return the promoted result.
+
+    `design` is either an `Evaluation` (as returned by `evaluate()`, carrying
+    its own genome) or a raw parameter vector, which is evaluated to L1 first.
+
+    The returned Evaluation's `tier` is the HIGHEST tier that actually ran, so
+    an L2 result supersedes the L1 badge and the badges dict gains the L2
+    quantities alongside the L1 ones it did not recompute. Promotion is
+    monotone: `tier_rank(out.tier) >= tier_rank(in.tier)` always, and asking
+    for a tier at or below the one already reached is a no-op rather than a
+    demotion.
+
+    Raises `TierRefusal` (or a subclass) rather than returning anything for a
+    tier it could not compute — see the class docstring for why that asymmetry
+    is the whole point.
+
+    Provenance: the L1 rows are written by `evaluate()`, so passing a genome
+    (rather than an already-evaluated `Evaluation`) is what makes a hull's
+    history show the L2 row superseding its own L1 row in one call. Passing an
+    Evaluation that was produced without a provenance writes L2 rows against a
+    hull that has no L1 rows — true, and visible, rather than back-filled.
+    """
+    if isinstance(design, Evaluation):
+        ev = design
+        if ev.params is None:
+            raise TierRefusal(
+                "this Evaluation carries no genome, so there is nothing to "
+                "re-validate — pass the parameter vector instead")
+        params = np.asarray(ev.params, float)
+    else:
+        params = np.asarray(design, float)
+        ev = evaluate(params, mission, rho, provenance)
+
+    if target_tier not in TIER_ORDER:
+        raise ValueError(f"{target_tier!r} is not a tier: {TIER_ORDER}")
+    if tier_rank(target_tier) <= tier_rank(ev.tier):
+        return ev                       # already there; never step backwards
+
+    if ev.hydro is None:
+        raise TierRefusal(
+            f"cannot escalate to {target_tier}: this design has no L1 state "
+            f"(tier {ev.tier}, {'; '.join(ev.violations) or 'no reason given'})"
+            f". L2 needs the floated waterline and L3 needs a hull that passed "
+            f"L0 — the ladder is climbed, not skipped.")
+
+    if target_tier == "L3":
+        # THE SEAM EXISTS AND IT IS HONEST. L3 is a multi-hour supervised
+        # OpenFOAM campaign (the KCS case on this machine is ~6 h on 10 ranks,
+        # resumable because thermal sleep kills it), so there is no truthful
+        # way to answer an in-process call with an L3 number. What would be
+        # dishonest is to fall back to the L1 result and badge it L3.
+        raise TierRequiresOperator(
+            "L3 (RANS) is not an in-process tier. Generate the case with "
+            "`python scripts/make_case.py --out runs/<name> --speed U --np 10`, "
+            "run it with `openfoam navalai/cfd/run-case.sh runs/<name> 10`, and "
+            "post it with `python scripts/post_gci.py runs/<name>`; the result "
+            "then enters the ladder through the provenance DB as an L3 row. "
+            "No L3 badge is issued for a number L3 did not produce.")
+
+    # ---- L2: zero-speed radiation/diffraction (Capytaine BEM) --------------
+    try:
+        from . import seakeeping
+        import capytaine as _cpt          # noqa: F401  (presence check only)
+    except Exception as e:                # pragma: no cover - env dependent
+        raise TierUnavailable(
+            f"L2 needs Capytaine and it is not importable here ({e}). Install "
+            f"requirements-optional.txt, or run the ladder to L1 and say L1 — "
+            f"an L2 badge without Capytaine would name a solver that never "
+            f"ran.") from e
+
+    w = _L2_OMEGAS if omegas is None else np.asarray(omegas, float)
+    hull = Hull(params)
+    try:
+        (nx0, nz0), (nx1, nz1) = _L2_MESHES
+        am0, _dp0, _n0 = seakeeping.heave_coeffs(hull, w, nx0, nz0, rho)
+        am1, dp1, npan = seakeeping.heave_coeffs(hull, w, nx1, nz1, rho)
+        rao = seakeeping.heave_rao(hull, w, ev.hydro.disp_kg, ev.hydro.awp,
+                                   nx1, nz1, rho)
+    except Exception as e:
+        raise TierUnavailable(
+            f"the L2 solve failed on this hull ({type(e).__name__}: {e}); no "
+            f"L2 badge is issued") from e
+
+    # Worst relative mesh-to-mesh change across the frequency set. This is the
+    # honest one-sigma basis: it is what the convergence sweep measures.
+    unc_rel = float(np.max(np.abs(am1 - am0) / np.maximum(np.abs(am1), 1e-12)))
+    sk = {
+        "omegas": w.tolist(),
+        "added_mass_heave": am1.tolist(),
+        "damping_heave": dp1.tolist(),
+        "rao_heave": rao.tolist(),
+        "n_panels": int(npan),
+        "uncertainty_rel": unc_rel,
+        "solver": "capytaine",
+    }
+
+    if provenance is not None:
+        hid = provenance.add_hull(params)
+        ver = getattr(_cpt, "__version__", "unknown")
+        for wi, a, b, r in zip(w, am1, dp1, rao):
+            meta = {"omega": float(wi), "n_panels": int(npan),
+                    "meshes": list(_L2_MESHES), "basis": "mesh convergence"}
+            provenance.add_result(hid, "L2", "capytaine", ver,
+                                  f"A33_kg@{wi:.2f}", float(a),
+                                  unc_rel * abs(float(a)), meta)
+            provenance.add_result(hid, "L2", "capytaine", ver,
+                                  f"B33_Ns_per_m@{wi:.2f}", float(b),
+                                  unc_rel * abs(float(b)), meta)
+            provenance.add_result(hid, "L2", "capytaine", ver,
+                                  f"RAO_heave@{wi:.2f}", float(r),
+                                  unc_rel * abs(float(r)), meta)
+
+    badges = dict(ev.badges)
+    badges["heave_added_mass"] = ("L2", unc_rel * float(np.max(np.abs(am1))),
+                                  "measured")
+    badges["heave_rao"] = ("L2", unc_rel * float(np.max(np.abs(rao))),
+                           "measured")
+    return replace(ev, tier="L2", seakeeping=sk, badges=badges)
