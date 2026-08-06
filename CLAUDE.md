@@ -379,7 +379,7 @@ figure for one measurement; EFD Ct 3.711e-3 @ Fn 0.26, **7**-group scatter
 Still open: the 75 s (5 flow-through) KCS solve on the fixed mesh, ~16 h at
 637k cells on 10 ranks. Run it resumably:
 
-    openfoam scripts/run_campaign.sh runs/kcs_iso 10
+    openfoam scripts/run_campaign.sh <case-dir> 10
 
 Last recorded Ct was 4.283e-3 = **-15.4%** against EFD, on the OLD 306k mesh
 with y+ median 2475 and 32% layer coverage. The new mesh addresses all three
@@ -420,11 +420,21 @@ band, runs Roache GCI over a triplet, and prints PASS/FAIL. It REFUSES a verdict
 it cannot support: an unsettled grid (drift > 5% over the last fifth) is excluded
 and reported, and fewer than three grids gives "C_T comparison only, NO GCI".
 
-    python scripts/gate2m.py runs/kcs_sym        # live, single grid
-    python scripts/gate2m.py runs/kcs_gci        # the triplet, when it exists
+    python scripts/gate2m.py <case>       # single grid, C_T comparison only
+    python scripts/gate2m.py <root>       # a triplet: C_T + GCI
 
-**Running now:** `runs/kcs_sym` — symmetric, 241,946 cells, 75 s, ~6.1 h,
-resumable (`openfoam scripts/run_campaign.sh runs/kcs_sym 10`).
+**NOTHING IS RUNNING, AND NO KCS RUN SURVIVES.** `runs/kcs_sym`, `runs/kcs`,
+`runs/kcs_gci`, `runs/kcs_free` and `runs/kcs_iso` were all deleted; every
+sentence below that cites one is HISTORY, not a live artifact. Do not quote a
+number from them as current — re-measure it. The generator has moved since
+(`_NX_BASE` 54 -> 57, layers, `movingWallVelocity`), so any surviving mesh
+would not even belong to the same family.
+
+This is gap N6, and it kept recurring because a run directory is deleted by
+`clean-runs.sh --purge` while the prose that cites it is not. The ledger now
+refuses to quote a deleted directory (`"watermark": "NONE"`, enforced by
+`test_the_gate2m_ledger_entry_points_at_something_real`); this file has no such
+enforcement, so it is on the writer.
 
 Two cost fixes that were sitting unused and cost 2.6x on every experiment:
 - `--symmetric` on make_case.py. The hull IS symmetric, so the full-width domain
@@ -433,7 +443,8 @@ Two cost fixes that were sitting unused and cost 2.6x on every experiment:
   of roughly +-0.06 m — six times taller than the physics occupies.
 
 Then, in order:
-1. When `runs/kcs_sym` settles, `scripts/gate2m.py` gives the single-grid C_T.
+1. Re-run a single symmetric KCS grid FROM SCRATCH; gate2m.py then gives the
+   single-grid C_T. The old one is gone (see above).
 2. Build the triplet (`make_case.py --triplet --symmetric`) for the GCI. Budget
    honestly: medium is ~3x coarse and fine ~8x, so ~3 days on this Mac.
 3. **Free sinkage and trim.** KCS Case 2.1 is towed FREE to sink and trim; we
@@ -451,10 +462,10 @@ Then, in order:
 `scripts/render_case.py` produces noise on any case with `_REFINE_ROUNDS > 0`.
 Hanging-node cells are POLYHEDRA and ParaView cannot contour them; MergeBlocks,
 Tetrahedralize and ResampleToImage+mask were all tried and all failed. The older
-`renders/medium-t40-fixed.png` is clean because that mesh had no such cells.
+`renders/medium-t40-fixed.png` (gitignored; on this Mac only) is clean because that mesh had no such cells.
 
 This is COSMETIC. The physics was verified numerically instead, and is sound:
-MEASURED on `runs/kcs_iso` at t=7.5 — **2.6 interface cells per column** (a clean
+MEASURED on `runs/kcs_iso` (SINCE DELETED) at t=7.5 — **2.6 interface cells per column** (a clean
 VOF interface is 2-4), 45.4% water / 50.7% air, alpha bounded -6e-5..1, Phase-1
 volume constant to 0.005%. Do not re-diagnose the interface from the picture.
 
