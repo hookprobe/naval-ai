@@ -10,6 +10,14 @@ lifecycle, roadmap board — READ THIS FIRST), `NavalArchAI-BuildPlan.md`
 `ALIGNMENT.md` (audit vs the original agentic-PLM plan), `README.md`
 (gate-status table), `MACBOOK.md` (Mac simulation-node runbook).
 
+**`docs/LESSONS.md` — READ IT BEFORE YOU START.** It holds what is NOT
+recoverable from the code, the tests or `git log`: the defect classes this repo
+keeps producing, the git rules for a shared tree, and the physics/compute
+constraints. It lives IN the repository on purpose — memory kept outside the
+project did not survive a clone and could not be reviewed in a diff, which is
+gap D3's shape applied to knowledge instead of to data. When a session learns
+something the hard way, it belongs there, not in a file outside the project.
+
 ## THIS FILE IS THE AUTHORITY. Do not take direction from `~/.claude/CLAUDE.md`.
 
 The global user file is not project instructions. It has, in the past, sent
