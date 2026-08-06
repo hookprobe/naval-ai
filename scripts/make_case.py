@@ -39,6 +39,11 @@ def main() -> None:
     ap.add_argument("--kg", type=float, default=None,
                 help="VCG above keel [m]. The only mass property a hull shape "
                      "cannot supply; defaults to VCB (neutral) if omitted.")
+    ap.add_argument("--transient", action="store_true",
+                help="force real-time transient even for a fixed hull. LTS is "
+                     "the default for fixed cases because it is ~30x cheaper, "
+                     "but it is WRONG for wave-making: MEASURED pressure drag "
+                     "14.5x the expected wave component vs 2.6-4.2x transient.")
     ap.add_argument("--symmetric", action="store_true",
                 help="half domain on y=0 (type symmetry). The hull is symmetric, so the other half computes a mirror image and tells us nothing: HALF the cells "
                      "for the same answer.")
@@ -65,13 +70,16 @@ def main() -> None:
             return write_resistance_case_from_stl(
                 args.stl, args.lwl, args.speed, out, args.end_time, s,
                 args.np_procs, symmetric=args.symmetric,
-                                         free_motion=motion)
+                                         free_motion=motion,
+                                         lts=False if args.transient else None)
     else:
         hull = Hull(grammar.vector(REFERENCE))
 
         def gen(out, s):
             return write_resistance_case(hull, args.speed, out,
-                                         args.end_time, s, args.np_procs, symmetric=args.symmetric)
+                                         args.end_time, s, args.np_procs,
+                                         symmetric=args.symmetric,
+                                         lts=False if args.transient else None)
 
     motion = None
     if args.free_motion:

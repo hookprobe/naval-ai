@@ -120,12 +120,27 @@ _NZ_PER_NX = 14.0 / 54.0
 # inserted controls no y+ at all, so coverage wins over stack depth: the ideal
 # bridging depth is still computed, and case.info records both so the gap is
 # visible rather than silently absorbed.
-_MAX_LAYERS = 5
+# CAP, not a target. `n_layers_to_bridge` computes how many layers it takes to
+# reach the adjacent cell, and that is what should decide; this only stops an
+# absurd stack. It was 3, from a measurement ("n>=6 collapses coverage AND
+# crashes interFoam") taken on the OLD 38:1 anisotropic background, which
+# CLAUDE.md marks SUPERSEDED. Raised to 10 because a 52 mm hull cell on a 10 m
+# hull needs ~9 layers to bridge at expansion 1.2, and capping at 5 there
+# reproduces exactly the 0.08-of-cell ratio that produced ZERO layers on KCS.
+# The opposite failure — a stack thicker than its host cell — is now caught by
+# the stack/hull_cell check below, so both ends are guarded.
+_MAX_LAYERS = 10
 
 # Angle across which layers may continue. 170 is the Wolf Dynamics KCS
 # reference value and snappy's own DTCHull default; 60 terminated extrusion at
 # the keel, transom, deck edge and bulb — see the SNAPPY_STUB comment.
 _LAYER_FEATURE_ANGLE = 170
+
+# LTS pseudo-iteration budget for a fixed-attitude resistance solve. The Wolf
+# Dynamics reference uses 10000; a steady KCS resistance typically converges in
+# 1-3k, and the drift criterion in gate2m decides when it HAS converged rather
+# than this number. Sized so the coarse grid fits a 10-core workstation budget.
+_LTS_ITERATIONS = 2000
 
 
 # FLUID PROPERTIES, ONCE. The audit found rho declared FIVE times in this file,
@@ -300,7 +315,23 @@ def _refine_boxes(lwl: float, symmetric: bool) -> list[dict]:
     boxes = []
     for i in range(_REFINE_ROUNDS):
         f = 1.0 - i / (_REFINE_ROUNDS + 1.0)          # 1.0, 0.75, 0.5 ...
-        bx0 = -(0.6 + 1.3 * f) * lwl                  # wake astern
+        # WAKE ASTERN, AND A RUN-OUT BEACH BEHIND IT.
+        # The refined wake used to reach -1.9 Lwl with the outlet at -2.5, i.e.
+        # only 0.6 Lwl of run-out coarsening a mere 4x. Waves reached the outlet
+        # still resolved, reflected, and came back onto the hull: MEASURED
+        # pressure drag was 2.6x the expected wave component at t=7.5 s, 2.9x at
+        # 13.7 s and 4.2x on the only SETTLED run at 76 s — the error GROWS with
+        # time, which is energy accumulating in a box it cannot leave. Viscous
+        # drag over the same runs is 1.08x ITTC-57, so the friction side is
+        # right and the entire discrepancy is on the wave side.
+        # The Wolf Dynamics reference has no damping model either; it leaves
+        # 2.31 Lpp of run-out coarsening 32x and lets numerical dissipation on
+        # coarse cells eat the waves. ESI v2606 has no `verticalDamping`
+        # fvOption (that is an OpenFOAM.org facility — checked, not present),
+        # and its waveModels absorption is a patch BC that would need its own
+        # constant/waveProperties. So we use the reference's mechanism: pull
+        # the refined wake forward to -1.0 Lwl, leaving 1.5 Lwl of run-out.
+        bx0 = -(0.4 + 0.6 * f) * lwl
         bx1 = (1.02 + 0.30 * f) * lwl                 # a little ahead of the bow
         by = (0.18 + 0.55 * f) * lwl                  # Kelvin wedge
         bz = (0.020 + 0.030 * f) * lwl                # THIN slab around z=0
@@ -356,7 +387,7 @@ purgeWrite      3;
 // -> ~4.9 h for the coarse grid alone, days for the fine). 2 is the compromise
 // MULESCorr's semi-implicit alpha solve supports; interface sharpness is
 // checked in the render rather than assumed.
-adjustTimeStep  yes;  maxCo 5;  maxAlphaCo 2;  maxDeltaT 0.1;
+{time_control}
 functions {{
   // NO `rho rhoInf` here. That entry makes the FO charge WATER density to
   // every face including the DRY topsides, which sit in air (1.2 kg/m3).
@@ -365,6 +396,15 @@ functions {{
   // it in the viscous term. The reference DTCHull case sets rhoInf only.
   forces {{
     type forces; libs (forces); patches (hull);
+    // BIN THE FORCE ALONG THE HULL. A single total tells you the answer is
+    // wrong; the distribution tells you WHERE. MEASURED across six runs,
+    // viscous drag is consistently right (1.15-1.22x ITTC-57) while pressure
+    // drag is 3-6x the expected wave+form value and GROWS with time —
+    // independent of mesh, tank depth, run-out length, layers and solver
+    // settings. Bow-heavy would mean wave-making; transom-heavy would mean
+    // base drag from a wrongly-wetted transom; uniform would mean a numerical
+    // artefact. Costs nothing at runtime.
+    binData {{ nBin 20; direction (1 0 0); cumulative no; }}
     rhoInf 998.8; CofR (0 0 0);
     writeControl timeStep; writeInterval 10;
   }}
@@ -548,25 +588,52 @@ actions (
   {{ name c0;   type cellSet; action subset; source cellToCell; set cHex; }}
 );
 """
-FV_SCHEMES = """FoamFile { version 2.0; format ascii; class dictionary; object fvSchemes; }
-ddtSchemes      { default Euler; }
-gradSchemes     { default Gauss linear; }
-divSchemes {
+FV_SCHEMES = """FoamFile {{ version 2.0; format ascii; class dictionary; object fvSchemes; }}
+ddtSchemes      {{ default {ddt}; }}
+gradSchemes     {{ default Gauss linear; }}
+divSchemes {{
   div(rhoPhi,U)     Gauss linearUpwind grad(U);
   div(phi,alpha)    Gauss vanLeer;
   div(phirb,alpha)  Gauss linear;
   div(phi,k)        Gauss upwind;
   div(phi,omega)    Gauss upwind;
   div(((rho*nuEff)*dev2(T(grad(U))))) Gauss linear;
-}
-laplacianSchemes { default Gauss linear corrected; }
-interpolationSchemes { default linear; }
-snGradSchemes   { default corrected; }
-wallDist        { method meshWave; }
+}}
+laplacianSchemes {{ default Gauss linear corrected; }}
+interpolationSchemes {{ default linear; }}
+snGradSchemes   {{ default corrected; }}
+wallDist        {{ method meshWave; }}
 """
 
-FV_SOLUTION = """FoamFile { version 2.0; format ascii; class dictionary; object fvSolution; }
-solvers {
+# TIME CONTROL: two regimes, and the choice is what makes Gate 2M affordable.
+#
+# TRANSIENT is physically complete but pays the Courant limit on every step.
+# MEASURED on the layered coarse KCS grid: the 2.65 mm first-layer cell with
+# ~3 m/s local flow pins dt at ~0.002 s against maxCo 5, so 75 s of physical
+# time needs ~37500 steps at ~0.95 s each -> ~10 h for the COARSE grid alone.
+# Refinement halves the cell in all three directions AND halves the timestep,
+# so cost scales as r^4: medium ~39 h, fine ~158 h. The transient triplet is
+# ~8.6 days on this machine, which is not a plan.
+#
+# LTS (local time stepping) solves the SAME equations to a STEADY state with a
+# per-cell pseudo-timestep, so the near-wall cells stop dictating a global dt.
+# This is exactly what the Wolf Dynamics reference does for its FIXED-attitude
+# KCS case (endTime 10000 pseudo-iterations). A GCI over three LTS grids is
+# valid — it bounds SPATIAL discretisation, which is what Gate 2M's <=2.5%
+# clause is about.
+#
+# Honest limits, which is why this is not the default for everything: the
+# result is steady only, it cannot feed the free sinkage-and-trim work (that
+# needs real time), and any number from it must be labelled LTS rather than
+# passed off as the transient answer.
+TIME_CONTROL_TRANSIENT = (
+    "adjustTimeStep  yes;  maxCo 5;  maxAlphaCo 2;  maxDeltaT 0.1;")
+TIME_CONTROL_LTS = (
+    "adjustTimeStep  no;   // LTS: 'time' is a pseudo-iteration count\n"
+    "maxCo 10; maxAlphaCo 5; maxDeltaT 1;")
+
+FV_SOLUTION = """FoamFile {{ version 2.0; format ascii; class dictionary; object fvSolution; }}
+solvers {{
   // MEASURED on runs/kcs_free, timestep 1: the alpha smoothSolver reported
   // "No Iterations 1000" with Final residual 1.55e-08 against tolerance 1e-8 —
   // it hit the DEFAULT maxIter and bailed UNCONVERGED, and MULES then blew
@@ -575,22 +642,25 @@ solvers {
   // reference (both fixed and KCS_Dynamic) uses nAlphaCorr 3, nLimiterIter 10,
   // minIter 1 and tolerance 1e-10 — an order of magnitude more limiter work
   // per step, which is exactly the budget a moving interface needs.
-  "alpha.water.*" {
-    nAlphaCorr 3; nAlphaSubCycles 1; cAlpha 1; icAlpha 0;
-    MULESCorr yes; nLimiterIter 10; alphaApplyPrevCorr yes;
+  "alpha.water.*" {{
+    nAlphaCorr 2; nAlphaSubCycles 1; cAlpha 1; icAlpha 0;
+    MULESCorr yes; nLimiterIter 5; alphaApplyPrevCorr yes;
     solver smoothSolver; smoother symGaussSeidel;
-    tolerance 1e-10; relTol 0; minIter 1;
-  }
-  "pcorr.*" { solver PCG; preconditioner DIC; tolerance 1e-5; relTol 0; }
-  p_rgh { solver GAMG; smoother DIC; tolerance 5e-8; relTol 0.001; }
-  p_rghFinal { $p_rgh; relTol 0; }
-  "(U|k|omega).*" { solver smoothSolver; smoother symGaussSeidel;
-                    tolerance 1e-7; relTol 0.1; nSweeps 1; }
-}
-PIMPLE {
+    tolerance 1e-8; relTol 0; minIter 1;
+  }}
+  "pcorr.*" {{ solver PCG; preconditioner DIC; tolerance 1e-5; relTol 0; }}
+  p_rgh {{ solver GAMG; smoother DIC; tolerance 1e-7; relTol 0.01; }}
+  p_rghFinal {{ $p_rgh; relTol 0; }}
+  "(U|k|omega).*" {{ solver smoothSolver; smoother symGaussSeidel;
+                    tolerance 1e-7; relTol 0.1; nSweeps 1; }}
+}}
+PIMPLE {{
+  {pimple_time}
   // nOuterCorrectors 1 is PISO: valid only at Co<1. Running maxCo 5 in PISO
   // mode leaves the pressure-velocity coupling unconverged within the step.
-  momentumPredictor no; nOuterCorrectors 2; nCorrectors 3;
+  // Under LTS the outer loop IS the pseudo-time iteration, so 1 is correct
+  // there and 2 would be paying twice for the same convergence.
+  momentumPredictor no; nOuterCorrectors {n_outer}; nCorrectors 3;
   // correctPhi is REQUIRED once the mesh moves: the face fluxes
   // inherited from the previous mesh do not satisfy continuity on
   // the new one, and interFoam will not recover on its own.
@@ -601,8 +671,8 @@ PIMPLE {
   // transitions. Solving that with ZERO non-orthogonal correctors biases the
   // pressure gradient, and pressure is 49% of our drag. The reference uses 1.
   nNonOrthogonalCorrectors 1;
-}
-relaxationFactors { equations { ".*" 1; } }
+}}
+relaxationFactors {{ equations {{ ".*" 1; }} }}
 """
 
 DECOMPOSE = """FoamFile {{ version 2.0; format ascii; class dictionary; object decomposeParDict; }}
@@ -956,7 +1026,8 @@ def write_resistance_case_from_stl(stl_path: str | Path, lwl: float,
                                    end_time: float = 40.0, scale: float = 1.0,
                                    np_procs: int = 8,
                                    symmetric: bool = False,
-                                   free_motion: dict | None = None) -> dict:
+                                   free_motion: dict | None = None,
+                                   lts: bool | None = None) -> dict:
     """Same case generator, but for EXTERNAL geometry (KCS/JBC calibration).
 
     The STL must be watertight, in metres, with the free surface at z=0 and
@@ -968,13 +1039,14 @@ def write_resistance_case_from_stl(stl_path: str | Path, lwl: float,
     (out / "constant" / "triSurface" / "hull.stl").write_bytes(data)
     stl_sha = hashlib.sha256(data).hexdigest()
     return _write_case_dicts(out, stl_sha, lwl, speed, end_time, scale,
-                             np_procs, symmetric, free_motion)
+                             np_procs, symmetric, free_motion, lts)
 
 
 def write_resistance_case(hull: Hull, speed: float, out_dir: str | Path,
                           end_time: float = 40.0, scale: float = 1.0,
                           np_procs: int = 8, symmetric: bool = False,
-                          free_motion: dict | None = None) -> dict:
+                          free_motion: dict | None = None,
+                          lts: bool | None = None) -> dict:
     """Generate a COMPLETE, runnable interFoam resistance case.
 
     scale: background-mesh refinement multiplier (1.0 / sqrt(2) steps give
@@ -991,13 +1063,15 @@ def write_resistance_case(hull: Hull, speed: float, out_dir: str | Path,
     stl_sha = hull_to_stl(hull, out / "constant" / "triSurface" / "hull.stl",
                           nx=nx, nz=nz)
     return _write_case_dicts(out, stl_sha, lwl, speed,
-                             end_time, scale, np_procs, symmetric, free_motion)
+                             end_time, scale, np_procs, symmetric,
+                             free_motion, lts)
 
 
 def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
                       end_time: float, scale: float, np_procs: int,
                       symmetric: bool = False,
-                      free_motion: dict | None = None) -> dict:
+                      free_motion: dict | None = None,
+                      lts: bool | None = None) -> dict:
     (out / "system").mkdir(parents=True, exist_ok=True)
     # Initial fields live in 0.orig and are COPIED to 0 (the OpenFOAM tutorial
     # convention). setFields rewrites 0/alpha.water as a full non-uniform field
@@ -1020,7 +1094,16 @@ def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
     # instead of quietly computing shallow-water resistance and calling it
     # deep-water resistance.
     half_lambda = math.pi * speed ** 2 / 9.81
-    depth = max(0.6 * lwl, 1.5 * half_lambda)
+    # TANK DEPTH >= 1 SHIP LENGTH, not 0.6.
+    # The deep-water WAVE criterion (depth > lambda/2) was already satisfied at
+    # 0.6 L, but the snappyHexMesh user guide section 4.4.2 discussion of marine
+    # domains and the Wolf Dynamics KCS reference (1.37 Lpp) both use at least a
+    # ship length, and the reference deck states it outright: "the depth must be
+    # greater than 1 wave length... a good choice is at least 1 ship length".
+    # A shallow tank raises wave resistance, and pressure drag was MEASURED at
+    # 2.6-4.2x the expected wave component in every run. The extra cells are in
+    # the most graded, cheapest part of the mesh.
+    depth = max(1.0 * lwl, 1.5 * half_lambda)
 
     # A symmetric case models only y >= 0 and closes it with a symmetry plane:
     # half the cells for the same resolution, and no mirrored-geometry seam.
@@ -1113,6 +1196,25 @@ def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
     # layer count is measured 2 minutes later and is already fatal in
     # run-case.sh. Predict here, gate there, and record the prediction so the
     # two can be compared.
+    # THE STACK MUST ALSO FIT IN THE CELL IT IS INSERTED INTO.
+    # Checking only last_layer/hull_cell misses the opposite failure. MEASURED:
+    # at Fn 0.10 the first-layer thickness scales as 1/u_tau, so it is 2.9x
+    # THICKER than at Fn 0.26 and the 5-layer stack came to 57 mm against a
+    # 37.9 mm hull cell — layers thicker than the cell they extrude into. The
+    # mesh built, and interFoam then died at t=0.0012 with deltaT collapsing to
+    # 1e-23: CLAUDE.md's documented pathological-cell signature. The bar is
+    # 1.2, just above OpenFOAM's own defaults (finalLayerThickness 0.3 with 5
+    # layers at 1.2 gives a stack of ~1.08 of the adjacent cell).
+    stack_ratio = stack / hull_cell
+    if stack_ratio > 1.2:
+        raise ValueError(
+            f"layer stack {stack * 1e3:.1f} mm does not FIT the "
+            f"{hull_cell * 1e3:.1f} mm hull cell (ratio {stack_ratio:.2f} > "
+            f"1.2). snappy will extrude cells larger than their host and "
+            f"interFoam will die with deltaT collapsing to ~1e-20. Lower "
+            f"_MAX_LAYERS or _TARGET_YPLUS, or refine the hull less. "
+            f"(first layer {t1 * 1e3:.2f} mm scales as 1/u_tau, so this bites "
+            f"at LOW speed, not high.)")
     if last_ratio < 0.12:
         import warnings
         warnings.warn(
@@ -1178,10 +1280,30 @@ def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
         raise RuntimeError(
             f"cannot compute Aref from the hull STL, so forceCoeffs would be "
             f"meaningless: {exc}") from exc
+    # LTS is the default for FIXED-attitude cases and impossible for moving
+    # ones: local time stepping has no global time, so a body that must move
+    # through real time cannot use it.
+    # LTS is impossible for a moving body (no global time), and it is also
+    # WRONG for wave-making even when fixed: MEASURED on KCS, pressure drag
+    # came out 14.5x the expected wave component under LTS against 2.6-4.2x
+    # transient, because local pseudo-timesteps make wave propagation speed
+    # meaningless. It is kept only as a cheap flow-field initialiser.
+    lts = (not free_motion) if lts is None else bool(lts)
+    if lts and free_motion:
+        raise ValueError("LTS has no global time; a moving body needs transient")
+    # Under LTS `endTime` counts PSEUDO-ITERATIONS, not seconds, so a caller
+    # asking for "75 s" is asking for a physical duration that does not exist
+    # here. Substitute an iteration budget and say so in case.info, rather than
+    # silently running 75 iterations and reporting an unconverged number as a
+    # result.
+    if lts:
+        end_time = float(_LTS_ITERATIONS)
+        write_int = max(end_time / 10.0, 1.0)
     sysd.joinpath("controlDict").write_text(
-        CONTROL_DICT.format(end_time=end_time, dt=0.001, write_int=write_int,
-                            speed_abs=abs(speed), lwl=lwl,
-                            aref=max(aref, 1e-6)))
+        CONTROL_DICT.format(
+            end_time=end_time, dt=1 if lts else 0.001, write_int=write_int,
+            speed_abs=abs(speed), lwl=lwl, aref=max(aref, 1e-6),
+            time_control=TIME_CONTROL_LTS if lts else TIME_CONTROL_TRANSIENT))
     sysd.joinpath("blockMeshDict").write_text(BLOCKMESH.format(**dom))
     # Two passes: snap first (needs cubic cells), layers last (must not be
     # z-refined afterwards). With no refineMesh rounds the second dict is
@@ -1218,8 +1340,15 @@ def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
         sysd.joinpath(f"topoSetDict.{i}").write_text(
             TOPO_SET.format(shield_m=shield, loc_x=dom["loc_x"],
                             loc_y=dom["loc_y"], loc_z=dom["loc_z"], **box))
-    sysd.joinpath("fvSchemes").write_text(FV_SCHEMES)
-    sysd.joinpath("fvSolution").write_text(FV_SOLUTION)
+    sysd.joinpath("fvSchemes").write_text(FV_SCHEMES.format(
+        ddt="localEuler rDeltaT" if lts else "Euler"))
+    sysd.joinpath("fvSolution").write_text(FV_SOLUTION.format(
+        # LTS needs the pseudo-timestep smoothing/damping controls, or the
+        # local dt field is discontinuous and the solve rings.
+        pimple_time=("rDeltaTSmoothingCoeff 0.05; rDeltaTDampingCoeff 0.5;\n"
+                     "  nAlphaSpreadIter 0; nAlphaSweepIter 0;" if lts else ""),
+        # Under LTS the outer loop IS the pseudo-time march, so one is right.
+        n_outer=1 if lts else 2))
     sysd.joinpath("decomposeParDict").write_text(DECOMPOSE.format(np=np_procs))
     sysd.joinpath("surfaceFeatureExtractDict").write_text(SURFACE_FEATURES)
     sysd.joinpath("setFieldsDict").write_text(SET_FIELDS)
