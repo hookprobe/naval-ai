@@ -79,6 +79,11 @@ different Gate 2M numbers came to circulate at once (gap J1).
 | Gate R3 | the ladder is climbable: L2 escalation, monotone tier promotion, honest refusal of L3 | `tests/test_ladder.py` (8 tests) |
 | Gate S | the MDO spine: one terminal state per genome, append-only archive, legal-transition graph, unmeasured metric refused | `tests/test_pipeline.py` (48 tests) |
 | Gate SG | the gap queue: findings are work items, not prose | `tests/test_gaps.py` (18 tests) |
+| Gate R4 | the ladder is WIRED: every claimed tier reachable from evaluate(), L3 read from recorded evidence and never solved, tier R alone can refuse a design | `tests/test_ladder_wiring.py` (17 tests) |
+| Gate SR | gap state is derived from the code, not from prose | `tests/test_reconcile_gaps.py` (23 tests) |
+| Gate 2S | one settled_drag: one cell-count rule, one settledness rule, and a component that oscillates cannot hide under a stable total | `tests/test_settled_drag.py` (46 tests) |
+| Gate 4H | the surrogate refuses what it has not seen, and the feasibility bar measures the model rather than the sampler | `tests/test_surrogate_honesty.py` (13 tests) |
+| Gate 2R | tank resonance is diagnosed, and a period is never claimed from too few cycles | `tests/test_tank_resonance.py` (23 tests) |
 | Gate V2.0 | refdata spine: every constant carries source + basis | `tests/test_refdata.py` (25 tests) |
 | Gate 2G | KCS benchmark geometry: present and accepted (scripts/fetch_benchmark_geom.py) | `tests/test_benchmark_geom.py` (2 tests) |
 | Gate 6R-mech | review-record mechanics + basis routing | `tests/test_phase6r.py` (10 tests) |

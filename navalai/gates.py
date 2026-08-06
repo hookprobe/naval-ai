@@ -196,6 +196,44 @@ GATES = [
     # editing the audit record it reads.
     Gate("Gate SG", "the gap queue: findings are work items, not prose",
          "tests/test_gaps.py"),
+    # A1/A2. `revalidate()` raised TierRequiresOperator UNCONDITIONALLY at L3
+    # while its own docstring promised "the result then enters the ladder
+    # through the provenance DB as an L3 row" — and nothing read that row. L3
+    # is now READ from a recorded campaign and never solved; tier R alone can
+    # refuse a design. MEASURED: nine of the ten case directories here lack
+    # `domain_length_m` and are refused rather than defaulted.
+    Gate("Gate R4", "the ladder is WIRED: every claimed tier reachable from "
+         "evaluate(), L3 read from recorded evidence and never solved, tier R "
+         "alone can refuse a design",
+         "tests/test_ladder_wiring.py"),
+    # The queue imported 119 findings ALL marked OPEN — the register document's
+    # state, not the codebase's. ~45 were closed by commits nobody told it
+    # about. This row guards the reconciliation being a REPEATABLE predicate
+    # over the code rather than a one-off edit, and that a gap whose predicate
+    # cannot be written reports NEEDS-HUMAN instead of being guessed closed.
+    Gate("Gate SR", "gap state is derived from the code, not from prose",
+         "tests/test_reconcile_gaps.py"),
+    # R5.1. gate2m and post_gci disagreed on the cell count for r (checkMesh
+    # with fallback vs cells_bg only) and on what "settled" means (last-fifth
+    # by sample vs tail-fraction by time), so one triplet could yield two GCIs.
+    # MEASURED 2026-08-06: drift on the TOTAL is dominated by the stable
+    # viscous part, so gate2m called runs/beach settled at 0.70 flow-throughs
+    # on 3.3% drift while its pressure component swung 1.80x-4.64x.
+    Gate("Gate 2S", "one settled_drag: one cell-count rule, one settledness "
+         "rule, and a component that oscillates cannot hide under a stable "
+         "total", "tests/test_settled_drag.py"),
+    # A4. Honesty rule 2 says a surrogate refuses OOD queries; `is_ood()` had
+    # two call sites and BOTH WERE TESTS, so in production it extrapolated
+    # silently.
+    Gate("Gate 4H", "the surrogate refuses what it has not seen, and the "
+         "feasibility bar measures the model rather than the sampler",
+         "tests/test_surrogate_honesty.py"),
+    # R5.5. The pressure component oscillates 0.27x-5.92x its expected value
+    # with a domain-scale period while viscous holds at 1.22-1.36x ITTC-57.
+    # This row guards the DIAGNOSTIC: a force history too short to resolve a
+    # period must REFUSE to report one rather than return a noisy number.
+    Gate("Gate 2R", "tank resonance is diagnosed, and a period is never "
+         "claimed from too few cycles", "tests/test_tank_resonance.py"),
     # BuildPlan 2 V2.0. Its bar is provenance, not physics: "constants
     # importable, every one carries source+basis, no bare numbers".
     Gate("Gate V2.0", "refdata spine: every constant carries source + basis",
