@@ -1,0 +1,73 @@
+{
+  "_README": [
+    "EXPECTED-RED LEDGER. Every gate that is RED must appear here with a",
+    "MEASURED watermark, an owner and a review_by date. This is what lets CI",
+    "ask 'is anything red that we did not already record, or REDDER than we",
+    "recorded?' instead of 'is anything red?', which was a constant and",
+    "therefore no signal at all.",
+    "",
+    "This ledger SOFTENS NOTHING. The gates still print RED, first, on every",
+    "run. What it changes is the exit code, so a NEW break is distinguishable",
+    "from a known one. Rules:",
+    "  - a RED gate not listed here      -> FAIL (it is new)",
+    "  - a RED gate worse than watermark -> FAIL (it regressed)",
+    "  - a GREEN gate still listed here  -> FAIL (stale; delete the entry)",
+    "  - past review_by                  -> FAIL (re-measure or sign an extension)",
+    "",
+    "review_by is the anti-wallpaper clause: an expected-red gate must not",
+    "become permanent furniture."
+  ],
+
+  "Gate 2M": {
+    "metric": "C_T vs KRISO EFD 3.711e-3, and Roache GCI over a solved triplet",
+    "watermark": -79.8,
+    "units": "E%D, (EFD-CFD)/EFD * 100; negative = we over-predict",
+    "better_is": "toward_zero",
+    "bar": "inside the Tokyo-2015 scatter 3.620e-3..3.733e-3 AND GCI <= 5%",
+    "measured_utc": "2026-08-05",
+    "measured_on": "runs/kcs (the only SETTLED grid in the repository)",
+    "owner": "cfd-engineer",
+    "verify": "python scripts/gate2m.py runs/kcs_gci2",
+    "review_by": "2026-09-06",
+    "why_red": [
+      "No GCI triplet exists yet. runs/kcs_gci had force data for COARSE ONLY",
+      "(15.3% drift, not settled); medium and fine were generated and never",
+      "solved. runs/kcs_sym stopped at t=13.7 of 75 s with 10.6% drift.",
+      "",
+      "HISTORY, because five different numbers have circulated and four of",
+      "them are superseded:",
+      "  9.33e-3 / -151%  -- our own pressure DOUBLE-COUNTING bug (fixed cf76704)",
+      "  4.283e-3 / -15.4% -- read a pre-restart fragment (fixed b8fcd4e); this",
+      "                       figure is NOT reproducible from any run dir",
+      "  6.6719e-3 / -79.8% -- runs/kcs, settled, on the pre-fix mesh. CURRENT.",
+      "  3.8958e-3 / -5.0%  -- runs/kcs_sym, UNSETTLED (10.6% drift), not a result",
+      "  7.3706e-3 / -98.6% -- kcs_gci/coarse, UNSETTLED (15.3% drift)",
+      "",
+      "A fresh triplet (runs/kcs_gci2) was generated 2026-08-06 with nine",
+      "reference-parity fixes and is running. Its coarse grid passed a 2 s",
+      "stability probe: Phase-1 volume constant, alpha bounded [-2.1e-7, 1]."
+    ]
+  },
+
+  "Gate 2U": {
+    "metric": "% of a random valid-hull batch that meshes AND converges unattended",
+    "watermark": 75.0,
+    "units": "percent",
+    "better_is": "up",
+    "bar": ">= 95% of 200 hulls (NavalArchAI-BuildPlan.md Phase 2)",
+    "measured_utc": "2026-08-05",
+    "measured_on": "N=8 sample, scripts/mesh_robustness.py",
+    "owner": "cfd-engineer",
+    "verify": "python scripts/mesh_robustness.py --n 200 --solve 2",
+    "review_by": "2026-09-06",
+    "why_red": [
+      "2 of 8 sampled valid hulls produced zero-volume cells or wrongly",
+      "oriented faces, both fatal to interFoam on timestep 1. BuildPlan Risk",
+      "#1 is now a number instead of a worry.",
+      "",
+      "N=8 is a small sample and the watermark should be read as such. The",
+      "'converges' half of the bar has NEVER been measured: --solve exists and",
+      "has not been run, so today's 75% is a MESHING rate only."
+    ]
+  }
+}

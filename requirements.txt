@@ -1,5 +1,13 @@
-# Core — everything the gate ladder needs to run.
-numpy
-scipy
-pymoo
-pytest
+# PINNED. Every gate in this project is a NUMERIC bar — the Wigley band, the
+# Hulme 0.8310 hemisphere anchor, the Forrester 2x co-kriging result, a 50 ms
+# evaluation budget. With unpinned dependencies there is no way to tell a real
+# regression from a scipy minor bump, which makes the regression gates
+# unfalsifiable in exactly the way they exist to prevent.
+#
+# Upper bounds are deliberate: a new MAJOR may legitimately move a number, and
+# that should be a considered change with a re-measurement, not a surprise on
+# a Tuesday. Bump these on purpose, run the ladder, record what moved.
+numpy>=2.0,<3
+scipy>=1.14,<2
+pymoo>=0.6,<0.7
+pytest>=8.0,<9

@@ -141,14 +141,44 @@ checkMesh > log.checkMesh 2>&1 || true
 say "mesh: $(grep -m1 'cells:' log.checkMesh | tr -s ' ') | \
 $(grep -m1 'non-orthogonality Max' log.checkMesh | tr -s ' ' | cut -c1-46) | \
 $(grep -m1 'Max skewness' log.checkMesh | tr -s ' ' | sed 's/^ *//' | cut -c1-40)"
-# The layer summary is the `patch faces layers avg thickness` table snappy
-# prints at the END of the layer pass — NOT the "Added N out of M cells" lines,
-# which report castellation iterations and read as 0.3% coverage on a patch
-# that is in fact fully layered. With staged meshing that table lives in
-# log.snappy.layers; fall back to log.snappy for the single-pass case.
+# LAYER COVERAGE IS MEASURED FROM THE CELL DELTA, NOT FROM THE TABLE.
+#
+# This block used to parse the `patch faces layers avg thickness` table and
+# report "n=3, near-wall 0.000795 m (11175 faces)". That table is the layer
+# specification snappy was ASKED for — it is printed at log line 246, BEFORE
+# `Outer iteration : 0` at line 251 — and it prints identically whether the
+# extrusion succeeds or fails completely. The old comment here asserted the
+# opposite and dismissed the "Added N out of M cells" lines as misleading.
+#
+# MEASURED 2026-08-06 on runs/kcs_sym, the mesh that had been solving for
+# hours, and on a freshly generated runs/kcs_gci2/coarse:
+#     Initial mesh : cells:241946
+#     Layer mesh   : cells:241946          <-- zero cells added
+#     Extruding 0 out of 11175 faces (0%)
+#     Added 0 out of 33525 cells (0%)
+# Independent geometric check: wall-normal distance from each hull face to its
+# owner cell centre had p50 = 10.62 mm against a requested first-layer
+# half-height of 0.397 mm, and 0 of 11175 faces below 1 mm. Measured y+ on the
+# hull averaged 644. There were NO PRISM LAYERS AT ALL, and both CLAUDE.md and
+# this script had been reporting full coverage for weeks.
+#
+# A wall model with no boundary-layer mesh is not a degraded result, it is a
+# different simulation. So this is FATAL unless LAYERS_OPTIONAL=1.
 _LAYERLOG=log.snappy; [ -s log.snappy.layers ] && _LAYERLOG=log.snappy.layers
-say "layers: $(awk '/^hull +[0-9]/ {print "n="$3", near-wall "$4" m, overall "$5" m ("$2" faces)"; found=1}
-                   END {if (!found) print "none reported"}' "$_LAYERLOG" | tail -1)"
+_L_INIT=$(awk '/^Initial mesh :/ {gsub(/cells:/,"",$4); print $4}' "$_LAYERLOG" | tail -1)
+_L_FINAL=$(awk '/^Layer mesh :/  {gsub(/cells:/,"",$4); print $4}' "$_LAYERLOG" | tail -1)
+_L_ADDED=$(( ${_L_FINAL:-0} - ${_L_INIT:-0} ))
+_L_WANT=$(awk '/Added [0-9]+ out of [0-9]+ cells/ {print $5}' "$_LAYERLOG" | tail -1)
+_L_SPEC=$(awk '/^hull +[0-9]/ {print "requested n="$3", first "$4" m"}' "$_LAYERLOG" | tail -1)
+if [ "${_L_ADDED:-0}" -le 0 ]; then
+  say "FATAL: layer addition produced ZERO cells (${_L_SPEC:-no spec found})."
+  say "       The hull has no prism layers, so y+ is uncontrolled and the wall"
+  say "       model is invalid. See log.snappy.layers 'Extruding 0 out of ...'."
+  say "       Set LAYERS_OPTIONAL=1 to proceed deliberately anyway."
+  [ "${LAYERS_OPTIONAL:-0}" = "1" ] || exit 1
+else
+  say "layers: ADDED ${_L_ADDED} of ${_L_WANT:-?} cells ($(awk -v a="$_L_ADDED" -v w="${_L_WANT:-1}" 'BEGIN{printf "%.1f", 100*a/w}')%), ${_L_SPEC}"
+fi
 grep -q 'Mesh OK' log.checkMesh || say "NOTE: checkMesh flagged $(grep -c 'Failed' log.checkMesh) check(s) — see log.checkMesh"
 # MESH_ONLY exists so the robustness harness measures THIS pipeline. It used
 # to call `snappyHexMesh -overwrite` itself, which was a fair copy of the

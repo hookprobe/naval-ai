@@ -236,8 +236,25 @@ class Hull:
                 # starboard shell (outward +y), port mirrored winding
                 quad(S[i, j], S[i, j + 1], S[i + 1, j + 1], S[i + 1, j])
                 quad(P[i + 1, j], P[i + 1, j + 1], P[i, j + 1], P[i, j])
-            # deck lid strip (outward +z)
-            quad(S[i, nz], S[i + 1, nz], P[i + 1, nz], P[i, nz])
+            # Deck lid strip, outward +z. The winding was S[i], S[i+1],
+            # P[i+1], P[i] — with S at +y and P at -y that gives
+            # cross(b-a, c-a) with n_z = -2y*dx < 0, i.e. the ENTIRE DECK
+            # POINTED DOWN INTO THE HULL. MEASURED on a fresh grammar hull:
+            # 397 flipped triangles (mean n_z = -0.999), two orientation zones
+            # by surfaceCheck, and a signed volume of 16.886 m^3 against a true
+            # 27.279 — understated by 38.1%. runs/gci/coarse shipped with the
+            # same defect at -43%.
+            #
+            # It survived because `stl_watertight_report` keyed edges on
+            # tuple(sorted(edge)) — UNDIRECTED — so a flipped triangle still
+            # gives every edge a count of 2 and the report says watertight.
+            # snappy was unaffected (castellation uses ray parity from
+            # locationInMesh, which does not care about winding), which is why
+            # the meshes looked fine; but the divergence-theorem integrals in
+            # cfd/post.py assume outward winding, and they feed the sixDoF mass
+            # and inertia. They were safe only because the flipped patch is the
+            # deck, which is clipped away above the waterline — luck, not design.
+            quad(S[i, nz], P[i, nz], P[i + 1, nz], S[i + 1, nz])
         # transom cap at x = xs[0] (outward -x)
         for j in range(nz):
             quad(S[0, j], P[0, j], P[0, j + 1], S[0, j + 1])

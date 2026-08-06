@@ -200,7 +200,20 @@ def test_near_wall_spacing_targets_the_wall_function_band(tmp_path):
     assert "relativeSizes false" in snappy, "relative sizing caused y+ ~ 7500"
     assert "firstLayerThickness" in snappy
     m = re.search(r"firstLayerThickness ([\d.e+-]+)", snappy)
-    assert float(m.group(1)) == pytest.approx(t1, rel=1e-3)
+    # The generator's target moved 30 -> 100 (see _TARGET_YPLUS). At y+ 30 the
+    # requested 0.795 mm first layer against a 19 mm hull cell was a 28:1 jump
+    # that snappy's medial-axis solver refused to bridge: extrusion decayed to
+    # ZERO and the mesh shipped with no prism layers while the summary table
+    # kept printing the requested spec. So this asserts against the GENERATOR's
+    # own target, not a hard-coded y+ 30 value, and the wall-model band is
+    # checked separately below.
+    from navalai.cfd.case import _TARGET_YPLUS
+    t_gen = first_layer_thickness(2.57, 10.0, _TARGET_YPLUS)
+    assert float(m.group(1)) == pytest.approx(t_gen, rel=1e-3)
+    # ...and the target must stay inside the log-layer band the wall functions
+    # are valid in. 30 sits at the buffer-layer edge (measured min y+ was 12.8,
+    # already below the log layer); 300 is the upper end of the standard band.
+    assert 30.0 <= _TARGET_YPLUS <= 300.0
 
     # the y+ instrumentation itself must be wired, or this regresses unseen
     ctrl = (tmp_path / "y" / "system" / "controlDict").read_text()

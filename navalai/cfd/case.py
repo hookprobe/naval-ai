@@ -40,8 +40,26 @@ _FS_BOX = dict(x0=-1.6, x1=1.3, y=0.7, z=0.025)
 # layers gave y+ min 42 / avg 7491 / max 60017 on the hull -- one to three
 # orders of magnitude outside where nutkWallFunction is valid. Skin friction
 # is most of this hull's drag at Fn 0.26, so that is not a rounding error.
-_TARGET_YPLUS = 30.0
-_LAYER_EXPANSION = 1.3
+# TARGET y+ 100, NOT 30, AND FIVE LAYERS AT 1.2 — the Wolf Dynamics KCS
+# reference regime, adopted after measuring why we had NO LAYERS AT ALL.
+#
+# The old settings asked for a 0.795 mm first layer at y+ 30 with 3 layers at
+# expansion 1.3: a 3.06 mm stack against a 19 mm hull cell, i.e. a 28:1 jump
+# from the last layer to the first background cell, and a stack covering 3.2%
+# of the boundary layer. snappy's medial-axis solver will not bridge that: it
+# extruded 44.98% of the hull faces on iteration 0 and DECAYED TO ZERO over 35
+# iterations. Meanwhile the summary table kept printing the REQUESTED spec, so
+# run-case.sh and CLAUDE.md both reported "3 of 3 layers, near-wall 0.795 mm"
+# on a mesh with no prism cells whatsoever, for weeks.
+#
+# MEASURED with y+ 100 / 5 layers / 1.2 (first 2.65 mm, stack 19.7 mm, jump
+# 4.5:1, ~20% of delta — the reference's proportions):
+#     Extruding 11056 out of 11153 faces (99.13%)   coverage 97.4%
+# 30 is also the WRONG target for a wall-function mesh whose measured min y+
+# was already 12.8, i.e. in the buffer layer where nutkWallFunction is least
+# valid. 100 puts the low-friction regions near 47, safely in the log layer.
+_TARGET_YPLUS = 100.0
+_LAYER_EXPANSION = 1.2
 
 # snappy refinementSurfaces level (min, max) on the hull. MEASURED why this
 # matters: at (2 3) the FLAT hull areas take only level 2, i.e. background/4
@@ -102,7 +120,12 @@ _NZ_PER_NX = 14.0 / 54.0
 # inserted controls no y+ at all, so coverage wins over stack depth: the ideal
 # bridging depth is still computed, and case.info records both so the gap is
 # visible rather than silently absorbed.
-_MAX_LAYERS = 3
+_MAX_LAYERS = 5
+
+# Angle across which layers may continue. 170 is the Wolf Dynamics KCS
+# reference value and snappy's own DTCHull default; 60 terminated extrusion at
+# the keel, transom, deck edge and bulb — see the SNAPPY_STUB comment.
+_LAYER_FEATURE_ANGLE = 170
 
 
 # FLUID PROPERTIES, ONCE. The audit found rho declared FIVE times in this file,
@@ -501,6 +524,28 @@ actions (
      outsidePoints (({loc_x} {loc_y} {loc_z}));
      includeCut false; includeInside false; includeOutside false;
      nearDistance {shield_m:.6f}; curvature -100; }}
+  // HEXES ONLY. This is the fix for every "incorrectly oriented face" this
+  // project has ever reported. `refineMesh`'s cellCuts cannot cut the
+  // hanging-node POLYHEDRA that snappy's castellation leaves behind: it emits
+  // "unexpected bad cut" and produces cells that do not close.
+  //
+  // MEASURED across all 11 meshes on disk, the correlation is perfect:
+  //   0 refine rounds -> 0 wrongly oriented faces (7 of 7 cases, 45k..835k)
+  //   3 refine rounds -> 2..47 wrongly oriented   (4 of 4 cases)
+  // and runs/kcs uses the IDENTICAL STL with 0 rounds and is clean, which
+  // exonerates the geometry. Localising them: 47 of 47 were INTERNAL faces,
+  // zero on any patch, with owner/neighbour x and y extents equal (ratio
+  // 1.02) and z extents 2:1 or 4:1 — the signature of a z-refinement
+  // transition and nothing else.
+  //
+  // Restricting the set to genuine hexes, measured on the coarse KCS grid:
+  //   bad-cut warnings 11563 -> 0      wrongly oriented 47 -> 0
+  //   max skewness  15.66 -> 3.77      max nonOrtho  90.21 -> 84.39
+  // at NO cost in free-surface resolution (median band cell z-extent 6.20 mm
+  // vs 6.12 mm before). Copying the reference's `geometricCut yes` instead
+  // makes it WORSE (53 bad faces).
+  {{ name cHex; type cellSet; action new; source shapeToCell; shape hex; }}
+  {{ name c0;   type cellSet; action subset; source cellToCell; set cHex; }}
 );
 """
 FV_SCHEMES = """FoamFile { version 2.0; format ascii; class dictionary; object fvSchemes; }
@@ -745,7 +790,14 @@ addLayersControls {{
   relativeSizes false; layers {{ hull {{ nSurfaceLayers {n_layers}; }} }}
   expansionRatio {layer_expansion}; firstLayerThickness {first_layer:.6e};
   minThickness {min_thickness:.6e}; nGrow 0;
-  featureAngle 60; slipFeatureAngle 30;
+  // featureAngle is the angle ACROSS WHICH LAYERS ARE ALLOWED TO CONTINUE.
+  // At 60 deg extrusion terminates at any junction sharper than that, which
+  // on a hull means the keel line, the transom edge, the deck edge and the
+  // bulb — i.e. exactly the places a boundary layer must not stop. The Wolf
+  // Dynamics KCS reference uses 170 and so does snappy's own DTCHull tutorial.
+  // MEASURED before the change: extrusion started at 44.98% of 11166 faces
+  // and DECAYED to 0 over 35 iterations as the quality controls rejected it.
+  featureAngle {layer_feature_angle}; slipFeatureAngle 30;
   nRelaxIter 5; nSmoothSurfaceNormals 1; nSmoothNormals 3; nSmoothThickness 10;
   // Loosened from 0.5/0.3: free-surface grading makes the cells at the
   // waterline ~20:1 anisotropic, and layer insertion refuses there. Measured
@@ -760,8 +812,22 @@ addLayersControls {{
 // a FATAL IO ERROR after the mesh is already built. It stayed hidden while
 // nSurfaceLayers was 3 (iteration 20 was never reached) and only surfaced
 // when the near-wall fix asked for 6 layers.
+// minTetQuality IS DISABLED, matching the Wolf Dynamics KCS reference
+// (-1e30) and snappy's own DTCHull tutorial. This is not a loosened bar; it is
+// the wrong bar for layer addition. MEASURED: with minTetQuality 1e-15 the
+// layer pass detected 1245-1350 "illegal faces (concave, zero area or negative
+// cell pyramid volume)" with "face-decomposition tet quality < 1e-15" on EVERY
+// iteration, so extrusion started at 49.5% of 11166 faces and decayed to ZERO
+// over 35 iterations. The face-decomposition tet test is transiently violated
+// while the medial-axis solver is moving the mesh, and rejecting on it throws
+// away layers that would have been valid once the motion settled.
+//
+// The guards that actually protect the SOLVE — minVol, minVolRatio, minTwist,
+// minDeterminant, maxNonOrtho — are unchanged, and checkMesh still gates the
+// finished mesh independently. A dropped layer costs accuracy; a degenerate
+// cell costs the run. This drops neither.
 meshQualityControls {{ maxNonOrtho 70; maxBoundarySkewness 20; maxInternalSkewness 4;
-  maxConcave 80; minVol 1e-13; minTetQuality 1e-15; minArea -1; minTwist 0.02;
+  maxConcave 80; minVol 1e-13; minTetQuality -1e30; minArea -1; minTwist 0.02;
   minDeterminant 0.001; minFaceWeight 0.05; minVolRatio 0.01; minTriangleTwist -1;
   nSmoothScale 4; errorReduction 0.75;
   // Limits snappy falls back to for the final nRelaxedIter layer iterations.
@@ -774,7 +840,7 @@ meshQualityControls {{ maxNonOrtho 70; maxBoundarySkewness 20; maxInternalSkewne
   // and died with an FPE in the GAMG pressure solve. A dropped layer costs
   // accuracy; a degenerate cell costs the whole run.
   relaxed {{ maxNonOrtho 75; maxBoundarySkewness 25; maxInternalSkewness 6;
-    maxConcave 80; minVol 1e-13; minTetQuality 1e-15; minArea -1;
+    maxConcave 80; minVol 1e-13; minTetQuality -1e30; minArea -1;
     minTwist 0.02; minDeterminant 0.001; minFaceWeight 0.05;
     minVolRatio 0.01; minTriangleTwist -1; }}
 }}
@@ -838,16 +904,28 @@ def stl_watertight_report(path: Path) -> dict:
                 tris.append(tuple(cur))
                 cur = []
     from collections import Counter
-    edges: Counter = Counter()
+    edges: Counter = Counter()      # undirected: closedness
+    directed: Counter = Counter()   # directed: consistent winding
     vol = 0.0
     for a, b, c in tris:
         for e in ((a, b), (b, c), (c, a)):
             edges[tuple(sorted(e))] += 1
+            directed[e] += 1
         va, vb, vc = np.array(a), np.array(b), np.array(c)
         vol += float(np.dot(va, np.cross(vb, vc))) / 6.0
     bad = [e for e, n in edges.items() if n != 2]
+    # WINDING, not just closedness. Keying only on tuple(sorted(edge)) is
+    # blind to orientation: a flipped triangle still gives each of its edges a
+    # count of 2, so this reported `watertight: True` on our own hulls while
+    # 397 deck triangles pointed INTO the boat and the signed volume was 38%
+    # low. A manifold edge that is traversed the same way TWICE means the two
+    # triangles sharing it disagree — that is the actual signature.
+    conflicts = sum(1 for e, n in directed.items() if n > 1)
     return {"n_tris": len(tris), "open_or_nonmanifold_edges": len(bad),
-            "watertight": len(bad) == 0, "signed_volume": vol}
+            "winding_conflicts": conflicts,
+            "watertight": len(bad) == 0 and conflicts == 0,
+            "outward": vol > 0.0,
+            "signed_volume": vol}
 
 
 def write_resistance_case_from_stl(stl_path: str | Path, lwl: float,
@@ -985,7 +1063,7 @@ def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
     dom.update(
         hull_lvl_min=_HULL_REFINE[0], hull_lvl_max=_HULL_REFINE[1],
         n_layers=n_layers, first_layer=t1, layer_expansion=_LAYER_EXPANSION,
-        min_thickness=0.25 * t1,
+        min_thickness=0.25 * t1, layer_feature_angle=_LAYER_FEATURE_ANGLE,
         fs_level=2, fs_dz_bg=dz_core, refine_rounds=_REFINE_ROUNDS,
         fs_x0=_FS_BOX["x0"] * lwl, fs_x1=_FS_BOX["x1"] * lwl,
         fs_y0=0.0 if symmetric else -_FS_BOX["y"] * lwl,
