@@ -88,6 +88,12 @@ class Gate:
 GATES = [
     Gate("Gate 0", "grammar/geometry/DB", "tests/test_phase0.py"),
     Gate("Gate 1", "L1 physics + Wigley anchor + <50ms", "tests/test_phase1.py"),
+    # Gate 1's own bar names Holtrop-Mennen, and `grep -rin holtrop` used to hit
+    # the plan document and nothing else while Gate 1 printed GREEN. Split out
+    # rather than folded into Gate 1 so the ladder shows WHICH clause is
+    # covered by what.
+    Gate("Gate 1H", "Holtrop-Mennen vs the 1982 worked example",
+         "tests/test_holtrop.py"),
     Gate("Gate 1b", "NSGA-II Pareto front", "tests/test_optimize.py"),
     Gate("Gate 2", "Capytaine BEM (Hulme anchor)", "tests/test_phase2.py"),
     Gate("Gate 2R", "CFD reference parity + GCI honesty",
