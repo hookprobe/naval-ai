@@ -1,6 +1,6 @@
 {
   "_README": {
-    "generated_utc": "2026-08-06T15:43:31Z",
+    "generated_utc": "2026-08-06T20:07:24Z",
     "generation": {
       "frozen_suite": "flywheel.frozen_suite \u2014 BENCHMARK_PROBES + held-out wedge",
       "harvest_seed": 21,
@@ -17,40 +17,49 @@
   "gm": {
     "best_coverage_2sigma": 1.0,
     "best_median_rel_err": 0.19284739707059526,
-    "best_wall_clock_s": 1.1140710830077296,
+    "best_wall_clock_s": 1.1625899999926332,
     "coverage_2sigma": 1.0,
     "err_kind": "spread-normalised",
+    "frozen_ood_rate": 0.037037037037037035,
     "median_rel_err": 0.19284739707059526,
+    "n_frozen": 27,
     "n_train": 120,
     "suite": "frozen_suite",
+    "suite_fingerprint": "f37529748d22c684",
     "transform": "identity",
-    "utc": 1786031009.98928,
-    "wall_clock_s": 1.1140710830077296
+    "utc": 1786046843.1598852,
+    "wall_clock_s": 1.1625899999926332
   },
   "rt": {
     "best_coverage_2sigma": 0.9629629629629629,
     "best_median_rel_err": 0.10445777957961365,
-    "best_wall_clock_s": 1.1508317919942783,
+    "best_wall_clock_s": 1.202593958005309,
     "coverage_2sigma": 0.9629629629629629,
     "err_kind": "relative",
+    "frozen_ood_rate": 0.037037037037037035,
     "median_rel_err": 0.10445777957961365,
+    "n_frozen": 27,
     "n_train": 120,
     "suite": "frozen_suite",
+    "suite_fingerprint": "f37529748d22c684",
     "transform": "log",
-    "utc": 1786031011.14044,
-    "wall_clock_s": 1.1508317919942783
+    "utc": 1786046844.428703,
+    "wall_clock_s": 1.202593958005309
   },
   "wh_per_nm": {
     "best_coverage_2sigma": 0.9629629629629629,
     "best_median_rel_err": 0.10446180024836133,
-    "best_wall_clock_s": 1.156368249998195,
+    "best_wall_clock_s": 1.205098333011847,
     "coverage_2sigma": 0.9629629629629629,
     "err_kind": "relative",
+    "frozen_ood_rate": 0.037037037037037035,
     "median_rel_err": 0.10446180024836133,
+    "n_frozen": 27,
     "n_train": 120,
     "suite": "frozen_suite",
+    "suite_fingerprint": "f37529748d22c684",
     "transform": "log",
-    "utc": 1786031008.874812,
-    "wall_clock_s": 1.156368249998195
+    "utc": 1786046841.930537,
+    "wall_clock_s": 1.205098333011847
   }
 }
