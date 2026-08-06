@@ -59,9 +59,19 @@ def test_dxf_roundtrip(tmp_path):
     for p in panels:
         pts = back[p.name]
         assert len(pts) == len(p.outline)
-        # extents survive the write/read (nesting offset shifts y only)
-        assert np.ptp(pts[:, 0]) == pytest.approx(np.ptp(p.outline[:, 0]), abs=1e-3)
-        assert np.ptp(pts[:, 1]) == pytest.approx(np.ptp(p.outline[:, 1]), abs=1e-3)
+        # Extents survive the write/read, IN THE UNITS THE FILE DECLARES.
+        # The writer now emits millimetres and says so via $INSUNITS 4. It
+        # previously wrote metres with NO header at all, so a shop importing
+        # the file cut a 10 mm part instead of a 10 m one. Comparing the
+        # round-trip against the metre-valued outline is what let that pass.
+        assert np.ptp(pts[:, 0]) == pytest.approx(
+            1000.0 * np.ptp(p.outline[:, 0]), abs=1.0)
+        assert np.ptp(pts[:, 1]) == pytest.approx(
+            1000.0 * np.ptp(p.outline[:, 1]), abs=1.0)
+    # ...and the declared unit must be present, or "millimetres" is a habit
+    # rather than a statement the importer can read.
+    head = path.read_text()
+    assert "$INSUNITS" in head and "\n4\n" in head.split("$INSUNITS")[1][:20]
 
 
 # ---------------- Pareto dashboard ----------------

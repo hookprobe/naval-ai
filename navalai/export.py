@@ -37,8 +37,41 @@ def _station_wires(hull: Hull, n_stations: int = 12):
     return wires
 
 
-def export_step(hull: Hull, path: str | Path, n_stations: int = 12) -> Path:
+
+def refuse_unvalidated(ev, what: str) -> None:
+    """Raise unless this design actually passed the ladder.
+
+    THE EXPORT BOUNDARY ENFORCED NOTHING. `export_dxf`, `export_step` and
+    `export_iges` took a `Hull` — pure geometry — so nothing at the boundary
+    could know whether the design had been validated. VERIFIED: a hull that
+    FAILS the L0 gate (`deadrise.order: beta_bow 2.1 < beta_mid 7.3`,
+    evaluate -> ok=False, tier='L0') exported to an 8,487-byte DXF and a
+    174,406-byte STEP without a murmur.
+
+    Honesty rule 2 is "nothing ships un-re-validated". Until this, that rule
+    had no implementation anywhere in the package: there was no code path that
+    could refuse an export, so the rule was a sentence in a README.
+
+    Callers pass the Evaluation, not the Hull, and get a hard failure with the
+    violations named. Passing ev=None is allowed ONLY for deliberate
+    unvalidated exports (a mesh for a CFD experiment), and it says so.
+    """
+    if ev is None:
+        return
+    if not getattr(ev, "ok", False):
+        viols = ", ".join(getattr(ev, "violations", ()) or ("unknown",))
+        raise ValueError(
+            f"refusing to export {what}: this design did not pass the ladder "
+            f"(tier {getattr(ev, 'tier', '?')}). Violations: {viols}. "
+            f"Honesty rule 2 — nothing ships un-re-validated. Pass ev=None "
+            f"only for a deliberately unvalidated artefact.")
+
+
+def export_step(hull: Hull, path: str | Path, n_stations: int = 12,
+                ev=None) -> Path:
     import cadquery as cq
+
+    refuse_unvalidated(ev, 'STEP')
 
     wires = _station_wires(hull, n_stations)
     solid = cq.Solid.makeLoft(wires, ruled=True)
@@ -49,9 +82,12 @@ def export_step(hull: Hull, path: str | Path, n_stations: int = 12) -> Path:
     return path
 
 
-def export_iges(hull: Hull, path: str | Path, n_stations: int = 12) -> Path:
+def export_iges(hull: Hull, path: str | Path, n_stations: int = 12,
+                ev=None) -> Path:
     """IGES via the OCP kernel directly (cq.exporters has no IGES type)."""
     import cadquery as cq
+
+    refuse_unvalidated(ev, 'IGES')
     from OCP.IGESControl import IGESControl_Controller, IGESControl_Writer
 
     wires = _station_wires(hull, n_stations)

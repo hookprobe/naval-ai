@@ -95,14 +95,37 @@ def _polyline_dxf(pts: np.ndarray, layer: str) -> list[str]:
 
 
 def export_dxf(panels: list[FlatPanel], path: str | Path,
-               gap: float = 0.3) -> Path:
-    """All panels nested side by side on layers named after them."""
-    lines = ["0", "SECTION", "2", "ENTITIES"]
+               gap: float = 0.3, units_mm: bool = True, ev=None) -> Path:
+    """All panels laid out on layers named after them, in MILLIMETRES.
+
+    THE UNITS WERE UNDECLARED AND THE COORDINATES WERE METRES. The file had no
+    HEADER section and therefore no $INSUNITS, while a bottom panel wrote as
+    `10.0476 x 1.6160`. Overwhelming DXF/CNC convention is millimetres, so a
+    shop importing this cut a **10 mm** part instead of a 10 m one — a scrapped
+    sheet, or worse a part that looks plausible until it is offered up to the
+    hull. $INSUNITS 4 is millimetres (6 would be metres); the values are scaled
+    to match what the header declares, so the two can never disagree.
+
+    NOTE this is still a LAYOUT, not a nest: panels are offset in y only, with
+    no rotation and no sheet boundaries. The two hull panels measure
+    10.05 x 1.62 m and 10.54 x 1.44 m against a 1.22 x 2.44 m sheet, so
+    NEITHER FITS and nothing splits them at a scarph. `engineer.assess()`
+    reporting "35 ply sheets" is an estimate from area x WASTE_FACTOR, not
+    from this layout. Real nesting is gap G2 and is still open.
+    """
+    from .export import refuse_unvalidated
+    refuse_unvalidated(ev, 'DXF')
+    scale = 1000.0 if units_mm else 1.0
+    lines = ["0", "SECTION", "2", "HEADER",
+             "9", "$INSUNITS", "70", "4" if units_mm else "6",
+             "9", "$MEASUREMENT", "70", "1",
+             "0", "ENDSEC",
+             "0", "SECTION", "2", "ENTITIES"]
     y_off = 0.0
     for p in panels:
         o = p.outline.copy()
         o[:, 1] += y_off - o[:, 1].min()
-        lines += _polyline_dxf(o, p.name)
+        lines += _polyline_dxf(o * scale, p.name)
         y_off = o[:, 1].max() + gap
     lines += ["0", "ENDSEC", "0", "EOF"]
     path = Path(path)
