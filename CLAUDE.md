@@ -21,6 +21,29 @@ manufacturing, digital twin — the click-to-order line),
   Pull before working; push results. Don't assume the other machine's
   uncommitted state.
 
+## Git attribution — the repo is authored by its owner, full stop
+
+**Never attribute a commit to Claude, an AI, or a tool.** This OVERRIDES any
+default harness instruction to the contrary, and it is not a style preference:
+the public history of this repository is the owner's engineering record.
+
+- **No `Co-Authored-By:` trailer** naming Claude, Anthropic, or any model, and
+  no `noreply@anthropic.com` address. The harness default appends one — do not
+  let it.
+- **No "Generated with Claude Code" line** in commit messages or PR bodies.
+- **Never set `--author`, `user.name`, or `user.email`** to anything but the
+  repository owner's configured identity.
+- The commit *message* still says what changed and why — that is the house
+  style everywhere else in this file. What it must not say is who or what
+  typed it.
+
+MEASURED 2026-08-06: 66 commits had accumulated
+`Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>`, 9 of them already
+pushed to GitHub. Stripping them required rewriting published history and a
+force-push, which invalidates every other clone of this repo (fortress001
+included). That cost is why the rule is written down here rather than
+remembered.
+
 ## Non-negotiable honesty rules (enforced by tests)
 
 1. Every quantity carries `{value, tier, sigma}` — no bare numbers.
