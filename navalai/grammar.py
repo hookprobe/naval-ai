@@ -42,6 +42,39 @@ NAMES = [p[0] for p in PARAMS]
 LOW = np.array([p[2] for p in PARAMS])
 HIGH = np.array([p[3] for p in PARAMS])
 
+# Slenderness / stability proportion bands, as ONE definition each.
+#
+# They used to be four literals inside `check()`, which is how gap B9 became
+# possible: L0 bounded BWL/T at 12 on the PARAMETER vector and nothing ever
+# re-checked the proportions of the hull that was actually delivered. MEASURED
+# on 200 L0-feasible hulls floated to their mission displacement: 28.0% sit
+# outside the B/T band and 4.5% outside the L/B band ON THE FLOATED STATE, and
+# one delivered hull reached B/T 14.4 against the project's own <= 12 bar. The
+# parameter T is the DESIGN draft at midship; the floated draft is whatever the
+# weight model produces, so the two are simply different numbers and the gate
+# was checking the one nobody sails.
+#
+# `proportion_margins` is the shared kernel: `check()` applies it to the
+# parameters and `evaluate()` applies it to `HydroState`, so the band cannot
+# drift between the two.
+L_OVER_B_BAND = (2.2, 8.5)
+B_OVER_T_BAND = (1.8, 12.0)
+
+
+def proportion_margins(lwl: float, b_wl: float, t: float) -> dict[str, float]:
+    """Relative band margins for L/B and B/T: > 0 means OUTSIDE the band.
+
+    Normalised by the band edge rather than left absolute, so the number is
+    scale-free and continuous — NSGA-II needs a gradient out of an infeasible
+    region, and "L/B is 1.2 too big" means something different on a 4 m tender
+    than on a 20 m barge.
+    """
+    out: dict[str, float] = {}
+    for key, val, (lo, hi) in (("L/B", lwl / max(b_wl, 1e-9), L_OVER_B_BAND),
+                               ("B/T", b_wl / max(t, 1e-9), B_OVER_T_BAND)):
+        out[key] = max((lo - val) / lo, (val - hi) / hi)
+    return out
+
 
 @dataclass(frozen=True)
 class GateReport:
@@ -77,11 +110,13 @@ def check(x: np.ndarray) -> GateReport:
     fb = d - t
     _rel("freeboard.abs", fb >= 0.30, f"freeboard {fb:.2f} m < 0.30 m", v)
     _rel("freeboard.rel", fb >= 0.045 * lwl, f"freeboard {fb:.2f} m < 4.5% LWL", v)
-    # C33 slenderness / stability proportions
-    lb = lwl / bwl
-    _rel("L/B", 2.2 <= lb <= 8.5, f"L/B {lb:.2f} outside [2.2, 8.5]", v)
-    bt = bwl / t
-    _rel("B/T", 1.8 <= bt <= 12.0, f"B/T {bt:.2f} outside [1.8, 12]", v)
+    # C33 slenderness / stability proportions. Same kernel evaluate() re-applies
+    # to the FLOATED hull (gap B9) — one band, two states.
+    marg = proportion_margins(lwl, bwl, t)
+    _rel("L/B", marg["L/B"] <= 0.0,
+         f"L/B {lwl / bwl:.2f} outside {list(L_OVER_B_BAND)}", v)
+    _rel("B/T", marg["B/T"] <= 0.0,
+         f"B/T {bwl / t:.2f} outside {list(B_OVER_T_BAND)}", v)
     # C35 deadrise ordering (bow at least as steep as midship)
     _rel("deadrise.order", bbow >= bmid, f"beta_bow {bbow:.1f} < beta_mid {bmid:.1f}", v)
     # C36 chine must stay submerged-ish at midship: z_chine = -T + (B/2) tan(beta)
@@ -89,17 +124,34 @@ def check(x: np.ndarray) -> GateReport:
     _rel("chine.height", z_chine <= 0.25 * t, f"mid chine {z_chine:.2f} m above 0.25T", v)
     # C37 chine below sheer
     _rel("chine.below.sheer", z_chine <= fb - 0.05, "chine reaches sheer", v)
-    # C38 keel profile sanity: rocker+forefoot cannot lift keel through WL amidships
-    _rel("keel.rocker", rock * t <= 0.75 * t, "rocker lifts transom keel above 0.75T", v)
-    _rel("keel.forefoot", ff <= 1.0, "forefoot beyond stem", v)
     # C40 transom immersion: transom chine z with rocker must not fly high
     z_ch_tr = -t * (1.0 - rock) + rtr * 0.5 * bwl * math.tan(math.radians(bmid))
     _rel("transom.chine", z_ch_tr <= 0.35 * t, f"transom chine {z_ch_tr:.2f} m too high", v)
-    # C41 max-beam station keeps a finite run to both ends
-    _rel("x_mb.margin", 0.05 * lwl <= xmb * lwl <= 0.95 * lwl, "max-beam at hull end", v)
-    # C42 flare cannot fold the topside inboard past the chine at the sheer
-    y_sheer_delta = (fb - z_chine) * math.tan(math.radians(flare))
-    _rel("flare.fold", 0.5 * bwl + y_sheer_delta >= 0.15 * bwl, "sheer folds inboard", v)
+    #
+    # FOUR CHECKS WERE DELETED HERE, AND DELETING THEM CHANGES NO VERDICT.
+    # Gap E4: `keel.rocker`, `keel.forefoot`, `x_mb.margin` and `flare.fold`
+    # cannot fire anywhere inside the declared parameter bounds, so they padded
+    # the constraint count and nothing else. MEASURED over 400,000 uniform
+    # in-bounds vectors — 0 hits each, while the nine that survive fire between
+    # 3.06% and 33.04% of the time:
+    #
+    #     freeboard.rel      33.039%      chine.height        12.557%
+    #     L/B                32.419%      panel.twist          6.819%
+    #     freeboard.abs      23.097%      transom.chine        5.497%
+    #     deadrise.order     22.204%      chine.below.sheer    3.059%
+    #     B/T                18.618%
+    #
+    # Each is dead for a reason that is arithmetic, not empirical:
+    #   keel.rocker    `rocker * T <= 0.75 * T` with rocker bounded at 0.6.
+    #   keel.forefoot  `forefoot <= 1.0` IS the forefoot upper bound, restated.
+    #   x_mb.margin    0.05..0.95 against an x_mb bound of [0.40, 0.68].
+    #   flare.fold     needs BWL < 0.70 m (flare >= -5 deg, freeboard <= 2.8 m)
+    #                  against a BWL minimum of 1.20 m.
+    # Ship-D's "49 closed-form constraints" is a count this grammar was written
+    # to echo; echoing it with tautologies makes the count true and the claim
+    # false. The honest figure is 15 bound checks plus 9 live relations, and
+    # `tests/test_phase0.py` now pins it by measurement so it cannot rot back.
+    #
     # C43 developability proxy: deadrise warp per metre (plywood twist limit)
     warp_len = max(x[14] * lwl, 1e-6)
     twist_rate = (bbow - bmid) / warp_len

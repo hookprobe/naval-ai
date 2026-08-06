@@ -16,7 +16,7 @@ from pymoo.optimize import minimize
 from pymoo.termination import get_termination
 
 from . import grammar
-from .evaluate import CONSTRAINT_NAMES, evaluate
+from .evaluate import CONSTRAINT_NAMES, INFEASIBLE_G, evaluate
 from .geometry import Hull
 from .limits import GM_OVER_BEAM_MAX, gm_floor
 from .mission import MissionSpec
@@ -51,7 +51,7 @@ class HullProblem(Problem):
 
     def _evaluate(self, X, out, *_args, **_kwargs):
         F = np.full((len(X), 3), 1e9)
-        Gc = np.full((len(X), len(CONSTRAINT_NAMES)), 1e3)
+        Gc = np.full((len(X), len(CONSTRAINT_NAMES)), INFEASIBLE_G)
         for i, x in enumerate(X):
             ev = evaluate(x, self.mission)
             if ev.tier == "L0" or ev.hydro is None or ev.energy is None:
@@ -89,7 +89,7 @@ class LatentHullProblem(Problem):
     def _evaluate(self, Z, out, *_args, **_kwargs):
         X = self.genome.decode(Z)              # gate-projected to feasibility
         F = np.full((len(X), 3), 1e9)
-        Gc = np.full((len(X), len(CONSTRAINT_NAMES)), 1e3)
+        Gc = np.full((len(X), len(CONSTRAINT_NAMES)), INFEASIBLE_G)
         for i, x in enumerate(X):
             ev = evaluate(x, self.mission)
             if ev.tier == "L0" or ev.hydro is None or ev.energy is None:

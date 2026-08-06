@@ -25,8 +25,8 @@ from .energy import (EnergyReport, WeightBudget, energy_report, weight_budget,
                      weight_items)
 from .geometry import RHO_WATER, Hull
 from .hydrostatics import HydroState, gm, gm_long, solve_to_displacement
-from .limits import (FREEBOARD_FLOOR_M, LIST_LIMIT_DEG, TRIM_LIMIT_DEG,
-                     gm_floor, min_bend_radius_m)
+from .limits import (FREEBOARD_FLOOR_M, LCB_BAND_PCT_LWL, LIST_LIMIT_DEG,
+                     TRIM_LIMIT_DEG, gm_floor, min_bend_radius_m)
 from .mission import MissionSpec
 from .resistance import (FN_MICHELL_MAX, ResistanceResult,
                          total_resistance)
@@ -50,7 +50,87 @@ from .weights import MassAggregate, MassItem, aggregate, trim_angle_deg
 # that failed ISO 12215-5 or the offset-load heel came back ok=True and
 # exported. PLM.md section 1 lists the rules tier as a platform truth mechanism
 # that "fails closed"; it was a print statement in a demo.
-CONSTRAINT_NAMES = ("freeboard", "gm", "bend_radius", "trim", "list", "rules")
+# "list" IS A RESERVED TIER-E/F HOOK, AND SAYING SO IS THE POINT (gap E13).
+# It read EXACTLY -2.000 across 800 evaluations, because `agg.tcg_m` is
+# identically 0 while no mass item declares a transverse offset — and nothing
+# in the product declares one yet, so on today's inputs it is a green light
+# occupying an NSGA-II constraint dimension. It is KEPT rather than deleted for
+# two reasons, both of which are now gate tests rather than assurances:
+#   1. it is LIVE, not dead. Give any item a y_m and it moves; the trade it
+#      constrains is the one tier E (arrangement) and tier F (tanks, foam) will
+#      produce, and a galley to port is the ordinary case, not an exotic one.
+#      `tests/test_stageB.py` moves 300 kg 0.8 m off centreline and asserts the
+#      constraint moves with it.
+#   2. after E11 it is no longer unconditionally satisfiable: a hull with
+#      GM <= 0 has no upright equilibrium to heel about, so `list` goes
+#      INFEASIBLE_G rather than -2.000.
+# What would NOT be honest is to leave it reading -2.000 forever and describe
+# the ladder as having six live constraints. It has five plus this one.
+#
+# "lcb" joined because LCB WAS UNCONSTRAINED ANYWHERE (gap B8) — measured at
+# -6.47 and -7.86 %LWL on delivered hulls, and see `limits.LCB_BAND_PCT_LWL`.
+# "proportions" joined because L0 CHECKED THE PARAMETER VECTOR AND NOTHING EVER
+# RE-CHECKED THE HULL (gap B9): `grammar.check` bounds BWL/T at 12 on the
+# design draft, and a delivered hull floated at B/T 14.4 — the project's own
+# bar broken by the project's own output, with every gate green.
+CONSTRAINT_NAMES = ("freeboard", "gm", "bend_radius", "trim", "list",
+                    "lcb", "proportions", "rules")
+
+# The value a constraint takes when the physics behind it is UNDEFINED rather
+# than merely violated: large, positive, finite. Large so NSGA-II ranks such a
+# design below every genuinely-infeasible one; positive so it is a violation;
+# FINITE so it never re-enters the ladder as the nan this exists to stop.
+# optimize.py imports it rather than keeping its own 1e3, because a number
+# declared twice is this codebase's recurring defect.
+INFEASIBLE_G = 1e3
+
+
+class ConstraintOrderError(RuntimeError):
+    """The constraint dict does not match CONSTRAINT_NAMES exactly.
+
+    A REAL exception, because the invariant it guards used to be an `assert`
+    (gap E16) and `python -O` strips asserts — verified, `__debug__` is False
+    under -O. `optimize.py` builds its G matrix as `[ev.g[k] for k in
+    CONSTRAINT_NAMES]`, so a g dict that gained, lost or reordered a key would,
+    under -O, silently map the freeboard margin onto the GM column and the
+    optimiser would descend a constraint it was not shown. `constraint_vector`
+    below both ORDERS and CHECKS, so order is now established by construction
+    and the check that remains cannot be optimised away.
+    """
+
+
+def constraint_vector(values: dict[str, float]) -> dict[str, float]:
+    """Return `values` as a dict keyed in CONSTRAINT_NAMES order, or raise.
+
+    Building the vector FROM the names is the fix for E16: the order is no
+    longer a property of the literal a human typed, it is a property of the
+    tuple the optimizer reads.
+    """
+    missing = [k for k in CONSTRAINT_NAMES if k not in values]
+    extra = [k for k in values if k not in CONSTRAINT_NAMES]
+    if missing or extra:
+        raise ConstraintOrderError(
+            f"constraint vector does not match CONSTRAINT_NAMES: "
+            f"missing {missing}, unexpected {extra}. Every name in "
+            f"CONSTRAINT_NAMES is a column of the optimizer's G matrix; a "
+            f"vector that does not cover them exactly cannot be mapped onto it.")
+    return {k: values[k] for k in CONSTRAINT_NAMES}
+
+
+def is_real_finite(v) -> bool:
+    """True only for a value that is a real, finite float.
+
+    Not `math.isfinite` directly: `isfinite` RAISES on a complex, and a complex
+    is one of the shapes this guard exists to catch. `navalai.holtrop` measured
+    a resistance of 8504.47-1749.72j landing in a float-typed dataclass field
+    from a negative fractional power — so "not a number" here means nan, inf,
+    complex, or anything that will not become a float at all.
+    """
+    try:
+        return math.isfinite(float(v))
+    except (TypeError, ValueError):
+        return False
+
 
 # The ladder, in order. A tier badge is only ever allowed to move RIGHT along
 # this tuple, and only when the solver named by that tier has actually run.
@@ -94,8 +174,12 @@ class Evaluation:
     masses: MassAggregate | None = None   # the positioned model (LCG/TCG/VCG)
     gm_m: float | None = None             # AFTER free-surface correction
     gm_l_m: float | None = None
-    trim_deg: float = 0.0                 # + = bow down
-    list_deg: float = 0.0                 # + = heel to starboard
+    # None, NOT 0.0, when the equilibrium the angle describes does not exist.
+    # 0.0 is the BEST POSSIBLE value of both, so returning it for a hull that
+    # had just gone longitudinally or transversely unstable reported the
+    # pathological state as the ideal one (gap E11).
+    trim_deg: float | None = None         # + = bow down
+    list_deg: float | None = None         # + = heel to starboard
     resistance: ResistanceResult | None = None
     energy: EnergyReport | None = None
     ply_thickness_m: float = 0.0    # DERIVED from ISO 12215-5, not declared
@@ -213,10 +297,16 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
     fsc = agg.free_surface_correction()
     gm_m = gm(hs, kg) - fsc
     gm_l_m = gm_long(hs, kg)
+    # UNDEFINED IS NOT IDEAL (gap E11). Both of these used to fall back to 0.0
+    # — the best possible value of each — exactly where the physics behind them
+    # stopped existing, so the two constraints they feed were "satisfied" on
+    # precisely the hulls that had lost longitudinal or transverse stability.
+    # None here, INFEASIBLE_G below, and a violation naming the state.
     trim = trim_angle_deg(agg, hs.lcb, hs.disp_kg, gm_l_m)
     # List from a transverse offset: tan(phi) = TCG / GM. Zero while every item
     # sits on centreline, non-zero as soon as an arrangement is asymmetric.
-    heel = math.degrees(math.atan(agg.tcg_m / gm_m)) if gm_m > 1e-6 else 0.0
+    heel = (math.degrees(math.atan(agg.tcg_m / gm_m))
+            if (is_real_finite(gm_m) and gm_m > 1e-6) else None)
 
     gm_min = gm_floor(mission.design_category)
     r_min = hull.min_bend_radius()
@@ -225,37 +315,14 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
     # It now follows the DERIVED sheet, so a boat that needs thicker ply also
     # gets a larger required bend radius — the coupling limits.py claimed.
     r_req = min_bend_radius_m(t_ply)
-    g = {
-        "freeboard": FREEBOARD_FLOOR_M - hs.freeboard_min,
-        "gm": gm_min - gm_m,
-        "bend_radius": r_req - r_min,
-        "trim": abs(trim) - TRIM_LIMIT_DEG,
-        "list": abs(heel) - LIST_LIMIT_DEG,
-        # placeholder so the dict ORDER matches CONSTRAINT_NAMES for the
-        # assert below; the real value is computed after the rules run.
-        "rules": -0.01,
-    }
-    assert tuple(g) == CONSTRAINT_NAMES, "constraint order must match the names"
-    why = {
-        "freeboard": f"freeboard at load {hs.freeboard_min:.2f} m "
-                     f"< {FREEBOARD_FLOOR_M:.2f} m",
-        "gm": f"GM {gm_m:.2f} m < {gm_min:.2f} m "
-              f"(category {mission.design_category} floor, ISO 12217)",
-        "bend_radius": f"panel bend radius {r_min:.2f} m < {r_req:.2f} m "
-                       f"({t_ply * 1e3:.0f} mm ply cold-bend limit)",
-        "trim": f"static trim {trim:+.2f} deg exceeds {TRIM_LIMIT_DEG:.1f} deg "
-                f"(LCG {agg.lcg_m:.2f} m vs LCB {hs.lcb:.2f} m)",
-        "list": f"static list {heel:+.2f} deg exceeds {LIST_LIMIT_DEG:.1f} deg "
-                f"(TCG {agg.tcg_m:+.3f} m off centreline)",
-    }
-    viol = [why[k] for k, v in g.items() if v > 0.0]
 
     u = mission.cruise_speed_ms()
     res = total_resistance(hull, u, hs.wetted, hs.cb, rho, wl)
+    early: list[str] = []
     if not res.valid:
         # Reported as a violation, not buried in a badge: at Fn > 0.45 the
         # thin-ship model is answering a different question than the mission.
-        viol.append(
+        early.append(
             f"speed outside the L1 model: Fn {res.fn:.2f} > {FN_MICHELL_MAX} "
             f"(planing regime — Michell thin-ship has no dynamic lift, trim or "
             f"spray; needs a Savitsky-class method)")
@@ -272,13 +339,117 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
     # passes, else the worst RELATIVE shortfall. A boolean would give the
     # optimiser no gradient to follow out of an infeasible region.
     fails = [f for f in findings if not f.passed]
-    g["rules"] = (max(abs(f.measured - f.required) / max(abs(f.required), 1e-9)
-                      for f in fails) if fails else -0.01)
-    why["rules"] = ("rules tier: " + "; ".join(
-        f"{f.rule_id} {f.measured:.2f} vs {f.required:.2f} {f.unit}"
-        for f in fails)) if fails else ""
-    if fails:
-        viol.append(why["rules"])
+
+    # Proportions re-checked on the FLOATED hull, against the same bands L0
+    # applied to the parameter vector (gap B9). `grammar.proportion_margins` is
+    # the shared kernel, so the two states cannot be judged by different numbers.
+    props = grammar.proportion_margins(hs.lwl_eff, hs.b_wl_max, hs.draft)
+    worst_prop = max(props, key=lambda k: props[k])
+
+    # Built FROM CONSTRAINT_NAMES, not typed in an order that happened to match
+    # (gap E16 — the `assert` that used to bind them is stripped by `python -O`).
+    g = constraint_vector({
+        "freeboard": FREEBOARD_FLOOR_M - hs.freeboard_min,
+        "gm": gm_min - gm_m,
+        "bend_radius": r_req - r_min,
+        "trim": INFEASIBLE_G if trim is None else abs(trim) - TRIM_LIMIT_DEG,
+        "list": INFEASIBLE_G if heel is None else abs(heel) - LIST_LIMIT_DEG,
+        "lcb": abs(hs.lcb_pct_lwl) - LCB_BAND_PCT_LWL,
+        "proportions": props[worst_prop],
+        "rules": (max(abs(f.measured - f.required) / max(abs(f.required), 1e-9)
+                      for f in fails) if fails else -0.01),
+    })
+    why = {
+        "freeboard": f"freeboard at load {hs.freeboard_min:.2f} m "
+                     f"< {FREEBOARD_FLOOR_M:.2f} m",
+        "gm": f"GM {gm_m:.2f} m < {gm_min:.2f} m "
+              f"(category {mission.design_category} floor, ISO 12217)",
+        "bend_radius": f"panel bend radius {r_min:.2f} m < {r_req:.2f} m "
+                       f"({t_ply * 1e3:.0f} mm ply cold-bend limit)",
+        "trim": (f"static trim is UNDEFINED: GM_L {gm_l_m:+.2f} m is not "
+                 f"positive, so the hull has no longitudinal equilibrium to "
+                 f"trim about (LCG {agg.lcg_m:.2f} m vs LCB {hs.lcb:.2f} m)"
+                 if trim is None else
+                 f"static trim {trim:+.2f} deg exceeds {TRIM_LIMIT_DEG:.1f} deg "
+                 f"(LCG {agg.lcg_m:.2f} m vs LCB {hs.lcb:.2f} m)"),
+        "list": (f"static list is UNDEFINED: GM {gm_m:+.3f} m is not positive, "
+                 f"so the hull has no upright equilibrium to heel about "
+                 f"(TCG {agg.tcg_m:+.3f} m off centreline)"
+                 if heel is None else
+                 f"static list {heel:+.2f} deg exceeds {LIST_LIMIT_DEG:.1f} deg "
+                 f"(TCG {agg.tcg_m:+.3f} m off centreline)"),
+        "lcb": f"LCB {hs.lcb_pct_lwl:+.2f} %LWL from midships is outside "
+               f"+-{LCB_BAND_PCT_LWL:.1f}% (LCB {hs.lcb:.2f} m on a floated "
+               f"waterline of {hs.lwl_eff:.2f} m)",
+        "proportions": f"floated {worst_prop} outside its band: L/B "
+                       f"{hs.lwl_eff / max(hs.b_wl_max, 1e-9):.2f} "
+                       f"{list(grammar.L_OVER_B_BAND)}, B/T "
+                       f"{hs.b_wl_max / max(hs.draft, 1e-9):.2f} "
+                       f"{list(grammar.B_OVER_T_BAND)} — L0 checked the design "
+                       f"draft, this is the hull that floated",
+        "rules": ("rules tier: " + "; ".join(
+            f"{f.rule_id} {f.measured:.2f} vs {f.required:.2f} {f.unit}"
+            for f in fails)) if fails else "",
+    }
+
+    # A NON-FINITE CONSTRAINT USED TO MAKE A DESIGN FEASIBLE (gap E10).
+    # `[why[k] for k, v in g.items() if v > 0.0]` reads as a violation filter,
+    # but `nan > 0.0` is False, so ANY nan constraint produced violations=[]
+    # and ok=True. VERIFIED end to end: a nan cruise speed gave Rt=nan, Fn=nan
+    # and Wh/NM=nan, was written to the provenance DB as a badge sigma, and was
+    # emitted over HTTP as a bare `NaN` — which is not valid JSON (RFC 8259),
+    # so the response could not even be parsed by a conforming client. Honesty
+    # rule 1 says every quantity carries value, tier and sigma; nan is not a
+    # value, and "we could not compute it" is never a pass.
+    viol: list[str] = []
+    for k in CONSTRAINT_NAMES:
+        v = g[k]
+        if not is_real_finite(v):
+            viol.append(f"constraint {k!r} is not a finite number ({v!r}) — the "
+                        f"quantity behind it could not be computed, which is a "
+                        f"violation and never a pass")
+            g[k] = INFEASIBLE_G
+        elif v > 0.0:
+            viol.append(why[k])
+    viol.extend(early)
+
+    # Sigmas that are DERIVED carry it; sigmas that are still a declared
+    # fraction say so. The mass model computes a real sigma (`agg.sigma_kg`,
+    # 178 kg / 6.4% on the reference hull, and much larger once the unaccounted
+    # mass declares its 50%) and evaluate() used to throw it away in favour of a
+    # flat 0.02*disp — a decoration in a column documented as one-sigma. KG
+    # uncertainty now reaches GM through the mass lever, so a boat whose weights
+    # are poorly known reports a correspondingly vague GM instead of a confident
+    # one.
+    badges = {
+        "displacement": ("L1", agg.sigma_kg, "measured"),
+        "GM": ("L1", agg.sigma_kg / max(agg.total_kg, 1e-9)
+               * abs(kg) + 0.05, "measured"),
+        # A number outside its model's validity is not an L1 quantity.
+        "resistance": ("L1" if res.valid else "L1-INVALID",
+                       res.uncertainty, "measured"),
+        "wh_per_nm": ("L1", en.wh_per_nm * 0.30, "assumed"),
+    }
+    # THE SAME DEFECT ON THE OTHER SIDE OF THE BADGE (gap E10). A constraint
+    # cannot go nan on its own — it goes nan because the quantity it was
+    # computed from did, and that quantity is what gets recorded and served.
+    # Every badged quantity is checked HERE, with its sigma, so an unusable
+    # number cannot leave evaluate() wearing a plain "L1".
+    values = {"displacement": hs.disp_kg, "GM": gm_m,
+              "resistance": res.total, "wh_per_nm": en.wh_per_nm}
+    for name, val in values.items():
+        tier_b, sigma, basis = badges[name]
+        bad = []
+        if not is_real_finite(val):
+            bad.append(f"value {val!r}")
+        if not is_real_finite(sigma) or float(sigma) < 0.0:
+            bad.append(f"sigma {sigma!r}")
+        if bad:
+            viol.append(
+                f"{name} is not a reportable L1 quantity ({', '.join(bad)}) — "
+                f"honesty rule 1 wants value, tier and sigma, and this has no "
+                f"value to badge")
+            badges[name] = (f"{tier_b.split('-')[0]}-INVALID", sigma, basis)
 
     ev = Evaluation(
         ok=len(viol) == 0, tier="L1", violations=tuple(viol), hydro=hs, wl=wl,
@@ -286,36 +457,27 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
         trim_deg=trim, list_deg=heel, resistance=res, energy=en, g=g,
         ply_thickness_m=t_ply, unaccounted_frac=unaccounted_frac,
         hull_lwl_m=float(p["LWL"]), rules=rules_rep, params=np.asarray(params),
-        eval_ms=(time.perf_counter() - t0) * 1e3,
-        # Sigmas that are DERIVED carry it; sigmas that are still a declared
-        # fraction say so. The mass model computes a real sigma
-        # (`agg.sigma_kg`, 178 kg / 6.4% on the reference hull, and much larger
-        # once the unaccounted mass declares its 50%) and evaluate() used to
-        # throw it away in favour of a flat 0.02*disp — a decoration in a
-        # column documented as one-sigma. KG uncertainty now reaches GM through
-        # the mass lever, so a boat whose weights are poorly known reports a
-        # correspondingly vague GM instead of a confident one.
-        badges={
-            "displacement": ("L1", agg.sigma_kg, "measured"),
-            "GM": ("L1", agg.sigma_kg / max(agg.total_kg, 1e-9)
-                   * abs(kg) + 0.05, "measured"),
-            # A number outside its model's validity is not an L1 quantity.
-            "resistance": ("L1" if res.valid else "L1-INVALID",
-                           res.uncertainty, "measured"),
-            "wh_per_nm": ("L1", en.wh_per_nm * 0.30, "assumed"),
-        },
+        eval_ms=(time.perf_counter() - t0) * 1e3, badges=badges,
     )
 
     if provenance is not None:
         hid = provenance.add_hull(params)
-        q = f"Rt_N@{u:.2f}"
-        provenance.add_result(hid, "L1", "michell+ittc57", "0.1", q,
-                              res.total, res.uncertainty,
-                              {"fn": res.fn, "wl": wl})
-        provenance.add_result(hid, "L1", "hydrostatics", "0.1", "GM_m", gm_m,
-                              ev.badges["GM"][1], {"kg": wb.kg_above_keel})
-        provenance.add_result(hid, "L1", "energy", "0.1", "wh_per_nm",
-                              en.wh_per_nm, ev.badges["wh_per_nm"][1], {})
+        # A non-finite number is NOT written. The provenance DB is the record of
+        # what the ladder computed, and nan is a record that it did not compute
+        # anything — it reached the `uncertainty` column and then the HTTP
+        # response as literal `NaN`, which no conforming JSON parser accepts.
+        # The refusal is not silent: it is already in ev.violations above, so
+        # the missing row and the reason for it are both visible.
+        rows = (("michell+ittc57", f"Rt_N@{u:.2f}", res.total, res.uncertainty,
+                 {"fn": res.fn, "wl": wl}),
+                ("hydrostatics", "GM_m", gm_m, ev.badges["GM"][1],
+                 {"kg": wb.kg_above_keel}),
+                ("energy", "wh_per_nm", en.wh_per_nm, ev.badges["wh_per_nm"][1],
+                 {}))
+        for method, q, val, sig, meta in rows:
+            if is_real_finite(val) and is_real_finite(sig):
+                provenance.add_result(hid, "L1", method, "0.1", q,
+                                      float(val), float(sig), meta)
     return ev
 
 

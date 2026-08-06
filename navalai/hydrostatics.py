@@ -25,10 +25,34 @@ class HydroState:
     awp: float            # m^2 waterplane
     lcf: float            # m from transom
     b_wl_max: float
+    # The waterline length the hull ACTUALLY floats at, not the LWL parameter.
+    # It was computed inside solve() as a local, used for cb/cp, and thrown
+    # away — so the only length available to a caller wanting LCB as a
+    # percentage was the design parameter, which is a different number at any
+    # floated waterline. Gap B8 needs the floated one: LCB is meaningful only
+    # relative to the midpoint of the waterline it was integrated over.
+    lwl_eff: float
+    # x of the aft end of the immersed waterline. The transom does not sit at
+    # x = 0 once rocker lifts it clear, so the midships station is
+    # x_wl_aft + lwl_eff/2 and NOT lwl_eff/2 — an error of half the rocker
+    # overhang, straight onto the quantity B8 constrains.
+    x_wl_aft: float
     cb: float             # block coefficient
     cp: float             # prismatic
     wetted: float         # m^2
     freeboard_min: float  # m
+
+    @property
+    def lcb_pct_lwl(self) -> float:
+        """LCB relative to midships, as a percentage of the floated waterline
+        length. NEGATIVE = aft of midships, the naval-architecture convention.
+
+        Derived here rather than at the call site so the reference station is
+        defined once — see `limits.LCB_BAND_PCT_LWL` for the band it is judged
+        against and gap B8 for why it is judged at all.
+        """
+        mid = self.x_wl_aft + 0.5 * self.lwl_eff
+        return 100.0 * (self.lcb - mid) / max(self.lwl_eff, 1e-9)
 
 
 def solve(hull: Hull, rho: float = RHO_WATER, wl: float = 0.0) -> HydroState:
@@ -55,7 +79,9 @@ def solve(hull: Hull, rho: float = RHO_WATER, wl: float = 0.0) -> HydroState:
     i_l = 2.0 * float(np.trapezoid(b * (x - lcf) ** 2, x))
     bm_l = i_l / vol
     bmax = 2.0 * float(b.max())
-    lwl_eff = float(x[a > 1e-6].max() - x[a > 1e-6].min()) if (a > 1e-6).any() else 1e-9
+    wet = a > 1e-6
+    x_wl_aft = float(x[wet].min()) if wet.any() else 0.0
+    lwl_eff = float(x[wet].max() - x[wet].min()) if wet.any() else 1e-9
     # Immersion is measured from the KEEL (z = -t_design) up to the waterline
     # plane (z = wl), so it is wl + t_design. The sign was inverted, which is
     # exact only at wl = 0 — which is why every test passed. MEASURED on the
@@ -73,7 +99,8 @@ def solve(hull: Hull, rho: float = RHO_WATER, wl: float = 0.0) -> HydroState:
     return HydroState(
         draft=t_mean, volume=vol, disp_kg=rho * vol, lcb=lcb, kb=kb, bm=bm,
         bm_l=bm_l,
-        awp=awp, lcf=lcf, b_wl_max=bmax, cb=cb, cp=cp,
+        awp=awp, lcf=lcf, b_wl_max=bmax, lwl_eff=lwl_eff, x_wl_aft=x_wl_aft,
+        cb=cb, cp=cp,
         wetted=hull.wetted_surface(wl), freeboard_min=fb,
     )
 

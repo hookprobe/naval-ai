@@ -91,6 +91,39 @@ TRIM_LIMIT_DEG = 2.0
 LIST_LIMIT_DEG = 2.0
 
 
+# LONGITUDINAL CENTRE OF BUOYANCY band, as a percentage of the floated
+# waterline length, signed negative aft of midships.
+#
+# LCB WAS UNCONSTRAINED ANYWHERE IN THE LADDER (gap B8). It is one of the two
+# or three numbers a naval architect fixes first, because it sets where the
+# displacement sits against the LCG the arrangement will produce; a hull whose
+# buoyancy is far aft either trims by the bow when loaded or needs its whole
+# interior pushed aft to compensate. The ladder computed `HydroState.lcb`,
+# used it for trim, and never asked whether it was a sane place for it to be.
+# MEASURED on delivered hulls: -6.47 and -7.86 %LWL, and still -5.3..-7.3 with
+# length pinned to the mission hint.
+#
+# The band is +-3%, which is displacement-hull practice (Holtrop's own lcb
+# regressor spans roughly -4..+2% for the merchant hulls behind it, and small
+# displacement craft are conventionally drawn within a few percent of
+# midships). It is a PRACTICE figure, basis='approx' in the sense rules/ uses
+# the word, not a licensed standard text.
+#
+# HOW HARD IT BITES, MEASURED before it was adopted, on 200 L0-feasible hulls
+# floated to a 6 t mission displacement:
+#
+#     min -13.21 | p05 -7.17 | median -0.85 | p95 +8.50 | max +14.79
+#     inside +-3%: 46.5%
+#
+# So it is a real constraint on a real trade — it removes half the box, not
+# 1% of it and not 99% — which is what distinguishes it from `keel.rocker`
+# (0 hits in 400,000, deleted) at one end and from a bar nothing can meet at
+# the other. RECORDED, NOT SOFTENED: the hand-picked reference hull
+# `tests/test_phase0.mid_params` sits at -6.48% and is now INFEASIBLE by this
+# constraint. That is information about the reference hull.
+LCB_BAND_PCT_LWL = 3.0
+
+
 # GM CEILING as a fraction of waterline beam. GM has always had a floor (the
 # ISO category table) and never a ceiling, and `optimize.py` MAXIMISED it as an
 # objective. That is not a naval-architecture goal: a stiff boat has a violent

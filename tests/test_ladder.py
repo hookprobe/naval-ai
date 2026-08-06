@@ -115,7 +115,23 @@ def test_revalidate_promotes_to_l2_and_records_it(tmp_path):
     prov = db.Provenance(tmp_path / "p.sqlite3")
 
     ev1 = evaluate(x, m, provenance=prov)
-    assert ev1.tier == "L1" and ev1.ok
+    # THIS USED TO READ `ev1.tier == "L1" and ev1.ok`, AND THE `ok` HALF IS NOW
+    # FALSE — recorded, not softened (honesty rule 6). Gap B8 added an LCB
+    # constraint (`limits.LCB_BAND_PCT_LWL`, +-3 %LWL) and the hand-picked
+    # reference hull floats with LCB 4.35 m on a 9.50 m waterline, i.e.
+    # -4.19 %LWL from midships. It is out of band and it always was; nothing in
+    # the ladder had ever looked. LCB is its ONLY violation, which is why it is
+    # asserted exactly rather than loosened to "not ok" — if the hull starts
+    # failing something else too, that is a regression and this must catch it.
+    #
+    # What this test is FOR is escalation, and escalation does not require
+    # feasibility: an infeasible design that a user asks to re-validate must
+    # still climb, or the ladder would only ever be run on hulls that need it
+    # least. What the test does assert is that the L1 verdict SURVIVES the
+    # promotion unchanged (`ev2.ok == ev1.ok` below).
+    assert ev1.tier == "L1"
+    assert len(ev1.violations) == 1 and "LCB" in ev1.violations[0], ev1.violations
+    assert ev1.hydro.lcb_pct_lwl == pytest.approx(-4.19, abs=0.05)
     ev2 = revalidate(ev1, m, "L2", provenance=prov)
 
     assert tier_rank(ev2.tier) > tier_rank(ev1.tier)

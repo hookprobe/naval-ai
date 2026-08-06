@@ -120,12 +120,27 @@ def aggregate(items: list[MassItem]) -> MassAggregate:
 
 
 def trim_angle_deg(agg: MassAggregate, lcb_m: float, disp_kg: float,
-                   gm_l_m: float) -> float:
+                   gm_l_m: float) -> float | None:
     """Static trim from the LCG-LCB lever [deg], positive = bow down.
 
-    theta = (LCG - LCB) / GM_L for small angles. Returns 0 when GM_L is not
-    available rather than pretending to a number.
+    theta = (LCG - LCB) / GM_L for small angles. Returns **None** when GM_L is
+    not positive-finite, because at that point the equilibrium this formula
+    solves does not exist and there is no trim angle to report.
+
+    IT USED TO RETURN 0.0, AND 0.0 IS THE BEST POSSIBLE ANSWER. Gap E11.
+    MEASURED with an LCG-LCB lever of 4.0 m against `limits.TRIM_LIMIT_DEG`:
+
+        GM_L = +40 m   ->  +5.71 deg   g['trim'] = +3.710   VIOLATED
+        GM_L =   0 m   ->  +0.00 deg   g['trim'] = -2.000   FEASIBLE
+        GM_L = -500 m  ->  +0.00 deg   g['trim'] = -2.000   FEASIBLE
+
+    So a hull that had just gone LONGITUDINALLY UNSTABLE — the one state where
+    trim is a real engineering problem — satisfied the trim constraint more
+    comfortably than a merely badly-balanced one, and NSGA-II was free to
+    descend into it. Mapping "undefined" onto "ideal" is the whole defect; the
+    caller must treat None as a violation, never as a pass.
     """
-    if gm_l_m <= 0:
-        return 0.0
-    return math.degrees(math.atan((agg.lcg_m - lcb_m) / gm_l_m))
+    if not math.isfinite(gm_l_m) or gm_l_m <= 0:
+        return None
+    val = math.degrees(math.atan((agg.lcg_m - lcb_m) / gm_l_m))
+    return val if math.isfinite(val) else None

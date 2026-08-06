@@ -41,13 +41,32 @@ def get_pareto() -> dict:
     with _pareto_lock:
         if _pareto_cache is None:
             from navalai.optimize import pareto_front
-            res = pareto_front(_mission_default, pop=16, gens=6, seed=2)
+            # BUDGET, not bar. pop=16/gens=6 was sized against a 6-constraint
+            # ladder; "lcb" and "proportions" (gaps B8, B9) make the feasible
+            # set smaller, and MEASURED at the old budget the front collapsed
+            # from 6 members to 2 — a dashboard showing a point instead of a
+            # trade-off. pop=24/gens=10 restores 6 members for 1.2 s against
+            # 0.4 s on the first (cached) request. The front's members were
+            # feasible at BOTH budgets; what changed is how much of it the
+            # search had found.
+            res = pareto_front(_mission_default, pop=24, gens=10, seed=2)
             pts = []
             for x, f in zip(res.X, res.F):
+                # GM IS RE-READ FROM THE LADDER, NOT DECODED FROM f[2].
+                # This line was `-f[2]` from when the third objective was
+                # `-gm`; optimize.py now minimises |GM - GM_mid| (GM is a band,
+                # not a maximisation target), so `-f[2]` had become minus a
+                # distance. MEASURED on the served front: it reported
+                # gm_m = -0.047 for a hull whose GM is +0.514 m — a number that
+                # reads as "this boat capsizes at the dock" and is not GM at
+                # all. An objective that changes meaning must not be decoded by
+                # a caller guessing at its sign.
+                ev = evaluate(x, _mission_default)
                 pts.append({"params": grammar.named(x),
                             "wh_per_nm": round(float(f[0]), 1),
                             "build_area_m2": round(float(f[1]), 1),
-                            "gm_m": round(float(-f[2]), 3)})
+                            "gm_m": (round(float(ev.gm_m), 3)
+                                     if ev.gm_m is not None else None)})
             _pareto_cache = {"points": pts, "n_evals": res.n_evals,
                             "tier": "L1"}
         return _pareto_cache

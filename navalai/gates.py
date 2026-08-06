@@ -94,6 +94,15 @@ GATES = [
     # covered by what.
     Gate("Gate 1H", "Holtrop-Mennen vs the 1982 worked example",
          "tests/test_holtrop.py"),
+    # Split out from Gate 1 for the same reason as Gate 1H: the ladder should
+    # show WHICH clause is covered by what. This one owns the "never map
+    # undefined onto ideal" family — a non-finite constraint that read as
+    # feasible, trim/heel returning their BEST possible value where the
+    # equilibrium stopped existing, an inert constraint, an order guard that
+    # `python -O` deletes, and two proportions nobody re-checked on the hull
+    # that actually floated.
+    Gate("Gate 1C", "the constraint vector: complete, ordered, finite, and no "
+         "undefined state reported as ideal", "tests/test_constraints_honest.py"),
     Gate("Gate 1b", "NSGA-II Pareto front", "tests/test_optimize.py"),
     Gate("Gate 2", "Capytaine BEM (Hulme anchor)", "tests/test_phase2.py"),
     Gate("Gate 2R", "CFD reference parity + GCI honesty",
