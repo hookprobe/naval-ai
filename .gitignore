@@ -28,3 +28,12 @@ badFaces
 illegalFaces
 selfInterPoints.obj
 *.obj
+
+# The evolution spine keeps a machine-local, append-only history:
+#   data/evolution/archive.jsonl  every genome, every state change
+#   data/evolution/gaps.jsonl     the live gap queue
+# Gitignored for the same reason as data/exports/ and renders/ (gap J6): a
+# file the test suite rewrites on every run dirties the tree constantly and
+# conflicts on every cherry-pick. It is one machine's own history, not a
+# shared artefact -- the record that must survive is docs/GAP-REGISTER.md.
+data/evolution/

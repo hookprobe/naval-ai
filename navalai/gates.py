@@ -172,6 +172,30 @@ GATES = [
          "tests/test_manufacturing.py"),
     Gate("Gate R3", "the ladder is climbable: L2 escalation, monotone tier "
          "promotion, honest refusal of L3", "tests/test_ladder.py"),
+    # THE SPINE. Gap register section A is one finding restated seven ways: the
+    # ladder is not a ladder, and nothing in the product could report a design
+    # that entered a stage and never came back (`Evaluation.tier` read "L1" in
+    # 100% of ~2000 evaluations). `navalai/pipeline.py` is the object that can,
+    # and this row is what makes its central invariant a gate rather than a
+    # docstring: every genome ends in EXACTLY ONE terminal state.
+    #
+    # The suite also owns the "unmeasured is never a pass" rule at the Python
+    # level. It is the same rule `run-case.sh` learned on 2026-08-06 when
+    # `${_MQ_SKEW:-0}` scored an unreadable skewness as perfect and a mesh at
+    # 42.94 reached a 10-rank solve; the three checkMesh bars are READ out of
+    # that script rather than restated, and one test doctors a copy of it to
+    # prove the verdict follows the file.
+    Gate("Gate S", "the MDO spine: one terminal state per genome, append-only "
+         "archive, legal-transition graph, unmeasured metric refused",
+         "tests/test_pipeline.py"),
+    # The register was a document, so nothing could be assigned, nothing had a
+    # state, and nothing noticed when a row went stale — section J's own
+    # diagnosis, applied to section J's own file. This row guards the live
+    # queue: the forward-only lifecycle, the append-only log, and the import
+    # that turns docs/GAP-REGISTER.md's 119 findings into work items without
+    # editing the audit record it reads.
+    Gate("Gate SG", "the gap queue: findings are work items, not prose",
+         "tests/test_gaps.py"),
     # BuildPlan 2 V2.0. Its bar is provenance, not physics: "constants
     # importable, every one carries source+basis, no bare numbers".
     Gate("Gate V2.0", "refdata spine: every constant carries source + basis",

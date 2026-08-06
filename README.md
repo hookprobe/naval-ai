@@ -77,6 +77,8 @@ different Gate 2M numbers came to circulate at once (gap J1).
 | Gate L | one limit, one home; scantling derived from the rule | `tests/test_limits_single_source.py` (12 tests) |
 | Gate 6M | manufacturing back end: nesting, BOM, refold, developability controls, export receipt | `tests/test_manufacturing.py` (28 tests) |
 | Gate R3 | the ladder is climbable: L2 escalation, monotone tier promotion, honest refusal of L3 | `tests/test_ladder.py` (8 tests) |
+| Gate S | the MDO spine: one terminal state per genome, append-only archive, legal-transition graph, unmeasured metric refused | `tests/test_pipeline.py` (48 tests) |
+| Gate SG | the gap queue: findings are work items, not prose | `tests/test_gaps.py` (18 tests) |
 | Gate V2.0 | refdata spine: every constant carries source + basis | `tests/test_refdata.py` (25 tests) |
 | Gate 2G | KCS benchmark geometry: present and accepted (scripts/fetch_benchmark_geom.py) | `tests/test_benchmark_geom.py` (2 tests) |
 | Gate 6R-mech | review-record mechanics + basis routing | `tests/test_phase6r.py` (10 tests) |

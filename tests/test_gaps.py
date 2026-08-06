@@ -1,0 +1,284 @@
+"""Gate tests for the gap queue (`navalai.gaps`).
+
+PLM.md §3 step 4: code + gate test in the same change, and the comment names
+the motivating incident.
+
+INCIDENT (MEASURED here, 2026-08-06). The first importer split the register's
+markdown rows on every `|`, and three rows carry an ESCAPED pipe inside their
+prose — `setFields … \\|\\| true`, `GM 0.15\\|v\\|+0.05`, `rho tracks \\|delta\\|`.
+Every column right of the escape shifted, so the severity cell of F10, H1 and I2
+came back holding a fragment of their own Finding text. The importer then said
+"names no level" and SKIPPED THREE REAL FINDINGS — two HIGH and one MED —
+reporting 116 work items from a register that holds 119. A parser that silently
+drops rows it mis-split reports a smaller register than the one on disk, which
+is the same class of defect as scoring an unmeasured metric as perfect: an
+absence rendered as a result.
+
+The second lesson, tested below: the two rows that are GENUINELY not findings
+(B10 `*(decision input)*` and F20 `—`, "no defect — recorded so it is not
+re-litigated") are skipped AND NAMED, never assigned a guessed severity.
+"""
+
+from __future__ import annotations
+
+import collections
+import hashlib
+from pathlib import Path
+
+import pytest
+
+from navalai.gaps import (EVENT_KINDS, GAP_STATE_ORDER, GapEvent,
+                          GapQueue, GapState, IllegalGapTransition,
+                          REGISTER_PATH, Severity, from_stage_check,
+                          import_gap_register, legal_gap_targets)
+from navalai.pipeline import LogTruncated, Stage, Terminal, check_mesh
+
+_ROOT = Path(__file__).resolve().parents[1]
+
+
+@pytest.fixture()
+def queue(tmp_path) -> GapQueue:
+    return GapQueue(tmp_path / "gaps.jsonl")
+
+
+def _event(**kw) -> GapEvent:
+    base = dict(component="navalai.cfd.post", evidence="measured drift 12.4%",
+                blocking="Gate 2M verdict", severity=Severity.HIGH)
+    base.update(kw)
+    return GapEvent(**base)
+
+
+# ---------------------------------------------------------------------------
+# An event must be a finding, not a rumour
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("field", ["component", "evidence", "blocking"])
+def test_an_event_without_who_what_or_why_is_refused(field):
+    # A finding with no evidence cannot be reproduced and a finding that does
+    # not say what it blocks cannot be prioritised. `docs/GAP-REGISTER.md` is
+    # 434 lines of demonstration that both are worth insisting on.
+    with pytest.raises(ValueError):
+        _event(**{field: "   "})
+
+
+def test_an_event_kind_outside_the_four_is_refused():
+    assert EVENT_KINDS == ("unsupported", "unknown", "missing", "failed_validation")
+    for kind in EVENT_KINDS:
+        assert _event(kind=kind).kind == kind
+    with pytest.raises(ValueError):
+        _event(kind="probably_fine")
+
+
+def test_a_failed_stage_check_becomes_a_gap_event_and_a_passing_one_does_not():
+    """The wiring: a genome that dies at a stage leaves a work item too."""
+    died = check_mesh({"zero_volume_cells": 0, "wrong_oriented_faces": 10,
+                       "max_skewness": 42.9417})
+    ev = from_stage_check(died, genome_id="abc123")
+    assert ev.kind == "failed_validation"
+    assert "max_skewness" in ev.evidence and "42.9417" in ev.evidence
+    assert "abc123" in ev.blocking and Stage.MESHING.value in ev.blocking
+    assert died.terminal is Terminal.FAILED_MESH
+    ok = check_mesh({"zero_volume_cells": 0, "wrong_oriented_faces": 0,
+                     "max_skewness": 8.93076})
+    with pytest.raises(ValueError):
+        from_stage_check(ok)          # a queue that accepts successes is noise
+
+
+# ---------------------------------------------------------------------------
+# Lifecycle
+# ---------------------------------------------------------------------------
+
+def test_the_gap_lifecycle_is_forward_only_one_step_at_a_time(queue):
+    assert [s.value for s in GAP_STATE_ORDER] == \
+        ["Open", "Investigating", "Prototype", "Verified", "Closed"]
+    gap = queue.emit(_event())
+    assert gap.id == "G-001" and gap.state is GapState.OPEN
+    with pytest.raises(IllegalGapTransition):            # skipping a state
+        queue.advance(gap.id, GapState.VERIFIED, note="looks fine")
+    queue.advance(gap.id, GapState.INVESTIGATING)
+    with pytest.raises(IllegalGapTransition):            # backwards
+        queue.advance(gap.id, GapState.OPEN)
+    with pytest.raises(IllegalGapTransition):            # standing still
+        queue.advance(gap.id, GapState.INVESTIGATING)
+    queue.advance(gap.id, GapState.PROTOTYPE)
+    queue.advance(gap.id, GapState.VERIFIED, note="re-ran: drift 1.2%, settled")
+    queue.advance(gap.id, GapState.CLOSED)
+    assert queue.get(gap.id).is_closed
+    with pytest.raises(IllegalGapTransition):            # closed is closed
+        queue.advance(gap.id, GapState.OPEN)
+    assert legal_gap_targets(GapState.CLOSED) == frozenset()
+
+
+def test_verified_without_a_measurement_is_refused(queue):
+    """'Verified' with nothing measured is the claim this queue exists to stop.
+
+    CLAUDE.md rule 1: a measurement beats a document, and a document beats an
+    intention. Three claims in that file were false until someone re-ran them.
+    """
+    gap = queue.emit(_event())
+    queue.advance(gap.id, GapState.INVESTIGATING)
+    queue.advance(gap.id, GapState.PROTOTYPE)
+    with pytest.raises(IllegalGapTransition):
+        queue.advance(gap.id, GapState.VERIFIED)
+    with pytest.raises(IllegalGapTransition):
+        queue.advance(gap.id, GapState.VERIFIED, note="   ")
+    queue.advance(gap.id, GapState.VERIFIED, note="MEASURED: 0 of 200 recur")
+
+
+def test_ids_are_unique_and_the_priority_order_is_derived_not_typed(queue):
+    for sev in (Severity.LOW, Severity.CRITICAL, Severity.MED, Severity.HIGH):
+        queue.emit(_event(severity=sev, title=f"{sev.value} thing"))
+    assert [g.id for g in queue.all()] == ["G-001", "G-002", "G-003", "G-004"]
+    assert [g.severity for g in queue.open_queue()] == [
+        Severity.CRITICAL, Severity.HIGH, Severity.MED, Severity.LOW]
+    queue.advance("G-002", GapState.INVESTIGATING)       # CRITICAL, still open
+    queue.emit(_event(severity=Severity.CRITICAL))
+    assert queue.open_queue()[0].id == "G-002"           # ties break by id
+
+
+# ---------------------------------------------------------------------------
+# Append-only, same rule as the archive
+# ---------------------------------------------------------------------------
+
+def test_the_gap_queue_is_append_only(queue):
+    gap = queue.emit(_event())
+    snapshot = queue.log.path.read_bytes()
+    queue.advance(gap.id, GapState.INVESTIGATING)
+    queue.assign(gap.id, "cfd-engineer")
+    after = queue.log.path.read_bytes()
+    assert after.startswith(snapshot), "a state change rewrote a prior record"
+    assert len(after) > len(snapshot)
+    assert not hasattr(queue.log, "update") and not hasattr(queue.log, "delete")
+    # A state change appends; the ORIGINAL open record still says Open.
+    first = queue.log.read()[0]
+    assert first["kind"] == "open" and first["state"] == "Open"
+    assert queue.get(gap.id).state is GapState.INVESTIGATING
+
+
+def test_the_queue_replays_from_the_file(queue):
+    a = queue.emit(_event(severity=Severity.CRITICAL), source_id="X9")
+    queue.advance(a.id, GapState.INVESTIGATING)
+    queue.assign(a.id, "verification")
+    queue.emit(_event(severity=Severity.LOW))
+    fresh = GapQueue(queue.log.path)
+    assert len(fresh.all()) == 2
+    reloaded = fresh.get(a.id)
+    assert reloaded.state is GapState.INVESTIGATING
+    assert reloaded.owner == "verification"
+    assert fresh.by_source("X9").id == a.id
+    assert fresh.next_id() == "G-003"
+
+
+def test_a_shortened_queue_is_refused(queue):
+    queue.emit(_event())
+    queue.emit(_event())
+    text = queue.log.path.read_text()
+    queue.log.path.write_text(text.splitlines()[0] + "\n")
+    with pytest.raises(LogTruncated):
+        queue.emit(_event())
+
+
+# ---------------------------------------------------------------------------
+# The one-shot import of docs/GAP-REGISTER.md
+# ---------------------------------------------------------------------------
+
+def test_the_register_imports_as_work_items_not_prose(queue):
+    """119 findings become a queue. MEASURED counts, so a silent drop shows up.
+
+    The register's own severity definitions are the priorities; the count per
+    level is asserted because a parser that quietly loses rows is the incident
+    this file's docstring describes.
+    """
+    report = import_gap_register(queue=queue)
+    by_sev = collections.Counter(g.severity for g in report.imported)
+    assert len(report.imported) == 119
+    assert by_sev == {Severity.CRITICAL: 20, Severity.HIGH: 54,
+                      Severity.MED: 34, Severity.LOW: 11}
+    a1 = queue.by_source("A1")
+    assert a1 is not None
+    assert a1.severity is Severity.CRITICAL
+    assert a1.state is GapState.OPEN
+    assert "L2/L3 unreachable" in a1.title
+    assert "evaluate.py" in a1.evidence
+    assert a1.component == "docs/GAP-REGISTER.md#A1"
+    # OWNER IS NEVER INFERRED. PLM §4 lists six roles; the register's section
+    # headings are topics, not roles, and mapping one onto the other would be a
+    # guess wearing a name.
+    assert {g.owner for g in report.imported} == {"unassigned"}
+
+
+def test_the_escaped_pipe_rows_import_with_their_real_severity(queue):
+    """The measured incident: F10, H1 and I2 were dropped by a naive split.
+
+    Each carries an escaped pipe inside its prose, which shifted every column
+    to its right, so the severity cell held Finding text and the row was
+    skipped as ungradeable. Three real findings — two HIGH, one MED — went
+    missing from a 119-row register that reported 116.
+    """
+    import_gap_register(queue=queue)
+    for source_id, sev in (("F10", Severity.HIGH), ("H1", Severity.MED),
+                           ("I2", Severity.HIGH)):
+        gap = queue.by_source(source_id)
+        assert gap is not None, f"register row {source_id} was dropped again"
+        assert gap.severity is sev
+    # And the escape is unescaped in the text, not left as a literal backslash.
+    assert "\\|" not in queue.by_source("F10").detail
+
+
+def test_a_row_the_importer_cannot_grade_is_named_never_guessed(queue):
+    """B10 and F20 are not findings, and inventing a severity for them would be
+    the same move as scoring an unmeasured metric as perfect. They are skipped
+    WITH A REASON, so a reader can see what the import chose not to file."""
+    report = import_gap_register(queue=queue)
+    skipped = dict(report.skipped)
+    assert set(skipped) == {"B10", "F20"}
+    for row, why in skipped.items():
+        assert "names no level" in why
+        assert queue.by_source(row) is None
+    assert report.n_rows_seen == 121
+
+
+def test_the_closure_table_is_not_imported_as_open_work(queue):
+    """Section J's `| ID | Closed by | Mechanism |` table records gaps that were
+    FIXED. It has no Sev column, and importing it would file eight closed
+    defects as open ones."""
+    import_gap_register(queue=queue)
+    # J1 appears TWICE in the register: once in section J's findings table
+    # (CRITICAL — five Gate 2M figures in circulation) and once in the closure
+    # table below it. Exactly one gap, from the finding.
+    assert sum(1 for g in queue.all() if g.source_id == "J1") == 1
+    assert queue.by_source("J1").severity is Severity.CRITICAL
+    assert all("Closed by" not in g.blocking for g in queue.all())
+    # Section K's `| Phase | Deliverable | Status |` table has no ID column and
+    # must contribute nothing either.
+    assert not [g for g in queue.all() if (g.source_id or "").startswith("K")]
+
+
+def test_the_import_is_a_one_shot_that_can_be_re_run(queue):
+    first = import_gap_register(queue=queue)
+    second = import_gap_register(queue=queue)
+    assert len(second.imported) == 0
+    assert len(second.already_present) == len(first.imported)
+    assert len(queue.all()) == len(first.imported)
+    # ...and across a fresh reader too, because the queue is replayed.
+    assert len(GapQueue(queue.log.path).all()) == len(first.imported)
+
+
+def test_the_import_does_not_touch_the_register_file(queue):
+    """GAP-REGISTER.md is a DATED AUDIT RECORD and stays one.
+
+    PLM §3 step 7: superseded material is removed with a note, never left
+    ambiguous — and the register's own J7 row struck rows through WITH the
+    superseding measurement beside them rather than deleting them. An importer
+    that edited its source would destroy the thing it is reading.
+    """
+    before = hashlib.sha256(REGISTER_PATH.read_bytes()).hexdigest()
+    import_gap_register(queue=queue)
+    assert hashlib.sha256(REGISTER_PATH.read_bytes()).hexdigest() == before
+
+
+def test_the_register_still_exists_and_is_still_the_audit_record():
+    # It is explicitly NOT deleted by this module landing.
+    assert REGISTER_PATH.exists()
+    text = REGISTER_PATH.read_text()
+    assert "Audited 2026-08-05" in text
