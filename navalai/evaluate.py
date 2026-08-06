@@ -21,7 +21,10 @@ from .limits import (FREEBOARD_FLOOR_M, LIST_LIMIT_DEG, TRIM_LIMIT_DEG,
                      gm_floor, min_bend_radius_m)
 from .mission import MissionSpec
 from .resistance import ResistanceResult, total_resistance
+from .rules import report as rules_report
+from .rules.iso12215 import assess as scantling_rules
 from .rules.iso12215 import select_stock_thickness_m
+from .rules.iso12217 import assess as stability_rules
 from .weights import MassAggregate, MassItem, aggregate, trim_angle_deg
 
 
@@ -31,7 +34,14 @@ from .weights import MassAggregate, MassItem, aggregate, trim_angle_deg
 # guarantees drift: a check added to evaluate() stayed invisible to NSGA-II,
 # so the optimizer would return designs the ladder then called violations.
 # Both now read the SAME dict.
-CONSTRAINT_NAMES = ("freeboard", "gm", "bend_radius", "trim", "list")
+# "rules" joined the vector because TIER R WAS NOT IN THE PIPELINE AT ALL.
+# Import scan of the whole package: NOTHING imported navalai.rules except the
+# tests and a demo script. It was not in evaluate(), not in CONSTRAINT_NAMES,
+# not in the NSGA-II constraint vector and not in the agent shell, so a hull
+# that failed ISO 12215-5 or the offset-load heel came back ok=True and
+# exported. PLM.md section 1 lists the rules tier as a platform truth mechanism
+# that "fails closed"; it was a print statement in a demo.
+CONSTRAINT_NAMES = ("freeboard", "gm", "bend_radius", "trim", "list", "rules")
 
 
 @dataclass
@@ -52,6 +62,7 @@ class Evaluation:
     ply_thickness_m: float = 0.0    # DERIVED from ISO 12215-5, not declared
     unaccounted_frac: float = 0.0   # displacement with no declared position
     hull_lwl_m: float = 0.0         # so requirements can check the mission
+    rules: dict = field(default_factory=dict)   # tier R, IN the ladder
     eval_ms: float = 0.0
     badges: dict = field(default_factory=dict)   # quantity -> (tier, sigma)
     g: dict = field(default_factory=dict)        # constraint -> value, <=0 feasible
@@ -175,6 +186,9 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
         "bend_radius": r_req - r_min,
         "trim": abs(trim) - TRIM_LIMIT_DEG,
         "list": abs(heel) - LIST_LIMIT_DEG,
+        # placeholder so the dict ORDER matches CONSTRAINT_NAMES for the
+        # assert below; the real value is computed after the rules run.
+        "rules": -0.01,
     }
     assert tuple(g) == CONSTRAINT_NAMES, "constraint order must match the names"
     why = {
@@ -195,12 +209,31 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
     res = total_resistance(hull, u, hs.wetted, hs.cb, rho, wl)
     en = energy_report(res.total, u, hull.deck_area(), mission.energy)
 
+    ev_for_rules = Evaluation(
+        ok=True, tier="L1", hydro=hs, wl=wl, weights=wb, masses=agg,
+        gm_m=gm_m, gm_l_m=gm_l_m, ply_thickness_m=t_ply)
+    findings = (stability_rules(ev_for_rules, mission.design_category,
+                                mission.crew, 2.0 * float(hull.y_chine.max()))
+                + scantling_rules(hs.disp_kg, t_ply * 1e3))
+    rules_rep = rules_report(findings)
+    # One continuous margin so NSGA-II can descend it: 0 when every rule
+    # passes, else the worst RELATIVE shortfall. A boolean would give the
+    # optimiser no gradient to follow out of an infeasible region.
+    fails = [f for f in findings if not f.passed]
+    g["rules"] = (max(abs(f.measured - f.required) / max(abs(f.required), 1e-9)
+                      for f in fails) if fails else -0.01)
+    why["rules"] = ("rules tier: " + "; ".join(
+        f"{f.rule_id} {f.measured:.2f} vs {f.required:.2f} {f.unit}"
+        for f in fails)) if fails else ""
+    if fails:
+        viol.append(why["rules"])
+
     ev = Evaluation(
         ok=len(viol) == 0, tier="L1", violations=tuple(viol), hydro=hs, wl=wl,
         weights=wb, masses=agg, gm_m=gm_m, gm_l_m=gm_l_m,
         trim_deg=trim, list_deg=heel, resistance=res, energy=en, g=g,
         ply_thickness_m=t_ply, unaccounted_frac=unaccounted_frac,
-        hull_lwl_m=float(p["LWL"]),
+        hull_lwl_m=float(p["LWL"]), rules=rules_rep,
         eval_ms=(time.perf_counter() - t0) * 1e3,
         # Sigmas that are DERIVED carry it; sigmas that are still a declared
         # fraction say so. The mass model computes a real sigma

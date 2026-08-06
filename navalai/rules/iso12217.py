@@ -15,7 +15,10 @@ from __future__ import annotations
 
 import math
 
-from ..evaluate import Evaluation
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:            # evaluate imports THIS module now, so the
+    from ..evaluate import Evaluation   # runtime import would be circular
 from ..limits import (CATEGORY_TABLE, CREW_MASS_KG,  # single source (limits.py)
                       gm_floor)
 from . import RuleFinding
@@ -31,7 +34,7 @@ from .review import basis_for
 OFFSET_FRACTION = 0.40  # crew CG offset as fraction of beam (approx)
 
 
-def assess(ev: Evaluation, category: str, crew: int,
+def assess(ev: "Evaluation", category: str, crew: int,
            beam_m: float) -> list[RuleFinding]:
     if category not in CATEGORY_TABLE:
         raise ValueError(f"unknown design category {category!r}")
