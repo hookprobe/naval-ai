@@ -654,7 +654,9 @@ def test_the_layer_receipt_reads_the_achieved_table_not_the_spec_columns():
     assert not re.search(r"/\^hull \+\[0-9\]/ \{print \"requested", src), (
         "the old position-based parse mislabelled the achieved layer count "
         "as a first-layer thickness in metres")
-    assert "layers_achieved=" in src, "the achieved count belongs in case.info"
+    assert "_mq_record layers_achieved" in src, (
+        "the achieved count belongs in case.info, written through the "
+        "de-duplicating recorder")
 
 
 def test_the_runner_reports_how_many_checkmesh_checks_failed():
@@ -822,3 +824,112 @@ def test_the_wigley_acceptance_value_is_the_closed_form_one():
     err = 100.0 * (acc["measured_m3"] - acc["published_m3"]) / acc["published_m3"]
     assert err == pytest.approx(acc["error_pct"], abs=0.002)
     assert abs(err) < acc["tolerance_pct"]
+
+
+# --------------------------------------------------------------------------
+# The mesh-quality guard's FIRST real subject, and what it taught
+# --------------------------------------------------------------------------
+
+def _skew_guard_from_the_script() -> tuple[str, float]:
+    """The awk program and the skewness bar, READ OUT OF run-case.sh.
+
+    Extracted rather than restated so this test cannot pass against a copy of
+    the guard while the shipped one rots — the whole point of rule 3 (a number
+    lives in one place), applied to a test.
+    """
+    src = (_ROOT / "navalai" / "cfd" / "run-case.sh").read_text()
+    m = re.search(r"_MQ_SKEW=\$\(_mq_num '([^']+)'", src)
+    assert m, "could not find the skewness parse in run-case.sh"
+    bar = re.search(r"s\+0 > ([0-9.]+)\) \? 1 : 0", src)
+    assert bar, "could not find the skewness bar in run-case.sh"
+    return m.group(1), float(bar.group(1))
+
+
+def _run_skew_guard(tmp_path, checkmesh_text: str) -> str:
+    """Return the guard's value for a given log.checkMesh, or 'UNPARSED'."""
+    import subprocess
+    prog, _bar = _skew_guard_from_the_script()
+    log = tmp_path / "log.checkMesh"
+    log.write_text(checkmesh_text)
+    script = (
+        '_mq_num() { local v; v=$(awk "$1" log.checkMesh | tail -1); '
+        'case "$v" in \'\'|*[!0-9.eE+-]*) echo "UNPARSED";; *) echo "$v";; '
+        'esac; }\n_mq_num "$1"\n')
+    out = subprocess.run(["bash", "-c", script, "bash", prog],
+                         cwd=tmp_path, capture_output=True, text=True)
+    return out.stdout.strip()
+
+
+# The line checkMesh actually wrote for runs/val_coarse, character for
+# character — `***` prefix, trailing clause and all.
+_VAL_COARSE_SKEW_LINE = (
+    " ***Max skewness = 42.9417, 23 highly skew faces detected which may "
+    "impair the quality of the results")
+
+
+def test_the_skewness_guard_refuses_the_mesh_that_actually_died(tmp_path):
+    """The guard shipped on 2026-08-06 and runs/val_coarse was the first mesh
+    that should have tripped it: symmetric KCS, nx 57, the DERIVED n_layers=7,
+    max skewness 42.9417, and interFoam died at t=0.0072 with deltaT 1.2e-3 ->
+    2.5e-26 while Courant max stayed 9-12 and alpha.water reached 1503.95.
+
+    The failure this guards against is not the arithmetic — 42.9 > 20 is not
+    hard — it is the guard never RECEIVING the number. checkMesh prefixes the
+    line with `***` only when it fails, so a parse that reads a fixed field
+    index reads a different token depending on whether the mesh is good, and a
+    parse that then falls back to `${VAR:-0}` reports the mesh it could not
+    measure as perfect. Both halves are asserted here.
+    """
+    prog, bar = _skew_guard_from_the_script()
+    assert bar == 20.0, "checkMesh's own boundary-face skewness limit"
+    v = _run_skew_guard(tmp_path, _VAL_COARSE_SKEW_LINE + "\n")
+    assert v == "42.9417", f"guard read {v!r} from the line that killed the run"
+    assert float(v) > bar, "42.9417 must be refused"
+
+    # ... and the same parse must still read a PASSING line, which carries no
+    # `***` prefix and a different trailing token.
+    ok = _run_skew_guard(tmp_path, "    Max skewness = 3.21 OK.\n")
+    assert ok == "3.21" and float(ok) <= bar
+
+    # runs/val_coarse5 — the same hull at n_layers=5, which MESHES CLEAN.
+    good = _run_skew_guard(
+        tmp_path, " ***Max skewness = 8.93076, 18 highly skew faces detected\n")
+    assert good == "8.93076" and float(good) <= bar
+
+
+@pytest.mark.parametrize("text,why", [
+    ("Checking geometry...\nMesh OK.\n", "no skewness line at all"),
+    (" ***Max skewness = nan, 4 highly skew faces\n", "a non-numeric value"),
+    ("", "an empty log"),
+])
+def test_an_unmeasured_metric_is_refused_not_assumed_perfect(tmp_path, text, why):
+    """`${_MQ_SKEW:-0}` converts "I could not measure this" into "this is
+    perfect", and 0 passes every bar. It is the same failure class as the
+    snappy layer table that reported the REQUESTED spec as the achieved one and
+    let weeks of solves run on a mesh with no prism layers: in both cases the
+    absence of evidence was rendered as evidence of absence.
+
+    A guard with no evidence must refuse. checkMesh's wording is not
+    contractual, so this is not hypothetical.
+    """
+    assert _run_skew_guard(tmp_path, text) == "UNPARSED", why
+    src = (_ROOT / "navalai" / "cfd" / "run-case.sh").read_text()
+    assert 'if [ "$_MQ_SKEW" = "UNPARSED" ]; then\n  _MQ_SKEWBAD=1' in src, (
+        "an unparsed skewness must set the fatal flag directly, not fall "
+        "through to a numeric comparison against a default")
+
+
+def test_case_info_receipts_are_rewritten_not_appended():
+    """MEASURED on runs/val_coarse: three mesh builds (a MESH_ONLY sweep and
+    two campaign attempts) left checkmesh_wrong_oriented_faces=10 in case.info
+    THREE TIMES, and runs/val_coarse5 carried two copies of every checkmesh
+    line. Readers of case.info split on '=' and take one — which one depends on
+    whether they scan forwards or build a dict — so a receipt from a superseded
+    mesh can outlive the mesh that produced it."""
+    src = (_ROOT / "navalai" / "cfd" / "run-case.sh").read_text()
+    assert "_mq_record()" in src
+    for key in ("checkmesh_zero_volume_cells", "checkmesh_wrong_oriented_faces",
+                "checkmesh_max_skewness", "layers_achieved"):
+        assert f'echo "{key}=' not in src, (
+            f"{key} must go through _mq_record, which drops the previous line")
+    assert src.index("_mq_record()") < src.index("_mq_record layers_achieved")

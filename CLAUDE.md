@@ -422,6 +422,28 @@ predictor; the mesh-time gate is the mechanism, which is why the bars moved:
   LINES, and checkMesh writes one: "Failed 3 mesh checks." Three failures were
   announced as one. Now parsed, and each `***` line is echoed.
 
+### An unmeasured metric is REFUSED, never assumed good
+
+Every mesh-quality receipt used to end in `${VAR:-0}`, which turns "I could not
+measure this" into "this is perfect", and 0 passes every bar. Same failure class
+as the layer table that reported the REQUESTED spec as achieved, and as
+`${_L_WANT:-1}` dividing by a fabricated denominator. checkMesh's wording is not
+contractual — the skewness line carries a `***` prefix when it FAILS and none
+when it passes, so a fixed field index reads a different token depending on the
+answer. The value is now read by substring after `Max skewness =`, and an
+unreadable one sets the fatal flag directly.
+
+(For the record, since it was reported the other way: this guard did NOT fail
+open on `runs/val_coarse`. That mesh was built before the skewness guard
+existed. Re-running the CURRENT `run-case.sh` against the same `log.checkMesh`
+parses 42.9417 and exits 1. Verify the version that produced an artefact before
+concluding a guard let it through.)
+
+Receipts are also REWRITTEN, not appended. A case meshed three times carried
+three copies of every `checkmesh_*` line in case.info, and a reader gets
+whichever it happens to hit — so a receipt from a superseded mesh outlives the
+mesh that produced it.
+
 ### A crash is not a nap
 
 `run_campaign.sh` treated every non-zero exit as "interrupted, will resume",

@@ -204,6 +204,17 @@ $(grep -m1 'Max skewness' log.checkMesh | tr -s ' ' | sed 's/^ *//' | cut -c1-40
 #
 # A wall model with no boundary-layer mesh is not a degraded result, it is a
 # different simulation. So this is FATAL unless LAYERS_OPTIONAL=1.
+# A RECEIPT IS REWRITTEN, NOT APPENDED. Every invocation appended its lines, so
+# a case meshed three times (a MESH_ONLY sweep and then two campaign attempts)
+# ended up with three copies of each — MEASURED on runs/val_coarse, whose
+# case.info carries checkmesh_wrong_oriented_faces=10 three times over. Whoever
+# reads it next gets whichever duplicate they happen to hit, so a receipt from a
+# superseded mesh can outlive the mesh that produced it.
+_mq_record() {
+  grep -v "^$1=" case.info > case.info.tmp 2>/dev/null || : > case.info.tmp
+  mv case.info.tmp case.info
+  echo "$1=$2" >> case.info
+}
 _LAYERLOG=log.snappy; [ -s log.snappy.layers ] && _LAYERLOG=log.snappy.layers
 _L_INIT=$(awk '/^Initial mesh :/ {gsub(/cells:/,"",$4); print $4}' "$_LAYERLOG" | tail -1)
 _L_FINAL=$(awk '/^Layer mesh :/  {gsub(/cells:/,"",$4); print $4}' "$_LAYERLOG" | tail -1)
@@ -239,7 +250,8 @@ if [ "${_L_ADDED:-0}" -le 0 ]; then
 else
   say "layers: ADDED ${_L_ADDED} of ${_L_WANT:-?} cells ($(awk -v a="$_L_ADDED" -v w="${_L_WANT:-1}" 'BEGIN{printf "%.1f", 100*a/w}')%), ${_L_SPEC}"
   say "layers: ${_L_GOT:-no achieved table found}"
-  [ -n "$_L_GOT" ] && echo "layers_achieved=$(awk '/^hull +[0-9]/ && NF==6 {print $4}' "$_LAYERLOG" | tail -1)" >> case.info
+  [ -n "$_L_GOT" ] && _mq_record layers_achieved \
+    "$(awk '/^hull +[0-9]/ && NF==6 {print $4}' "$_LAYERLOG" | tail -1)"
 fi
 # `grep -c 'Failed'` COUNTS LINES, NOT CHECKS. checkMesh writes one line,
 # "Failed 3 mesh checks.", so a mesh failing three checks was reported as
@@ -292,19 +304,52 @@ fi
 #   Every mesh that solved is under 10; the one that died is 4.7x the worst of
 #   them. The bar sits at OpenFOAM's documented value rather than at a number
 #   invented to separate these two clusters.
+#
+#   AN UNPARSED METRIC IS FATAL, NEVER ZERO. Every one of these used to end in
+#   `${VAR:-0}`, which silently converts "I could not measure this" into "this
+#   is perfect" — the same failure class as the layer table that reported the
+#   REQUESTED spec as the achieved one, and as `${_L_WANT:-1}` dividing by a
+#   fabricated denominator. checkMesh's wording is not contractual (the counts
+#   only appear when non-zero, and the skewness line carries a `***` prefix
+#   when it fails and none when it passes), so a parse that comes back empty
+#   means the guard has no evidence, and a guard with no evidence must refuse.
+#   The skewness value is read by SUBSTRING after "Max skewness =" rather than
+#   by field index, so the `***` prefix cannot shift the column out from under
+#   it.
+_mq_num() {   # _mq_num <awk-program> <what>  -> value, or "UNPARSED"
+  local v; v=$(awk "$1" log.checkMesh | tail -1)
+  case "$v" in ''|*[!0-9.eE+-]*) echo "UNPARSED";; *) echo "$v";; esac
+}
+# The zero-volume and wrong-orientation lines are printed ONLY when the count
+# is non-zero, so "no line" genuinely means zero for those two and the default
+# is correct. Skewness is printed on EVERY run, so a missing value there means
+# the parse broke.
 _MQ_ZEROVOL=$(awk '/zero volume cells to set zeroVolumeCells/ {print $2}' log.checkMesh | tail -1)
 _MQ_WRONGOR=$(awk '/faces with incorrect orientation to set wrongOrientedFaces/ {print $2}' log.checkMesh | tail -1)
-_MQ_SKEW=$(awk '/Max skewness =/ {gsub(/,/,"",$4); print $4}' log.checkMesh | tail -1)
-_MQ_ZEROVOL=${_MQ_ZEROVOL:-0}; _MQ_WRONGOR=${_MQ_WRONGOR:-0}; _MQ_SKEW=${_MQ_SKEW:-0}
+_MQ_ZEROVOL=${_MQ_ZEROVOL:-0}; _MQ_WRONGOR=${_MQ_WRONGOR:-0}
+_MQ_SKEW=$(_mq_num '/Max skewness *=/ {v=$0; sub(/.*Max skewness *= */,"",v); sub(/[^0-9.eE+-].*/,"",v); print v}' skewness)
 say "mesh quality: ${_MQ_ZEROVOL} zero-volume cell(s), ${_MQ_WRONGOR} incorrectly-oriented face(s), max skewness ${_MQ_SKEW}"
-echo "checkmesh_zero_volume_cells=${_MQ_ZEROVOL}" >> case.info
-echo "checkmesh_wrong_oriented_faces=${_MQ_WRONGOR}" >> case.info
-echo "checkmesh_max_skewness=${_MQ_SKEW}" >> case.info
-_MQ_SKEWBAD=$(awk -v s="$_MQ_SKEW" 'BEGIN{print (s+0 > 20.0) ? 1 : 0}')
+# RECEIPTS ARE REWRITTEN, NOT APPENDED. Every invocation appended, so a case
+# meshed three times (a MESH_ONLY sweep then two campaign attempts) carried
+# three copies of each line — MEASURED on runs/val_coarse and runs/val_coarse5.
+# A later reader gets whichever duplicate it happens to hit, which is how a
+# stale receipt outlives the mesh that produced it.
+_mq_record checkmesh_zero_volume_cells "${_MQ_ZEROVOL}"
+_mq_record checkmesh_wrong_oriented_faces "${_MQ_WRONGOR}"
+_mq_record checkmesh_max_skewness "${_MQ_SKEW}"
+if [ "$_MQ_SKEW" = "UNPARSED" ]; then
+  _MQ_SKEWBAD=1
+else
+  _MQ_SKEWBAD=$(awk -v s="$_MQ_SKEW" 'BEGIN{print (s+0 > 20.0) ? 1 : 0}')
+fi
 if [ "$_MQ_ZEROVOL" -gt 0 ] || [ "$_MQ_WRONGOR" -gt 5 ] || [ "$_MQ_SKEWBAD" = "1" ]; then
   say "FATAL: mesh quality below the bar (${_MQ_ZEROVOL} zero-volume cells,"
   say "       ${_MQ_WRONGOR} incorrectly-oriented faces, max skewness ${_MQ_SKEW};"
   say "       bars are 0, 5 and 20)."
+  [ "$_MQ_SKEW" = "UNPARSED" ] && \
+    say "       max skewness could NOT BE READ from log.checkMesh. An unmeasured"
+  [ "$_MQ_SKEW" = "UNPARSED" ] && \
+    say "       metric is refused, not assumed good — see the comment above."
   say "       A degenerate cell does not degrade a solve, it invalidates it:"
   say "       deltaT collapses to ~1e-40 while Courant stays high and interFoam"
   say "       dies in the GAMG p_rgh solve. Re-mesh; do not spend hours on this."
