@@ -158,6 +158,11 @@ GATES = [
     Gate("Gate E", "latent-space evolution + latent GP", "tests/test_stageE.py"),
     Gate("Gate F", "panel unroll/DXF + Pareto dash + handoff receipt",
          "tests/test_stageF.py"),
+    # Carried over from the APSE line when the four parallel branches were
+    # consolidated onto master. APSE is the fidelity/similitude work: scale is
+    # not a cost variable, fidelity is, and it is measured.
+    Gate("Gate G", "APSE: similitude/ITTC-78/cost/planner/evidence",
+         "tests/test_stageG.py"),
     Gate("Gate L", "one limit, one home; scantling derived from the rule",
          "tests/test_limits_single_source.py"),
     # Split out of Gate 6, which tested the RULES mechanics only. The
