@@ -929,7 +929,12 @@ def test_case_info_receipts_are_rewritten_not_appended():
     src = (_ROOT / "navalai" / "cfd" / "run-case.sh").read_text()
     assert "_mq_record()" in src
     for key in ("checkmesh_zero_volume_cells", "checkmesh_wrong_oriented_faces",
-                "checkmesh_max_skewness", "layers_achieved"):
+                "checkmesh_max_skewness", "layers_achieved",
+                # tet_bad_faces_at_1e-15 was MISSED by the first pass of this
+                # fix and duplicated in runs/val_coarse5 while the four keys
+                # above were single — which is why this test enumerates every
+                # receipt rather than the ones that happened to be noticed.
+                "tet_bad_faces_at_1e-15"):
         assert f'echo "{key}=' not in src, (
             f"{key} must go through _mq_record, which drops the previous line")
     assert src.index("_mq_record()") < src.index("_mq_record layers_achieved")

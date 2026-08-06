@@ -483,6 +483,44 @@ anything settled under 5.0 is printed as `UNDER-RUN`. `case.info` now records
 `domain_length_m`, `flow_through_s` and `end_time_flow_throughs`; a case
 predating them gets the 4.5 Lwl assumption, said out loud.
 
+## R5.5 REPRODUCES on the new mesh family, and it is an OSCILLATION
+
+`runs/val_coarse5` — symmetric KCS, `_NX_BASE` 57, `--n-layers 5`, 230725 cells,
+transient, 19.81 s of a 20 s run = **1.33 flow-throughs**, ~2.5 h on 10 ranks.
+Mass conserved (Phase-1 0.800164 -> 0.800106, 7e-5), alpha in [-1.4e-4, 1],
+deltaT stable at 1.7-2.1e-3, no thermal sleep.
+
+    window (s)    pressure N   x expected   viscous N   x ITTC-57   C_T
+     0.02- 2.49     123.12        5.92        79.19       1.23    8.796e-3
+     2.49- 4.97      39.71        1.91        87.65       1.36    5.537e-3
+     4.97- 7.44     104.03        5.00        87.45       1.35    8.325e-3
+     7.44- 9.91      21.82        1.05        88.16       1.36    4.782e-3
+     9.91-12.39      85.08        4.09        79.76       1.23    7.167e-3
+    12.39-14.86      67.61        3.25        85.06       1.32    6.637e-3
+    14.86-17.34       5.57        0.27        78.65       1.22    3.661e-3
+    17.34-19.81     121.89        5.86        80.73       1.25    8.809e-3
+
+- **Viscous is right and stays right**: 1.22-1.36x ITTC-57 across the whole run.
+  For KCS a form factor (1+k) of 1.1-1.15 is expected, so this is the correct
+  band and it is the one number here that is stable. R5.5's "viscous is correct"
+  survives re-measurement on the new family.
+- **Pressure is NOT "3-6x and growing" — it OSCILLATES between 0.27x and 5.92x
+  of the expected 20.8 N, with a period near 5 s.** The wave period at Fn 0.26
+  is 2πU/g = 1.41 s, so this is not the ship wave; it is something at domain
+  scale. Every previously recorded value (2.6x, 2.9x, 4.2x, 6.0x) lies inside
+  this envelope, so the earlier "grows with time" readings are consistent with
+  having sampled a rising quarter of the same oscillation from runs too short to
+  see it turn over. That reframes R5.5's remaining candidates: the question is
+  what has a ~5 s period in a 32.75 m tank, not what is adding a constant.
+- Consequently the drift criterion is meaningless here at 1.33 flow-throughs:
+  16.6% over the last fifth. `gate2m.py runs/val_coarse5` correctly returns
+  **NO RESULT, exit 2**. Do not quote the -95.0% E%D as a result; it is a phase
+  of an oscillation.
+- Next experiment: run to 5+ flow-throughs (75 s) and FFT the pressure history.
+  If the period matches a tank mode, the boundary treatment is the cause and a
+  longer/absorbing domain is the fix; if it does not, R5.5 candidate (b) — the
+  transom wetting/ventilating at Fn 0.26 — is next.
+
 ## Gate 2M: KCS meshes cleanly now; the NUMBER is still owed
 
 The mesh blocker is closed (above). Geometry pipeline and acceptance data were

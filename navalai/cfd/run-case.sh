@@ -375,7 +375,7 @@ TETEOF
 checkMesh -meshQuality > log.checkMesh.tet 2>&1 || true
 _TETBAD=$(awk '/tet quality/ {print $NF}' log.checkMesh.tet | tail -1)
 say "tet-decomposition check (minTetQuality 1e-15 on the FINISHED mesh): ${_TETBAD:-not reported} bad faces"
-echo "tet_bad_faces_at_1e-15=${_TETBAD:-unknown}" >> case.info
+_mq_record tet_bad_faces_at_1e-15 "${_TETBAD:-unknown}"
 # MESH_ONLY exists so the robustness harness measures THIS pipeline. It used
 # to call `snappyHexMesh -overwrite` itself, which was a fair copy of the
 # single-pass mesher and is now simply a different mesher: it skips the z-only
