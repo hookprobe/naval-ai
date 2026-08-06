@@ -354,3 +354,47 @@ def test_lateral_areas_use_the_same_convention():
     mo = mooring(h, wind_ms=25.0, current_ms=0.0)
     implied = mo.wind_force_n / (0.5 * 1.225 * 1.0 * 25.0 ** 2)
     assert implied == pytest.approx(side_profile, rel=1e-9)
+
+
+def test_wigley_matches_the_reference_curve_point_by_point():
+    """Gate 1's bar is "Wigley wave resistance matches the analytic/tank curve
+    within published Michell error bars". THE ANCHOR WAS NOT ANCHORED.
+
+    The existing test asserts a MAGNITUDE BAND (8e-4 < Cw(0.5) < 5e-3) plus the
+    presence of >=2 sign changes. No reference curve existed anywhere in the
+    repo and no per-point comparison was made, so any function of roughly the
+    right size with a couple of wiggles would have passed — including one with
+    the humps and hollows in the wrong places, which is the entire physical
+    content of a wave-resistance curve.
+
+    HONEST SCOPE, because this must not be oversold: `REFERENCE_CW` is OUR OWN
+    Michell integral on a converged grid (nx=321, nz=65), so this is a
+    GRID-CONVERGENCE and REGRESSION anchor, not an independent validation. It
+    catches a change in the integral, the offsets or the quadrature. The
+    independent check on the integral is the exact separable solution, which
+    agrees to -0.86..-2.11%.
+
+    MEASURED: the shipped production grid (121x25) tracks the converged curve
+    to 1.4% worst-case over Fn 0.20..0.50, so the 4% bar has real margin
+    without being slack enough to hide a regression.
+    """
+    import numpy as np
+
+    from benchmarks.wigley import (REFERENCE_CW, REFERENCE_S, cw_curve,
+                                   wetted_surface)
+
+    assert wetted_surface(10.0) == pytest.approx(REFERENCE_S, rel=1e-6)
+
+    fns = np.array(sorted(REFERENCE_CW))
+    cws, _S = cw_curve(fns, 10.0)          # production grid, as shipped
+    for fn, cw in zip(fns, cws):
+        ref = REFERENCE_CW[float(fn)]
+        assert cw == pytest.approx(ref, rel=0.04), (
+            f"Fn {fn}: {cw:.4e} vs reference {ref:.4e}")
+
+    # The SHAPE is the physics: the hump at Fn 0.30 must exceed the hollow at
+    # 0.35, and the curve must rise again beyond it. A band check cannot see
+    # this, and a curve that lost its humps would still have passed before.
+    assert REFERENCE_CW[0.30] > REFERENCE_CW[0.35] * 1.5
+    assert cws[list(fns).index(0.30)] > cws[list(fns).index(0.35)] * 1.5
+    assert cws[-1] > cws[list(fns).index(0.35)]

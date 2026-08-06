@@ -20,7 +20,8 @@ from .hydrostatics import HydroState, gm, gm_long, solve_to_displacement
 from .limits import (FREEBOARD_FLOOR_M, LIST_LIMIT_DEG, TRIM_LIMIT_DEG,
                      gm_floor, min_bend_radius_m)
 from .mission import MissionSpec
-from .resistance import ResistanceResult, total_resistance
+from .resistance import (FN_MICHELL_MAX, ResistanceResult,
+                         total_resistance)
 from .rules import report as rules_report
 from .rules.iso12215 import assess as scantling_rules
 from .rules.iso12215 import select_stock_thickness_m
@@ -207,6 +208,13 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
 
     u = mission.cruise_speed_ms()
     res = total_resistance(hull, u, hs.wetted, hs.cb, rho, wl)
+    if not res.valid:
+        # Reported as a violation, not buried in a badge: at Fn > 0.45 the
+        # thin-ship model is answering a different question than the mission.
+        viol.append(
+            f"speed outside the L1 model: Fn {res.fn:.2f} > {FN_MICHELL_MAX} "
+            f"(planing regime — Michell thin-ship has no dynamic lift, trim or "
+            f"spray; needs a Savitsky-class method)")
     en = energy_report(res.total, u, hull.deck_area(), mission.energy)
 
     ev_for_rules = Evaluation(
@@ -247,7 +255,9 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
             "displacement": ("L1", agg.sigma_kg, "measured"),
             "GM": ("L1", agg.sigma_kg / max(agg.total_kg, 1e-9)
                    * abs(kg) + 0.05, "measured"),
-            "resistance": ("L1", res.uncertainty, "measured"),
+            # A number outside its model's validity is not an L1 quantity.
+            "resistance": ("L1" if res.valid else "L1-INVALID",
+                           res.uncertainty, "measured"),
             "wh_per_nm": ("L1", en.wh_per_nm * 0.30, "assumed"),
         },
     )

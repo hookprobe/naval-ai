@@ -68,3 +68,34 @@ if __name__ == "__main__":
     print(f"# Wigley L=10 m, S={S:.2f} m^2  (Michell integral, theta form)")
     for fn, cw in zip(fns, cws):
         print(f"Fn={fn:.3f}  Cw={cw:.4e}")
+
+
+# ---------------------------------------------------------------------------
+# REFERENCE CURVE — the thing Gate 1 always claimed to check and never did.
+#
+# BuildPlan Gate 1's bar is "Wigley wave resistance matches the analytic/tank
+# curve within published Michell error bars". The test asserted a MAGNITUDE
+# BAND (8e-4 < Cw(0.5) < 5e-3) plus the presence of >=2 sign changes. No
+# reference curve existed anywhere in the repo and no per-point comparison was
+# made, so the anchor was not anchored: any function of roughly the right size
+# with a couple of wiggles would have passed.
+#
+# These values are OUR OWN Michell integral evaluated on a CONVERGED grid
+# (nx=321, nz=65) — not an external dataset. That makes this a GRID-CONVERGENCE
+# and REGRESSION anchor, not an independent validation, and it must not be
+# described as the latter. Its job is to catch a change in the integral, the
+# offsets or the quadrature. The independent check on the integral itself is
+# the exact separable solution, which agrees to -0.86..-2.11%.
+#
+# Wigley: L=10 m, B=L/10, T=B/1.6, S=14.87905 m^2 (both sides, to z=0).
+REFERENCE_CW = {
+    0.20: 8.807045e-04,
+    0.25: 1.061372e-03,
+    0.30: 2.133448e-03,     # hump
+    0.35: 1.244703e-03,     # hollow
+    0.40: 2.721631e-03,
+    0.45: 4.139621e-03,
+    0.50: 4.505337e-03,
+}
+REFERENCE_GRID = dict(nx=321, nz=65)
+REFERENCE_S = 14.87905

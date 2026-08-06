@@ -24,6 +24,25 @@ from .geometry import G, Hull
 NU_WATER = 1.14e-6  # kinematic viscosity, ~15 C fresh water [m^2/s]
 
 
+# MICHELL'S VALIDITY ENVELOPE, ENFORCED.
+# The thin-ship integral assumes a slender hull at low-to-moderate Froude
+# number with no dynamic lift. MEASURED: a "3 t, 6 m, 25 kn tender" mission was
+# evaluated at **Fn 1.09 / Fn_vol 3.42** -- deep planing -- and returned
+# Rw 498 N against Rf 3832 N, i.e. "friction-dominated at 25 knots", with a
+# PASS on every requirement. There is no planing lift, no dynamic trim, no
+# spray and no appendage drag in this model; at that speed the answer is not
+# approximate, it is about a different physical regime.
+#
+# 0.45 is the conventional upper limit for displacement/thin-ship methods
+# (transom immersion and dynamic effects take over above it). Above the bar the
+# result is still returned -- refusing outright would hide the number from a
+# designer who wants to see it -- but `valid` is False and the tier reads
+# L1-INVALID, so nothing downstream can badge it as a validated L1 quantity.
+# The honest fix beyond this is a Savitsky planing model; that is gap B7's
+# second half and is not yet built.
+FN_MICHELL_MAX = 0.45
+
+
 @dataclass(frozen=True)
 class ResistanceResult:
     speed: float      # m/s
@@ -34,6 +53,8 @@ class ResistanceResult:
     cw: float         # wave resistance coeff on 0.5 rho S U^2
     cf: float
     uncertainty: float  # one-sigma on total [N] — honest L1 band (~25%)
+    valid: bool = True          # False above FN_MICHELL_MAX
+    regime: str = "displacement"
 
 
 def michell_rw(xs: np.ndarray, zs: np.ndarray, Y: np.ndarray, speed: float,
@@ -88,4 +109,11 @@ def total_resistance(hull: Hull, speed: float, wetted: float, cb: float,
     cw = rw / max(q, 1e-9)
     # honest L1 band: Michell hump overprediction + form-factor scatter
     sigma = 0.25 * rw + 0.10 * rf
-    return ResistanceResult(speed, fn, rw, rf, total, cw, cf, sigma)
+    valid = fn <= FN_MICHELL_MAX
+    if not valid:
+        # The band is meaningless outside the model's regime; say so with a
+        # sigma the size of the answer rather than a comfortable 25%.
+        sigma = max(sigma, total)
+    return ResistanceResult(speed, fn, rw, rf, total, cw, cf, sigma,
+                            valid=valid,
+                            regime="displacement" if valid else "planing")
