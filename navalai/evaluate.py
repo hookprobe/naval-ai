@@ -1,4 +1,4 @@
-"""The validation ladder orchestrator: L0 -> L1 -> L2 (-> L3, operator-run).
+"""The validation ladder orchestrator: L0 -> L1 -> L2 -> L3 -> R.
 
 Every result is tier-badged and uncertainty-carrying (BuildPlan honesty rule 1)
 and can be appended to the provenance DB (rule: nothing exists unless recorded).
@@ -10,13 +10,28 @@ one caller — a print-only spot-check in `scripts/demo_mission.py` — and
 `navalai.cfd` only by operator CLIs, so `Evaluation.tier` read "L1" in 100% of
 ~2000 evaluations. There was no code path by which a design could reach L2 at
 all, which makes rule 2 a sentence rather than a mechanism.
+
+L3 IS READ, NEVER RUN (gap A1). A RANS campaign is hours of supervised compute
+on a machine this process is not entitled to start — the KCS case is ~6 h on 10
+ranks and this Mac's thermal sleep kills it mid-run — so `revalidate(...,
+"L3")` opens no solver. It reads a RECORDED campaign: a case directory that has
+already been run, or an L3 row already in the provenance DB. When neither
+exists it says NO EVIDENCE AT THIS TIER and names the operator route. The one
+thing it must never do is hand back the L1 number wearing an L3 badge, and the
+second thing it must never do is accept somebody else's run as this hull's —
+`l3_case_evidence` checks the recorded geometry against the genome before it
+will quote a drag (see gate2m.py's own incident: it applied the KRISO KCS tank
+data to `runs/wigley` and printed E%D -59.0 under a header naming KCS).
 """
 
 from __future__ import annotations
 
+import inspect
+import json
 import math
 import time
 from dataclasses import dataclass, field, replace
+from pathlib import Path
 
 import numpy as np
 
@@ -24,7 +39,8 @@ from . import db, grammar
 from .energy import (EnergyReport, WeightBudget, energy_report, weight_budget,
                      weight_items)
 from .geometry import RHO_WATER, Hull
-from .hydrostatics import HydroState, gm, gm_long, solve_to_displacement
+from .hydrostatics import (HydroState, gm, gm_long, solve,
+                           solve_to_displacement)
 from .limits import (FREEBOARD_FLOOR_M, LCB_BAND_PCT_LWL, LIST_LIMIT_DEG,
                      TRIM_LIMIT_DEG, gm_floor, min_bend_radius_m)
 from .mission import MissionSpec
@@ -187,6 +203,9 @@ class Evaluation:
     hull_lwl_m: float = 0.0         # so requirements can check the mission
     rules: dict = field(default_factory=dict)   # tier R, IN the ladder
     seakeeping: dict = field(default_factory=dict)   # tier L2, when it has run
+    # Tier L3, when a RECORDED campaign has been read for this hull. Empty is
+    # the honest default: "no evidence at this tier", never a placeholder drag.
+    cfd: dict = field(default_factory=dict)
     # The genome that produced this evaluation, so a kept design can be handed
     # to revalidate() as itself rather than as a loose array the caller has to
     # keep paired with it by hand. compare=False because an ndarray field makes
@@ -493,10 +512,223 @@ _L2_OMEGAS = np.array([0.6, 1.0, 1.6])
 _L2_MESHES = ((20, 5), (28, 7))
 
 
+# ---------------------------------------------------------------- tier L3 ---
+# A RANS result enters the ladder as EVIDENCE that already exists. Nothing
+# below starts a solver, and there is deliberately no code path here that
+# could: `navalai.cfd.post` is a parser, `navalai.cfd.case` is a writer, and
+# the runner is a shell script an operator invokes.
+
+# ONE flow-through is a physical floor, not a tuned bar: a domain the free
+# stream has not yet crossed still contains its initial condition, so no
+# average taken over it is stationary. CLAUDE.md's target for a settled KCS run
+# is 5.0 flow-throughs, and the 2026-08-06 re-audit found EVERY run in this
+# repository sitting between 0.13 and 0.70 with conclusions drawn from all of
+# them. `scripts/gate2m.py` applies the same floor inline (`fts >= 1.0`); it is
+# the one number this module and that script both hold, and consolidating them
+# into a single owner is owed.
+_L3_MIN_FLOW_THROUGHS = 1.0
+
+# Identity tolerances. The submerged volume of the case's own STL is compared
+# against the hull the genome describes, which is a far stronger test than the
+# length alone: MEASURED on the reference hull, `hull_to_stl` at nx=80 lands
+# within 0.91% of the analytic displacement and at nx=400 within 0.07%, while a
+# DIFFERENT hull misses by tens of percent. 3% is triangulation slack, not a
+# window for another boat to fit through.
+_L3_VOLUME_TOL = 0.03
+_L3_LENGTH_TOL = 0.01
+_L3_SPEED_TOL = 0.02
+
+
+def read_case_info(case_dir) -> dict[str, str]:
+    """`case.info` as a dict of strings, or raise `TierRefusal`.
+
+    Values are returned raw. Nothing here supplies a default for a key the
+    generator did not write: the caller checks for the keys it MEASURES from
+    and refuses when one is absent (`.get` is used only for labels — the
+    benchmark name, the STL hash — which are provenance, not quantities).
+    """
+    p = Path(case_dir) / "case.info"
+    if not p.exists():
+        raise TierRefusal(
+            f"{p} does not exist, so this directory does not describe a case "
+            f"at all — no L3 evidence can be read from it")
+    out: dict[str, str] = {}
+    for line in p.read_text().splitlines():
+        if "=" in line and not line.lstrip().startswith(("#", "NOTE", "run:",
+                                                         "Gate")):
+            k, v = line.split("=", 1)
+            out[k.strip()] = v.strip()
+    return out
+
+
+def l3_case_evidence(case_dir, hull: Hull, mission: MissionSpec,
+                     rho: float = RHO_WATER) -> dict:
+    """Read a RECORDED RANS campaign as L3 evidence for THIS hull, or refuse.
+
+    Runs no solver. Reads `case.info`, the merged force history and the case's
+    own STL, and returns a dict carrying the drag, its measured scatter, the
+    resistance coefficient and the receipts (flow-throughs, symmetry, geometry
+    residuals) that justify quoting it.
+
+    Every failure is a `TierRefusal`, never a degraded answer:
+
+    * the case is a different hull, or was towed at a different speed;
+    * the case cannot say how long its domain is, so the number of
+      flow-throughs is UNKNOWABLE. `scripts/gate2m.py` substitutes 4.5*Lwl
+      here and records `domain_assumed`; this refuses instead, because a
+      stationarity claim resting on an assumed domain is the `${VAR:-0}`
+      pattern that has already cost this project a run. Every case generated
+      before 2026-08-06 — `runs/wigley`, `runs/kcs_gci2/*` — is refused by
+      this clause, which is the correct verdict for them and not a bug;
+    * the flow has not crossed the domain once.
+
+    The sigma is MEASURED, not declared: the scatter over the settled tail, or
+    the drift between that tail and the window immediately before it,
+    whichever is larger. A run that is still shedding its transient therefore
+    reports a wide L3 band instead of a confident wrong one.
+    """
+    from .cfd import post          # a parser; importing it starts nothing
+
+    case = Path(case_dir)
+    info = read_case_info(case)
+
+    # ---- identity: is this run about the hull we are holding? --------------
+    for key in ("lwl", "speed_ms", "symmetric", "domain_length_m"):
+        if key not in info:
+            raise TierRefusal(
+                f"{case}/case.info has no {key!r}. It is not enough for the "
+                f"campaign to have happened; the record has to say what it was "
+                f"of. A missing key is refused rather than defaulted — "
+                f"'domain_length_m' in particular decides how many "
+                f"flow-throughs the run covers, and a stationarity claim "
+                f"resting on an assumed domain is not evidence.")
+    try:
+        lwl_case = float(info["lwl"])
+        u_case = float(info["speed_ms"])
+        dom_len = float(info["domain_length_m"])
+    except ValueError as e:
+        raise TierRefusal(
+            f"{case}/case.info holds a value that is not a number ({e}); a "
+            f"receipt that cannot be read is not a receipt") from e
+    lwl_hull = float(hull.x[-1] - hull.x[0])
+    if abs(lwl_case - lwl_hull) > _L3_LENGTH_TOL * max(lwl_hull, 1e-9):
+        raise TierRefusal(
+            f"{case} is a {lwl_case:.3f} m hull and this design is "
+            f"{lwl_hull:.3f} m — that campaign is not evidence about this "
+            f"boat. (gate2m.py once printed KCS tank errors for runs/wigley "
+            f"for exactly this reason.)")
+
+    u_want = mission.cruise_speed_ms()
+    if abs(u_case - u_want) > _L3_SPEED_TOL * max(abs(u_want), 1e-9):
+        raise TierRefusal(
+            f"{case} was towed at {u_case:.3f} m/s and the mission cruises at "
+            f"{u_want:.3f} m/s. Resistance is a function of speed, so this is "
+            f"a different design point, not a better answer at this one.")
+
+    stl = case / "constant" / "triSurface" / "hull.stl"
+    if not stl.exists():
+        raise TierRefusal(
+            f"{stl} is missing, so the geometry the solver actually saw cannot "
+            f"be checked against the genome and the wetted area C_T needs "
+            f"cannot be measured")
+    sub = post.stl_submerged_properties(str(stl), waterline=0.0)
+    # The case STL is written with the DESIGN waterline at z=0 (that is the
+    # frame `hull_to_stl` emits and the frame the tank is built around), so the
+    # comparison is against the hull's displacement at wl=0, not at the floated
+    # waterline the mission target produced.
+    vol_hull = solve(hull, rho, 0.0).disp_kg / rho
+    vol_res = abs(sub["volume_m3"] - vol_hull) / max(vol_hull, 1e-9)
+    if vol_res > _L3_VOLUME_TOL:
+        raise TierRefusal(
+            f"{stl} encloses {sub['volume_m3']:.3f} m^3 below the waterline "
+            f"and this genome's hull encloses {vol_hull:.3f} m^3 "
+            f"({100 * vol_res:.1f}% apart, bar {100 * _L3_VOLUME_TOL:.0f}%). "
+            f"Same length is not the same hull.")
+
+    # ---- the recorded numbers ---------------------------------------------
+    try:
+        forces = post.forces_path(case)
+    except FileNotFoundError as e:
+        raise TierRefusal(
+            f"{case} has no force history ({e}), so the campaign either has "
+            f"not run or did not survive. There is no L3 number to read.") from e
+    t, fx = post.parse_forces(forces)
+    if len(t) < 10:
+        raise TierRefusal(
+            f"{forces} holds {len(t)} samples — too short to average. A drag "
+            f"read off a handful of startup timesteps is not a resistance.")
+
+    drag_tail, scatter = post.mean_resistance(forces)
+    # The drift estimate reuses post.mean_resistance's OWN window rather than
+    # declaring a second one — the fraction is read off its signature, so the
+    # two windows are the same length by construction and there is no number
+    # here to drift out of step with it. The previous window sits immediately
+    # before the tail; the gap between the two means is what a run that has not
+    # settled still has, and it is folded into sigma rather than turned into a
+    # pass/fail bar. Stationarity is `scripts/gate2m.py`'s verdict to give;
+    # this module's job is to make sure the band it reports is not narrower
+    # than the evidence supports.
+    frac = float(inspect.signature(post.mean_resistance)
+                 .parameters["tail_frac"].default)
+    span = float(t[-1] - t[0])
+    lo = t[0] + max(1.0 - 2.0 * frac, 0.0) * span
+    hi = t[0] + (1.0 - frac) * span
+    prev = fx[(t >= lo) & (t < hi)]
+    drift = abs(drag_tail - float(np.mean(prev))) if len(prev) else 0.0
+    sigma = max(abs(scatter), drift)
+
+    symmetric = info["symmetric"].strip().lower() == "true"
+    if symmetric:
+        # Half the hull is meshed, so the patch integral is half the force.
+        # CLAUDE.md records `forceCoeffs wrong by exactly 2x on every symmetric
+        # run` as a shipped defect; this is the same trap on the other side.
+        drag_tail, sigma = 2.0 * drag_tail, 2.0 * sigma
+    drag = abs(drag_tail)
+
+    if not (dom_len > 0.0):
+        raise TierRefusal(f"{case} declares domain_length_m={dom_len!r}")
+    flow_throughs = float(t[-1]) * u_case / dom_len
+    if flow_throughs < _L3_MIN_FLOW_THROUGHS:
+        raise TierRefusal(
+            f"{case} covers {flow_throughs:.2f} of one flow-through "
+            f"({t[-1]:.1f} s of {dom_len / u_case:.2f} s). The free stream has "
+            f"not crossed the domain, so the average still contains the "
+            f"initial condition: this describes startup, not resistance. No "
+            f"L3 badge is issued for it.")
+
+    s_wetted = post.stl_wetted_area(str(stl), waterline=0.0)
+    ct = post.resistance_coefficient(drag, s_wetted, u_case, rho)
+    return {
+        "case": str(case),
+        "solver": "openfoam-interfoam",
+        # NOT a hard-coded "v2606". `case.info` does not record the solver
+        # build today, and a version string invented at read time is exactly
+        # the kind of provenance that looks checkable and is not. When the
+        # generator starts writing it, this picks it up with no change here.
+        "solver_version": info.get("openfoam_version", "unrecorded"),
+        "benchmark": info.get("benchmark", "unknown"),
+        "stl_sha256": info.get("stl_sha256", "unknown"),
+        "speed_ms": u_case,
+        "drag_n": drag,
+        "sigma_n": sigma,
+        "ct": ct,
+        "wetted_area_m2": s_wetted,
+        "symmetric": symmetric,
+        "t_end_s": float(t[-1]),
+        "flow_throughs": flow_throughs,
+        "n_samples": int(len(t)),
+        "volume_residual": vol_res,
+        # Not a verdict — a comparison. The ladder's whole point is that the
+        # higher tier can disagree with the lower one, and a caller that never
+        # sees BY HOW MUCH has learned nothing from the escalation.
+        "identity": "lwl + submerged volume + speed matched against the genome",
+    }
+
+
 def revalidate(design, mission: MissionSpec, target_tier: str = "L2",
                provenance: db.Provenance | None = None,
-               rho: float = RHO_WATER, omegas: np.ndarray | None = None
-               ) -> Evaluation:
+               rho: float = RHO_WATER, omegas: np.ndarray | None = None,
+               case_dir=None) -> Evaluation:
     """Re-validate a kept design UP the ladder and return the promoted result.
 
     `design` is either an `Evaluation` (as returned by `evaluate()`, carrying
@@ -508,6 +740,11 @@ def revalidate(design, mission: MissionSpec, target_tier: str = "L2",
     monotone: `tier_rank(out.tier) >= tier_rank(in.tier)` always, and asking
     for a tier at or below the one already reached is a no-op rather than a
     demotion.
+
+    `case_dir` is L3's evidence: a campaign directory that has ALREADY been
+    run. L3 never starts a solver — see `l3_case_evidence`. Without it (and
+    without an L3 row already in `provenance` for this hull at this speed) the
+    L3 request is refused with "NO EVIDENCE AT THIS TIER".
 
     Raises `TierRefusal` (or a subclass) rather than returning anything for a
     tier it could not compute — see the class docstring for why that asymmetry
@@ -543,18 +780,7 @@ def revalidate(design, mission: MissionSpec, target_tier: str = "L2",
             f"L0 — the ladder is climbed, not skipped.")
 
     if target_tier == "L3":
-        # THE SEAM EXISTS AND IT IS HONEST. L3 is a multi-hour supervised
-        # OpenFOAM campaign (the KCS case on this machine is ~6 h on 10 ranks,
-        # resumable because thermal sleep kills it), so there is no truthful
-        # way to answer an in-process call with an L3 number. What would be
-        # dishonest is to fall back to the L1 result and badge it L3.
-        raise TierRequiresOperator(
-            "L3 (RANS) is not an in-process tier. Generate the case with "
-            "`python scripts/make_case.py --out runs/<name> --speed U --np 10`, "
-            "run it with `openfoam navalai/cfd/run-case.sh runs/<name> 10`, and "
-            "post it with `python scripts/post_gci.py runs/<name>`; the result "
-            "then enters the ladder through the provenance DB as an L3 row. "
-            "No L3 badge is issued for a number L3 did not produce.")
+        return _promote_to_l3(ev, params, mission, rho, case_dir, provenance)
 
     # ---- L2: zero-speed radiation/diffraction (Capytaine BEM) --------------
     try:
@@ -615,3 +841,98 @@ def revalidate(design, mission: MissionSpec, target_tier: str = "L2",
     badges["heave_rao"] = ("L2", unc_rel * float(np.max(np.abs(rao))),
                            "measured")
     return replace(ev, tier="L2", seakeeping=sk, badges=badges)
+
+
+# The route an operator takes to CREATE the evidence this tier reads. Stated
+# once, quoted by every refusal, so a "no" always comes with a "here is how".
+_L3_OPERATOR_ROUTE = (
+    "L3 (RANS) is not an in-process tier and this process will not start one: "
+    "the KCS case is ~6 h on 10 ranks here and does not survive a thermal "
+    "sleep. Generate the case with `python scripts/make_case.py --out "
+    "runs/<name> --speed U --np 10`, run it with `openfoam "
+    "scripts/run_campaign.sh runs/<name> 10`, check it with `python "
+    "scripts/gate2m.py runs/<name>`, then hand the directory back as "
+    "`revalidate(ev, mission, 'L3', case_dir='runs/<name>')`. No L3 badge is "
+    "issued for a number L3 did not produce.")
+
+
+def _l3_quantity(speed: float) -> str:
+    """The provenance quantity name for an L3 drag, in ONE place.
+
+    Written by `_promote_to_l3` and read back by it; if the two ever spelled it
+    differently the read-back would silently find nothing and every escalation
+    would report "no evidence" forever, which looks exactly like the gap this
+    code closes.
+    """
+    return f"Rt_N@{speed:.3f}"
+
+
+def _promote_to_l3(ev: Evaluation, params: np.ndarray, mission: MissionSpec,
+                   rho: float, case_dir, provenance) -> Evaluation:
+    """Badge an Evaluation L3 from RECORDED evidence, or refuse.
+
+    Two sources, in order of preference:
+
+    1. `case_dir` — a campaign directory that has already been run. Read,
+       identity-checked against the genome, and RECORDED to provenance so the
+       next caller does not need the directory.
+    2. the provenance DB — an L3 row this hull already has, at this speed.
+
+    Neither: `TierRequiresOperator`, naming the route. That refusal is the
+    honest answer to "escalate this design to L3" on a machine holding no RANS
+    result for it, and it is the only answer that cannot become the L1 number
+    wearing an L3 badge.
+    """
+    u = mission.cruise_speed_ms()
+    if case_dir is not None:
+        hull = Hull(params)
+        cfd = l3_case_evidence(case_dir, hull, mission, rho)
+        if provenance is not None:
+            hid = provenance.add_hull(params)
+            provenance.add_result(hid, "L3", cfd["solver"],
+                                  cfd["solver_version"],
+                                  _l3_quantity(cfd["speed_ms"]),
+                                  float(cfd["drag_n"]), float(cfd["sigma_n"]),
+                                  cfd)
+    else:
+        cfd = None
+        if provenance is not None:
+            for _tier, _solver, q, value, unc, meta in provenance.results(
+                    db.hull_id(params), "L3"):
+                if not q.startswith("Rt_N@") or value is None:
+                    continue
+                rec = json.loads(meta or "{}")
+                # Matched on the RECORDED speed, not on the quantity string.
+                # The row is named for the speed the tank ran at and the query
+                # is the speed the mission asks for, and those agree only to
+                # within _L3_SPEED_TOL — keying on the formatted name would
+                # miss its own row and report "no evidence" forever, which is
+                # indistinguishable from the gap this code closes.
+                if abs(float(rec.get("speed_ms", float("nan"))) - u) > \
+                        _L3_SPEED_TOL * max(abs(u), 1e-9):
+                    continue
+                rec["drag_n"] = float(value)
+                rec["sigma_n"] = float(unc if unc is not None else 0.0)
+                cfd = rec
+                break
+        if cfd is None:
+            raise TierRequiresOperator(
+                f"NO EVIDENCE AT THIS TIER: no recorded L3 result for this "
+                f"hull at {u:.3f} m/s"
+                + ("" if provenance is not None else
+                   " (and no provenance DB was passed to look in)")
+                + ". " + _L3_OPERATOR_ROUTE)
+
+    badges = dict(ev.badges)
+    badges["resistance_cfd"] = ("L3", float(cfd["sigma_n"]), "measured")
+    # The L1 number is NOT overwritten and NOT deleted. `ev.resistance` stays
+    # the Michell/ITTC-57 result it always was, badged L1, and the L3 drag sits
+    # beside it with the ratio between them stated. An escalation whose only
+    # visible effect is a different number in the same field teaches the reader
+    # nothing about which tier they are reading.
+    if ev.resistance is not None and is_real_finite(ev.resistance.total):
+        cfd = dict(cfd)
+        cfd["l1_rt_n"] = float(ev.resistance.total)
+        cfd["l3_over_l1"] = (float(cfd["drag_n"])
+                             / max(abs(float(ev.resistance.total)), 1e-9))
+    return replace(ev, tier="L3", cfd=cfd, badges=badges)
