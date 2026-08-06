@@ -180,6 +180,22 @@ else
   say "layers: ADDED ${_L_ADDED} of ${_L_WANT:-?} cells ($(awk -v a="$_L_ADDED" -v w="${_L_WANT:-1}" 'BEGIN{printf "%.1f", 100*a/w}')%), ${_L_SPEC}"
 fi
 grep -q 'Mesh OK' log.checkMesh || say "NOTE: checkMesh flagged $(grep -c 'Failed' log.checkMesh) check(s) — see log.checkMesh"
+# TET-DECOMPOSITION RECEIPT. minTetQuality is DISABLED during layer addition
+# (see the meshQualityControls comment in case.py: enforcing it there made the
+# mesh measurably worse — 18 folded cells against 0). That is a knowing trade,
+# but the mesh-motion machinery used by free sinkage and trim DOES consume the
+# tet decomposition, so the finished mesh is re-checked against a real bar and
+# the number is recorded rather than left unknown.
+# checkMesh in v2606 takes NO -dict; -meshQuality reads system/meshQualityDict.
+cat > system/meshQualityDict <<'TETEOF'
+FoamFile { version 2.0; format ascii; class dictionary; object meshQualityDict; }
+#includeEtc "caseDicts/meshQualityDict"
+minTetQuality 1e-15;
+TETEOF
+checkMesh -meshQuality > log.checkMesh.tet 2>&1 || true
+_TETBAD=$(awk '/tet quality/ {print $NF}' log.checkMesh.tet | tail -1)
+say "tet-decomposition check (minTetQuality 1e-15 on the FINISHED mesh): ${_TETBAD:-not reported} bad faces"
+echo "tet_bad_faces_at_1e-15=${_TETBAD:-unknown}" >> case.info
 # MESH_ONLY exists so the robustness harness measures THIS pipeline. It used
 # to call `snappyHexMesh -overwrite` itself, which was a fair copy of the
 # single-pass mesher and is now simply a different mesher: it skips the z-only

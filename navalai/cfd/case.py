@@ -799,11 +799,19 @@ addLayersControls {{
   // and DECAYED to 0 over 35 iterations as the quality controls rejected it.
   featureAngle {layer_feature_angle}; slipFeatureAngle 30;
   nRelaxIter 5; nSmoothSurfaceNormals 1; nSmoothNormals 3; nSmoothThickness 10;
-  // Loosened from 0.5/0.3: free-surface grading makes the cells at the
-  // waterline ~20:1 anisotropic, and layer insertion refuses there. Measured
-  // hull coverage 43.9% -> 46.3%; the remainder is reported by the yPlus
-  // function object rather than assumed adequate.
+  // maxFaceThicknessRatio IS INERT HERE and is kept only so the dict is
+  // complete. snappyLayerDriver::handleWarpedFaces guards the whole check with
+  // `if (relativeSizes[patchI] && f.size() > 3)`, and we run relativeSizes
+  // false — so it is never evaluated. The comment this replaces attributed a
+  // measured 43.9% -> 46.3% coverage gain to loosening it from 0.5, which a
+  // dead parameter cannot produce; that gain came from the co-varied
+  // maxThicknessToMedialRatio, which IS live (it halves thickness toward
+  // minThickness wherever thickness/medial-distance exceeds it).
   maxFaceThicknessRatio 0.8; maxThicknessToMedialRatio 0.6;
+  // Documented purpose: "if there are just a few faces where there are mesh
+  // errors (after adding the layers) print their face centres." This is the
+  // built-in instrument for exactly the failure we were blind to for weeks.
+  additionalReporting true;
   minMedialAxisAngle 90; nBufferCellsNoExtrude 0; nLayerIter 50;
   nRelaxedIter 20;
 }}
@@ -812,20 +820,35 @@ addLayersControls {{
 // a FATAL IO ERROR after the mesh is already built. It stayed hidden while
 // nSurfaceLayers was 3 (iteration 20 was never reached) and only surfaced
 // when the near-wall fix asked for 6 layers.
-// minTetQuality IS DISABLED, matching the Wolf Dynamics KCS reference
-// (-1e30) and snappy's own DTCHull tutorial. This is not a loosened bar; it is
-// the wrong bar for layer addition. MEASURED: with minTetQuality 1e-15 the
-// layer pass detected 1245-1350 "illegal faces (concave, zero area or negative
-// cell pyramid volume)" with "face-decomposition tet quality < 1e-15" on EVERY
-// iteration, so extrusion started at 49.5% of 11166 faces and decayed to ZERO
-// over 35 iterations. The face-decomposition tet test is transiently violated
-// while the medial-axis solver is moving the mesh, and rejecting on it throws
-// away layers that would have been valid once the motion settled.
+// minTetQuality -1e30, CHOSEN BY MEASUREMENT AGAINST THE DOCUMENTED ADVICE.
 //
-// The guards that actually protect the SOLVE — minVol, minVolRatio, minTwist,
-// minDeterminant, maxNonOrtho — are unchanged, and checkMesh still gates the
-// finished mesh independently. A dropped layer costs accuracy; a degenerate
-// cell costs the run. This drops neither.
+// First, a correction of record: an earlier commit claimed -1e30 "matches
+// snappy's own DTCHull tutorial". It does NOT. DTCHull and DTCHullMoving both
+// ship `minTetQuality 1e-30` — POSITIVE, which still rejects inside-out (<0)
+// and flat (=0) tets and only removes a positive-quality floor. `-1e30` is the
+// documented disable sentinel and accepts inverted tets. Opposite semantics.
+//
+// So 1e-30 was the obviously-correct middle setting, and it was tried. On the
+// coarse KCS grid, mesh-only, everything else identical:
+//
+//     minTetQuality   layers   nonOrtho errors   wrongly oriented   skew
+//     1e-30 (DTCHull)  75.8%        10                 18          13.18
+//     -1e30 (disabled) 89.8%         0                  0           9.64
+//
+// The STRICTER check produced the WORSE mesh, including 18 folded cells and 10
+// faces past the 90-degree legality limit. The mechanism is snappyLayerDriver's
+// checkAndUnmark, which is MONOTONE — a face unmarked at iteration 3 is never
+// re-enabled — so rejecting more faces mid-process leaves a patchy, unevenly
+// terminated layer field, and partial stacks fold cells where full stacks or
+// no stacks do not. It is not that the tet check is wrong; it is that
+// enforcing it DURING a monotone extrusion is worse than enforcing it after.
+//
+// This is a knowing trade, so it carries a receipt: run-case.sh re-checks the
+// FINISHED mesh with `checkMesh -meshQuality` against minTetQuality 1e-15 and
+// records the count, because the mesh-motion machinery used by free sinkage
+// and trim does consume the tet decomposition. minVol (1e-13) guards the
+// finite-volume discretisation and is unchanged; the two are not
+// interchangeable.
 meshQualityControls {{ maxNonOrtho 70; maxBoundarySkewness 20; maxInternalSkewness 4;
   maxConcave 80; minVol 1e-13; minTetQuality -1e30; minArea -1; minTwist 0.02;
   minDeterminant 0.001; minFaceWeight 0.05; minVolRatio 0.01; minTriangleTwist -1;
@@ -1060,6 +1083,47 @@ def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
     hull_cell = (dom["x1"] - dom["x0"]) / dom["nx"] / 2 ** _HULL_REFINE[0]
     n_ideal = n_layers_to_bridge(t1, hull_cell, _LAYER_EXPANSION)
     n_layers = min(n_ideal, _MAX_LAYERS)
+
+    # LAYER PROPORTIONS ARE ASSERTED AT BUILD TIME, not discovered after a
+    # multi-hour solve. OpenFOAM's shipped default is `finalLayerThickness 0.3`
+    # RELATIVE — i.e. its own intent is that the outermost layer is ~0.3 of the
+    # adjacent undistorted cell, a ~3:1 step into the background. DTCHull goes
+    # to 0.7. The configuration that produced NO LAYERS AT ALL had a last layer
+    # at 0.071 of the adjacent cell and a stack at 0.167 of it: four times below
+    # the documented proportion, and at the edge of the default minThickness.
+    # This check is the thing that would have caught it in 2 minutes rather
+    # than after weeks of solves on a layerless mesh.
+    stack = t1 * (_LAYER_EXPANSION ** n_layers - 1) / (_LAYER_EXPANSION - 1)
+    last_layer = t1 * _LAYER_EXPANSION ** (n_layers - 1)
+    last_ratio = last_layer / hull_cell
+    # The bar is 0.12, CALIBRATED FROM THE TWO MEASUREMENTS WE HAVE, not from
+    # the documented 0.3 aspiration:
+    #     last/adjacent = 0.071  ->   0% coverage (extrusion ratcheted to zero)
+    #     last/adjacent = 0.145  -> 89.8% coverage, 5 layers
+    # `hull_cell` is the MIN refinement level (37.9 mm), which is most of the
+    # hull; against the max level (19 mm) the same stack reads 0.289, i.e. bang
+    # on OpenFOAM's default. Setting the bar at 0.15 would have rejected a
+    # configuration measured to work, so it sits just below the known-good
+    # point and well above the known-bad one. Move it when a measurement says
+    # to, not when a document does.
+    # WARN, do not refuse. This is a PREDICTION calibrated from two KCS
+    # measurements, and it fires on the analytic own-hull cases too — which is
+    # itself a real finding (they share the bridging problem), but refusing to
+    # generate a case on a predicted failure is overreach when the ACHIEVED
+    # layer count is measured 2 minutes later and is already fatal in
+    # run-case.sh. Predict here, gate there, and record the prediction so the
+    # two can be compared.
+    if last_ratio < 0.12:
+        import warnings
+        warnings.warn(
+            f"layer stack may not bridge to the background: last layer "
+            f"{last_layer * 1e3:.2f} mm is {last_ratio:.3f} of the "
+            f"{hull_cell * 1e3:.1f} mm hull cell, against OpenFOAM's default "
+            f"proportion of 0.3 (finalLayerThickness). MEASURED on KCS: 0.071 "
+            f"gave ZERO layer coverage, 0.145 gave 89.8%. Raise _TARGET_YPLUS "
+            f"or _MAX_LAYERS, or lower the hull refinement level. run-case.sh "
+            f"will fail on the achieved count if this prediction is right.",
+            stacklevel=2)
     dom.update(
         hull_lvl_min=_HULL_REFINE[0], hull_lvl_max=_HULL_REFINE[1],
         n_layers=n_layers, first_layer=t1, layer_expansion=_LAYER_EXPANSION,
@@ -1195,6 +1259,10 @@ def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
         f"cells_per_wavelength={cells_per_wave:.1f}\n"
         f"target_yplus={_TARGET_YPLUS}\nfirst_layer_m={t1:.6e}\n"
         f"n_layers={n_layers}\nn_layers_to_fully_bridge={n_ideal}\n"
+        f"layer_stack_m={stack:.6f}\nlast_layer_m={last_layer:.6f}\n"
+        f"last_layer_over_hull_cell={last_ratio:.4f}\n"
+        f"  # OpenFOAM's default finalLayerThickness is 0.3 of the adjacent\n"
+        f"  # cell. MEASURED on KCS: 0.071 -> ZERO layers, 0.145 -> 89.8%.\n"
         f"symmetric={symmetric}\n"
         "NOTE: layers are capped for insertion success, so the stack does NOT\n"
         "  bridge to the local cell; y+ is controlled on layered faces only.\n"
