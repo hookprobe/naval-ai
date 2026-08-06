@@ -121,13 +121,38 @@ def translate(text: str, llm: Callable[[str], str] | None = None) -> MissionSpec
     floor = parse_mission(text)
     if llm is None:
         return floor
-    try:
-        raw = json.loads(llm(TRANSLATOR_PROMPT + text))
-        if not isinstance(raw, dict):
-            return floor
-        return sanitize(raw, floor)
-    except Exception:
+    # THE SAME `except Exception` COLLAPSE AS `grade()` (gap E15), one layer up.
+    # An LLM that returns prose, an LLM that raises ConnectionError and a
+    # sanitize() with a bug in it all produced a silent, identical fallback —
+    # so a translator that had been broken for a week looked exactly like a
+    # user typing a mission the model declined to parse. The fallback is still
+    # the right BEHAVIOUR (never an exception, never geometry: this is the
+    # AI/deterministic boundary), but it now says which of the three happened,
+    # in the notes field that is already persisted and served.
+    def _fallback(reason: str) -> MissionSpec:
+        floor.notes = "; ".join(n for n in (floor.notes, reason) if n)
         return floor
+
+    try:
+        text_out = llm(TRANSLATOR_PROMPT + text)
+    except Exception as e:                          # noqa: BLE001 — reported
+        return _fallback(f"checker error: LLM call raised "
+                         f"{type(e).__name__}: {e}; rule-based floor kept")
+    try:
+        raw = json.loads(text_out)
+    except Exception as e:                          # noqa: BLE001 — reported
+        return _fallback(f"LLM returned unparseable JSON "
+                         f"({type(e).__name__}); rule-based floor kept")
+    if not isinstance(raw, dict):
+        return _fallback(f"LLM returned a {type(raw).__name__}, not an "
+                         f"object; rule-based floor kept")
+    try:
+        return sanitize(raw, floor)
+    except Exception as e:                          # noqa: BLE001 — reported
+        # This branch is OURS, not the model's. It means the sanitiser itself
+        # is broken, which is a defect to fix and not a mission to translate.
+        return _fallback(f"checker error: sanitize() raised "
+                         f"{type(e).__name__}: {e}; rule-based floor kept")
 
 
 # ---------------- executable requirement checkers ----------------
@@ -193,19 +218,92 @@ def requirements_from_mission(m: MissionSpec) -> list[Requirement]:
             lambda ev: ev.energy is not None and ev.energy.net_kwh_day >= 0,
             lambda ev: f"net {ev.energy.net_kwh_day:+.1f} kWh/day"
                        if ev.energy else "n/a"))
+
+    # ---- Tier E: the reference data gets a consumer that can say NO --------
+    # `navalai/refdata/ergonomics.py` held ~40 sourced constants that NOTHING
+    # read. Gate V2.0's bar is provenance, so the audit was right to keep them,
+    # but a constant no code divides by has never been wrong about anything.
+    # This is the first bar the boat can fail on the people it carries: the
+    # crew must fit on the working deck the hull actually has.
+    #
+    # It is a NECESSARY condition only, and `rules.ergonomics` says so in its
+    # own note — the whole deck plan is counted with no cabin or console taken
+    # out. A pass is not "the crew fit"; a fail is "they do not".
+    reqs.append(Requirement(
+        "crew-fits-on-deck",
+        f"ISO 15085 working deck vs {m.crew} persons "
+        f"(rules.ergonomics.E-DECK; assessment aid, not certification)",
+        lambda ev: _ergonomics_finding(ev, m.crew).passed,
+        lambda ev: _ergonomics_finding(ev, m.crew).note))
     return reqs
 
 
+def _ergonomics_finding(ev: Evaluation, crew: int):
+    """The single E-DECK finding for an evaluation, or a refusal.
+
+    The hull is rebuilt from `ev.params`, the genome the evaluation was
+    produced from, so this reads the SAME shape the ladder floated rather than
+    a second hull assembled from rounded principal dimensions.
+
+    A missing genome RAISES rather than returning a pass. `grade()` turns that
+    into `state: "broken"` and refuses the whole report (gap E15), which is the
+    correct outcome: a requirement that cannot be measured is not a
+    requirement that is met.
+    """
+    from .geometry import Hull                # local: geometry <-> translate
+    from .rules.ergonomics import assess as ergonomics_rules
+    if ev is None or ev.params is None:
+        raise ValueError("no genome on the evaluation — the working-deck "
+                         "requirement cannot be measured, and an unmeasurable "
+                         "requirement is not a passing one")
+    return ergonomics_rules(Hull(ev.params), crew)[0]
+
+
 def grade(ev: Evaluation, reqs: list[Requirement]) -> dict:
-    """Typed pass/fail report — the contract the agentic loop is graded on."""
+    """Typed pass/fail report — the contract the agentic loop is graded on.
+
+    A BROKEN CHECKER AND A FAILED DESIGN USED TO BE THE SAME ROW (gap E15).
+    `except Exception: ok = False` cannot tell "this hull's GM is below the
+    category floor" from "the GM checker raised AttributeError because
+    `Evaluation` lost a field" — both printed `"pass": false` with a plausible
+    detail string beside them, and the second one is a broken TOOL reported as
+    a broken BOAT. On a rename it would report every design as failing and
+    the loop would optimise against a lie.
+
+    Now the two are separate facts. A raising checker is `state: "broken"`
+    with the exception typed into `error`, it still counts as NOT passing (an
+    unmeasurable requirement is fatal, never a passing default — PLM §3), and
+    the report carries `checkers_ok: False` plus a `broken` list so a caller
+    can refuse the whole grade rather than read a score off it.
+
+    `detail()` is inside the guard too. It was OUTSIDE, so a detail lambda that
+    raised took down `grade()` entirely with a traceback from a formatting
+    call — the one part of this function nobody would think to suspect.
+    """
     rows = []
+    broken: list[str] = []
     for r in reqs:
+        row: dict = {"name": r.name, "clause": r.clause, "pass": False,
+                     "state": "checked"}
         try:
-            ok = bool(r.check(ev))
-        except Exception:
-            ok = False
-        rows.append({"name": r.name, "clause": r.clause, "pass": ok,
-                     "detail": r.detail(ev) if ev else "n/a"})
-    return {"pass": all(r["pass"] for r in rows),
+            row["pass"] = bool(r.check(ev))
+        except Exception as e:                      # noqa: BLE001 — reported
+            row["state"] = "broken"
+            row["error"] = f"checker error: {type(e).__name__}: {e}"
+            broken.append(r.name)
+        try:
+            row["detail"] = r.detail(ev) if ev else "n/a"
+        except Exception as e:                      # noqa: BLE001 — reported
+            row["detail"] = f"checker error in detail(): {type(e).__name__}: {e}"
+            if r.name not in broken:
+                row["state"] = "broken"
+                row["pass"] = False
+                broken.append(r.name)
+        rows.append(row)
+    return {"pass": all(r["pass"] for r in rows) and not broken,
             "passed": sum(r["pass"] for r in rows), "total": len(rows),
+            # A grade with a broken checker in it is not a grade. Callers that
+            # read `pass` alone still get False; callers that want to know WHY
+            # get the names without parsing prose.
+            "checkers_ok": not broken, "broken": broken,
             "requirements": rows}

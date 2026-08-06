@@ -145,10 +145,12 @@ class FlatPanel:
     def outline(self) -> np.ndarray:
         return np.vstack([self.edge_a, self.edge_b[::-1]])
 
-    def perimeter(self) -> float:
-        o = self.outline
-        return float(np.linalg.norm(np.diff(np.vstack([o, o[:1]]), axis=0),
-                                    axis=1).sum())
+    # `perimeter()` WAS HERE AND NOTHING CALLED IT — zero references across
+    # navalai/, tests/, scripts/ and ui/. Deleted rather than kept "in case":
+    # an unexercised method is an untested one, and a cut plan that reads a
+    # perimeter from a method no gate has ever run is worse than one that
+    # computes it at the call site. `nesting.py` measures cut length off the
+    # nested outline it actually places.
 
     def area(self) -> float:
         """Developed area [m^2] by the shoelace formula on the flat outline."""
@@ -478,8 +480,11 @@ class _MaxRects:
         return out
 
 
-def _interp_edge(panel: FlatPanel, t: float) -> np.ndarray:
-    return panel.edge_a + t * (panel.edge_b - panel.edge_a)
+# `_interp_edge(panel, t)` WAS HERE AND NOTHING CALLED IT — private, zero
+# references. It lerped between a panel's two developed edges, which is a
+# ruling only if the panel is developable; on a warped panel it produces a
+# line that is not on the surface. A private helper that is both unused and
+# wrong for the general case is not a spare part.
 
 
 def _footprint(poly: np.ndarray, allow: float, cuts_a: int, cuts_b: int,

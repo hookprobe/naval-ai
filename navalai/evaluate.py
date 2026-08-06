@@ -336,7 +336,14 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
     r_req = min_bend_radius_m(t_ply)
 
     u = mission.cruise_speed_ms()
-    res = total_resistance(hull, u, hs.wetted, hs.cb, rho, wl)
+    # ONE STATE, NOT TWO (gap E7). `cb` and `wetted` have always come from the
+    # floated `HydroState`; the beam and draft the form factor divides by came
+    # from the DESIGN parameters, and on the reference hull those are 3.200 m
+    # and 0.550 m against a floated 3.252 m and 0.374 m — a 47% error on the
+    # draft, entering as sqrt(B/T). Passing them from `hs` makes the four
+    # arguments describe the same boat at the same waterline.
+    res = total_resistance(hull, u, hs.wetted, hs.cb, rho, wl,
+                           beam_wl=hs.b_wl_max, draft=hs.draft)
     early: list[str] = []
     if not res.valid:
         # Reported as a violation, not buried in a badge: at Fn > 0.45 the
@@ -505,11 +512,10 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
 # reference hull costs ~0.7 s for both meshes and the RAO together. Three
 # frequencies straddle the heave resonance of a small craft.
 _L2_OMEGAS = np.array([0.6, 1.0, 1.6])
-# Two mesh levels, so the sigma the L2 badge carries is a MEASURED
-# discretisation uncertainty and not a declared fraction. seakeeping.py's own
-# docstring names mesh sensitivity as mandatory (NREL/OMAE 2024); a single-mesh
-# BEM result has no basis for an error bar at all.
-_L2_MESHES = ((20, 5), (28, 7))
+# The mesh levels moved to `seakeeping.L2_MESHES`, next to the
+# `SeakeepingResult` that reports the uncertainty they measure. They were here,
+# and so was a second copy of the mesh-to-mesh arithmetic, while the type that
+# exists to carry that uncertainty was never constructed at all (gap F4).
 
 
 # ---------------------------------------------------------------- tier L3 ---
@@ -796,35 +802,28 @@ def revalidate(design, mission: MissionSpec, target_tier: str = "L2",
     w = _L2_OMEGAS if omegas is None else np.asarray(omegas, float)
     hull = Hull(params)
     try:
-        (nx0, nz0), (nx1, nz1) = _L2_MESHES
-        am0, _dp0, _n0 = seakeeping.heave_coeffs(hull, w, nx0, nz0, rho)
-        am1, dp1, npan = seakeeping.heave_coeffs(hull, w, nx1, nz1, rho)
-        rao = seakeeping.heave_rao(hull, w, ev.hydro.disp_kg, ev.hydro.awp,
-                                   nx1, nz1, rho)
+        sea = seakeeping.heave_seakeeping(hull, w, ev.hydro.disp_kg,
+                                          ev.hydro.awp, rho)
     except Exception as e:
         raise TierUnavailable(
             f"the L2 solve failed on this hull ({type(e).__name__}: {e}); no "
             f"L2 badge is issued") from e
 
-    # Worst relative mesh-to-mesh change across the frequency set. This is the
-    # honest one-sigma basis: it is what the convergence sweep measures.
-    unc_rel = float(np.max(np.abs(am1 - am0) / np.maximum(np.abs(am1), 1e-12)))
-    sk = {
-        "omegas": w.tolist(),
-        "added_mass_heave": am1.tolist(),
-        "damping_heave": dp1.tolist(),
-        "rao_heave": rao.tolist(),
-        "n_panels": int(npan),
-        "uncertainty_rel": unc_rel,
-        "solver": "capytaine",
-    }
+    # The uncertainty is the worst relative mesh-to-mesh change across the
+    # frequency set, and it is now MEASURED BY THE TYPE THAT REPORTS IT
+    # (`SeakeepingResult`, gap F4) rather than recomputed here from a second
+    # copy of the mesh levels.
+    am1, dp1, rao = (sea.added_mass_heave, sea.damping_heave, sea.rao_heave)
+    npan, unc_rel = sea.n_panels, sea.uncertainty_rel
+    sk = sea.as_dict()
 
     if provenance is not None:
         hid = provenance.add_hull(params)
         ver = getattr(_cpt, "__version__", "unknown")
         for wi, a, b, r in zip(w, am1, dp1, rao):
             meta = {"omega": float(wi), "n_panels": int(npan),
-                    "meshes": list(_L2_MESHES), "basis": "mesh convergence"}
+                    "meshes": [list(m) for m in sea.meshes],
+                    "method": sea.method, "basis": "mesh convergence"}
             provenance.add_result(hid, "L2", "capytaine", ver,
                                   f"A33_kg@{wi:.2f}", float(a),
                                   unc_rel * abs(float(a)), meta)
