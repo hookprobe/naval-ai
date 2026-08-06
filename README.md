@@ -64,18 +64,18 @@ different Gate 2M numbers came to circulate at once (gap J1).
 | Gate 1b | NSGA-II Pareto front | `tests/test_optimize.py` (2 tests) |
 | Gate 2 | Capytaine BEM (Hulme anchor) | `tests/test_phase2.py` (18 tests) |
 | Gate 2R | CFD reference parity + GCI honesty | `tests/test_cfd_reference_parity.py` (15 tests) |
-| Gate 3 | surrogate spine (Forrester + L1 GP) | `tests/test_phase3.py` (16 tests) |
-| Gate 4 | generative + slider p95<100ms | `tests/test_phase4.py` (6 tests) |
-| Gate 5 | mission translation + LLM seam | `tests/test_phase5.py` (8 tests) |
+| Gate 3 | surrogate spine: GP + co-kriging rho, OOD refusal, batched-EI infill | `tests/test_phase3.py` (17 tests) |
+| Gate 4 | generative + slider p95<100ms; raw feasibility RED (GMM 79.3%, pPCA 88.7% vs the >=99% bar) | `tests/test_phase4.py` (27 tests) |
+| Gate 5 | mission translation + LLM seam | `tests/test_phase5.py` (11 tests) |
 | Gate 6 | rules-as-code mechanics | `tests/test_phase6.py` (6 tests) |
-| Gate 7 | flywheel + regression gate | `tests/test_phase7.py` (9 tests) |
+| Gate 7 | flywheel: frozen suite != training draw, monotone regression mark, wall clock, committed baseline | `tests/test_phase7.py` (15 tests) |
 | Gate B | grammar AST + bend radius + 8-D genome | `tests/test_stageB.py` (11 tests) |
-| Gate C | agentic PLM network + engineer + STEP/IGES | `tests/test_stageC.py` (7 tests) |
+| Gate C | agentic PLM network + engineer + STEP/IGES | `tests/test_stageC.py` (9 tests) |
 | Gate D | waves/RAO response + dynamics + CFD post | `tests/test_stageD.py` (19 tests) |
 | Gate E | latent-space evolution + latent GP | `tests/test_stageE.py` (3 tests) |
 | Gate F | panel unroll/DXF + Pareto dash + handoff receipt | `tests/test_stageF.py` (7 tests) |
 | Gate L | one limit, one home; scantling derived from the rule | `tests/test_limits_single_source.py` (12 tests) |
-| Gate 6M | manufacturing back end: nesting, BOM, refold, developability that can fail | `tests/test_manufacturing.py` (28 tests) |
+| Gate 6M | manufacturing back end: nesting, BOM, refold, developability controls, export receipt | `tests/test_manufacturing.py` (28 tests) |
 | Gate R3 | the ladder is climbable: L2 escalation, monotone tier promotion, honest refusal of L3 | `tests/test_ladder.py` (8 tests) |
 | Gate V2.0 | refdata spine: every constant carries source + basis | `tests/test_refdata.py` (25 tests) |
 | Gate 2G | KCS benchmark geometry: present and accepted (scripts/fetch_benchmark_geom.py) | `tests/test_benchmark_geom.py` (2 tests) |

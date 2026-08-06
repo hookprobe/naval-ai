@@ -429,3 +429,119 @@ def test_http_server_smoke():
         assert "slider surface" in html
     finally:
         srv.shutdown()
+
+
+# ---------------------------------------------------------------------------
+# H3 — honesty rule 1 in the one place a user reads
+# ---------------------------------------------------------------------------
+
+def test_every_mass_line_carries_a_tier_and_a_sigma():
+    """`/eval` returned `weights_kg` as six BARE rounded floats while
+    `weights.aggregate()` had already computed the uncertainty item by item and
+    in quadrature. Honesty rule 1 is "every quantity carries {value, tier,
+    sigma}", and the weight panel was the one place that ignored it.
+
+    MEASURED on the reference hull after the fix: total 6000 kg +/- 1432 kg,
+    a 24% band the panel simply did not show.
+
+    The second arm is the one that actually cost something. `ev.weights` is the
+    five-bucket BUDGET; the hull is floated at `ev.masses.total_kg`, which
+    includes the DECLARED `unaccounted` item — MEASURED at 2826 kg, 47% of
+    displacement on the 6 t mission. The panel showed the budget's total right
+    next to `displacement_kg` — two numbers that are supposed to be the same
+    mass, differing by half the boat, with nothing saying why. The positioned
+    model is the one truth, so the lines now sum to the displacement above them.
+    """
+    from ui.server import eval_payload
+
+    p = {n: v for n, v in zip(grammar.NAMES,
+                              (10.0, 3.2, 0.55, 1.55, 8, 30, 2.2, 3.0, 0.55,
+                               0.75, 0.15, 0.85, 10, 0.18, 0.35))}
+    out = eval_payload(p, None)
+    w = out["weights_kg"]
+    assert set(w) >= {"structure", "battery", "panels", "outfit", "payload",
+                      "unaccounted", "total"}
+    for name, q in w.items():
+        assert set(q) == {"value", "tier", "sigma", "basis"}, (
+            f"{name} is not a badged quantity: {q}")
+        assert q["tier"] and q["sigma"] is not None
+        assert q["basis"] in ("measured", "assumed")
+    # the propagated total, not the five-bucket budget
+    assert w["total"]["basis"] == "measured"
+    assert w["total"]["sigma"] > 0
+    lines = sum(q["value"] for k, q in w.items() if k != "total")
+    assert lines == pytest.approx(w["total"]["value"], rel=1e-6)
+    assert w["total"]["value"] == pytest.approx(
+        out["quantities"]["displacement_kg"]["value"], rel=0.01)
+
+
+def test_the_mass_sigmas_are_the_models_own_not_retyped_in_the_server():
+    """A per-bucket sigma had to come from somewhere, and retyping `0.15 *
+    mass` in `ui/server.py` would have been the "number declared twice" defect
+    CLAUDE.md's design-side invariants exist to prevent — the same shape as GM
+    0.35 vs 0.45. `MassAggregate` now carries its items so a consumer reports
+    the model's own numbers.
+    """
+    from navalai.evaluate import evaluate
+    from navalai.mission import MissionSpec
+    from ui.server import eval_payload
+
+    p = {n: v for n, v in zip(grammar.NAMES,
+                              (10.0, 3.2, 0.55, 1.55, 8, 30, 2.2, 3.0, 0.55,
+                               0.75, 0.15, 0.85, 10, 0.18, 0.35))}
+    ev = evaluate(grammar.vector(p), MissionSpec())
+    served = eval_payload(p, None)["weights_kg"]
+    assert ev.masses.items and len(ev.masses.items) == ev.masses.n_items
+    for item in ev.masses.items:
+        assert served[item.id]["sigma"] == pytest.approx(item.sigma_kg, abs=1e-3)
+        assert served[item.id]["tier"] == item.tier
+
+
+# ---------------------------------------------------------------------------
+# I9 — /generate could not be asked about a mission
+# ---------------------------------------------------------------------------
+
+def test_generate_answers_the_mission_it_was_asked_about():
+    """`do_POST` passed only `n` and `percentile`, and `_score` read the
+    module-level `_mission_default`, so a mission-specific generate was not
+    slow — it was IMPOSSIBLE, while the panel showed a mission box beside the
+    button. The widget ranked candidates by Wh/NM at 5 knots under a 6 t budget
+    whatever the user had typed, and said nothing about it.
+
+    MEASURED after wiring it through, same 128 candidates:
+
+        default mission    top-3 Wh/NM  278.7 282.2 293.6   0.085 ms (prefit)
+        9 kn / 3 t  cold   top-3 Wh/NM  642.7 707.7 736.6   1074 ms  live=True
+        9 kn / 3 t  warm                                    0.046 ms
+
+    HONESTY RULE 6 APPLIES TO THE 1074 ms. A mission the server has not scored
+    costs 176 L1 evaluations and MISSES Gate 4's 100 ms bar by 10x. That is not
+    softened and not hidden: it is paid once per mission, and the payload
+    declares `live` and `elapsed_ms` so the cost is visible rather than assumed.
+    The default mission is still prefit at `serve()`, so the bar the gate
+    asserts is measured on the path the panel actually opens with.
+    """
+    import ui.server as S
+
+    S.prefit()
+    base = S.generate_payload(3, 0.8)
+    assert base["live"] is False and base["source"] == "prefit_pool"
+
+    mis = {"displacement_target_kg": 3000.0, "cruise_speed_kn": 9.0,
+           "design_category": "C"}
+    cold = S.generate_payload(3, 0.8, mis)
+    assert cold["mission"]["cruise_speed_kn"] == 9.0
+    assert cold["live"] is True and cold["source"] == "live_pool"
+    assert cold["hulls"] != base["hulls"], (
+        "a different mission returned the same hulls — the mission is still "
+        "not reaching the score")
+    assert cold["wh_per_nm"] != base["wh_per_nm"]
+
+    warm = S.generate_payload(3, 0.8, mis)
+    assert warm["live"] is False and warm["hulls"] == cold["hulls"]
+    assert _p95(lambda: S.generate_payload(3, 0.8, mis)) < 100.0
+
+    # the cache is bounded: an unbounded map keyed on user input is a leak
+    for kn in range(1, 4 + S.MAX_POOLS):
+        S.generate_payload(1, 0.8, {"cruise_speed_kn": float(kn)})
+    assert len(S._pool) <= S.MAX_POOLS

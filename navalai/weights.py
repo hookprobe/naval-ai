@@ -79,6 +79,13 @@ class MassAggregate:
     free_surface_moment: float      # sum rho * i_t over SLACK tanks [kg m^2]
     by_tier: dict = field(default_factory=dict)
     n_items: int = 0
+    # The items this aggregate was built from, kept so a CONSUMER can report a
+    # per-item {value, tier, sigma} without re-declaring the sigma model.
+    # `ui/server.py` served the five weight buckets as bare rounded floats
+    # (honesty rule 1 violation, gap H3) and the only way to badge them without
+    # this was to retype `0.15 * mass` in the server — the "number declared
+    # twice" defect CLAUDE.md's design-side invariants exist to prevent.
+    items: tuple = ()
 
     def vcg_above_keel(self, t_design: float) -> float:
         """KG for `hydrostatics.gm`, which measures from the keel plane."""
@@ -116,7 +123,7 @@ def aggregate(items: list[MassItem]) -> MassAggregate:
 
     return MassAggregate(total_kg=total, sigma_kg=sigma, lcg_m=lcg, tcg_m=tcg,
                          vcg_m=vcg, free_surface_moment=fsm, by_tier=by_tier,
-                         n_items=len(items))
+                         n_items=len(items), items=tuple(items))
 
 
 def trim_angle_deg(agg: MassAggregate, lcb_m: float, disp_kg: float,

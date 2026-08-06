@@ -23,26 +23,20 @@ import math
 from .energy import EnergySpec
 from .evaluate import Evaluation
 from .limits import FREEBOARD_FLOOR_M, gm_floor
-from .mission import DESIGN_CATEGORIES, MissionSpec, parse_mission
+from .mission import (DESIGN_CATEGORIES, ENERGY_RANGES, FIELD_RANGES,
+                      MissionSpec, parse_mission)
 
-# hard ranges for every LLM-writable field: outside -> clamped or rejected
-_FIELD_RANGES = {
-    "displacement_target_kg": (300.0, 200_000.0),
-    "cruise_speed_kn": (1.0, 30.0),
-    "crew": (1, 12),
-    "lwl_hint_m": (4.0, 20.0),
-}
-_ENERGY_RANGES = {
-    "payload_kg": (50.0, 20_000.0),
-    "battery_kwh": (1.0, 500.0),
-    "hotel_kwh_day": (0.2, 50.0),
-    "solar_yield_kwh_m2_day": (1.0, 7.0),
-    "panel_packing": (0.1, 0.85),
-    "panel_eff": (0.10, 0.30),
-    "prop_efficiency": (0.3, 0.75),
-    "motor_efficiency": (0.7, 0.98),
-    "cruise_hours_day": (1.0, 24.0),
-}
+# Hard ranges for every LLM-writable field: outside -> clamped or rejected.
+#
+# THESE ARE IMPORTED, NOT RETYPED. They lived here as `_FIELD_RANGES` /
+# `_ENERGY_RANGES` and guarded the LLM path ONLY, so `parse_mission` and
+# `ui/server.py`'s `MissionSpec(**body)` wrote the same fields with no bound —
+# 0 knots gave 3.0e12 NM/day of solar range with ok=True and an EMPTY notes
+# field. The gate now sits on the contract (`MissionSpec.clamp`) and this module
+# reads the same table, so there is one set of numbers rather than two that can
+# drift apart the way GM 0.35/0.45 did (CLAUDE.md, design-side invariants).
+_FIELD_RANGES = FIELD_RANGES
+_ENERGY_RANGES = ENERGY_RANGES
 
 TRANSLATOR_PROMPT = """Translate the boating mission below into JSON with ONLY
 these keys (omit unknowns): displacement_target_kg, cruise_speed_kn, crew,
@@ -110,6 +104,12 @@ def sanitize(raw: dict, floor: MissionSpec) -> MissionSpec:
             base = {f: getattr(m.energy, f) for f in EnergySpec.__dataclass_fields__}
             base.update(e_kw)
             m.energy = EnergySpec(**base)
+    # Every field above was written with `setattr`, which bypasses
+    # `__post_init__`. This is the structural exit gate: no spec leaves this
+    # function un-clamped, whatever a future branch above forgets to bound.
+    # On today's code it is a no-op, and that is the point — it is a guarantee,
+    # not a second clamp.
+    notes.extend(m.clamp())
     m.notes = "; ".join(n for n in notes if n)
     return m
 

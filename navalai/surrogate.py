@@ -625,10 +625,45 @@ def batch_infill(gp, candidates: np.ndarray, y_best: float, k: int,
                  strict: bool = True) -> np.ndarray:
     """Pick k EI-ranked candidates with mutual distance (batched, not 1/cycle).
 
-    `min_dist` is a fraction of the CANDIDATE BOX per axis, which is the only
-    box the caller can reason about. It used to be a fraction of the GP's
-    TRAINING span — `gp._norm` — and that is the span of the few high-fidelity
-    points already run, not of the region being searched.
+    `min_dist` is a EUCLIDEAN distance in the CANDIDATE BOX normalised to the
+    unit cube — each axis is rescaled onto [0, 1] by the box, and the bar is
+    applied to the NORM of the difference, not per axis. The box is the right
+    reference (it is the only one the caller can reason about); it used to be
+    the GP's TRAINING span — `gp._norm` — and that is the span of the few
+    high-fidelity points already run, not of the region being searched.
+
+    READ THE UNITS BEFORE SETTING IT: THE BAR DOES NOT MEAN WHAT IT MEANS IN 1-D.
+    This docstring said "a fraction of the candidate box PER AXIS", and in one
+    dimension those are the same sentence — which is why the 1-D table below is
+    honest and the design-space case was not covered at all. In d dimensions the
+    norm accumulates d independent gaps, so a request that reads like "5% apart
+    on every axis" is satisfied by points that are 5%/sqrt(d) apart on one axis
+    and nearly coincident on the rest. MEASURED in the 15-D grammar box, k=5
+    from 400 uniform candidates:
+
+        min_dist requested   picks change?   min PER-AXIS gap   min EUCLIDEAN gap
+              0.05               —               0.00121             1.1945
+              0.10           identical           0.00121             1.1945
+              0.20           identical           0.00121             1.1945
+              0.50           identical           0.00121             1.1945
+              1.00           identical           0.00121             1.1945
+              1.50             changed           0.00172             1.5202
+              2.00           k drops to 3        0.00984             2.0133
+
+    The same five points are returned for every request from 0.05 to 1.00: the
+    bar is INERT over a twentyfold range, because random points in a 15-cube are
+    already ~1.2 apart in norm. Two picks 0.0012 of an axis apart — a tenth of a
+    millimetre of beam — are billed as two experiments and the filter says
+    nothing. The bar first binds between 1.0 and 1.5, and by 2.0 it starves the
+    batch.
+
+    So `min_dist=0.05` is a real constraint in 1-D and a no-op in 15-D. Scale it
+    with the dimension (sqrt(d) x the per-axis separation you actually want:
+    ~0.19 for 5% per axis in 15-D, and note that is still a NORM, so it does not
+    forbid two picks agreeing closely on one axis). This is documented rather
+    than changed: switching to a per-axis (Chebyshev) test would silently alter
+    every caller's batch, and no measurement has been made of what that does to
+    infill quality. The behaviour is Euclidean; the sentence now says so.
 
     The two spans are different by construction (you infill where you have NOT
     been), and the error is in the dangerous direction: a small training span
@@ -671,8 +706,9 @@ def batch_infill(gp, candidates: np.ndarray, y_best: float, k: int,
     out = np.array(chosen, dtype=int)
     if len(out) < k and strict:
         raise InfillStarved(
-            f"asked for {k} infill points at min_dist {min_dist} in the "
-            f"candidate box but only {len(out)} survive the diversity filter. "
+            f"asked for {k} infill points at min_dist {min_dist} (normalised "
+            f"EUCLIDEAN, in {C.shape[1]}-D) but only {len(out)} survive the "
+            f"diversity filter. "
             f"Widen the candidate set, lower min_dist, or pass strict=False "
             f"and size the compute budget on len(result) — a short batch "
             f"returned silently is a compute plan that quietly shrinks.",

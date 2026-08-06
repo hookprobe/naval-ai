@@ -446,3 +446,67 @@ def test_infill_bounds_override_a_candidate_set_that_does_not_span_the_box():
     gap = float(np.min(np.abs(picks[:, None] - picks[None, :])
                        + 1e9 * np.eye(len(picks))))
     assert gap >= 0.1 - 1e-9, picks
+
+
+def test_min_dist_is_a_euclidean_norm_and_does_not_bind_per_axis_in_15d():
+    """DOCUMENTATION DEFECT, PINNED SO IT CANNOT SILENTLY BECOME A BEHAVIOUR
+    ONE. `batch_infill`'s docstring said `min_dist` was "a fraction of the
+    CANDIDATE BOX per axis". It is applied as `np.linalg.norm`, and in ONE
+    dimension those are the same sentence — which is why the 1-D table in that
+    docstring is honest and the design-space case was not covered at all.
+
+    MEASURED in the 15-D grammar box, k=5 from 400 uniform candidates:
+
+        min_dist requested   picks change?   min PER-AXIS gap   min EUCLIDEAN
+              0.05               —               0.00121           1.1945
+              0.10           identical           0.00121           1.1945
+              0.20           identical           0.00121           1.1945
+              0.50           identical           0.00121           1.1945
+              1.00           identical           0.00121           1.1945
+              1.50             changed           0.00172           1.5202
+              2.00           k drops to 3        0.00984           2.0133
+
+    The same five points come back for every request across a twentyfold range:
+    random points in a 15-cube are already ~1.2 apart in norm, so the bar is
+    INERT, and two picks 0.0012 of an axis apart — a tenth of a millimetre of
+    beam — are billed as two experiments. The behaviour was NOT changed: a
+    per-axis (Chebyshev) test would alter every caller's batch and nobody has
+    measured what that does to infill quality. The docstring now says
+    "EUCLIDEAN" and carries this table; this test holds the measurement, so a
+    later behaviour change has to come with a new one.
+    """
+    from navalai import grammar
+
+    rng = np.random.default_rng(3)
+    d = len(grammar.LOW)
+    C = rng.uniform(grammar.LOW, grammar.HIGH, size=(400, d))
+    Xtr = rng.uniform(grammar.LOW, grammar.HIGH, size=(30, d))
+    y = Xtr[:, 0] * 0.3 + rng.normal(0, 0.1, 30)
+    gp = GP.fit(Xtr, y, seed=0)
+
+    picks = {md: tuple(batch_infill(gp, C, float(y.min()), k=5, min_dist=md,
+                                    strict=False))
+             for md in (0.05, 0.1, 0.2, 0.5, 1.0)}
+    assert len({p for p in picks.values()}) == 1, (
+        "min_dist now discriminates between 0.05 and 1.0 in 15-D — the "
+        "behaviour changed and the docstring's table must be re-measured")
+
+    lo, hi = C.min(0), C.max(0)
+    span = np.where(hi - lo < 1e-12, 1.0, hi - lo)
+    Pn = (C[list(picks[0.05])] - lo) / span
+    per_axis, euclid = [], []
+    for i in range(len(Pn)):
+        for j in range(i + 1, len(Pn)):
+            per_axis.append(float(np.abs(Pn[i] - Pn[j]).min()))
+            euclid.append(float(np.linalg.norm(Pn[i] - Pn[j])))
+    assert min(per_axis) < 0.05, (
+        f"the requested 0.05 now binds per axis (min gap {min(per_axis):.5f}); "
+        f"the documented measurement is stale")
+    assert min(euclid) > 1.0
+
+    # ...and it DOES bind, as a norm, once it is asked for in the right units.
+    assert len(batch_infill(gp, C, float(y.min()), k=5, min_dist=2.0,
+                            strict=False)) < 5
+
+    doc = batch_infill.__doc__
+    assert "EUCLIDEAN" in doc and "per axis" in doc

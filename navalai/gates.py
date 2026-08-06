@@ -112,11 +112,41 @@ GATES = [
     Gate("Gate 2", "Capytaine BEM (Hulme anchor)", "tests/test_phase2.py"),
     Gate("Gate 2R", "CFD reference parity + GCI honesty",
          "tests/test_cfd_reference_parity.py"),
-    Gate("Gate 3", "surrogate spine (Forrester + L1 GP)", "tests/test_phase3.py"),
-    Gate("Gate 4", "generative + slider p95<100ms", "tests/test_phase4.py"),
+    # Scope re-read against the suite 2026-08-06. It is no longer "Forrester +
+    # an L1 GP": test_phase3.py also holds OOD refusal that separates error
+    # rather than merely flagging it, the KOH rho estimator and its degeneracy
+    # warnings, and the batched-EI diversity filter measured in the CANDIDATE
+    # box. A scope line that names half a suite is a registry that under-reports
+    # what would be lost if the suite stopped running.
+    Gate("Gate 3", "surrogate spine: GP + co-kriging rho, OOD refusal, "
+         "batched-EI infill", "tests/test_phase3.py"),
+    # HONESTY RULE 6 IN THE REGISTRY ITSELF. This row printed a blanket GREEN
+    # while the suite's own headline bar — "raw generative draws are >=99%
+    # feasible" — is MISSED, because the test that measures it asserts the
+    # honest number (`f < 0.99`) rather than the bar. That is the right test and
+    # it was the wrong row: a reader of the ladder saw GREEN and had no way to
+    # learn that the plan's feasibility clause is not met.
+    #
+    # MEASURED 2026-08-06 with `raw_feasibility(600, seed=0)` on a generator fit
+    # to `sample_valid(120, MissionSpec(), seed=11)`: GMM 79.3%, pPCA 88.7%. The
+    # pPCA latent already in the repo BEATS the model shipped as the generative
+    # model. Both are far below 99%; the diffusion upgrade is what has to close
+    # it. The row cannot be a typed RED — a RED status row needs a ledger
+    # watermark, and the suite genuinely passes what it asserts — so the scope
+    # states the shortfall where the ladder prints it.
+    Gate("Gate 4", "generative + slider p95<100ms; raw feasibility RED "
+         "(GMM 79.3%, pPCA 88.7% vs the >=99% bar)", "tests/test_phase4.py"),
     Gate("Gate 5", "mission translation + LLM seam", "tests/test_phase5.py"),
     Gate("Gate 6", "rules-as-code mechanics", "tests/test_phase6.py"),
-    Gate("Gate 7", "flywheel + regression gate", "tests/test_phase7.py"),
+    # Re-read against the suite 2026-08-06. Gate 7 has TWO clauses and the row
+    # named neither: the frozen suite is no longer the training draw, the mark
+    # is a monotone high-water ratchet, the wall clock (clause 2) is measured
+    # and gated, and a MISSING baseline now refuses instead of passing — the
+    # last of which is only meaningful because `data/baselines.json` is
+    # committed (gap D3; `scripts/make_baseline.py` regenerates it).
+    Gate("Gate 7", "flywheel: frozen suite != training draw, monotone "
+         "regression mark, wall clock, committed baseline",
+         "tests/test_phase7.py"),
     Gate("Gate B", "grammar AST + bend radius + 8-D genome", "tests/test_stageB.py"),
     Gate("Gate C", "agentic PLM network + engineer + STEP/IGES",
          "tests/test_stageC.py"),
@@ -130,8 +160,16 @@ GATES = [
     # manufacturing back end is the other half of the plan's Phase 6 and it
     # was the half with no bar it could fail: no nesting, no BOM, no refold
     # test, and a developability metric that passes a hyperbolic paraboloid.
+    # The row already existed; the scope now names the export receipt too,
+    # which is a third of what the suite asserts (`export_dxf` nests rather
+    # than stacks, a ladder-failing design is REFUSED an export, and STEP/IGES
+    # loft the validated discretisation instead of a hard-coded 12 stations).
+    # "developability controls" is plural on purpose: the suite carries the
+    # POSITIVE controls (cylinder, cone) and the NEGATIVE one (hypar) — a
+    # metric with no negative control is not a metric.
     Gate("Gate 6M", "manufacturing back end: nesting, BOM, refold, "
-         "developability that can fail", "tests/test_manufacturing.py"),
+         "developability controls, export receipt",
+         "tests/test_manufacturing.py"),
     Gate("Gate R3", "the ladder is climbable: L2 escalation, monotone tier "
          "promotion, honest refusal of L3", "tests/test_ladder.py"),
     # BuildPlan 2 V2.0. Its bar is provenance, not physics: "constants
