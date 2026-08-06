@@ -33,6 +33,35 @@
     "(five circulating Gate 2M numbers) starting over in a new file."
   ],
 
+  "wigley.stl": {
+    "_why": [
+      "ADDED 2026-08-06. `benchmark_of_sha` says this file 'pins the hash of",
+      "every benchmark geometry' and it pinned exactly one. wigley.stl is",
+      "COMMITTED to the repository and was not in here, so",
+      "`gate2m.py runs/wigley` identified the case as None. The refusal still",
+      "fired — None is not 'kcs' — but it fired because the hull was",
+      "UNIDENTIFIABLE, not because it was identified as a different ship, and",
+      "the printed reason said so. A guard that happens to be right for the",
+      "wrong reason is one geometry away from being wrong."
+    ],
+    "sha256": "b8f0fe51fb4327ee6228fe8c0b0702c009f64c4dafc5b3c2498ec8d9a372a90f",
+    "bytes": 7411159,
+    "produced_by": "scripts/wigley_stl.py (analytic, nx=161 nz=41), macOS arm64, 2026-08-06",
+    "source_document": "Wigley parabolic hull, y = (B/2)(1-(2x/L)^2)(1-(z/T)^2), L=10 B=L/10 T=L/16. Analytic: no redistribution question, and the acceptance value is closed-form rather than transcribed.",
+    "recipe": [
+      "python scripts/wigley_stl.py --out data/benchmark_geom/wigley.stl --lwl 10.0"
+    ],
+    "acceptance": {
+      "metric": "submerged volume at z=0, navalai.cfd.post.stl_submerged_properties",
+      "measured_m3": 2.777235,
+      "published_m3": 2.7777777777777777,
+      "published_from": "4*L*B*T/9, the closed-form displacement of the Wigley form (L=10, B=1, T=0.625)",
+      "error_pct": -0.0195,
+      "tolerance_pct": 0.5,
+      "why_this_tolerance": "The residual is pure faceting of a smooth analytic surface at nx=161/nz=41, so it shrinks with the tessellation and has no lower bound worth pinning. The tolerance matches kcs.stl's for the same reason it was chosen there: it must admit a re-tessellation while still failing a wrong unit scale, a missing draft shift or an unmirrored half body, all of which are tens of percent."
+    }
+  },
+
   "kcs.stl": {
     "sha256": "87062dbf11fc20683ee51de7d9526342a4ff28bab89308569b44c2e9fd82faec",
     "bytes": 2482114,

@@ -367,6 +367,79 @@ coverage used to be 32%. checkMesh: 4 open cells, 5 wrongly-oriented faces,
   a regenerated fixed case was not the configuration that produced the recorded
   numbers. All four are now gated on `free_motion`.
 
+## THE DERIVED LAYER COUNT KILLS THE DEFAULT KCS CASE (MEASURED 2026-08-06)
+
+`make_case.py` with no `--n-layers` DERIVES n_layers from `n_layers_to_bridge`,
+and for symmetric KCS coarse at `_NX_BASE` 57 it derives **7**. That mesh passes
+every build-time check, passes the checkMesh bar by exactly one face, and
+**interFoam dies at t = 0.0072 s**: deltaT 1.2e-3 -> 2.5e-26 while Courant max
+stays 9-12 and alpha.water reaches 1503.95. The documented pathological-cell
+signature, from the generator's own default.
+
+Sweep — same hull, same background, ONLY n_layers varies (mesh-only, ~3 min each):
+
+    n   cells   zeroVol  wrongOri  nonOrtho  maxSkew  cover%  achieved  solve
+    3  227597      0        0        73.5      6.32    97.7%   2.93/3   clean mesh
+    5  230725      0        0        73.5      8.93    92.6%   4.63/5   SOLVES
+    7  218736      0       10       105.2     42.94    81.2%   5.68/7   DIES t=0.0072
+
+Note the cell count FALLS at n=7 while coverage falls to 81%: the failure is
+PARTIAL stacks, which fold cells where full stacks and no stacks do not.
+
+**Do NOT "fix" this with a build-time cap on stack/hull_cell.** That was the
+obvious hypothesis and the data refutes it:
+
+    hull    n_layers  stack/hull_cell  outcome
+    KCS         7          0.952       DIES
+    Wigley     10          1.084       SOLVES (runs/wigley, 10 s complete,
+                                       0 wrongly-oriented faces, skew 8.68)
+
+Wigley survives a THICKER relative stack than the one that kills KCS, so the
+discriminator is the geometry snappy has to terminate layers on (bulb, transom,
+skeg), not any ratio computable before meshing. There is no build-time
+predictor; the mesh-time gate is the mechanism, which is why the bars moved:
+
+- **incorrectly-oriented faces: 10 -> 5.** The old bar was INTERPOLATED between
+  5 (solves) and 73 (dies). The gap is now filled at 10 (dies), so the
+  interpolation was on the wrong side of it. 5 is the largest count measured to
+  solve; the next count up is measured to die.
+- **max skewness: new, fatal at 20** — checkMesh's own boundary-face limit.
+  Measured 6.32 / 8.68 / 8.93 / 9.64 on meshes that solve, 42.94 on the one
+  that died. (Its internal limit of 4 would refuse everything we have run.)
+- `make_case.py --n-layers N` overrides the derivation. `--triplet` pins its own
+  value at the finest scale and for KCS that is **5** — so the TRIPLET path was
+  already generating the good mesh and only the single-case default was broken.
+
+### Two receipts were lying, both in run-case.sh
+
+- **`layers: ... first 5.68 m`.** snappy prints TWO `hull ...` tables with
+  different columns — the 5-field SPEC before extrusion, the 6-field ACHIEVED
+  result after — and the parse matched both and kept `tail -1`. It printed the
+  achieved MEAN LAYER COUNT (5.68) under the label of a first-layer thickness in
+  metres, on a 7.28 m hull, against a 2.648 mm request. Tables are now told apart
+  by field count and BOTH lines are printed; `layers_achieved` goes into case.info.
+- **`checkMesh flagged 1 check(s)`** came from `grep -c 'Failed'`, which counts
+  LINES, and checkMesh writes one: "Failed 3 mesh checks." Three failures were
+  announced as one. Now parsed, and each `***` line is echoed.
+
+### A crash is not a nap
+
+`run_campaign.sh` treated every non-zero exit as "interrupted, will resume",
+which is right for this Mac's thermal sleeps and wrong for a divergence. The
+diverging case above left NO checkpoint, so the loop re-meshed and re-died with
+a 120 s cool-down between attempts — ~100 minutes of re-running an unsolvable
+mesh, ending in a WARNING phrased as a thermal problem. A nap always leaves a
+LATER checkpoint than the attempt started from; a divergence leaves the same
+one. Two attempts with no progress is now `exit 4`.
+
+## Flow-throughs: state this, always
+
+Domain length is 4.5 Lwl, so at KCS Fn 0.26 ONE flow-through is
+32.75 m / 2.196 m/s = **14.92 s**. `--end-time 20` is **1.34 flow-throughs**;
+the 75 s figure quoted for a settled KCS run is 5.0. Any number from under one
+flow-through describes startup, not resistance, and the re-audit found every run
+in the repository sitting at 0.13-0.70.
+
 ## Gate 2M: KCS meshes cleanly now; the NUMBER is still owed
 
 The mesh blocker is closed (above). Geometry pipeline and acceptance data were

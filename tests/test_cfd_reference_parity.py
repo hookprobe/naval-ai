@@ -609,15 +609,81 @@ def test_checkmesh_has_a_fatal_bar_calibrated_between_two_measurements():
     The bars are not round numbers chosen for comfort:
       zero-volume cells   -> fatal at 1  (every mesh that solved had 0; the
                              ones that died had 72988, 20 and 14)
-      wrongly-oriented    -> fatal at 10 (the fixed KCS mesh has 5 and SOLVES;
-                             the mirrored KCS.igs mesh has 73 and dies on the
-                             first timestep). Setting this to zero would refuse
-                             a mesh MEASURED to work — the mirror image of
-                             softening a gate, and just as dishonest.
+      wrongly-oriented    -> fatal at 5.  It was 10, INTERPOLATED between the
+                             only two points then known (5 solves, 73 dies).
+                             MEASURED 2026-08-06 on runs/val_coarse — symmetric
+                             KCS, nx 57, n_layers 7, i.e. exactly what
+                             make_case.py derives for this hull — the mesh came
+                             out with 10 incorrectly-oriented faces, PASSED
+                             this guard by one face, and interFoam died at
+                             t=0.0072 with deltaT 1.2e-3 -> 2.5e-26, Courant
+                             max still 9-12 and alpha.water at 1503.95. The
+                             interpolated bar sat on the wrong side of the gap
+                             it was interpolating across.
+      max skewness        -> fatal at 20, checkMesh's OWN boundary-face limit.
+                             MEASURED: 6.32 / 8.68 / 8.93 / 9.64 on meshes that
+                             solve (KCS n=3, wigley n=10, KCS n=5, kcs_gci2)
+                             against 42.94 on the one that died.
     """
     src = (_ROOT / "navalai" / "cfd" / "run-case.sh").read_text()
-    assert '_MQ_ZEROVOL" -gt 0' in src and '_MQ_WRONGOR" -gt 10' in src
+    assert '_MQ_ZEROVOL" -gt 0' in src, "zero-volume cells must be fatal at 1"
+    assert '_MQ_WRONGOR" -gt 5' in src, (
+        "the wrongly-oriented bar must be 5: 10 is MEASURED to pass a mesh "
+        "that dies at t=0.0072 (runs/val_coarse, n_layers=7)")
+    assert '_MQ_SKEWBAD" = "1"' in src, "max skewness needs a fatal bar too"
     assert "--force" in src and 'FORCE" = "1"' in src
+
+
+def test_the_layer_receipt_reads_the_achieved_table_not_the_spec_columns():
+    """snappy prints TWO `hull ...` tables with DIFFERENT columns — the 5-field
+    layer SPEC before extrusion and the 6-field ACHIEVED result after it. The
+    receipt matched `/^hull +[0-9]/` and kept `tail -1`, so it printed column 4
+    of the achieved table under the label of column 4 of the spec table.
+
+    MEASURED on runs/val_coarse: it reported `first 5.68 m` — a first-layer
+    thickness of 5.68 METRES on a 7.28 m hull, against the 2.648 mm the case
+    asked for. 5.68 is not a thickness at all; it is the achieved MEAN LAYER
+    COUNT. This is the same class of defect as the one the surrounding block
+    exists to fix (a table whose meaning was assumed rather than read), so the
+    tables are told apart by field count, which a new table cannot silently
+    re-point.
+    """
+    src = (_ROOT / "navalai" / "cfd" / "run-case.sh").read_text()
+    assert "NF==5" in src and "NF==6" in src, (
+        "spec and achieved tables must be distinguished by field count")
+    assert not re.search(r"/\^hull \+\[0-9\]/ \{print \"requested", src), (
+        "the old position-based parse mislabelled the achieved layer count "
+        "as a first-layer thickness in metres")
+    assert "layers_achieved=" in src, "the achieved count belongs in case.info"
+
+
+def test_the_runner_reports_how_many_checkmesh_checks_failed():
+    """`grep -c 'Failed' log.checkMesh` counts LINES, and checkMesh writes one
+    line — "Failed 3 mesh checks." — so a mesh failing three checks was
+    announced as "flagged 1 check(s)". MEASURED on runs/val_coarse: 3 failures
+    (non-orthogonality, face pyramids, skewness) reported as 1."""
+    src = (_ROOT / "navalai" / "cfd" / "run-case.sh").read_text()
+    assert "grep -c 'Failed' log.checkMesh" not in src
+    assert re.search(r"Failed \[0-9\]\+ mesh check", src)
+
+
+def test_the_campaign_aborts_on_a_divergence_instead_of_re_meshing_it():
+    """run_campaign.sh treated EVERY non-zero exit as "interrupted, will
+    resume", which is right for this Mac's thermal naps and wrong for a
+    divergence. MEASURED on runs/val_coarse: interFoam died at t=0.0072, no
+    checkpoint was ever written, and the loop re-meshed and re-died with a
+    120 s cool-down between attempts — ~100 minutes of re-running an unsolvable
+    mesh, ending in a WARNING phrased as though the machine had napped.
+
+    A nap always leaves a LATER checkpoint than the attempt started from; a
+    divergence leaves the same one. So no progress twice in a row is fatal."""
+    src = (_ROOT / "scripts" / "run_campaign.sh").read_text()
+    assert "STALL" in src, "the campaign needs a no-progress counter"
+    assert re.search(r'STALL" -ge 2', src)
+    assert "exit 4" in src, "a divergence must be distinguishable from a nap"
+    assert src.index("STALL=0") < src.index("for attempt"), (
+        "the stall counter must reset per grid, or one grid's crash "
+        "condemns the next")
 
 
 def test_the_concurrency_guard_runs_before_anything_is_destroyed():
@@ -707,3 +773,52 @@ def test_the_displacement_check_matches_the_file_it_describes():
            / K.GEOMETRY_CHECK["displacement_m3"] * 100.0)
     assert err == pytest.approx(K.GEOMETRY_CHECK["displacement_error_pct"],
                                 abs=0.005)
+
+
+def test_every_committed_benchmark_geometry_can_be_IDENTIFIED():
+    """`benchmark_of_sha` says CHECKSUMS.json 'pins the hash of every benchmark
+    geometry'. It pinned exactly one.
+
+    MEASURED 2026-08-06: `gate2m.py runs/wigley` printed "identified as: None"
+    — the case's stl_sha256 matches the COMMITTED data/benchmark_geom/wigley.stl
+    byte for byte, and the file simply was not in the record. The refusal still
+    fired, because None is not "kcs", so the defect was invisible in the
+    outcome. It fired because the hull was UNIDENTIFIABLE rather than because
+    it was identified as a different ship, and the next benchmark added would
+    have inherited the same silence.
+
+    So the claim is enforced: every benchmark STL that is committed must be
+    nameable from its bytes alone.
+    """
+    import hashlib
+    from navalai.cfd.case import benchmark_of_sha
+    geom = _ROOT / "data" / "benchmark_geom"
+    record = json.loads((geom / "CHECKSUMS.json").read_text())
+    # Every STL PRESENT must be nameable. kcs.stl is gitignored and so is
+    # absent on most machines, which is fine — it is checked where it exists.
+    # wigley.stl is committed, so this test always has at least one subject.
+    present = sorted(geom.glob("*.stl"))
+    assert present, "no benchmark STL found to check"
+    for stl in present:
+        sha = hashlib.sha256(stl.read_bytes()).hexdigest()
+        assert stl.name in record, (
+            f"{stl.name} is committed but absent from CHECKSUMS.json, so "
+            f"gate2m identifies a case built on it as None")
+        assert record[stl.name]["sha256"] == sha, f"{stl.name} sha drifted"
+        assert benchmark_of_sha(sha) == stl.stem.lower()
+
+
+def test_the_wigley_acceptance_value_is_the_closed_form_one():
+    """Wigley is ANALYTIC: its displacement is 4LBT/9 exactly, so the record's
+    published value must be that expression evaluated, not a transcription.
+    This is the one benchmark where the acceptance number cannot drift from a
+    document, and pinning it keeps the kcs.stl style (a measured value beside
+    a published one) honest for the easy case too."""
+    acc = json.loads(
+        (_ROOT / "data/benchmark_geom/CHECKSUMS.json").read_text()
+    )["wigley.stl"]["acceptance"]
+    L, B, T = 10.0, 1.0, 0.625
+    assert acc["published_m3"] == pytest.approx(4 * L * B * T / 9, rel=1e-12)
+    err = 100.0 * (acc["measured_m3"] - acc["published_m3"]) / acc["published_m3"]
+    assert err == pytest.approx(acc["error_pct"], abs=0.002)
+    assert abs(err) < acc["tolerance_pct"]

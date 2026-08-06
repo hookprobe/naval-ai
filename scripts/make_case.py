@@ -56,6 +56,15 @@ def main() -> None:
                      "'coarse' builds upward (~12x more expensive).")
     ap.add_argument("--triplet", action="store_true",
                     help="write coarse/medium/fine at r=sqrt(2) for GCI")
+    ap.add_argument("--n-layers", type=int, default=None, dest="n_layers",
+                help="override the DERIVED prism-layer count. The derivation "
+                     "(n_layers_to_bridge) optimises for bridging to the hull "
+                     "cell and has no way to know what snappy will do to THIS "
+                     "geometry. MEASURED on symmetric KCS coarse at nx 57: the "
+                     "derived n=7 gives 81.2%% coverage, 10 incorrectly-"
+                     "oriented faces and max skewness 42.9, and interFoam dies "
+                     "at t=0.0072; n=5 gives 92.6%%, 0 faces and 8.9. "
+                     "--triplet pins its own value and ignores this.")
     ap.add_argument("--stl", help="external hull STL (KCS/JBC calibration); "
                                   "metres, WL at z=0, x in [0, LWL]")
     ap.add_argument("--lwl", type=float,
@@ -154,8 +163,10 @@ def main() -> None:
                  "cell counts downstream, but a uniform family is what "
                  "Richardson assumes. --anchor coarse gives 0.03%."))
     else:
-        meta = gen(args.out, args.scale)
-        print(f"case: {meta['bg_cells']} bg cells -> {args.out}")
+        meta = gen(args.out, args.scale, n_layers=args.n_layers)
+        print(f"case: {meta['bg_cells']} bg cells, n_layers "
+              f"{meta['n_layers']}{' (overridden)' if args.n_layers else ''}"
+              f" -> {args.out}")
 
 
 if __name__ == "__main__":

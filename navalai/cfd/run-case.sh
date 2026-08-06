@@ -209,7 +209,27 @@ _L_INIT=$(awk '/^Initial mesh :/ {gsub(/cells:/,"",$4); print $4}' "$_LAYERLOG" 
 _L_FINAL=$(awk '/^Layer mesh :/  {gsub(/cells:/,"",$4); print $4}' "$_LAYERLOG" | tail -1)
 _L_ADDED=$(( ${_L_FINAL:-0} - ${_L_INIT:-0} ))
 _L_WANT=$(awk '/Added [0-9]+ out of [0-9]+ cells/ {print $5}' "$_LAYERLOG" | tail -1)
-_L_SPEC=$(awk '/^hull +[0-9]/ {print "requested n="$3", first "$4" m"}' "$_LAYERLOG" | tail -1)
+# TWO `hull ...` TABLES, DIFFERENT COLUMNS, AND `tail -1` READ THE WRONG ONE.
+# snappy prints the layer SPEC before extrusion and the ACHIEVED result after:
+#
+#   patch faces    layers avg thickness[m]        (5 fields: NF==5)
+#                        near-wall overall
+#   hull  11915    7      0.00265   0.0342
+#
+#   patch faces        layers        overall thickness   (6 fields: NF==6)
+#                 target   mesh     [m]       [%]
+#   hull  11915    7        5.68     0.0292    85.5
+#
+# The old `awk '/^hull +[0-9]/ {... "first "$4" m"}' | tail -1` matched BOTH and
+# kept the LAST, so it printed column 4 of the *achieved* table under the label
+# of column 4 of the *spec* table. MEASURED on this very case: it reported
+# `first 5.68 m` — a first-layer thickness of 5.68 METRES on a 7.28 m hull,
+# 2145x the 2.648 mm the case asked for. The number was not even wrong in
+# magnitude, it was a different quantity: 5.68 is the achieved MEAN LAYER COUNT.
+# Tables are told apart by NF, not by position, so inserting another one cannot
+# silently re-point this again.
+_L_SPEC=$(awk '/^hull +[0-9]/ && NF==5 {printf "requested n=%s, first %s m", $3, $4}' "$_LAYERLOG" | tail -1)
+_L_GOT=$(awk '/^hull +[0-9]/ && NF==6 {printf "achieved %s of %s layers, stack %s m (%s%% of target)", $4, $3, $5, $6}' "$_LAYERLOG" | tail -1)
 if [ "${_L_ADDED:-0}" -le 0 ]; then
   say "FATAL: layer addition produced ZERO cells (${_L_SPEC:-no spec found})."
   say "       The hull has no prism layers, so y+ is uncontrolled and the wall"
@@ -218,8 +238,18 @@ if [ "${_L_ADDED:-0}" -le 0 ]; then
   [ "${LAYERS_OPTIONAL:-0}" = "1" ] || exit 1
 else
   say "layers: ADDED ${_L_ADDED} of ${_L_WANT:-?} cells ($(awk -v a="$_L_ADDED" -v w="${_L_WANT:-1}" 'BEGIN{printf "%.1f", 100*a/w}')%), ${_L_SPEC}"
+  say "layers: ${_L_GOT:-no achieved table found}"
+  [ -n "$_L_GOT" ] && echo "layers_achieved=$(awk '/^hull +[0-9]/ && NF==6 {print $4}' "$_LAYERLOG" | tail -1)" >> case.info
 fi
-grep -q 'Mesh OK' log.checkMesh || say "NOTE: checkMesh flagged $(grep -c 'Failed' log.checkMesh) check(s) — see log.checkMesh"
+# `grep -c 'Failed'` COUNTS LINES, NOT CHECKS. checkMesh writes one line,
+# "Failed 3 mesh checks.", so a mesh failing three checks was reported as
+# "flagged 1 check(s)". MEASURED on runs/val_coarse: 3 failures (non-ortho,
+# face pyramids, skewness) announced as 1.
+if ! grep -q 'Mesh OK' log.checkMesh; then
+  _MQ_NFAIL=$(awk '/Failed [0-9]+ mesh check/ {print $2}' log.checkMesh | tail -1)
+  say "NOTE: checkMesh FAILED ${_MQ_NFAIL:-?} check(s) — see log.checkMesh"
+  awk '/^ \*\*\*/ {sub(/^ *\*\*\* */,""); print "         " $0}' log.checkMesh
+fi
 
 # CHECKMESH HAD NO FATAL THRESHOLD AT ALL. It ran with `|| true` and the only
 # consequence was the NOTE above, so a mesh with degenerate cells went straight
@@ -234,26 +264,53 @@ grep -q 'Mesh OK' log.checkMesh || say "NOTE: checkMesh flagged $(grep -c 'Faile
 #   the adaptive controller shrinks deltaT to ~1e-40 and interFoam dies with an
 #   FPE in the GAMG p_rgh solve.
 #
-#   INCORRECTLY-ORIENTED FACES -> FATAL AT 10, not at 1, and the bar is
-#   CALIBRATED BETWEEN THE TWO MEASUREMENTS WE HAVE rather than set to the
-#   comfortable value:
-#       5  faces -> the fixed KCS mesh, which SOLVES (CLAUDE.md records it)
-#       73 faces -> the mirrored KCS.igs mesh, which dies on the first timestep
-#   Setting this to zero would refuse a mesh measured to work, which is the
-#   mirror image of softening a gate and just as dishonest. Move it when a
-#   measurement says to.
+#   INCORRECTLY-ORIENTED FACES -> FATAL AT 5. The bar was 10, interpolated
+#   between the only two points then available (5 faces -> the fixed KCS mesh,
+#   which SOLVES; 73 -> the mirrored KCS.igs mesh, which dies on the first
+#   timestep). MEASURED 2026-08-06, the gap between them is now filled and 10
+#   is on the WRONG side of it:
+#       0  faces -> KCS coarse n_layers=3 and n=5, and runs/wigley (n=10,
+#                   solved 10 s to completion) -- all clean
+#       5  faces -> the fixed KCS mesh, SOLVES
+#      10  faces -> KCS coarse symmetric, nx 57, n_layers=7 (what make_case.py
+#                   DERIVES for this hull today). interFoam died at t=0.0072
+#                   with deltaT 1.2e-3 -> 2.5e-26 while Courant max stayed 9-12
+#                   and alpha.water reached 1503.95 -- the documented
+#                   pathological-cell signature, and it passed this guard by
+#                   exactly one face.
+#      73  faces -> the mirrored KCS.igs mesh, dies on the first timestep
+#   5 is now the largest count measured to SOLVE, and the next count up is
+#   measured to die. Interpolating a bar between two points is a guess; this
+#   one is now pinned by the measurement in between. Tightening a gate on
+#   evidence is the opposite of softening one.
+#
+#   MAX SKEWNESS -> FATAL AT 20, which is checkMesh's OWN boundary-face limit
+#   (its internal limit is 4, which every mesh in this project exceeds, so 4
+#   would refuse everything we have ever solved). MEASURED:
+#       6.32  KCS coarse n=3   |  8.68  wigley (solved)   |  8.93  KCS n=5
+#       9.64  kcs_gci2/coarse  | 42.94  KCS n=7 (DIED at t=0.0072)
+#   Every mesh that solved is under 10; the one that died is 4.7x the worst of
+#   them. The bar sits at OpenFOAM's documented value rather than at a number
+#   invented to separate these two clusters.
 _MQ_ZEROVOL=$(awk '/zero volume cells to set zeroVolumeCells/ {print $2}' log.checkMesh | tail -1)
 _MQ_WRONGOR=$(awk '/faces with incorrect orientation to set wrongOrientedFaces/ {print $2}' log.checkMesh | tail -1)
-_MQ_ZEROVOL=${_MQ_ZEROVOL:-0}; _MQ_WRONGOR=${_MQ_WRONGOR:-0}
-say "mesh quality: ${_MQ_ZEROVOL} zero-volume cell(s), ${_MQ_WRONGOR} incorrectly-oriented face(s)"
+_MQ_SKEW=$(awk '/Max skewness =/ {gsub(/,/,"",$4); print $4}' log.checkMesh | tail -1)
+_MQ_ZEROVOL=${_MQ_ZEROVOL:-0}; _MQ_WRONGOR=${_MQ_WRONGOR:-0}; _MQ_SKEW=${_MQ_SKEW:-0}
+say "mesh quality: ${_MQ_ZEROVOL} zero-volume cell(s), ${_MQ_WRONGOR} incorrectly-oriented face(s), max skewness ${_MQ_SKEW}"
 echo "checkmesh_zero_volume_cells=${_MQ_ZEROVOL}" >> case.info
 echo "checkmesh_wrong_oriented_faces=${_MQ_WRONGOR}" >> case.info
-if [ "$_MQ_ZEROVOL" -gt 0 ] || [ "$_MQ_WRONGOR" -gt 10 ]; then
+echo "checkmesh_max_skewness=${_MQ_SKEW}" >> case.info
+_MQ_SKEWBAD=$(awk -v s="$_MQ_SKEW" 'BEGIN{print (s+0 > 20.0) ? 1 : 0}')
+if [ "$_MQ_ZEROVOL" -gt 0 ] || [ "$_MQ_WRONGOR" -gt 5 ] || [ "$_MQ_SKEWBAD" = "1" ]; then
   say "FATAL: mesh quality below the bar (${_MQ_ZEROVOL} zero-volume cells,"
-  say "       ${_MQ_WRONGOR} incorrectly-oriented faces; bars are 0 and 10)."
+  say "       ${_MQ_WRONGOR} incorrectly-oriented faces, max skewness ${_MQ_SKEW};"
+  say "       bars are 0, 5 and 20)."
   say "       A degenerate cell does not degrade a solve, it invalidates it:"
   say "       deltaT collapses to ~1e-40 while Courant stays high and interFoam"
   say "       dies in the GAMG p_rgh solve. Re-mesh; do not spend hours on this."
+  say "       If the layer count is the cause (MEASURED on KCS coarse: n=7 gives"
+  say "       10 faces and dies, n=5 gives 0 and solves), pass n_layers to the"
+  say "       generator -- make_case.py --n-layers N."
   say "       Pass --force (or FORCE=1) to run it anyway, deliberately."
   [ "$FORCE" = "1" ] || exit 1
   say "       --force given: proceeding on a mesh that failed the bar."
