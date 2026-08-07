@@ -27,9 +27,13 @@ Scope thresholds: Directive (EU) 2016/1629, Article 2(1), consolidated text at
 `eur-lex.europa.eu/legal-content/EN/TXT/HTML/?uri=CELEX:02016L1629-20240101`.
 
 Numeric bars and definitions: ES-TRIN edition **2023/1**, published free by
-CESNI (`cesni.eu`), read directly. Articles 1.01(4.2), 1.01(4.4), 4.01(1) and
-4.02 are transcribed below with their own wording quoted in the docstrings, so
-a reviewer can check the transcription without re-deriving the mechanics.
+CESNI (`cesni.eu`), read directly. Articles 1.01(4.2), 1.01(4.4), 1.01(4.16),
+4.01(1) and 4.02 are transcribed below with their own wording quoted in the
+docstrings, so a reviewer can check the transcription without re-deriving the
+mechanics. The Art. 2(1) scope test is decided on ES-TRIN's own L, B and T —
+HULL dimensions, not waterline ones; `hull_length_m` and `hull_breadth_m` are
+the single place each is measured, and the section above them records the
+20 m craft that escaped the standard entirely when they were not.
 
 BASIS IS STILL 'approx', AND THAT IS NOT A CONTRADICTION. `review.basis_for`
 returns 'standard' only for rule ids a named reviewer has confirmed against the
@@ -71,6 +75,29 @@ _ESTRIN = "ES-TRIN edition 2023/1 (CESNI, published free at cesni.eu)"
 SCOPE_LENGTH_M = 20.0
 SCOPE_LBT_VOLUME_M3 = 100.0
 
+# L, B AND T IN THAT TEST ARE HULL DIMENSIONS, NOT WATERLINE ONES, AND THE
+# DIFFERENCE DECIDED THE SCOPE CALL. Art. 2(1) uses the definitions of
+# Art. 3, which are ES-TRIN's: "length (L)" is the MAXIMUM LENGTH OF THE HULL
+# excluding rudder and bowsprit (ES-TRIN Art. 1.01(4.16)), and "breadth (B)"
+# is the MAXIMUM BREADTH OF THE HULL measured to the outer edge of the shell
+# plating. ES-TRIN names the waterline pair separately (L_WL, B_WL) precisely
+# because they are not these.
+#
+# MEASURED 2026-08-07, and this is why the module emitted a scope finding and
+# nothing else: a 20.0 m grammar hull floats with `hydro.lwl_eff` = 19.00 m and
+# a chine half-breadth of 1.60 m, so reading L and B off the waterline gave
+# L 19.00 m < 20 m and L.B.T 22.7 m3 < 100 m3 — OUT OF SCOPE, no Chapter 4
+# findings, and no coverage refusal. On the hull dimensions the same craft is
+# L 20.00 m, B 3.67 m, T 0.37 m: IN SCOPE by the length limb.
+#
+# The direction of that error is the point. Next door in `iso12217.py` the same
+# substitution is deliberate and safe, because there being ruled out of scope
+# means getting NO verdict. Here it means being told a craft the Directive
+# governs is "a recreational craft under the RCD instead" and never being told
+# an inspection body is required — an understated L or B silently DELETES the
+# assessment. So ES-TRIN's own measurands are used, and `hull_length_m` /
+# `hull_breadth_m` below are the single place either is computed.
+
 # ES-TRIN Art. 4.01(1): "The safety clearance shall be at least 300 mm."
 SAFETY_CLEARANCE_MIN_M = 0.300
 
@@ -96,6 +123,43 @@ UNIMPLEMENTED_CHAPTERS = (
     "17 liquefied gas installations", "18 on-board sewage treatment plants",
     "19 passenger vessels", "20 passenger sailing vessels",
 )
+
+
+def hull_length_m(hull: "Hull") -> float:
+    """L [m] — ES-TRIN Art. 1.01(4.16), maximum length of the hull.
+
+    The station grid spans the hull from transom to stem, so its x extent IS
+    the hull length. It is >= `hydro.lwl_eff`, which is the immersed length at
+    the floating draught and is the wrong measurand for Art. 2(1).
+
+    DELIBERATELY NOT SHARED WITH `iso12217.hull_length_m`, which takes an
+    Evaluation and returns the WATERLINE length as a documented understatement
+    of L_H. Two functions because they are two quantities; sharing the name
+    would be the one-number-two-places defect wearing a helpful disguise.
+
+    Neither rudder nor bowsprit is modelled, so the exclusion Art. 1.01(4.16)
+    makes is already satisfied by construction.
+    """
+    xs = np.asarray(hull.x, dtype=float)
+    return float(xs.max() - xs.min())
+
+
+def hull_breadth_m(hull: "Hull") -> float:
+    """B [m] — ES-TRIN Art. 1.01, maximum breadth of the hull.
+
+    The definition measures "to the outer edge of the shell plating", i.e. the
+    widest point anywhere on the hull, not the widest point at the waterline
+    (that is B_WL, a separate ES-TRIN definition). On a flared grammar hull the
+    sheer is wider than the chine, so BOTH offset lines are taken into account
+    and the larger wins. Half-breadths are stored, hence the factor 2.
+
+    Shell-plating thickness is not modelled, so this is the moulded breadth and
+    it UNDERSTATES B by two plate thicknesses (~10 mm on a 3.7 m beam). That
+    errs towards out-of-scope, which is the unsafe direction here, so it is
+    recorded in the scope finding's note rather than left implicit.
+    """
+    return 2.0 * float(max(np.max(np.asarray(hull.y_sheer, dtype=float)),
+                           np.max(np.asarray(hull.y_chine, dtype=float))))
 
 
 def _scope_volume(length_m: float, beam_m: float, draught_m: float) -> float:
@@ -200,39 +264,41 @@ def assess(ev: "Evaluation", hull: "Hull") -> list[RuleFinding]:
             "ES-TRIN governs this craft is UNDECIDABLE"))
         return out
 
-    lwl = float(ev.hydro.lwl_eff)
-    beam = 2.0 * float(np.max(hull.y_chine))
+    length = hull_length_m(hull)
+    beam = hull_breadth_m(hull)
     draught = float(ev.hydro.draft)
-    vals = (lwl, beam, draught)
+    vals = (length, beam, draught)
     if not all(math.isfinite(v) and v > 0.0 for v in vals):
         out.append(RuleFinding(
             "ES-SCOPE", f"{_DIR_2016_1629}", basis_for("ES-SCOPE"), False,
             float("nan"), SCOPE_LBT_VOLUME_M3, "m3",
-            f"L/B/T not all finite and positive ({lwl}, {beam}, {draught}) — "
-            f"scope UNDECIDABLE"))
+            f"L/B/T not all finite and positive ({length}, {beam}, "
+            f"{draught}) — scope UNDECIDABLE"))
         return out
 
-    vol = _scope_volume(lwl, beam, draught)
-    if not in_scope(lwl, beam, draught):
+    vol = _scope_volume(length, beam, draught)
+    if not in_scope(length, beam, draught):
         out.append(RuleFinding(
             "ES-SCOPE", f"{_DIR_2016_1629}", basis_for("ES-SCOPE"), True,
             vol, SCOPE_LBT_VOLUME_M3, "m3",
-            f"OUT OF SCOPE: L {lwl:.2f} m < {SCOPE_LENGTH_M:.0f} m and "
+            f"OUT OF SCOPE: L {length:.2f} m < {SCOPE_LENGTH_M:.0f} m and "
             f"L.B.T {vol:.1f} m3 < {SCOPE_LBT_VOLUME_M3:.0f} m3, so Directive "
             f"(EU) 2016/1629 — and with it ES-TRIN — does not govern this "
             f"craft. It is a recreational craft under the RCD instead. No "
-            f"ES-TRIN bar is applied. (L is the waterline length; ES-TRIN "
-            f"1.01(4.16) defines L as maximum HULL length, which is longer, "
-            f"so a craft close to either threshold should be re-checked "
-            f"against a real L_H.)"))
+            f"ES-TRIN bar is applied. (L and B are the HULL dimensions per "
+            f"ES-TRIN Art. 1.01, not the waterline ones; B is moulded, so it "
+            f"understates the shell-plating breadth by ~two plate "
+            f"thicknesses. A craft within a few per cent of either threshold "
+            f"is a case for the inspection body, not for this file.)"))
         return out
 
     out.append(RuleFinding(
         "ES-SCOPE", f"{_DIR_2016_1629}", basis_for("ES-SCOPE"), True,
         vol, SCOPE_LBT_VOLUME_M3, "m3",
-        f"IN SCOPE: L {lwl:.2f} m, B {beam:.2f} m, T {draught:.2f} m "
-        f"(L.B.T {vol:.1f} m3). ES-TRIN applies and an inspection body's "
-        f"certificate is required."))
+        f"IN SCOPE: L {length:.2f} m, B {beam:.2f} m, T {draught:.2f} m "
+        f"(L.B.T {vol:.1f} m3), on the hull dimensions of ES-TRIN Art. 1.01. "
+        f"ES-TRIN applies and an inspection body's certificate is required. "
+        f"The findings below are an ASSESSMENT AID, never certification."))
 
     # ---- ES-SAFE, Art. 4.01(1) -----------------------------------------
     # 1.01(4.2) defines safety clearance as the distance from the plane of
