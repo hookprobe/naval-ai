@@ -200,6 +200,11 @@ class Evaluation:
     energy: EnergyReport | None = None
     ply_thickness_m: float = 0.0    # DERIVED from ISO 12215-5, not declared
     unaccounted_frac: float = 0.0   # displacement with no declared position
+    # LWL is a GRAMMAR INPUT, not a computed result: it is sitting in `params`
+    # before a single line of physics runs, so it is carried on EVERY return
+    # path — including the L0 refusal, where it used to stay at the 0.0 default
+    # (see `_declared_lwl_m` below). 0.0 here means ONLY "the parameter vector
+    # itself was unreadable", never "the ladder stopped early".
     hull_lwl_m: float = 0.0         # so requirements can check the mission
     rules: dict = field(default_factory=dict)   # tier R, IN the ladder
     seakeeping: dict = field(default_factory=dict)   # tier L2, when it has run
@@ -239,6 +244,33 @@ def sample_valid(n: int, mission: MissionSpec, seed: int = 0,
     return np.array(X), np.array(y)
 
 
+def _declared_lwl_m(params) -> float:
+    """LWL as the GRAMMAR DECLARES it, readable before any physics runs.
+
+    A KNOWN QUANTITY MUST NOT BE REPORTED AS ABSENT (the mirror of gap E11's
+    "undefined must never be reported as ideal"). MEASURED: a 4.5 m hull whose
+    only defect was an L/B of 1.41 failed the L0 bound check, so `evaluate()`
+    returned at tier L0 and `hull_lwl_m` kept its 0.0 default — even though
+    4.5 was sitting in the parameter vector the caller had just handed in.
+    `iso12217.hull_length_m()` then read 0.0, found no length anywhere, and
+    `assess()` declared ISO 12217-1's SCOPE UNDECIDABLE for a boat whose
+    length was never in doubt. A different constraint failing is not ignorance
+    about this one.
+
+    Returns 0.0 — genuinely "no length" — only when the vector itself cannot
+    be read: wrong shape, non-numeric, or a non-finite/non-positive LWL. That
+    is the one case where the scope question really is undecidable.
+    """
+    try:
+        x = np.asarray(params, dtype=float)
+    except (TypeError, ValueError):
+        return 0.0
+    if x.shape != (grammar.N_PARAMS,):
+        return 0.0
+    v = float(x[grammar.NAMES.index("LWL")])
+    return v if math.isfinite(v) and v > 0.0 else 0.0
+
+
 def evaluate(params: np.ndarray, mission: MissionSpec,
              rho: float = RHO_WATER,
              provenance: db.Provenance | None = None) -> Evaluation:
@@ -248,6 +280,7 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
     rep = grammar.check(params)
     if not rep.ok:
         return Evaluation(False, "L0", rep.violations, params=np.asarray(params),
+                          hull_lwl_m=_declared_lwl_m(params),
                           eval_ms=(time.perf_counter() - t0) * 1e3)
 
     hull = Hull(params)
@@ -307,6 +340,7 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
     except ValueError as e:
         return Evaluation(False, "L1", (f"floatation: {e}",), weights=wb,
                           ply_thickness_m=t_ply, params=np.asarray(params),
+                          hull_lwl_m=float(p["LWL"]),
                           eval_ms=(time.perf_counter() - t0) * 1e3)
 
     # Free-surface correction is a VIRTUAL RISE of G, so it is subtracted from
@@ -354,9 +388,19 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
             f"spray; needs a Savitsky-class method)")
     en = energy_report(res.total, u, hull.deck_area(), mission.energy)
 
+    # hull_lwl_m is carried here too, not just on the returned Evaluation.
+    # `iso12217.hull_length_m` prefers the DECLARED LWL and falls back to the
+    # floated `lwl_eff`, and the two are not the same number — MEASURED at a
+    # declared 8.00 m the floated length is 7.60 m, 5% short. Omitting it made
+    # the ladder's OWN scope call read lwl_eff while a caller doing
+    # `stability(ev, ...)` on the returned object read the declared value, so
+    # a hull declared just over 6 m could be assessed by ISO 12217-1 in
+    # `ev.rules` and refused as out of scope by the identical function one line
+    # later. One scope question, one length.
     ev_for_rules = Evaluation(
         ok=True, tier="L1", hydro=hs, wl=wl, weights=wb, masses=agg,
-        gm_m=gm_m, gm_l_m=gm_l_m, ply_thickness_m=t_ply)
+        gm_m=gm_m, gm_l_m=gm_l_m, ply_thickness_m=t_ply,
+        hull_lwl_m=float(p["LWL"]))
     findings = (stability_rules(ev_for_rules, mission.design_category,
                                 mission.crew, 2.0 * float(hull.y_chine.max()))
                 + scantling_rules(hs.disp_kg, t_ply * 1e3))
