@@ -54,3 +54,6 @@ selfInterPoints.obj
 # and an absent queue exits non-zero with a banner rather than reporting an
 # empty register as if there were nothing to do.
 data/evolution/
+
+# Agent worktrees are scratch checkouts, never content.
+.claude/worktrees/

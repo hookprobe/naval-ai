@@ -1177,6 +1177,46 @@ def write_resistance_case(hull: Hull, speed: float, out_dir: str | Path,
                              free_motion, lts, n_layers)
 
 
+def background_counts(scale: float, symmetric: bool) -> tuple[int, int, int, int, int, int]:
+    """Background block counts: (nx, ny, nz_deep, nz_hull, nz_wave, nz_air).
+
+    ONE home for the count rule. It was computed inline inside
+    `_write_case_dicts`, and `navalai/fidelity.py` needed the same numbers to
+    price a grid WITHOUT writing a case -- which is the shape of the defect
+    this codebase keeps producing (a number declared twice), so it is a
+    function rather than a second copy. The apportioning logic below is the
+    MEASURED one: see the comments for why ny derives from nx by a fixed ratio
+    and why the four z-bands use largest-remainder.
+    """
+    nx = max(int(round(_NX_BASE * scale)), 20)
+    # ny FROM nx BY A FIXED RATIO, and the full domain is EXACTLY twice the
+    # half domain. It used to be `round((1.5 if symmetric else 3.0) * lwl /
+    # dx_bg)`, i.e. a second, independent rounding of a half-size number, and
+    # half-size is where rounding hurts most: MEASURED on the scale
+    # 1 / sqrt2 / 2 family at base 54, ny went 18 / 25 / 36 (ratios 1.3889 and
+    # 1.4400) while the full domain got 36 / 51 / 72 (1.4167 and 1.4118). The
+    # symmetric triplet's two refinement steps then disagreed by 0.85% against
+    # the full domain's 0.47% — and 51 is ODD, so the "half domain" was not
+    # half of anything, it was a third mesh. See `_NX_BASE` for the base change
+    # that makes nx divisible by 3 at every member, which is what makes this
+    # division exact.
+    ny_half = max(int(round(nx * _NY_PER_NX_HALF)), 6)
+    ny = ny_half if symmetric else 2 * ny_half
+
+    # z resolution is tied to nx by a fixed constant, then apportioned across
+    # the four bands by their scale-1 shares (6:2:2:4 of 14) using largest
+    # remainder, so the total tracks nx exactly and the shares stay put.
+    nz_total = max(int(round(nx * _NZ_PER_NX)), 4)
+    shares = (6.0, 2.0, 2.0, 4.0)
+    exact = [nz_total * s / sum(shares) for s in shares]
+    counts = [max(int(e), 1) for e in exact]
+    for i in sorted(range(4), key=lambda i: exact[i] - int(exact[i]),
+                    reverse=True)[:max(nz_total - sum(counts), 0)]:
+        counts[i] += 1
+    nz_deep, n_hull, n_wave, nz_air = counts
+    return nx, ny, nz_deep, n_hull, n_wave, nz_air
+
+
 def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
                       end_time: float, scale: float, np_procs: int,
                       symmetric: bool = False,
@@ -1233,33 +1273,8 @@ def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
     # sqrt(2) the triplet claims. Richardson extrapolation then measures a
     # changing cell SHAPE mixed in with the changing cell SIZE, which is the
     # same defect that made the v1 triplet oscillate.
-    nx = max(int(round(_NX_BASE * scale)), 20)
+    nx, ny, nz_deep, n_hull, n_wave, nz_air = background_counts(scale, symmetric)
     dx_bg = _DOMAIN_LENGTH_L * lwl / nx
-    # ny FROM nx BY A FIXED RATIO, and the full domain is EXACTLY twice the
-    # half domain. It used to be `round((1.5 if symmetric else 3.0) * lwl /
-    # dx_bg)`, i.e. a second, independent rounding of a half-size number, and
-    # half-size is where rounding hurts most: MEASURED on the scale
-    # 1 / sqrt2 / 2 family at base 54, ny went 18 / 25 / 36 (ratios 1.3889 and
-    # 1.4400) while the full domain got 36 / 51 / 72 (1.4167 and 1.4118). The
-    # symmetric triplet's two refinement steps then disagreed by 0.85% against
-    # the full domain's 0.47% — and 51 is ODD, so the "half domain" was not
-    # half of anything, it was a third mesh. See `_NX_BASE` for the base change
-    # that makes nx divisible by 3 at every member, which is what makes this
-    # division exact.
-    ny_half = max(int(round(nx * _NY_PER_NX_HALF)), 6)
-    ny = ny_half if symmetric else 2 * ny_half
-
-    # z resolution is tied to nx by a fixed constant, then apportioned across
-    # the four bands by their scale-1 shares (6:2:2:4 of 14) using largest
-    # remainder, so the total tracks nx exactly and the shares stay put.
-    nz_total = max(int(round(nx * _NZ_PER_NX)), 4)
-    shares = (6.0, 2.0, 2.0, 4.0)
-    exact = [nz_total * s / sum(shares) for s in shares]
-    counts = [max(int(e), 1) for e in exact]
-    for i in sorted(range(4), key=lambda i: exact[i] - int(exact[i]),
-                    reverse=True)[:max(nz_total - sum(counts), 0)]:
-        counts[i] += 1
-    nz_deep, n_hull, n_wave, nz_air = counts
     dz_core = abs(zh) / n_hull
 
     dom = dict(x0=_DOMAIN_X[0] * lwl, x1=_DOMAIN_X[1] * lwl,

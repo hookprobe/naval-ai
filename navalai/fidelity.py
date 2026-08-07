@@ -158,16 +158,25 @@ STATED_FINE = Budget(max_wall_s=5 * 3600, max_ram_gb=20.0, np_procs=10,
 def cells_per_wavelength(fn: float, mesh_density: float) -> float:
     """Closed form: cells across one transverse wave, from Fn and density alone.
 
-        lambda = 2 pi Fn^2 L,   dx_fs = 4.5 L / nx / 2^2,   nx = 54 * density
-        =>  cells/wavelength = 2 pi Fn^2 * 4 * nx / 4.5 = 5.585 Fn^2 nx
+        lambda = 2 pi Fn^2 L,   dx_fs = 4.5 L / nx / 2^2
+        =>  cells/wavelength = 2 pi Fn^2 * 4 * nx / 4.5
 
     The Lwl cancels — the same Froude-similarity that makes geometric scale
     free. What does NOT cancel is Fn, and it enters SQUARED, which is the
     non-obvious part: LOW-Froude cases are the expensive ones to resolve. At
-    Fn 0.26 the scale-1 grid gives 20.4, just over the bar; at Fn 0.20 the same
-    grid gives 12.1 and would be refused.
+    Fn 0.26 the scale-1 grid gives 21.5, just over the bar; at Fn 0.20 the same
+    grid gives 12.7 and would be refused.
+
+    nx COMES FROM `background_counts`, and that is the point. This function
+    carried its own literal `54` — a THIRD copy of `_NX_BASE`, after the one in
+    case.py and the one in the mesh writer. When the base moved 54 -> 57 (the
+    measured fix that makes nx divisible by 3 at every triplet member, dropping
+    the symmetric family's refinement-ratio spread from 0.85% to 0.03%), this
+    copy did not move, and the closed form disagreed with the mesh it claimed
+    to describe: 8.49 against the generated case's 8.94. A number declared
+    twice, found by the two copies drifting apart.
     """
-    nx = max(int(round(54 * mesh_density)), 20)
+    nx = background_counts(mesh_density, True)[0]
     return 2.0 * math.pi * fn**2 * 4.0 * nx / 4.5
 
 

@@ -163,6 +163,15 @@ GATES = [
     # not a cost variable, fidelity is, and it is measured.
     Gate("Gate G", "APSE: similitude/ITTC-78/cost/planner/evidence",
          "tests/test_stageG.py"),
+    # Gate 0G reported tests/test_gapfix_product.py as owned by NO gate while
+    # the tests inside it -- the proofs for register rows G7 (ES-TRIN) and G8
+    # (the ISO 12217-1 scope guard) -- were FAILING. An unowned suite is outside
+    # the ladder, so its failures reddened nothing, and reconcile_gaps.py still
+    # reported both rows CLOSED because it measures that the symbol EXISTS
+    # rather than that the proof PASSES. Three honesty mechanisms, one blind
+    # spot. Registered here so the ladder carries it.
+    Gate("Gate 6P", "the product surface: scope guards refuse what does not "
+         "govern, and the mission contract binds", "tests/test_gapfix_product.py"),
     Gate("Gate L", "one limit, one home; scantling derived from the rule",
          "tests/test_limits_single_source.py"),
     # Split out of Gate 6, which tested the RULES mechanics only. The

@@ -66,13 +66,27 @@ def test_geometric_scale_buys_no_cpu(tmp_path):
     for lwl in (2.3, KCS_MODEL_L, KCS_SHIP_L):
         u = 0.26 * math.sqrt(9.81 * lwl)
         out = tmp_path / f"c{lwl}"
+        # n_layers PINNED AT 2. MEASURED 2026-08-07: at _NX_BASE 57 the hull
+        # cell on the 2.3 m member is 11.3 mm while the DERIVED stack is
+        # 14.7 mm, so the generator refuses ("layer stack does not FIT").
+        # 3 layers still overflows it (14.7 mm); 2 gives 8.9 mm and fits. The
+        # first layer is 4.03 mm because it scales as 1/u_tau, so this bites at
+        # LOW speed -- the 2.3 m hull at Fn 0.26 runs at 1.24 m/s. That refusal is correct -- a partial stack folds
+        # cells -- but it is a property of the layer derivation, not of the
+        # cell-count invariance this test is about, so the wall model is held
+        # fixed across the hull-size span exactly as a GCI triplet holds it.
         info = write_resistance_case_from_stl(stl, lwl, u, out, end_time=10.0,
                                               scale=1.0, np_procs=10,
-                                              symmetric=True)
+                                              symmetric=True, n_layers=2)
         counts.append(info["bg_cells"])
         res.append(u * lwl / 1.14e-6)
     assert len(set(counts)) == 1, f"cell count moved with hull size: {counts}"
-    assert counts[0] == 13608, "the measured scale-1 symmetric background"
+     # RE-BASED 2026-08-07: _NX_BASE moved 54 -> 57 when the four branches
+    # were consolidated. 57 is the MEASURED fix -- it is divisible by 3 at
+    # every triplet member, so ny = nx/3 is exact and the symmetric family's
+    # refinement-ratio spread falls 0.85% -> 0.03%. Its cost is measured too:
+    # (57/54)^3 = +19% cells. These constants were taken at base 54.
+    assert counts[0] == 16245, "the measured scale-1 symmetric background (base 57)"
     assert res[-1] / res[0] > 900, "Reynolds must span ~1000x for the point"
 
 
@@ -80,7 +94,12 @@ def test_background_counts_takes_no_length():
     """The cost knob is mesh density; length is not an argument at all."""
     import inspect
     assert "lwl" not in inspect.signature(background_counts).parameters
-    assert background_counts(1.0, True) == (54, 18, 6, 2, 2, 4)
+     # RE-BASED 2026-08-07: _NX_BASE moved 54 -> 57 when the four branches
+    # were consolidated. 57 is the MEASURED fix -- it is divisible by 3 at
+    # every triplet member, so ny = nx/3 is exact and the symmetric family's
+    # refinement-ratio spread falls 0.85% -> 0.03%. Its cost is measured too:
+    # (57/54)^3 = +19% cells. These constants were taken at base 54.
+    assert background_counts(1.0, True) == (57, 19, 7, 2, 2, 4)
 
 
 def test_triplet_cost_ratio_is_not_the_cell_ratio():
@@ -110,7 +129,7 @@ def test_z_bands_freeze_between_coarse_and_medium_MEASURED_DEFECT():
     lands on 2 cells BOTH times:
 
         density 0.7071 -> (nx 38, ny 13, nz 4/2/1/3)
-        density 1.0    -> (nx 54, ny 18, nz 6/2/2/4)
+        density 1.0    -> (nx 57, ny 19, nz 7/2/2/4)
 
     Two consequences, both real:
       1. The interface cell height is IDENTICAL on the coarse and medium grids,
@@ -268,14 +287,27 @@ def test_cost_model_reproduces_the_measured_run():
     cond = _model()
     spec = FidelitySpec(mesh_density=1.0, symmetric=True)
     assert fidelity.free_surface_dz(cond, spec) == pytest.approx(0.01024, rel=1e-3)
-    assert spec.cells() == pytest.approx(241946, rel=0.01)
+     # RE-BASED 2026-08-07: _NX_BASE moved 54 -> 57 when the four branches
+    # were consolidated. 57 is the MEASURED fix -- it is divisible by 3 at
+    # every triplet member, so ny = nx/3 is exact and the symmetric family's
+    # refinement-ratio spread falls 0.85% -> 0.03%. Its cost is measured too:
+    # (57/54)^3 = +19% cells. These constants were taken at base 54.
+    # runs/kcs_sym measured 241,946 cells AT BASE 54; the same case on the
+    # current family is 288,836. The run itself no longer exists.
+    assert spec.cells() == pytest.approx(288836, rel=0.01)
     cost = fidelity.estimate(cond, spec)
     assert cost.dt_s == pytest.approx(13.739 / 3145, rel=0.05), (
         "predicted timestep must match the measured mean")
-    # scale the prediction back to the measured window and compare
-    predicted_window = cost.wall_s * (3145 / cost.timesteps)
-    assert predicted_window == pytest.approx(2157.0, rel=0.15)
-    assert cost.cells_per_wavelength == pytest.approx(20.4, rel=0.05)
+    # NORMALISE BY CELLS, do not re-fit the anchor. The 2157 s was measured on
+    # the base-54 mesh (241,946 cells); the current family is 288,836, so the
+    # raw seconds are not comparable and scaling the EXPECTATION to match the
+    # model would be fitting the bar to the answer. What the measurement
+    # actually pins is a per-cell-step throughput, and that is mesh-independent
+    # -- so it survives a base change, which is the whole point of anchoring.
+    measured_rate = 2157.0 / (241946 * 3145)
+    predicted_rate = cost.wall_s / (spec.cells() * cost.timesteps)
+    assert predicted_rate == pytest.approx(measured_rate, rel=0.15)
+    assert cost.cells_per_wavelength == pytest.approx(21.5, rel=0.05)
 
 
 def test_cost_does_not_depend_on_hull_size():
@@ -347,7 +379,7 @@ def test_stated_budget_and_the_wave_resolution_bar_are_unsatisfiable_together():
 
     MEASURED, at KCS Fn 0.26 with the current 4.5 Lwl domain, they cannot both
     hold. The coarsest grid that resolves the wave field is density 1.0, and it
-    costs 3.24 h — already past the 2 h MEDIUM budget, and 13x the 15 min
+    costs 3.87 h — already past the 2 h MEDIUM budget, and 15x the 15 min
     allowed for a coarse grid. Every cheaper grid is refused on physics.
 
     This test does not pick a winner. It pins the conflict so it is decided
@@ -368,7 +400,12 @@ def test_stated_budget_and_the_wave_resolution_bar_are_unsatisfiable_together():
     need = fidelity.density_for_wave_resolution(cond.fn)
     assert need == pytest.approx(1.0, rel=0.05)
     cost = fidelity.estimate(cond, FidelitySpec(mesh_density=1.0))
-    assert cost.wall_hours == pytest.approx(3.24, rel=0.05)
+     # RE-BASED 2026-08-07: _NX_BASE moved 54 -> 57 when the four branches
+    # were consolidated. 57 is the MEASURED fix -- it is divisible by 3 at
+    # every triplet member, so ny = nx/3 is exact and the symmetric family's
+    # refinement-ratio spread falls 0.85% -> 0.03%. Its cost is measured too:
+    # (57/54)^3 = +19% cells. These constants were taken at base 54.
+    assert cost.wall_hours == pytest.approx(3.87, rel=0.05)
 
 
 def test_cells_per_wavelength_goes_as_froude_squared():
@@ -380,7 +417,7 @@ def test_cells_per_wavelength_goes_as_froude_squared():
             assert got.cells_per_wavelength == pytest.approx(
                 fidelity.cells_per_wavelength(fn, d), rel=1e-6)
     # the closed form matches the real generated case
-    assert fidelity.cells_per_wavelength(0.26, 1.0) == pytest.approx(20.4, rel=0.02)
+    assert fidelity.cells_per_wavelength(0.26, 1.0) == pytest.approx(21.5, rel=0.02)
     # halving Fn quarters the resolution
     assert (fidelity.cells_per_wavelength(0.13, 1.0)
             == pytest.approx(fidelity.cells_per_wavelength(0.26, 1.0) / 4, rel=1e-9))
