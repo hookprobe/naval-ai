@@ -24,10 +24,36 @@ from .mission import MissionSpec
 
 class HullProblem(Problem):
     """3 objectives: min Wh/NM, min build panel area (m^2), GM toward a BAND.
-    Inequality constraints (g <= 0) are the ladder's own — CONSTRAINT_NAMES."""
+    Inequality constraints (g <= 0) are the ladder's own — CONSTRAINT_NAMES —
+    plus, when a compiled constitution is passed, that policy's appended rows.
+    """
 
-    def __init__(self, mission: MissionSpec, length_tol: float = 0.10):
+    def __init__(self, mission: MissionSpec, length_tol: float = 0.10,
+                 policy=None):
         self.mission = mission
+        # GOVERNANCE REACHES THE SEARCH, NOT ONLY THE LADDER (BuildPlan 3 §2.2).
+        # `policy` is an optional COMPILED constitution
+        # (`navalai.policy.compile_policy` / `reference_policy`). It is
+        # keyword-usable, defaults to None, and every line that touches it sits
+        # behind `if policy is not None` — so an ungoverned run executes the
+        # identical code it executed before governance existed, which is what
+        # Gate V3.0(d) has to mean for the optimizer as well as for `evaluate`.
+        #
+        # A compiled policy supplies BOTH of the compiler's outputs here:
+        #   (1) `box(category)` becomes xl/xu, so `LOA <= 12 m` is a BOUND the
+        #       population is constructed inside. MEASURED on the reference SKU
+        #       at category C (pop 24, 8 generations, seed 5): the ungoverned
+        #       search drew 143 of 192 individuals above the 11.9 m ceiling and
+        #       floated every one of them through L1 before `policy_legal`
+        #       rejected it; the governed search drew 0. A bound checked only on
+        #       the returned front is a rejection wearing a bound's name.
+        #   (2) `constraint_names()` sizes and fills G, so the policy rows
+        #       constrain NSGA-II exactly the way the ladder's own rows do —
+        #       the same reason `CONSTRAINT_NAMES` is read here and not
+        #       re-listed.
+        self.policy = policy
+        self.constraint_names = (tuple(CONSTRAINT_NAMES) if policy is None
+                                 else tuple(policy.constraint_names()))
         # THE MISSION'S LENGTH IS A SEARCH BOUND, not decoration.
         # `lwl_hint_m` was parsed, range-clamped, prompted for and asserted in
         # two tests while being READ BY NOTHING. Measured end to end: a mission
@@ -37,23 +63,45 @@ class HullProblem(Problem):
         # length and nothing in the objective costs length, so the search runs
         # to the grammar's 20 m ceiling every time.
         xl, xu = grammar.LOW.copy(), grammar.HIGH.copy()
+        if policy is not None:
+            # The grammar's own bounds go IN and the governed ones come out.
+            # `box` only ever moves an edge inward (max on the low edge, min on
+            # the high), so this cannot widen the search — the ratchet law on
+            # output (1).
+            xl, xu = policy.box(mission.design_category,
+                                low=xl, high=xu).as_bounds()
+        # The widest box that survives governance. The hint is clamped against
+        # THIS, not against the grammar, so the two compose by INTERSECTION:
+        # whichever of hint and policy is tighter on an edge wins, and a hint
+        # that would widen a governed edge cannot, because `min`/`max` below
+        # start from the governed value.
+        box_lo, box_hi = xl.copy(), xu.copy()
         hint = mission.lwl_hint_m
         if hint:
             i = grammar.NAMES.index("LWL")
             xl[i] = max(xl[i], hint * (1.0 - length_tol))
             xu[i] = min(xu[i], hint * (1.0 + length_tol))
-            if xl[i] > xu[i]:                 # hint outside the grammar box
-                xl[i], xu[i] = grammar.LOW[i], grammar.HIGH[i]
+            if xl[i] > xu[i]:
+                # The hint's window does not meet the box at all — a 16 m hint
+                # under an 11.9 m ceiling. There is no intersection to take, so
+                # the hint is dropped and the BOX stands. Dropping the box
+                # instead would let a mission string loosen governance, and
+                # falling back to `grammar.LOW/HIGH` (which is what this line
+                # did when the grammar was the only box) would do exactly that.
+                xl[i], xu[i] = box_lo[i], box_hi[i]
         # Constraint values (and therefore the GM floor, the freeboard floor
-        # and the bend limit) come from evaluate() — see CONSTRAINT_NAMES.
-        super().__init__(n_var=grammar.N_PARAMS, n_obj=3, n_ieq_constr=len(CONSTRAINT_NAMES),
+        # and the bend limit) come from evaluate() — see CONSTRAINT_NAMES, plus
+        # the compiled policy's appended rows when there is one.
+        super().__init__(n_var=grammar.N_PARAMS, n_obj=3,
+                         n_ieq_constr=len(self.constraint_names),
                          xl=xl, xu=xu)
 
     def _evaluate(self, X, out, *_args, **_kwargs):
+        names = self.constraint_names
         F = np.full((len(X), 3), 1e9)
-        Gc = np.full((len(X), len(CONSTRAINT_NAMES)), INFEASIBLE_G)
+        Gc = np.full((len(X), len(names)), INFEASIBLE_G)
         for i, x in enumerate(X):
-            ev = evaluate(x, self.mission)
+            ev = evaluate(x, self.mission, policy=self.policy)
             if ev.tier == "L0" or ev.hydro is None or ev.energy is None:
                 continue  # Fitness = inf pattern: cheap reject stays worst
             hull = Hull(x)
@@ -69,8 +117,11 @@ class HullProblem(Problem):
             F[i] = (ev.energy.wh_per_nm, build_area, abs(ev.gm_m - gm_mid))
             # Constraints come from the ladder itself, so a check added there
             # (trim and list, most recently) constrains the search immediately
-            # instead of producing optima the ladder then rejects.
-            Gc[i] = [ev.g[k] for k in CONSTRAINT_NAMES]
+            # instead of producing optima the ladder then rejects. With a
+            # compiled policy `names` is CONSTRAINT_NAMES + that policy's rows,
+            # in `Evaluation.g_names` order, so a governance row constrains
+            # NSGA-II by the same mechanism and with no second code path.
+            Gc[i] = [ev.g[k] for k in names]
         out["F"] = F
         out["G"] = Gc
 
@@ -79,19 +130,34 @@ class LatentHullProblem(Problem):
     """Same objectives/constraints as HullProblem, explored in the 8-D genome
     (original plan Phase 4: 'the optimizer explores the latent space')."""
 
-    def __init__(self, mission: MissionSpec, genome, z_range: float = 2.5):
+    def __init__(self, mission: MissionSpec, genome, z_range: float = 2.5,
+                 policy=None):
         self.mission = mission
         self.genome = genome
+        # Output (2) only, and the asymmetry is the point rather than an
+        # omission: the decision variables here are the 8-D genome, and the
+        # parameter box is a box in GRAMMAR space. `genome.decode` is what
+        # produces the parameters, so there is no bound on z that expresses
+        # `LWL <= 11.9 m`. This is precisely the case the compiler's docstring
+        # names — "a design can enter the ladder from a saved genome, a latent
+        # decode or a hand-written array, none of which passed through the box"
+        # — and it is why the policy emits a ROW as well as a bound. Here the
+        # row is the whole of the enforcement, so it does the whole of the work.
+        self.policy = policy
+        self.constraint_names = (tuple(CONSTRAINT_NAMES) if policy is None
+                                 else tuple(policy.constraint_names()))
         q = genome.W.shape[1]
-        super().__init__(n_var=q, n_obj=3, n_ieq_constr=len(CONSTRAINT_NAMES),
+        super().__init__(n_var=q, n_obj=3,
+                         n_ieq_constr=len(self.constraint_names),
                          xl=-z_range * np.ones(q), xu=z_range * np.ones(q))
 
     def _evaluate(self, Z, out, *_args, **_kwargs):
         X = self.genome.decode(Z)              # gate-projected to feasibility
+        names = self.constraint_names
         F = np.full((len(X), 3), 1e9)
-        Gc = np.full((len(X), len(CONSTRAINT_NAMES)), INFEASIBLE_G)
+        Gc = np.full((len(X), len(names)), INFEASIBLE_G)
         for i, x in enumerate(X):
-            ev = evaluate(x, self.mission)
+            ev = evaluate(x, self.mission, policy=self.policy)
             if ev.tier == "L0" or ev.hydro is None or ev.energy is None:
                 continue
             hull = Hull(x)
@@ -108,7 +174,7 @@ class LatentHullProblem(Problem):
             # Constraints come from the ladder itself, so a check added there
             # (trim and list, most recently) constrains the search immediately
             # instead of producing optima the ladder then rejects.
-            Gc[i] = [ev.g[k] for k in CONSTRAINT_NAMES]
+            Gc[i] = [ev.g[k] for k in names]
         out["F"] = F
         out["G"] = Gc
 
@@ -120,23 +186,49 @@ class ParetoResult:
     n_evals: int
 
 
+def _front(res, n_var: int) -> tuple[np.ndarray, np.ndarray]:
+    """(X, F) as float arrays — EMPTY when the run found nothing feasible.
+
+    pymoo returns `res.X is None` when no individual satisfied every
+    constraint, and `np.atleast_2d(None)` is an OBJECT array holding one None.
+    That is a front of one design whose every parameter is None: it has a
+    length, it indexes, and it reaches the caller looking like a result. It was
+    reachable before governance and is reachable more often after it, because a
+    compiled policy is exactly what makes the feasible set small enough to miss
+    at a small budget — MEASURED on the reference SKU at category C, pop 16 /
+    5 gens, seed 5. An empty front says "no feasible design" in a way a `for`
+    loop can act on; the None row says it in a TypeError three call frames
+    later, which is where this was found.
+
+    Wherever a real front exists this is `np.atleast_2d` and nothing else, so
+    an ungoverned run that found designs returns bit-identical arrays.
+    """
+    if res.X is None:
+        return np.zeros((0, n_var)), np.zeros((0, 3))
+    return np.atleast_2d(res.X), np.atleast_2d(res.F)
+
+
 def pareto_front(mission: MissionSpec, pop: int = 40, gens: int = 30,
-                 seed: int = 1) -> ParetoResult:
-    problem = HullProblem(mission)
+                 seed: int = 1, policy=None) -> ParetoResult:
+    """`policy` is an optional compiled constitution; None is the ungoverned
+    search, unchanged. See `HullProblem.__init__`."""
+    problem = HullProblem(mission, policy=policy)
     algo = NSGA2(pop_size=pop)
     res = minimize(problem, algo, get_termination("n_gen", gens), seed=seed,
                    verbose=False)
-    X = np.atleast_2d(res.X)
-    F = np.atleast_2d(res.F)
+    X, F = _front(res, problem.n_var)
     return ParetoResult(X, F, pop * gens)
 
 
 def pareto_front_latent(mission: MissionSpec, genome, pop: int = 40,
-                        gens: int = 30, seed: int = 1) -> ParetoResult:
+                        gens: int = 30, seed: int = 1,
+                        policy=None) -> ParetoResult:
     """NSGA-II in the 8-D genome; returns decoded (feasible) designs."""
-    problem = LatentHullProblem(mission, genome)
+    problem = LatentHullProblem(mission, genome, policy=policy)
     algo = NSGA2(pop_size=pop)
     res = minimize(problem, algo, get_termination("n_gen", gens), seed=seed,
                    verbose=False)
-    Z = np.atleast_2d(res.X)
-    return ParetoResult(genome.decode(Z), np.atleast_2d(res.F), pop * gens)
+    Z, F = _front(res, problem.n_var)
+    if len(Z) == 0:
+        return ParetoResult(np.zeros((0, grammar.N_PARAMS)), F, pop * gens)
+    return ParetoResult(genome.decode(Z), F, pop * gens)

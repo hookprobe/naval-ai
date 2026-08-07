@@ -628,6 +628,31 @@ def test_a_caller_s_own_bounds_are_tightened_never_widened():
     assert box.low[i] == 8.0 and box.high[i] == 9.0
 
 
+def test_the_box_reaches_the_optimizer_and_not_only_the_ladder():
+    """Both outputs are wired, and to the same object.
+
+    Output (2) reached the ladder on the day the kernel landed; output (1)
+    reached NOTHING — `HullProblem` still read `grammar.LOW/HIGH`, so a
+    compiled policy could be handed to `evaluate` all day while NSGA-II went on
+    generating hulls the constitution forbids and paying L1 hydrostatics for
+    each one. This asserts the connection at its two ends; the population
+    itself is counted in
+    `tests/test_optimize.py::test_the_policy_box_prunes_the_population_it_never_rejects_it`.
+    """
+    from navalai.optimize import HullProblem
+
+    cp = reference_policy()
+    box = cp.box(MISSION.design_category)
+    p = HullProblem(MISSION, policy=cp)
+    assert (p.xl == box.low).all() and (p.xu == box.high).all()
+    assert p.n_ieq_constr == len(cp.constraint_names())
+    assert p.constraint_names == cp.constraint_names()
+    # and with no constitution the search is bounded by the grammar alone
+    plain = HullProblem(MISSION)
+    assert (plain.xl == grammar.LOW).all() and (plain.xu == grammar.HIGH).all()
+    assert plain.n_ieq_constr == len(CONSTRAINT_NAMES)
+
+
 def test_the_art_20_break_appears_for_category_c_and_not_for_d():
     """The table decides, not a hard-coded list of which categories break.
 
