@@ -727,3 +727,50 @@ fingerprint reverses a deliberate, documented choice, and
 `tests/test_surrogate_honesty.py` calls `suite_fingerprint(None, [])`
 positionally, so the signature is load-bearing. Gate 7 is carried in
 `data/gate-ledger.json` with watermark 0.1578 and a 2026-09-07 review meanwhile.
+
+### T4 · The ledger was the wrong mechanism, and that is informative
+
+Gate 7 was first recorded in `data/gate-ledger.json` with watermark 0.1578.
+`tests/test_gate_integrity.py::test_every_red_gate_has_a_ledger_entry_and_vice_versa`
+rejected it: `only-in-ledger=['Gate 7']`.
+
+The invariant is deliberate and worth stating, because it was not obvious.
+`reds = {g.name for g in GATES if g.status == Verdict.RED}` — **the ledger
+holds DECLARED red rows, not suite-failing ones.** The distinction is the one
+Gate 0R exists to enforce (gap D11): a bar that a **green** suite MISSES must
+become a typed RED row with a watermark, because nothing else could ever fail
+on it. A gate whose suite genuinely FAILS needs no ledger entry — the failure
+is already loud, and CI failing on it is correct behaviour, not a gap in the
+record. Gate 4F is the pattern: Gate 4 keeps `test_phase4.py` and is green,
+Gate 4F is a separate declared row for the clause the suite does not cover.
+
+So the entry was withdrawn. Gate 7 stays RED **by its suite**, which is the
+honest state, and this section is its record.
+
+### T5 · Neither proposed fix makes Gate 7 pass — the MARK is the problem
+
+T3 proposed either a seed ensemble or holding `n_train` equal to the
+baseline's. **MEASURED: neither works, and that is the finding.**
+
+    bar = best_median_rel_err * 1.25 = 0.1045 * 1.25 = 0.1306
+
+    ensemble median over seeds 3,5,7,11,13,17,21,29:
+        n =  60   0.1954     > 0.1306   FAILS
+        n = 120   0.1719     > 0.1306   FAILS
+
+The committed mark 0.1045 is the **minimum of eight draws** at n=120, while the
+typical draw is 0.17. A monotone ratchet anchored to a best-of-N outlier cannot
+be cleared by a typical honest retrain — by construction, not by regression.
+Under the old physics the test passed only because harvest seed 7 was itself a
+lucky draw at the same time.
+
+**This needs an owner's decision, not a patch, and it is a decision about what
+the deployment guard MEANS:** the baseline statistic must become robust (an
+ensemble median over seeds recorded by `scripts/make_baseline.py`, with the
+ratchet applied to that), or the tolerance must be derived from the measured
+spread rather than fixed at 1.25x. Both change what "the frozen benchmark"
+asserts, which is why neither was done unilaterally.
+
+Until then Gate 7 is RED by its suite and `honesty rule 4` is **still enforced
+where it matters**: the label-shuffled model scores 0.6325 and is refused by
+the ABSOLUTE FLOOR (0.35), a path that never consulted the baseline at all.
