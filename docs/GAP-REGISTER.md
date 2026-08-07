@@ -700,3 +700,30 @@ Verified both ways: **OPEN at `5bbffb7`**, CLOSED now, and
 doctors a copy of `tests/test_phase3.py` with the recall bar removed and
 requires A6b to go OPEN while A6 stays CLOSED. A predicate that cannot come
 apart from its neighbour is not answering its own row.
+
+
+---
+
+## T · The frozen benchmark has no guard on its own y values (2026-08-07)
+
+Found while diagnosing Gate 7 during the four-branch consolidation, and it is a
+finding about a GUARD rather than about a model.
+
+| id | finding | where | severity |
+|---|---|---|---|
+| **T1** | `flywheel.suite_fingerprint` hashes the frozen suite's **coordinates and labels but not its targets**. Its docstring justifies that by saying `benchmark_integrity()` guards the physics. **MEASURED: that premise is false.** `benchmarks/wigley.py` builds its own 121x25 Michell grid, so when commit `02b73d8` moved the *production* grid 41x14 -> 161x28 the Wigley Cw curve did not move and `benchmark_integrity()` passed — while the frozen suite's targets moved up to **-4.2% point-wise** (294.99 -> 282.55 Wh/NM) and the fingerprint stayed **identical** (`f37529748d22c684`) either side. There is currently NO guard that notices the frozen benchmark's y values moving. | `navalai/flywheel.py` (`suite_fingerprint`, `benchmark_integrity`) | **HIGH** |
+| **T2** | Consequence of T1, latent: because the fingerprint is target-blind, the `bootstrap` re-baseline branch cannot fire on a physics change. Here the model happened to *improve*, so `make_baseline.py` still wrote a file. Had the new physics been harder to learn, all three quantities would have been REFUSED by the monotone ratchet and the documented regeneration route would have **deadlocked** — the file could never be regenerated, and the only escape is editing the committed baseline by hand, which is the thing gap D3 exists to prevent. | `navalai/flywheel.py`, `scripts/make_baseline.py` | **MED** |
+| **T3** | Gate 7's honest-retrain assertion compares a **60-hull retrain against a 120-hull high-water mark at one seed**. Measured seed-to-seed spread of the honest median relative error is **2.7x at n=60** (0.127–0.347) and **4.6x at n=120**, against a gate tolerance of **1.25x**. Under the OLD physics only **3 of 8** honest seeds cleared the bar. The gate looked stable only because its recorded measurement was taken at the distribution's **minimum** (seed 21, the best of 8). This is register row **D10**'s defect — an error bar measured on one chosen seed — reappearing inside Gate 7. | `tests/test_phase7.py`, `data/baselines.json` | **HIGH** |
+
+**What is NOT wrong, recorded so the row is not over-read:** the surrogate did
+not degrade (at the baseline's own configuration it scores 0.1035 against the
+committed 0.10446, i.e. 1% better), and the poisoned-model half of the gate is
+**intact and independent** — a label-shuffled model scores 0.6325 and is
+refused by the ABSOLUTE FLOOR (0.35), not by the ratchet. The *mechanism* is
+sound. What is broken is the **statistic the ratchet is applied to**.
+
+T1 needs a human decision rather than a patch: including targets in the
+fingerprint reverses a deliberate, documented choice, and
+`tests/test_surrogate_honesty.py` calls `suite_fingerprint(None, [])`
+positionally, so the signature is load-bearing. Gate 7 is carried in
+`data/gate-ledger.json` with watermark 0.1578 and a 2026-09-07 review meanwhile.

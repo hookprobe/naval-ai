@@ -179,5 +179,46 @@
       "+9.34 points and still RED \u2014 record the new watermark, do not delete",
       "this entry."
     ]
+  },
+  "Gate 7": {
+    "metric": "flywheel.retrain median relative error on frozen_suite, honest (non-poisoned) retrain, vs best_median_rel_err * 1.25",
+    "watermark": 0.1578,
+    "units": "median relative error on the 27-point frozen suite; bar is 0.1045 * 1.25 = 0.1306",
+    "better_is": "lower",
+    "bar": "an honest retrain deploys (med <= best_median_rel_err * 1.25) and a label-shuffled one does not",
+    "measured_utc": "2026-08-07",
+    "measured_on": "harvest seed 7, n=60, wh_per_nm, against committed data/baselines.json (best 0.10446, suite f37529748d22c684)",
+    "owner": "ml-engineer",
+    "verify": "python -m pytest tests/test_phase7.py::test_the_committed_baseline_exists_and_can_refuse_a_poisoned_model -q",
+    "review_by": "2026-09-07",
+    "why_red": [
+      "THE MODEL DID NOT DEGRADE; THE TEST RESTS ON ONE LUCKY SEED.",
+      "Measured across harvest seeds 3,5,7,11,13,17,21,29 at n=60: old physics",
+      "0.0975/0.1995/0.5580 (min/median/max), current 0.1270/0.1954/0.3465. The",
+      "distribution is unchanged and the current spread is NARROWER. At the",
+      "baseline's own configuration (n=120, seed 21) the current model scores",
+      "0.1035 against the committed 0.10446 - 1% BETTER.",
+      "Seed 21 is the MINIMUM of 8 seeds under both physics, so the high-water",
+      "mark is the best-of-8 draw and the 1.25 tolerance is ~30x smaller than the",
+      "seed-to-seed spread (2.7x at n=60). Under the OLD physics only 3 of 8",
+      "honest seeds cleared the bar; the test passed because seed 7 was one of",
+      "them, at 0.1026 against 0.1306 - a 1.8% margin.",
+      "Commit 02b73d8 (UNVERIFIED WIP) moved the Michell production grid 41x14 ->",
+      "161x28 and took beam/draft from the floated HydroState. Frozen-suite",
+      "targets moved up to -4.2% point-wise, which reshuffled which seeds are",
+      "lucky: seed 7 went 2nd-best -> mid-pack. suite_fingerprint is IDENTICAL",
+      "either side (f37529748d22c684) because it hashes coordinates, not targets.",
+      "REGENERATING DOES NOT FIX IT: make_baseline.py --dry-run yields 0.1035, so",
+      "the bar TIGHTENS to 0.1294 and 0.1578 still fails. Not regenerated on",
+      "purpose - the ratchet is monotone and 02b73d8's physics is explicitly",
+      "unverified with a keep/drop decision pending.",
+      "The D3 protection is INTACT and independent of this: the label-shuffled",
+      "model scores 0.6325 and is refused by the ABSOLUTE FLOOR (0.35), not by",
+      "the ratchet, so the poisoned-model half never depended on the baseline.",
+      "FIX IS IN THE TEST: comparing a 60-hull retrain against a 120-hull mark at",
+      "one seed is not a measurement. Either assert on a seed ENSEMBLE (median",
+      "over >=8 seeds) or hold n_train equal to the baseline's. This is register",
+      "row D10's defect (one chosen seed) reappearing inside Gate 7."
+    ]
   }
 }
