@@ -79,7 +79,18 @@ S3 should be *started* during S2 because it is compute-bound, not effort-bound.
 
 ---
 
-## S0 — Reconcile the repository ▪  ← DO THIS FIRST, NOTHING ELSE IS SAFE
+## S0 — Reconcile the repository ▪  ← **DONE 2026-08-07**
+
+> **CLOSED.** One branch (`master`), pushed, 0 attribution trailers, worktrees
+> and branches deleted, `commit-msg` hook installed. The resolution was the
+> cheap one predicted below: master carried ZERO unique code, so the merge took
+> `gap-closure` wholesale and re-applied four documentation commits. APSE was
+> carried forward (5 modules + Gate G). Governance was corrected in the same
+> pass — CLAUDE.md's "never push master" rule and settings.json's push denies
+> were what produced four branches, and both are replaced by one-branch/always-
+> push. Three defects surfaced while doing it: a THIRD copy of `_NX_BASE` in
+> `fidelity.py` (closed form disagreed with its own mesh, 8.49 vs 8.94), two
+> unrecorded benchmark STLs, and a ledger citing a deleted run directory.
 
 **ENTRY** — none. This is the blocker.
 
@@ -150,6 +161,21 @@ checkout, with the pre-push hook enabled.
 code), Gate SG (findings are work items), Gate 7.
 
 **CLOSES** — 6 failing tests; unledgered Gate 7 RED; 13 drift rows; G7, G8.
+
+**ADDED 2026-08-07 by the end-to-end trace** (`docs/END-TO-END-AUDIT.md`), and
+these are the highest-value items in the stage:
+
+- **Two lifecycles, and the product runs the one with no guarantees.**
+  `agents.py` is the real driver (4 informal string kinds, in-memory audit);
+  `pipeline.py` is the documented spine (11 typed stages, illegal edges raise,
+  one terminal per genome, append-only log) and **`Stage.` appears nowhere in
+  production code outside `pipeline.py` itself**. Wire the driver onto the
+  spine — both halves exist and the four kinds map on without inventing a
+  state.
+- **`scripts/demo_mission.py` never reaches manufacturing.** It ends at
+  provenance, so the headline claim "exports as build-ready geometry" is not
+  demonstrated by the script that demonstrates the project. The capability
+  exists (`agents.run_plm` → `engineer` → `unroll`); the demonstration does not.
 
 **EXIT**
 - `pytest tests/ -q` → **0 failed**
