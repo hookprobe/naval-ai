@@ -59,7 +59,7 @@ different Gate 2M numbers came to circulate at once (gap J1).
 | Gate 0G | the ladder cannot be talked into passing | `tests/test_gate_integrity.py` (25 tests) |
 | Gate 0R | a missed clause is RED BY RECORD, never prose in a scope | `tests/test_red_by_record.py` (10 tests) |
 | Gate 0 | grammar/geometry/DB | `tests/test_phase0.py` (8 tests) |
-| Gate 1 | L1 physics + Wigley anchor + <50ms | `tests/test_phase1.py` (23 tests) |
+| Gate 1 | L1 physics + Wigley anchor + <50ms | `tests/test_phase1.py` (25 tests) |
 | Gate 1H | Holtrop-Mennen vs the 1982 worked example | `tests/test_holtrop.py` (56 tests) |
 | Gate 1C | the constraint vector: complete, ordered, finite, and no undefined state reported as ideal | `tests/test_constraints_honest.py` (16 tests) |
 | Gate 1P | the L1 physics core says what it actually computed | `tests/test_gapfix_physics.py` (13 tests) |
@@ -77,6 +77,8 @@ different Gate 2M numbers came to circulate at once (gap J1).
 | Gate E | latent-space evolution + latent GP | `tests/test_stageE.py` (3 tests) |
 | Gate F | panel unroll/DXF + Pareto dash + handoff receipt | `tests/test_stageF.py` (7 tests) |
 | Gate G | APSE: similitude/ITTC-78/cost/planner/evidence | `tests/test_stageG.py` (35 tests) |
+| Gate V2.1 | arrangement grammar: envelope, spaces, deck zones, and an L0-A that names the space it refuses | `tests/test_arrangement.py` (42 tests) |
+| Gate V3.0 | governance compiles to a parameter box and to constraint rows, ratchets only tighter, and the ladder never imports it | `tests/test_policy.py` (47 tests) |
 | Gate 6P | the product surface: scope guards refuse what does not govern, and the mission contract binds | `tests/test_gapfix_product.py` (22 tests) |
 | Gate L | one limit, one home; scantling derived from the rule | `tests/test_limits_single_source.py` (12 tests) |
 | Gate 6M | manufacturing back end: nesting, BOM, refold, developability controls, export receipt | `tests/test_manufacturing.py` (28 tests) |
