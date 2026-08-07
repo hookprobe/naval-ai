@@ -297,11 +297,27 @@ class Hull:
         return float(r_min)
 
     def panel_twist_rate(self) -> float:
-        """Max bottom-panel twist [deg/m] — developability honesty metric.
+        """Max bottom-panel twist [deg/m] — the developability metric.
 
         Only evaluated where the bottom panel has meaningful width (>10% of
         max chine half-breadth); at the stem the panel width -> 0 and the
         deadrise angle is undefined, not twisted.
+
+        GAP E6: this is now what `grammar.check` gates on. It existed, it was
+        correct, and until 2026-08-07 it was consumed by NO gate — the L0
+        check used a MEAN twist instead, which averages a local fold away.
+        Measured consequences of the swap are recorded at the call site.
+
+        RESOLUTION, MEASURED on `tests/test_phase0.mid_params` (beta 8 -> 30
+        deg over 0.35 L), because a discrete max under-reports a peak and
+        under-reporting twist is the LENIENT direction, so it must be stated:
+
+            n_stations   21     41     81    161    321    641
+            deg/m      9.878 11.224 11.449 11.561 11.730 11.758
+
+        The shipped 41 stations read 95.5% of the converged 11.76. The
+        remaining gap to the unmasked continuous peak (2 x mean = 12.571 for
+        this hull) is the >10%-width mask above, and is deliberate.
         """
         mask = self.y_chine > 0.10 * self.y_chine.max()
         ang = np.degrees(np.arctan2(self.z_chine - self.z_keel,

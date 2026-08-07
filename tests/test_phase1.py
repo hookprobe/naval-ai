@@ -358,43 +358,139 @@ def test_lateral_areas_use_the_same_convention():
 
 def test_wigley_matches_the_reference_curve_point_by_point():
     """Gate 1's bar is "Wigley wave resistance matches the analytic/tank curve
-    within published Michell error bars". THE ANCHOR WAS NOT ANCHORED.
+    within published Michell error bars". THE ANCHOR WAS MEASURING ITSELF.
 
-    The existing test asserts a MAGNITUDE BAND (8e-4 < Cw(0.5) < 5e-3) plus the
-    presence of >=2 sign changes. No reference curve existed anywhere in the
-    repo and no per-point comparison was made, so any function of roughly the
-    right size with a couple of wiggles would have passed — including one with
-    the humps and hollows in the wrong places, which is the entire physical
-    content of a wave-resistance curve.
+    Two findings, one on top of the other.
 
-    HONEST SCOPE, because this must not be oversold: `REFERENCE_CW` is OUR OWN
-    Michell integral on a converged grid (nx=321, nz=65), so this is a
-    GRID-CONVERGENCE and REGRESSION anchor, not an independent validation. It
-    catches a change in the integral, the offsets or the quadrature. The
-    independent check on the integral is the exact separable solution, which
-    agrees to -0.86..-2.11%.
+    FIRST (closed 2026-08-06): the test asserted a MAGNITUDE BAND (8e-4 <
+    Cw(0.5) < 5e-3) plus >=2 sign changes, with no reference curve in the repo
+    and no per-point comparison, so any function of roughly the right size with
+    a couple of wiggles would have passed.
 
-    MEASURED: the shipped production grid (121x25) tracks the converged curve
-    to 1.4% worst-case over Fn 0.20..0.50, so the 4% bar has real margin
-    without being slack enough to hide a regression.
+    SECOND, and the reason this test changed again — GAP E2. The reference
+    added to close the first finding, `REFERENCE_CW`, was OUR OWN Michell
+    integral on a converged grid, frozen. The docstring said so honestly, but a
+    gate that compares our output against a frozen copy of our output measures
+    SELF-CONSISTENCY: any coherent error in the offsets, the kernel or the
+    quadrature that was re-frozen would have passed forever, and every claim
+    resting on Gate 1 inherits that. The prose here even cited "the exact
+    separable solution, which agrees to -0.86..-2.11%" — a number computed once
+    by a past session and never committed as code, so it could not be re-run.
+
+    IT IS CODE NOW. `benchmarks.wigley.rw_analytic` evaluates the x and z
+    integrals of Michell's amplitude function SYMBOLICALLY (the Wigley offset is
+    a product of a function of x and a function of z, so the double integral
+    factors and both factors have antiderivatives), leaving a single theta
+    quadrature that converges to 1e-10 and agrees with scipy's adaptive
+    integrator to 1e-6. It touches no grid, no offsets array and no trapezoid
+    of ours. `ANALYTIC_RW_N` freezes it as a force in newtons, so not even the
+    wetted surface is ours.
+
+    HONEST SCOPE, still: this is exact for MICHELL'S INTEGRAL, and it now
+    validates our implementation against mathematics rather than against
+    itself. It does NOT validate thin-ship theory against a towing tank —
+    Michell overpredicts the humps by tens of percent and no tank data for this
+    hull is transcribed anywhere in this repository. That anchor is still owed.
+
+    MEASURED 2026-08-07: the shipped production grid (121x25) sits -2.113%
+    (Fn 0.20) to -0.861% (Fn 0.50) from the closed form — consistently LOW,
+    which is the expected sign, since `wigley_offsets` truncates the z-grid at
+    -T/nz^2 rather than 0 and under-resolves the shoulders. Bar 3%.
     """
     import numpy as np
 
-    from benchmarks.wigley import (REFERENCE_CW, REFERENCE_S, cw_curve,
-                                   wetted_surface)
+    from benchmarks.wigley import (ANALYTIC_RW_N, ANALYTIC_TOL_PRODUCTION,
+                                   REFERENCE_S, cw_analytic, cw_curve,
+                                   rw_analytic, wetted_surface)
 
     assert wetted_surface(10.0) == pytest.approx(REFERENCE_S, rel=1e-6)
 
-    fns = np.array(sorted(REFERENCE_CW))
-    cws, _S = cw_curve(fns, 10.0)          # production grid, as shipped
-    for fn, cw in zip(fns, cws):
-        ref = REFERENCE_CW[float(fn)]
-        assert cw == pytest.approx(ref, rel=0.04), (
-            f"Fn {fn}: {cw:.4e} vs reference {ref:.4e}")
+    # 1. the anchor is reproducible: the function still lands on the literals.
+    for fn, rw in ANALYTIC_RW_N.items():
+        assert rw_analytic(fn) == pytest.approx(rw, rel=1e-6), (
+            f"Fn {fn}: closed form moved to {rw_analytic(fn):.6e} against the "
+            f"frozen {rw:.6e} — re-derive it deliberately or something broke")
 
-    # The SHAPE is the physics: the hump at Fn 0.30 must exceed the hollow at
-    # 0.35, and the curve must rise again beyond it. A band check cannot see
-    # this, and a curve that lost its humps would still have passed before.
-    assert REFERENCE_CW[0.30] > REFERENCE_CW[0.35] * 1.5
-    assert cws[list(fns).index(0.30)] > cws[list(fns).index(0.35)] * 1.5
-    assert cws[-1] > cws[list(fns).index(0.35)]
+    # 2. our numerics against it, per point. S cancels: both sides use the
+    #    module's wetted surface, so the physics being compared is the force.
+    fns = np.array(sorted(ANALYTIC_RW_N))
+    cws, _S = cw_curve(fns, 10.0)          # production grid, as shipped
+    exact = cw_analytic(fns)
+    worst = 0.0
+    for fn, cw, ex in zip(fns, cws, exact):
+        worst = max(worst, abs(cw / ex - 1.0))
+        assert cw == pytest.approx(ex, rel=ANALYTIC_TOL_PRODUCTION), (
+            f"Fn {fn}: {cw:.4e} vs closed form {ex:.4e} "
+            f"({100 * (cw / ex - 1):+.3f}%)")
+    assert worst < ANALYTIC_TOL_PRODUCTION, worst
+    # and the error is one-signed, which is the diagnostic a band cannot give
+    assert (cws < exact).all(), "the truncation bias changed sign"
+
+    # 3. The SHAPE is the physics, asserted ON THE CLOSED FORM: the hump at
+    #    Fn 0.30 exceeds the hollow at 0.35 by >1.5x and the curve rises again.
+    #    Asserting it on our own curve alone is what "measuring itself" means.
+    i30, i35 = list(fns).index(0.30), list(fns).index(0.35)
+    assert exact[i30] > exact[i35] * 1.5
+    assert exact[-1] > exact[i35]
+    assert cws[i30] > cws[i35] * 1.5
+    assert cws[-1] > cws[i35]
+
+
+def test_the_wigley_displacement_is_the_exact_4LBT_over_9():
+    """The one Wigley quantity that carries no discretisation at all.
+
+    Int (1-(2x/L)^2) dx = 2L/3 and Int (1-(z/T)^2) dz = 2T/3, so the displaced
+    volume to z=0 is 2 * (B/2) * (2L/3) * (2T/3) = 4LBT/9 exactly. Integrating
+    the offsets grid the Michell tier actually uses must land on it, or the
+    hull being resisted is not the hull being displaced.
+
+    MEASURED: the shipped 121x25 grid integrates to within 0.42% of exact, and
+    the converged 321x65 grid to 0.024% — the residual is the z-grid stopping
+    at -T/nz^2 instead of 0, i.e. the same truncation that makes Cw read low.
+    """
+    import numpy as np
+
+    from benchmarks.wigley import displacement_exact, proportions, wigley_offsets
+
+    L = 10.0
+    B, T = proportions(L)
+    assert displacement_exact(L) == pytest.approx(4 * L * B * T / 9, rel=1e-15)
+
+    for (nx, nz), tol in (((121, 25), 5e-3), ((321, 65), 5e-4)):
+        xs, zs, Y, _B, _T = wigley_offsets(L, nx, nz)
+        vol = 2.0 * float(np.trapezoid(np.trapezoid(Y, zs, axis=1), xs))
+        assert vol == pytest.approx(displacement_exact(L), rel=tol), (
+            f"{nx}x{nz}: {vol:.6f} m^3 vs exact {displacement_exact(L):.6f}")
+
+
+def test_the_regression_pin_still_agrees_with_the_closed_form():
+    """`REFERENCE_CW` survives gap E2 with a demoted job, and this is the fence.
+
+    It is our own converged-grid output, kept because `flywheel.
+    benchmark_integrity` needs a frozen curve to detect that the physics moved
+    under a retrain — a drift question. It is no longer what Gate 1's
+    correctness test compares against. Without this test it could be re-frozen
+    around a broken integral and go on satisfying every drift check forever,
+    which is exactly the self-reference E2 is about, displaced by one hop.
+
+    MEASURED 2026-08-07: the converged grid sits -0.773% (Fn 0.20) to -0.240%
+    (Fn 0.25) from the closed form. Bar 1%.
+    """
+    import numpy as np
+
+    from benchmarks.wigley import (ANALYTIC_RW_N, ANALYTIC_TOL_CONVERGED,
+                                   REFERENCE_CW, REFERENCE_S, cw_analytic)
+
+    assert set(REFERENCE_CW) == set(ANALYTIC_RW_N), (
+        "the pin and the anchor stopped covering the same Froude numbers, so "
+        "one of them is no longer checked against the other")
+    fns = np.array(sorted(REFERENCE_CW))
+    exact = cw_analytic(fns)
+    for fn, ex in zip(fns, exact):
+        ref = REFERENCE_CW[float(fn)]
+        assert ref == pytest.approx(ex, rel=ANALYTIC_TOL_CONVERGED), (
+            f"Fn {fn}: pinned {ref:.4e} vs closed form {ex:.4e} "
+            f"({100 * (ref / ex - 1):+.3f}%) — the regression pin has drifted "
+            f"away from the mathematics it is supposed to approximate")
+    # the pin must also still describe the grid it claims to
+    assert REFERENCE_S == pytest.approx(14.87905, rel=1e-6)

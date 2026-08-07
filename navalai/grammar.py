@@ -60,6 +60,15 @@ HIGH = np.array([p[3] for p in PARAMS])
 L_OVER_B_BAND = (2.2, 8.5)
 B_OVER_T_BAND = (1.8, 12.0)
 
+# Cold-bend twist a sheet panel will take without a jig or heat, in degrees of
+# deadrise change per metre of run. Declared once, here, and read by `check()`
+# and by nothing else — the number that was inlined as a bare `14.0` in the
+# constraint expression AND in the message beside it, which is the two-copies
+# pattern that put a 15 mm ply outside its own scantling rule. It is a
+# WORKSHOP limit, not a class-society one, so it is not `limits.py`'s to own;
+# if a rule ever derives it, it moves there and this becomes an import.
+MAX_PANEL_TWIST_DEG_PER_M = 14.0
+
 
 def proportion_margins(lwl: float, b_wl: float, t: float) -> dict[str, float]:
     """Relative band margins for L/B and B/T: > 0 means OUTSIDE the band.
@@ -88,7 +97,12 @@ def _rel(name: str, cond: bool, msg: str, out: list[str]) -> None:
 
 
 def check(x: np.ndarray) -> GateReport:
-    """L0 algebraic gate. Pure closed-form; no geometry construction.
+    """L0 algebraic gate: closed-form, plus ONE geometric metric.
+
+    Every check here is closed-form except `panel.twist`, which builds a
+    `Hull` because the honest developability metric is a max over stations and
+    a closed form for it here would be the same number declared twice (gap
+    E6 — see the comment at that check). 88.8 us on the reference hull.
 
     Returns every violated constraint (not just the first) so the UI can
     grey sliders with a reason, mirroring the manifest-style gating rule.
@@ -133,10 +147,15 @@ def check(x: np.ndarray) -> GateReport:
     # cannot fire anywhere inside the declared parameter bounds, so they padded
     # the constraint count and nothing else. MEASURED over 400,000 uniform
     # in-bounds vectors — 0 hits each, while the nine that survive fire between
-    # 3.06% and 33.04% of the time:
+    # 3.06% and 33.04% of the time (RE-MEASURED 2026-08-07 on the same seed
+    # after gap E6 moved `panel.twist` to the max metric; every other row is
+    # unchanged to the printed digit, and panel.twist went 6.819% -> 19.062%.
+    # `tests/test_constraints_honest.py` repeats this table in a docstring and
+    # still quotes 6.819% — it is outside this change's file ownership and is
+    # flagged, not silently left to rot):
     #
-    #     freeboard.rel      33.039%      chine.height        12.557%
-    #     L/B                32.419%      panel.twist          6.819%
+    #     freeboard.rel      33.039%      panel.twist         19.062%
+    #     L/B                32.419%      chine.height        12.557%
     #     freeboard.abs      23.097%      transom.chine        5.497%
     #     deadrise.order     22.204%      chine.below.sheer    3.059%
     #     B/T                18.618%
@@ -152,10 +171,59 @@ def check(x: np.ndarray) -> GateReport:
     # false. The honest figure is 15 bound checks plus 9 live relations, and
     # `tests/test_phase0.py` now pins it by measurement so it cannot rot back.
     #
-    # C43 developability proxy: deadrise warp per metre (plywood twist limit)
-    warp_len = max(x[14] * lwl, 1e-6)
-    twist_rate = (bbow - bmid) / warp_len
-    _rel("panel.twist", twist_rate <= 14.0, f"bottom twist {twist_rate:.1f} deg/m > 14", v)
+    # C43 developability: MAX bottom-panel twist per metre (plywood twist limit)
+    #
+    # GAP E6 — THE PROXY MEASURED THE WRONG QUANTITY. This check used to read
+    #
+    #     twist_rate = (beta_bow - beta_mid) / (beta_len * LWL)
+    #
+    # which is the MEAN twist over the warp length. The warp is quadratic
+    # (`geometry.Hull.__post_init__` applies `frac**2`), so d(beta)/dx rises
+    # linearly from 0 at the aft end of the warp to 2x the mean at the stem —
+    # and a mean averages a local fold away. A hull with one unbuildable panel
+    # and nine flat ones passed. MEASURED over 400,000 uniform in-bounds
+    # vectors: the max/mean ratio has median 1.774 (p95 1.869), the old mean
+    # check passed 93.180% of them and the honest max metric passes 81.198%,
+    # so **12.243% of the box was blessed on a number the sheet does not
+    # feel** — and the worst true twist hiding under a passing mean was
+    # 50.2 deg/m against this 14 deg/m limit, i.e. 3.6x over. End to end the
+    # L0 feasible fraction of the uniform box goes 24.0965% -> 20.6860%.
+    # That cost is the gap doing its job; the bar did not move.
+    #
+    # `Hull.panel_twist_rate()` is that honest metric and it already existed —
+    # it was consumed by no gate. It takes the discrete max of |d beta/dx| over
+    # stations where the bottom panel is wider than 10% of max chine
+    # half-breadth (at the stem the panel width goes to 0 and the deadrise
+    # angle is undefined, not twisted). It is called here rather than
+    # re-derived in closed form, because a closed form here would be the same
+    # number declared twice and the two copies would drift — which is what
+    # produced this gap in the first place.
+    #
+    # COST, measured on the reference hull against the 1 ms bar in
+    # `tests/test_phase0.py`: `check` goes from ~31 us to 88.8 us per call, of
+    # which 58.0 us is `Hull(x).panel_twist_rate()` (43.6 us of that is the
+    # `Hull` constructor). Still 11x inside the bar. Building the geometry
+    # breaks this function's old "pure closed-form, no geometry construction"
+    # promise; that promise was cheaper than it was worth.
+    #
+    # FAILS CLOSED. A parameter vector whose bounds are already violated can
+    # make `Hull` divide by zero (e.g. x_mb = 1.0). Those bounds are reported
+    # above; here an unbuildable geometry counts as an unbuildable panel rather
+    # than as a pass, because `${VAR:-0}` — an unmeasurable quantity scored as
+    # perfect — is the failure mode this repository keeps paying for.
+    from . import geometry  # local: geometry imports this module at load time
+
+    try:
+        with np.errstate(divide="ignore", invalid="ignore"):
+            twist_rate = geometry.Hull(x).panel_twist_rate()
+        if not math.isfinite(twist_rate):
+            raise ValueError(f"twist is {twist_rate}")
+    except (ValueError, ZeroDivisionError, FloatingPointError) as exc:
+        v.append(f"panel.twist: bottom twist not evaluable ({exc})")
+    else:
+        _rel("panel.twist", twist_rate <= MAX_PANEL_TWIST_DEG_PER_M,
+             f"max bottom twist {twist_rate:.1f} deg/m > "
+             f"{MAX_PANEL_TWIST_DEG_PER_M:.0f}", v)
 
     return GateReport(len(v) == 0, tuple(v))
 
