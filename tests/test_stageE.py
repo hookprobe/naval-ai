@@ -19,24 +19,61 @@ def data():
     return m, X, y, Genome.fit(X)
 
 
+TEST_DRAWS = (77, 78, 79, 80, 81, 82, 83, 84, 85, 86)
+
+
 def test_latent_gp_predicts_from_8d_genome(data):
     """Original plan Phase 4: 'predict wave resistance ... purely from the
-    8-D latent genome'. Gate: latent-GP accuracy within 1.6x of the
-    full-parameter GP (8 dims vs 15 must cost something, not everything)."""
+    8-D latent genome'. Gate: the 8-D genome costs surrogate accuracy but not
+    all of it — median error under 0.40, and under 2.5x the full 15-parameter
+    GP measured on the SAME hulls.
+
+    THE MEDIAN OF 30 TEST HULLS IS NOT THE MEDIAN OF THE POPULATION, and this
+    test used to assert the 0.40 bar against exactly one 30-hull draw
+    (`sample_valid(30, m, seed=77)`). MEASURED 2026-08-07, one fixed genome
+    (train seed 51), ten independent 30-hull draws through the same two GPs:
+
+        test seed  77    78    79    80    81    82    83    84    85    86
+        latent    .432  .416  .434  .343  .419  .324  .240  .275  .356  .283
+
+    FOUR of the ten sit above 0.40. Seed 77 is one of them. The bar was a coin
+    flip on the test draw and it had been landing heads.
+
+    Gap E6 (max panel twist instead of mean) is what flipped this particular
+    coin — swap `grammar.check` back to the pre-E6 implementation and seed 77
+    reads 0.307 — but E6 did not degrade the latent GP. MEASURED over ten
+    independent (train, test) seed PAIRS, pre-E6 against E6: median 0.343 vs
+    0.361, and 3 of 10 pairs above 0.40 in BOTH. Pre-E6's worst pair (0.451)
+    is worse than E6's worst (0.432). The 13.7% of design volume E6 removes
+    does not show up here at all.
+
+    So the fix is the STATISTIC, not the bar and not the model. The median is
+    taken over 300 pooled test hulls (ten draws), which IS stable: across ten
+    independent training draws the pooled figure reads
+
+        min 0.3205   median 0.3345   max 0.3759   0 of 10 above 0.40
+
+    against a full-parameter pooled median of 0.168-0.198, i.e. a ratio of
+    1.78-1.98. The 0.40 bar does not move; the ratio bar TIGHTENS from 3.5x to
+    2.5x, which the single-draw form could not have carried (its per-draw
+    ratios reached 3.16). Pooling costs ~8 s.
+    """
     m, X, y, genome = data
-    Z = genome.encode(X)
     gp_full = GP.fit(X, np.log(y), seed=1)
-    gp_lat = GP.fit(Z, np.log(y), seed=1)
-    Xt, yt = sample_valid(30, m, seed=77)
-    Zt = genome.encode(Xt)
-    rel_full = np.abs(np.exp(gp_full.predict(Xt)[0]) - yt) / yt
-    rel_lat = np.abs(np.exp(gp_lat.predict(Zt)[0]) - yt) / yt
-    med_f, med_l = np.median(rel_full), np.median(rel_lat)
+    gp_lat = GP.fit(genome.encode(X), np.log(y), seed=1)
+    rel_full, rel_lat = [], []
+    for seed in TEST_DRAWS:
+        Xt, yt = sample_valid(30, m, seed=seed)
+        rel_full += list(np.abs(np.exp(gp_full.predict(Xt)[0]) - yt) / yt)
+        rel_lat += list(np.abs(np.exp(gp_lat.predict(genome.encode(Xt))[0])
+                               - yt) / yt)
+    assert len(rel_lat) == 30 * len(TEST_DRAWS)
+    med_f, med_l = float(np.median(rel_full)), float(np.median(rel_lat))
     # MEASURED FINDING (recorded in ALIGNMENT.md): compressing 15 params to
-    # the 8-D genome costs ~2-3x surrogate accuracy (median ~0.30 vs ~0.10-
-    # 0.15 full). The original plan's 8-D assumption has a real price.
-    assert med_l < 0.40, f"latent GP median rel err {med_l:.3f}"
-    assert med_l < 3.5 * med_f + 0.02, f"latent {med_l:.3f} vs full {med_f:.3f}"
+    # the 8-D genome costs ~2x surrogate accuracy (pooled median 0.33 against
+    # 0.17 full). The original plan's 8-D assumption has a real price.
+    assert med_l < 0.40, f"latent GP pooled median rel err {med_l:.3f}"
+    assert med_l < 2.5 * med_f, f"latent {med_l:.3f} vs full {med_f:.3f}"
 
 
 def test_latent_front_feasible_and_competitive(data):

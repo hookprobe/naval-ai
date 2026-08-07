@@ -103,7 +103,9 @@ def test_gm_is_not_log_transformed(stocked):
 
     MEASURED over the 60 harvested hulls in this fixture: min GM = -0.983 m
     with 22 of 60 negative, so `np.log` produced 22 NaNs and the failure
-    surfaced (if at all) as a Cholesky error several frames away.
+    surfaced (if at all) as a Cholesky error several frames away. (Under the
+    gap-E6 grammar the same seed draws 17 of 60 negative, not 22 — the count
+    moves with the feasible set, the defect does not.)
 
     The relative-error METRIC is signed too: |pred - y| / |y| is unbounded at
     the zero crossing, so an identity-transformed quantity is scored in units
@@ -111,22 +113,68 @@ def test_gm_is_not_log_transformed(stocked):
     a reader is holding. MEASURED on this fixture: GM read 0.369 as a
     "relative" error, dominated by points near GM = 0, against 0.224 as a
     spread-normalised one.
+
+    THIS TEST NO LONGER ASSERTS THAT THE MODEL DEPLOYS, AND THE REASON IS A
+    MEASUREMENT, NOT A CONCESSION. It used to end `assert gp is not None`,
+    which is a claim about the DEPLOYMENT GATE (median spread-normalised error
+    <= HARD_MAX_MEDIAN_REL_ERR = 0.35) and not about the transform this test is
+    named for. That claim held on exactly one draw. MEASURED 2026-08-07 —
+    identical code, only `harvest(60, ..., seed=S)` varying, scored on the same
+    frozen suite:
+
+        harvest seed   21     1     2     3     5     7    11    13    17    23
+        pre-E6 grammar 0.224 0.560 0.905 0.424 0.355 0.564 0.508 0.704 0.540 0.484
+        E6 grammar     0.416 0.990 0.827 0.689 0.829 0.441 0.469 0.472 0.451 0.449
+
+    Against the 0.35 floor that is 9 of 10 refused before gap E6 and 10 of 10
+    after. Seed 21 was the single ticket that paid, and this fixture holds it.
+    E6 did not break the GM surrogate — its median over the ten seeds is
+    0.470 against pre-E6's 0.524, i.e. slightly BETTER — it removed a lottery
+    win, and the property "60 harvested hulls train a deployable GM surrogate"
+    was never true. Register section T records the same defect one level down
+    (a bar pinned at the luckiest seed); this is that defect pinned at the
+    luckiest DRAW.
+
+    The floor is not moved and the fixture is not grown to chase the number:
+    at n=120 (what `scripts/make_baseline.py` uses) seed 21 reads 0.252 and
+    deploys while 5 of the same 10 seeds still refuse, so a bigger harvest
+    would re-pin the same lottery one size up. The refusal is recorded in
+    `data/gate-ledger.json` instead, and what this test asserts is what it was
+    always about: nothing in the GM path is a NaN, the transform is identity,
+    the metric says which kind of number it is, and if the gate refuses it
+    refuses for the ERROR FLOOR rather than for a silent numerical failure.
     """
-    from navalai.flywheel import NonPositiveTarget, transform_for
+    from navalai.flywheel import (HARD_MAX_MEDIAN_REL_ERR, NonPositiveTarget,
+                                  transform_for)
 
     prov, m, d, _n = stocked
     _X, ygm = prov.training_matrix("L1", "GM_m")
     assert (ygm <= 0).sum() > 0, (
         "no negative GM in the harvest; this trap needs a fixture that has one")
 
-    assert transform_for("gm").name == "identity"
+    tf = transform_for("gm")
+    assert tf.name == "identity"
     with pytest.raises(NonPositiveTarget, match="signed quantity"):
         transform_for("wh_per_nm").fwd(ygm)
+    # THE DEFECT ITSELF: the targets the GP is handed must all be numbers.
+    # `np.log(ygm)` is NaN on every non-positive row; the identity transform
+    # is finite on all 60.
+    assert np.isfinite(tf.fwd(ygm)).all()
+    assert np.isnan(np.log(np.where(ygm > 0, ygm, np.nan))).sum() == (ygm <= 0).sum()
 
     gp, rep = retrain(prov, m, "gm", baseline_path=d / "gm.json", bootstrap=True)
     assert rep.transform == "identity" and rep.err_kind == "spread-normalised"
     assert np.isfinite(rep.median_rel_err) and np.isfinite(rep.coverage_2sigma)
-    assert gp is not None and np.isfinite(gp.predict(np.atleast_2d(_X[:3]))[0]).all()
+    if gp is None:
+        # Refused. It must be the ERROR FLOOR that refused it — a Cholesky
+        # blow-up or a NaN metric arriving here as "not deployed" is the I12
+        # failure wearing the gate's clothes, and that is what this branch
+        # exists to tell apart.
+        assert rep.median_rel_err > HARD_MAX_MEDIAN_REL_ERR, rep.refusals
+        assert any("absolute floor" in r for r in rep.refusals), rep.refusals
+        assert len(rep.refusals) == 1, rep.refusals
+    else:
+        assert np.isfinite(gp.predict(np.atleast_2d(_X[:3]))[0]).all()
 
 
 # ---------------------------------------------------------------------------
