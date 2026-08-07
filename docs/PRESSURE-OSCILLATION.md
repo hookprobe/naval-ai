@@ -201,3 +201,91 @@ itself.
   experiment: at fixed U, 2L/n moves with L and the half-width does not.
 - **A wetted-only (alpha.water-masked) y+** is still owed, unrelated but
   still owed.
+
+
+---
+
+# RE-MEASURED 2026-08-07 on `runs/kcs_s1` — and it is NOT an oscillation
+
+First reproducible KCS run in the repository since the one the ledger records
+as deleted. Symmetric, `_NX_BASE` 57, `--n-layers 5`, `--transient`, 230,730
+cells, 92.6% layer coverage (4.63 of 5 achieved), 0 zero-volume cells, 0
+incorrectly-oriented faces, max skewness 8.93. Mass conserved: Phase-1 volume
+fraction 0.80015 flat, alpha bounded [-3.9e-6, 1]. Stopped deliberately at
+**t = 50.7 s = 3.40 flow-throughs** (a compute budget, not a failure); the
+checkpoint is intact and the case resumes.
+
+## The run converges, and it converges to the wrong number
+
+| flow-throughs | C_T | E%D vs EFD | drift |
+|---|---|---|---|
+| 1.34 | 7.353e-3 | −98.1% | 26.7% |
+| 2.22 | 5.454e-3 | −47.0% | 15.2% |
+| **3.40** | **5.324e-3** | **−43.5%** | **0.31%** |
+
+Drift has collapsed to **0.31%**, far inside the 5% bar. The transient has
+washed out. And C_T has flattened at ~5.3e-3 against an EFD of 3.711e-3.
+
+**So the remaining error is not a settling problem, and more wall-clock will
+not remove it.** That is the finding, and it retires the standing assumption
+that Gate 2M is waiting on run length.
+
+## The error is entirely in the pressure component
+
+Decomposed against the ITTC-57 line at Re = 1.402e7 (Cf 2.8312e-3, friction
+65.2 N on 9.551 m² of wetted surface):
+
+| component | measured | expected | ratio |
+|---|---|---|---|
+| **viscous** | 75.6 N | 65.2 N (ITTC-57) | **1.161×** — inside the 1.10–1.15 form-factor band, marginally above |
+| **pressure** | 46.9 N | 20.2 N (EFD total − friction) | **2.32× too high** |
+| total | 122.5 N | 85.4 N | 1.43× |
+
+**The viscous half is right.** 1.161× ITTC-57 is what a KCS form factor should
+give, and it is stable: batch error 1.7%. The wall model, the layer stack and
+the near-wall mesh are doing their job — which is exactly what the 2026-08-05
+mesh rebuild was for, and this is the first run to confirm it end to end.
+
+**The pressure half is 2.3× too high and it is noisy, not trending:**
+
+    drift_pressure  0.84%      error_pressure  36.1%
+    drift_viscous   1.15%      error_viscous    1.7%
+    drift_total     0.31%      error_total     36.2%
+
+A 0.8% drift with a 36% batch standard error means the window mean is not
+reproducible across its own window while having no trend. Averaging longer
+averages noise.
+
+## It is NOT a tank mode either
+
+`scripts/tank_resonance.py` on 2,041 samples over 33 s: **the best single
+sinusoid explains 0.4% of the detrended signal against a 50% bar — NO RESULT,
+there is no coherent oscillation to name.** Every candidate mechanism (seiche
+n=1..3, Doppler tank modes n=1..8, blocking minimum, ship transverse wave) had
+enough cycles in the record to have been seen.
+
+This **revises** the earlier R5.5 reading of a ~5 s pressure oscillation. On
+this mesh family the pressure signal is broadband, not periodic. The earlier
+record was taken on a different family (`_NX_BASE` 54) at 1.33 flow-throughs,
+where a rising quarter-cycle of anything looks like a trend — so the two are
+not in contradiction so much as the older one was under-sampled.
+
+## What this means for Gate 2M, concretely
+
+Extending to 5 flow-throughs was necessary and is no longer the blocker. The
+next experiment must attack the **wave/pressure field**, and the candidates
+are now ordered by evidence rather than by guess:
+
+1. **Free sinkage and trim.** KCS Case 2.1 is towed FREE to sink and trim; this
+   run is FIXED. That is a different condition, it acts on the pressure
+   component specifically, and it is CODE (`rigidBodyMotion`) rather than
+   compute. Now the single most likely candidate, because the viscous half
+   being right localises the error to exactly what sinkage and trim move.
+2. **Free-surface resolution.** `cells_per_wavelength` is 21.5, barely over the
+   ≥20 bar. The pressure component is the wave component.
+3. **Grid.** This is one grid, and the coarse member. The GCI triplet is still
+   owed and the 36% batch error must be understood before a triplet means
+   anything — three noisy numbers do not make a Richardson extrapolation.
+
+`gate2m.py runs/kcs_s1` correctly returns **NO RESULT, exit 2**. The −43.5% is
+recorded here as a diagnosis, not quoted anywhere as a result.
