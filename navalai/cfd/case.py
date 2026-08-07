@@ -1570,8 +1570,25 @@ def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
         # them, and nothing in case.info made that visible.
         f"domain_length_m={dom['x1'] - dom['x0']:.4f}\n"
         f"flow_through_s={(dom['x1'] - dom['x0']) / speed:.4f}\n"
-        f"end_time_flow_throughs={end_time * speed / (dom['x1'] - dom['x0']):.3f}\n"
-        f"wavelength_m={wavelength:.4f}\ntank_depth_m={abs(dom['z0']):.4f}\n"
+        # AN ITERATION COUNT IS NOT A TIME, so it does not get divided by a
+        # speed. MEASURED 2026-08-07: an LTS case generated with --end-time 20
+        # recorded `end_time_flow_throughs=134.128`, because the LTS branch ten
+        # lines above substitutes an ITERATION budget (2000) into `end_time`
+        # and this line divided it by the domain length as if it were seconds.
+        # 134 flow-throughs of a 32.75 m tank is 4.4 km of water: the receipt
+        # was not merely wrong, it was unphysical, and it read as a run far
+        # past the >= 5.0 the settled bar wants. Same defect as the layer table
+        # that printed an achieved mean layer COUNT under the label of a first
+        # layer thickness in metres. The enforcing guard was never fooled --
+        # post.grid_result computes flow-throughs from the SOLVED time t[-1] --
+        # but a receipt nobody can trust is worse than no receipt.
+        + (f"end_time_iterations={int(end_time)}\n"
+           "end_time_flow_throughs=N/A (LTS: end_time is an iteration budget, "
+           "not seconds; flow-throughs are undefined for a pseudo-steady run)\n"
+           if lts else
+           f"end_time_s={end_time:.4f}\n"
+           f"end_time_flow_throughs={end_time * speed / (dom['x1'] - dom['x0']):.3f}\n")
+        + f"wavelength_m={wavelength:.4f}\ntank_depth_m={abs(dom['z0']):.4f}\n"
         f"fs_dz_m={fs_dz:.5f}\nfs_dx_m={dx:.5f}\n"
         f"cells_per_wavelength={cells_per_wave:.1f}\n"
         f"target_yplus={_TARGET_YPLUS}\nfirst_layer_m={t1:.6e}\n"
