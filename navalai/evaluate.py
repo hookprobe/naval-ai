@@ -115,22 +115,49 @@ class ConstraintOrderError(RuntimeError):
     """
 
 
-def constraint_vector(values: dict[str, float]) -> dict[str, float]:
+def constraint_vector(values: dict[str, float],
+                      extra_names: tuple[str, ...] = ()) -> dict[str, float]:
     """Return `values` as a dict keyed in CONSTRAINT_NAMES order, or raise.
 
     Building the vector FROM the names is the fix for E16: the order is no
     longer a property of the literal a human typed, it is a property of the
     tuple the optimizer reads.
+
+    `extra_names` is how a compiled governance policy APPENDS rows (BuildPlan 3
+    §2.2 output 2). It is APPEND-ONLY and it is checked to be so: an extra name
+    that collides with a CONSTRAINT_NAMES entry is refused, because the one
+    thing a policy must never do is rewrite a row the ladder owns. That refusal
+    is the runtime half of Gate V3.0(d) — if a policy could overwrite `gm`,
+    "delete the constitution and every physics result is bit-identical" would
+    be a claim about discipline instead of a property of the code.
+
+    Order is CONSTRAINT_NAMES first, then `extra_names` in the order given, so
+    `[g[k] for k in CONSTRAINT_NAMES]` keeps meaning exactly what it meant —
+    every existing consumer reads the same columns whether a policy compiled or
+    not.
     """
-    missing = [k for k in CONSTRAINT_NAMES if k not in values]
-    extra = [k for k in values if k not in CONSTRAINT_NAMES]
+    names = tuple(CONSTRAINT_NAMES) + tuple(extra_names)
+    clash = [k for k in extra_names if k in CONSTRAINT_NAMES]
+    if clash:
+        raise ConstraintOrderError(
+            f"policy rows {clash} collide with CONSTRAINT_NAMES. Governance "
+            f"APPENDS rows; it never rewrites one. A policy that could "
+            f"overwrite a ladder row would change a physics margin when the "
+            f"constitution is applied, which is the exact thing Gate V3.0(d) "
+            f"exists to forbid.")
+    if len(set(names)) != len(names):
+        raise ConstraintOrderError(
+            f"duplicate constraint name in {list(names)}; every name is one "
+            f"column of the optimizer's G matrix and two cannot share it.")
+    missing = [k for k in names if k not in values]
+    extra = [k for k in values if k not in names]
     if missing or extra:
         raise ConstraintOrderError(
             f"constraint vector does not match CONSTRAINT_NAMES: "
             f"missing {missing}, unexpected {extra}. Every name in "
             f"CONSTRAINT_NAMES is a column of the optimizer's G matrix; a "
             f"vector that does not cover them exactly cannot be mapped onto it.")
-    return {k: values[k] for k in CONSTRAINT_NAMES}
+    return {k: values[k] for k in names}
 
 
 def is_real_finite(v) -> bool:
@@ -219,6 +246,18 @@ class Evaluation:
     eval_ms: float = 0.0
     badges: dict = field(default_factory=dict)   # quantity -> (tier, sigma)
     g: dict = field(default_factory=dict)        # constraint -> value, <=0 feasible
+    # The COLUMNS of `g`, in order. CONSTRAINT_NAMES when no constitution was
+    # compiled — which is the default and is byte-identical to the tuple every
+    # consumer already reads — and CONSTRAINT_NAMES + the policy's rows when
+    # one was (BuildPlan 3 §2.2 output 2). Carried rather than inferred from
+    # `g.keys()` so that a consumer can see the vector's shape on an evaluation
+    # that never got as far as building one.
+    g_names: tuple[str, ...] = CONSTRAINT_NAMES
+    # What governance decided about THIS design: the compiled constitution's
+    # name, the delivery route with its RCD article, and the AI Act
+    # consequence. Empty when no policy was applied — an empty dict is "no
+    # governance was asked", never "governance said yes".
+    policy: dict = field(default_factory=dict)
 
 
 def sample_valid(n: int, mission: MissionSpec, seed: int = 0,
@@ -271,10 +310,70 @@ def _declared_lwl_m(params) -> float:
     return v if math.isfinite(v) and v > 0.0 else 0.0
 
 
+def _apply_policy(ev: Evaluation, mission: MissionSpec, policy) -> None:
+    """Append a compiled constitution's rows to a FINISHED evaluation.
+
+    THE ONE CONTRACT, and the reason Gate V3.0(d) is a property of this
+    function rather than a promise about it: everything above has already run
+    and every physics number on `ev` is already final. This appends columns to
+    `g`, appends strings to `violations`, and recomputes `ok`. It computes no
+    hydrostatics, calls no rule, and writes to no field a physics quantity
+    lives in. `policy.rows_for` is likewise a reader — it takes the finished
+    evaluation and measures nothing itself.
+
+    Called only from behind `if policy is not None`, so with no constitution
+    the ladder does not merely produce the same numbers: it executes the same
+    code, and there is no branch for a test to have to trust.
+
+    Duck-typed on purpose. `evaluate` imports nothing from `navalai.policy`,
+    so deleting the package leaves this module importable and every physics
+    path intact — which is what "delete the policy file" has to mean if the
+    structural test is to be worth anything.
+    """
+    rows, why = policy.rows_for(ev, mission)
+    names = tuple(policy.rows)
+    ev.g = constraint_vector({**ev.g, **rows}, extra_names=names)
+    ev.g_names = tuple(CONSTRAINT_NAMES) + names
+
+    viol = list(ev.violations)
+    for k in names:
+        v = ev.g[k]
+        if not is_real_finite(v):
+            # Same rule as the ladder's own rows (gap E10): a constraint that
+            # is not a finite number is a violation, never a pass, because
+            # `nan > 0.0` is False and would read as satisfied.
+            viol.append(f"policy constraint {k!r} is not a finite number "
+                        f"({v!r}) — the quantity behind it could not be "
+                        f"computed, which is a violation and never a pass")
+            ev.g[k] = INFEASIBLE_G
+        elif v > 0.0:
+            viol.append(why.get(k) or f"policy constraint {k!r} violated "
+                                      f"(margin {v:+.4g})")
+    ev.violations = tuple(viol)
+    ev.ok = len(viol) == 0
+
+    # `route_report`, not `route_for`: a craft the RCD does not define is a
+    # REFUSAL, and a refusal raised here would abort a whole NSGA-II population
+    # over one design that the `policy_legal` row has already reported as a
+    # breach with a gradient attached. The refusal is carried, not swallowed —
+    # `mode` reads 'REFUSED' and the clause that refused it comes with it.
+    ev.policy = {"constitution": policy.constitution.name,
+                 "rows": list(names),
+                 "route": policy.route_report(ev, mission)}
+
+
 def evaluate(params: np.ndarray, mission: MissionSpec,
              rho: float = RHO_WATER,
-             provenance: db.Provenance | None = None) -> Evaluation:
-    """Run the ladder as far as L1. Fails fast and cheap (Fitness=inf pattern)."""
+             provenance: db.Provenance | None = None,
+             policy=None) -> Evaluation:
+    """Run the ladder as far as L1. Fails fast and cheap (Fitness=inf pattern).
+
+    `policy` is an optional COMPILED constitution
+    (`navalai.policy.compile_policy`). It is keyword-usable, defaults to None,
+    and every line that touches it sits behind `if policy is not None` — so an
+    ungoverned call runs the identical code path it ran before governance
+    existed. See `_apply_policy` and Gate V3.0(d).
+    """
     t0 = time.perf_counter()
 
     rep = grammar.check(params)
@@ -529,6 +628,21 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
         hull_lwl_m=float(p["LWL"]), rules=rules_rep, params=np.asarray(params),
         eval_ms=(time.perf_counter() - t0) * 1e3, badges=badges,
     )
+
+    # GOVERNANCE, LAST AND ADDITIVE. Every physics number above is final before
+    # this line, and this line does not exist when no constitution was handed
+    # in (BuildPlan 3 §2.2: "delete the policy file and no physics result may
+    # change").
+    #
+    # Policy rows are appended to the L1 vector and NOT to the two early
+    # returns above, which carry no `g` at all. That is not an oversight: two
+    # of the three rows measure the FLOATED hull (draft, solar fraction), and a
+    # design that never floated has no floated state to govern. Pruning before
+    # physics is the job of the OTHER output — `CompiledPolicy.box()` bounds
+    # the sampler so an over-length hull is never proposed, rather than being
+    # proposed and rejected.
+    if policy is not None:
+        _apply_policy(ev, mission, policy)
 
     if provenance is not None:
         hid = provenance.add_hull(params)
