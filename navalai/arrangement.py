@@ -385,9 +385,17 @@ class Envelope:
     def min_half_breadth(self, x0: float, x1: float, z: float) -> float:
         """Narrowest interior half-breadth over [x0, x1] at level `z` [m].
 
-        Evaluated at `z` alone, which is sufficient because a section's
-        half-breadth is non-decreasing upward (keel -> chine -> sheer): the
-        bottom of a box is always its tightest level.
+        A question about the HULL, and only about the hull. A section's
+        half-breadth is non-decreasing upward (keel -> chine -> sheer), so for
+        a box that stays below the sheer this is tightest at the box's floor —
+        which is why the sole-level queries in `reference_layout` and
+        `lowest_z_for_half_breadth` use it.
+
+        IT IS NOT THE ENVELOPE. Above the sheer `geometry._halfbreadth_at`
+        returns the sheer half-breadth for ever upward, and the real vessel has
+        only the coachroof up there. L0-A must ask
+        `available_half_breadth` instead; it did not, and the reference
+        saloon protruded 435 mm through the side of the coachroof.
         """
         col = self._half_breadth_column(z)
         inner = col[(self.x >= x0) & (self.x <= x1)]
@@ -395,17 +403,109 @@ class Envelope:
                 float(np.interp(x1, self.x, col))]
         return min(float(inner.min()) if inner.size else math.inf, *ends)
 
+    def _overhead_profile(self) -> np.ndarray:
+        """Overhead z at every station: sheer, plus the trunk where it spans."""
+        top = self.z_sheer.copy()
+        if self.trunk is not None and self.trunk.height > 0:
+            inside = (self.x >= self.trunk.x0) & (self.x <= self.trunk.x1)
+            top = np.where(inside, top + self.trunk.height, top)
+        return top
+
+    @property
+    def overhead_max_z(self) -> float:
+        """The HIGHEST overhead anywhere [m].
+
+        `overhead_z` deliberately returns the LOWEST overhead over a run,
+        because that is what a box has to fit under. Nothing else may reuse it
+        as "the top of the interior": `bounds()` did, and the result was an
+        upper bound of 1.000 m on a boat whose own reference layout puts the
+        saloon ceiling at 1.735 m under the coachroof — a search box that
+        excluded the very layout it was supposed to contain.
+        """
+        return float(self._overhead_profile().max())
+
+    def _overhead_at(self, x: float) -> float:
+        """Overhead at ONE longitudinal position [m].
+
+        The sheer is a smooth curve and is interpolated. THE TRUNK IS A STEP
+        AND IS NOT: its height is decided by `Trunk.spans(x)`, a yes/no.
+
+        This used to interpolate the STEPPED profile at the run's two ends, and
+        the smearing was measured, not theoretical. The reference layout's head
+        runs 1.35-2.15 m and the coachroof starts at 1.30 m, so the head is
+        50 mm INSIDE the trunk from end to end; interpolating between station
+        1.25 (no trunk, 1.000 m) and station 1.50 (trunk, 1.735 m) returned
+        1.294 m. The head then reported a height of 1619 mm against the
+        1905 mm compromise-headroom floor and L0-A failed the reference layout
+        on an overhead that exists at no point of the vessel — neither the
+        sheer nor the coachroof, but 40% of the way between them.
+        """
+        z = float(np.interp(x, self.x, self.z_sheer))
+        t = self.trunk
+        if t is not None and t.height > 0 and t.spans(x):
+            z += t.height
+        return z
+
     def overhead_z(self, x0: float, x1: float) -> float:
         """Lowest overhead over [x0, x1] [m]: sheer, plus the trunk where it
         spans. A box straddling the trunk's edge gets the sheer, which is the
         conservative and correct answer."""
-        top = self.z_sheer.copy()
-        if self.trunk is not None:
-            inside = (self.x >= self.trunk.x0) & (self.x <= self.trunk.x1)
-            top = np.where(inside, top + self.trunk.height, top)
+        top = self._overhead_profile()
         sel = top[(self.x >= x0) & (self.x <= x1)]
-        ends = [float(np.interp(x0, self.x, top)),
-                float(np.interp(x1, self.x, top))]
+        ends = [self._overhead_at(x0), self._overhead_at(x1)]
+        return min(float(sel.min()) if sel.size else math.inf, *ends)
+
+    def _available_at(self, x: float, z: float, col: np.ndarray) -> float:
+        """Half-breadth available at ONE position and ONE level [m].
+
+        Below the sheer that is the hull. Above the sheer the hull HAS NO
+        TOPSIDES, so what is available is the coachroof's half-width where the
+        coachroof spans, and nothing at all where it does not. `Trunk.spans` is
+        a yes/no for the same reason `_overhead_at` uses it: the trunk's edge
+        is a step and interpolating across a step invents a boat.
+        """
+        sheer = float(np.interp(x, self.x, self.z_sheer))
+        if z <= sheer + TOUCH_TOL_M:
+            return float(np.interp(x, self.x, col))
+        t = self.trunk
+        if (t is not None and t.height > 0 and t.spans(x)
+                and z <= sheer + t.height + TOUCH_TOL_M):
+            return t.half_width
+        return 0.0
+
+    def available_half_breadth(self, x0: float, x1: float, z: float) -> float:
+        """Narrowest half-breadth ACTUALLY available over [x0, x1] at level z.
+
+        `min_half_breadth` answers a question about the HULL, and its docstring
+        argues — correctly — that a section's half-breadth is non-decreasing
+        upward, so the bottom of a box is its tightest level. THAT ARGUMENT
+        DOES NOT SURVIVE THE COACHROOF, and L0-A relied on it anyway.
+
+        Two things go wrong above the sheer. `geometry._halfbreadth_at` returns
+        the sheer half-breadth for any z above the sheer — it extends the
+        topsides upward forever — and the trunk is NARROWER than the sheer by a
+        side deck each side. So a box that reaches the coachroof was measured
+        against a hull that does not exist there, at the one level the check
+        never looked at anyway.
+
+        MEASURED 2026-08-07 on the reference layout, which L0-A passed: the
+        saloon, the galley and the head all stand 735 mm above the sheer, and
+        their half-beams are 1.399 / 1.248 / 1.128 m against a coachroof
+        half-width of 0.964 m. The saloon protruded 435 mm through the side of
+        the coachroof, each side, over the full height of it. The gate fixture
+        was not a buildable boat.
+        """
+        col = self._half_breadth_column(z)
+        sheer = self.z_sheer
+        avail = np.where(z <= sheer + TOUCH_TOL_M, col, 0.0)
+        t = self.trunk
+        if t is not None and t.height > 0:
+            roof = ((self.x >= t.x0) & (self.x <= t.x1)
+                    & (z > sheer + TOUCH_TOL_M)
+                    & (z <= sheer + t.height + TOUCH_TOL_M))
+            avail = np.where(roof, t.half_width, avail)
+        sel = avail[(self.x >= x0) & (self.x <= x1)]
+        ends = [self._available_at(x0, z, col), self._available_at(x1, z, col)]
         return min(float(sel.min()) if sel.size else math.inf, *ends)
 
     def min_deck_half_breadth(self, x0: float, x1: float) -> float:
@@ -453,8 +553,11 @@ class Envelope:
         (`lowest_z_for_half_breadth`), which is exactly how the forepeak of a
         real boat is built.
 
-        MEASURED on the 10 m reference hull: (0.00, 9.20) m, i.e. it takes
-        800 mm off the bow and nothing off the stern, the transom being wide.
+        MEASURED on the 10 m reference hull: **(0.00, 8.50) m** — 1.50 m off
+        the bow and nothing off the stern, the transom being wide. (The
+        docstring said (0.00, 9.20) until it was run: a document beats an
+        intention, a measurement beats a document, and this one had never been
+        measured. `tests/test_arrangement.py` now asserts it.)
         """
         col = self._half_breadth_column(self.sole_z)
         wide = col >= 0.5 * _mm(E.SOLE_MIN_CLEAR_WIDTH_MM)
@@ -567,6 +670,13 @@ class DeckZone:
         v: list[str] = []
         if not self.id.strip():
             v.append("deck zone: empty id")
+        # A deck zone's mass is checked on the SAME two limbs as a space's.
+        # It used to be checked on one: a negative deck mass passed L0-A and
+        # then raised out of `MassItem.__post_init__` when `mass_items()` was
+        # called — the gate reporting feasible and the weight model refusing
+        # the same arrangement.
+        if self.mass_kg < 0:
+            v.append(f"deck[{self.id}]: negative mass {self.mass_kg}")
         if self.mass_kg > 0 and self.sigma_kg <= 0:
             v.append(f"deck[{self.id}]: mass declared with no sigma")
         return v
@@ -646,7 +756,12 @@ class Arrangement:
         not imply feasibility (the hull is not a cuboid)."""
         env = self.envelope
         y_max = float(env.y_sheer.max())
-        z_hi = env.overhead_z(0.0, env.lwl)
+        # The HIGHEST overhead, not the lowest. `overhead_z(0, lwl)` is the
+        # sheer at the lowest station (1.000 m here) and it excluded every
+        # space under the coachroof, including four of the reference layout's
+        # own — a bound that a solver would have had to violate to reproduce
+        # the fixture. See `Envelope.overhead_max_z`.
+        z_hi = env.overhead_max_z
         z_lo = float(env.z_grid[0])
         lo_s = [0.0, 0.0, -y_max, -y_max, z_lo, z_lo]
         hi_s = [env.lwl, env.lwl, y_max, y_max, z_hi, z_hi]
@@ -816,6 +931,16 @@ def deck_min_width_m(kind: DeckKind,
     the toerail, not about open deck.
     """
     if kind is DeckKind.SIDE_DECK:
+        if category not in E.SIDE_DECK_WIDTH_MIN_MM:
+            # `Arrangement.category` is a free-form string with a default, so a
+            # typo reaches here. Raising by NAME beats a bare KeyError six
+            # frames inside `check_l0a`, and it beats defaulting to a category:
+            # defaulting would silently apply cat D's 100 mm floor to a cat A
+            # boat, which is the quiet-wrong-number failure this project keeps
+            # writing tests about.
+            raise ValueError(
+                f"unknown design category {category!r}; ISO 15085 side-deck "
+                f"floors are held for {sorted(E.SIDE_DECK_WIDTH_MIN_MM)}")
         rv = E.SIDE_DECK_WIDTH_MIN_MM[category]
         return _mm(rv), rv
     if kind is DeckKind.COCKPIT:
@@ -936,14 +1061,25 @@ def check_l0a(arr: Arrangement) -> ArrangementReport:
                 f"over its length",
                 measured=b.z1, required=top))
 
-        # Widest point of the box against the narrowest hull section under it.
-        avail = env.min_half_breadth(max(b.x0, 0.0), min(b.x1, env.lwl), b.z0)
-        if b.half_beam > avail + TOUCH_TOL_M:
-            v.append(Violation(
-                R_ENVELOPE_Y, s.id,
-                f"reaches y={b.half_beam:.3f} m at z={b.z0:.3f} m where the "
-                f"interior is {avail:.3f} m half-breadth",
-                measured=b.half_beam, required=avail))
+        # Widest point of the box against the narrowest section it passes
+        # through. TWO levels, not one: the hull widens upward so its floor is
+        # the tightest level, but the COACHROOF is narrower than the sheer by a
+        # side deck each side, so a box that stands above the sheer is tightest
+        # at its CEILING. Checking the floor alone passed a reference saloon
+        # that protruded 435 mm through the side of the coachroof — see
+        # `Envelope.available_half_breadth`.
+        xa, xb = max(b.x0, 0.0), min(b.x1, env.lwl)
+        for z_level in (b.z0, b.z1):
+            avail = env.available_half_breadth(xa, xb, z_level)
+            if b.half_beam > avail + TOUCH_TOL_M:
+                where = "floor" if z_level == b.z0 else "ceiling"
+                v.append(Violation(
+                    R_ENVELOPE_Y, s.id,
+                    f"reaches y={b.half_beam:.3f} m at its {where} "
+                    f"z={z_level:.3f} m where {avail:.3f} m half-breadth is "
+                    f"available",
+                    measured=b.half_beam, required=avail))
+                break
 
         v.extend(_min_dim_violations(s))
 
@@ -1106,16 +1242,51 @@ def reference_trunk(hull: Hull) -> Trunk:
 # "hand-authored" means in Gate V2.1 — and they are named rather than inlined
 # so the plan is readable as a plan.
 _TRUNK_X0, _TRUNK_X1 = 0.13, 0.70
-_SIDE_DECK_M = 0.42          # side deck each side of the coachroof [m]
+# Side deck each side of the coachroof [m]. It was 0.42, which is a lovely
+# side deck and, on a 3.2 m BWL hull, leaves a coachroof only 1.93 m wide —
+# and the coachroof is the whole standing-headroom volume of the boat, so the
+# saloon, galley and head all have to fit inside it (see `standing_half`). At
+# 0.42 the saloon came out 1.83 m wide with the head and the quarter berth
+# unable to sit side by side under it; at 0.25 the coachroof is 2.27 m and the
+# side deck is still twice the 120 mm ISO 15085 cat-C floor L0-A checks it
+# against. Wide side decks and a wide saloon are the same 3.2 m of beam, and
+# this is the author's split of it.
+_SIDE_DECK_M = 0.25
 _COCKPIT_X0, _COCKPIT_X1 = 0.01, 0.125
 _MACHINERY_X0, _MACHINERY_X1 = 0.015, 0.13
 _AFT_BERTH_X0, _AFT_BERTH_X1 = 0.135, 0.345
 _HEAD_X0, _HEAD_X1 = 0.135, 0.215
 _GALLEY_X0, _GALLEY_X1 = 0.355, 0.475
 _NAV_X0, _NAV_X1 = 0.355, 0.435
-_SALOON_X0, _SALOON_X1 = 0.485, 0.690
-_FWD_BERTH_X0, _FWD_BERTH_X1 = 0.705, 0.915
-_FOREPEAK_X0, _FOREPEAK_X1 = 0.925, 0.985
+_SALOON_X0, _SALOON_X1 = 0.485, 0.660
+_FWD_BERTH_X0, _FWD_BERTH_X1 = 0.670, 0.870
+_FOREPEAK_X0, _FOREPEAK_X1 = 0.880, 0.950
+# The foredeck stops SHORT of the stem. A rectangle that runs to x = LWL is
+# 2 * y_sheer(LWL) = 0 m wide, because the deck outline closes there — see
+# `reference_layout`.
+_FOREDECK_X1 = 0.950
+_FOREPEAK_MIN_HALF_M = 0.12   # narrowest half-breadth worth calling a locker
+
+# MEASURED 2026-08-07, and the first three fractions above are the SECOND set
+# this layout has had. The first put the V-berth at 0.705-0.915 LWL and the
+# forepeak at 0.925-0.985, and `reference_layout()` raised
+# "this hull is too fine forward to carry a V-berth" on the reference hull it
+# is written for — the module had never been executed. The berth is a BOX, so
+# its width is the hull's half-breadth at its FORWARD-most station, and at
+# 0.915 LWL that is 0.617 m against the 0.8125 m a double needs. Measured
+# platform level and inscribed width against the forward station:
+#
+#     berth x1/LWL   z_platform    box width   double floor 1.525 m
+#          0.850       -0.184 m      1.704 m   ok
+#          0.870       -0.138 m      1.558 m   ok  <- chosen
+#          0.880       +0.273 m      1.529 m   ok, but the platform has
+#                                              climbed 0.60 m above the sole
+#          0.890       +0.867 m      1.525 m   platform 0.18 m under the sheer
+#
+# So the berth ends at 0.870 LWL, which costs the saloon 0.30 m of length
+# (0.690 -> 0.660; it is still 1.75 m fore-and-aft and 2.80 m wide). Widening
+# the berth by moving it aft is the trade a naval architect would make and it
+# is the author's to make; what is NOT available is the original layout.
 
 
 def reference_layout(hull: Hull | None = None) -> Arrangement:
@@ -1148,6 +1319,22 @@ def reference_layout(hull: Hull | None = None) -> Arrangement:
         the joinery's own linings."""
         return max(env.min_half_breadth(x0, x1, z) - margin, 0.0)
 
+    def standing_half(x0: float, x1: float, z: float, margin: float) -> float:
+        """`clear_half`, CAPPED BY THE COACHROOF.
+
+        A space with standing headroom stands above the sheer, and above the
+        sheer this hull has no topsides — only the coachroof. So its width is
+        the trunk's, not the hull's, and the three spaces that use this were
+        authored against the hull: the saloon came out 1.399 m half-beam
+        against a 0.964 m coachroof and protruded 435 mm through the side of
+        it, each side, over the whole 735 mm the coachroof stands.
+        """
+        hb = clear_half(x0, x1, z, margin)
+        t = env.trunk
+        if t is not None and t.height > 0:
+            hb = min(hb, max(t.half_width - margin, 0.0))
+        return hb
+
     spaces: list[Space] = []
 
     # --- machinery: electric drive and its systems, aft, under the cockpit.
@@ -1174,7 +1361,7 @@ def reference_layout(hull: Hull | None = None) -> Arrangement:
                    ("machinery", Adjacency.AVOID))))
 
     x0, x1 = _HEAD_X0 * L, _HEAD_X1 * L
-    hb = clear_half(x0, x1, sole, 0.06)
+    hb = standing_half(x0, x1, sole, 0.06)
     spaces.append(Space(
         "head", Function.HEAD,
         Box(x0, x1, hb - 0.95, hb, sole, env.overhead_z(x0, x1)),
@@ -1185,7 +1372,7 @@ def reference_layout(hull: Hull | None = None) -> Arrangement:
 
     # --- galley to port, nav to starboard, both under the coachroof.
     x0, x1 = _GALLEY_X0 * L, _GALLEY_X1 * L
-    hb = clear_half(x0, x1, sole, 0.05)
+    hb = standing_half(x0, x1, sole, 0.05)
     spaces.append(Space(
         "galley", Function.GALLEY,
         Box(x0, x1, -hb, -hb + 0.72, sole, env.overhead_z(x0, x1)),
@@ -1206,7 +1393,7 @@ def reference_layout(hull: Hull | None = None) -> Arrangement:
 
     # --- saloon amidships, full width, standing headroom under the coachroof.
     x0, x1 = _SALOON_X0 * L, _SALOON_X1 * L
-    hb = clear_half(x0, x1, sole, 0.05)
+    hb = standing_half(x0, x1, sole, 0.05)
     spaces.append(Space(
         "saloon", Function.SALOON,
         Box(x0, x1, -hb, hb, sole, env.overhead_z(x0, x1)),
@@ -1237,7 +1424,7 @@ def reference_layout(hull: Hull | None = None) -> Arrangement:
 
     # --- forepeak locker: ground tackle, warps, fenders.
     x0, x1 = _FOREPEAK_X0 * L, _FOREPEAK_X1 * L
-    z_lkr = env.lowest_z_for_half_breadth(x0, x1, 0.12)
+    z_lkr = env.lowest_z_for_half_breadth(x0, x1, _FOREPEAK_MIN_HALF_M)
     if z_lkr is None:
         raise ValueError("no forepeak volume on this hull")
     hb = clear_half(x0, x1, z_lkr, 0.03)
@@ -1266,9 +1453,16 @@ def reference_layout(hull: Hull | None = None) -> Arrangement:
             f"sidedeck.{side}", DeckKind.SIDE_DECK, Zone.Z2,
             PlanBox(t.x0, t.x1, min(a, b), max(a, b)),
             barrier_height_mm=float(E.BARRIER_LOW_MIN_MM.value)))
-    y_fore = env.min_deck_half_breadth(t.x1, L)
+    # The foredeck rectangle stops at `_FOREDECK_X1`, NOT at the stem. It was
+    # authored as `PlanBox(t.x1, L, -y_fore, y_fore)` with
+    # `y_fore = min_deck_half_breadth(t.x1, L)`, and the deck outline closes at
+    # the stem — y_sheer(LWL) = 0 — so the min over a run ending there is 0 and
+    # the foredeck came out 0.000 m wide. L0-A caught it as L0A-DEGENERATE,
+    # which is the gate working; the layout was still wrong.
+    x_fore = _FOREDECK_X1 * L
+    y_fore = env.min_deck_half_breadth(t.x1, x_fore)
     deck.append(DeckZone("foredeck", DeckKind.FOREDECK, Zone.Z3,
-                         PlanBox(t.x1, L, -y_fore, y_fore),
+                         PlanBox(t.x1, x_fore, -y_fore, y_fore),
                          barrier_height_mm=float(E.BARRIER_LOW_MIN_MM.value)))
 
     return Arrangement(envelope=env, spaces=tuple(spaces),

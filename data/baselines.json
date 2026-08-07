@@ -1,6 +1,6 @@
 {
   "_README": {
-    "generated_utc": "2026-08-06T20:07:24Z",
+    "generated_utc": "2026-08-07T16:16:36Z",
     "generation": {
       "frozen_suite": "flywheel.frozen_suite \u2014 BENCHMARK_PROBES + held-out wedge",
       "harvest_seed": 21,
@@ -16,50 +16,50 @@
   },
   "gm": {
     "best_coverage_2sigma": 1.0,
-    "best_median_rel_err": 0.19284739707059526,
-    "best_wall_clock_s": 1.1625899999926332,
+    "best_median_rel_err": 0.2517452639183851,
+    "best_wall_clock_s": 2.010475540999323,
     "coverage_2sigma": 1.0,
     "err_kind": "spread-normalised",
     "frozen_ood_rate": 0.037037037037037035,
-    "median_rel_err": 0.19284739707059526,
+    "median_rel_err": 0.2517452639183851,
     "n_frozen": 27,
     "n_train": 120,
     "suite": "frozen_suite",
-    "suite_fingerprint": "f37529748d22c684",
+    "suite_fingerprint": "d782c04bf198af11",
     "transform": "identity",
-    "utc": 1786046843.1598852,
-    "wall_clock_s": 1.1625899999926332
+    "utc": 1786119393.4701781,
+    "wall_clock_s": 2.010475540999323
   },
   "rt": {
-    "best_coverage_2sigma": 0.9629629629629629,
-    "best_median_rel_err": 0.10445777957961365,
-    "best_wall_clock_s": 1.202593958005309,
-    "coverage_2sigma": 0.9629629629629629,
+    "best_coverage_2sigma": 0.9259259259259259,
+    "best_median_rel_err": 0.1513101287758993,
+    "best_wall_clock_s": 3.1502383750048466,
+    "coverage_2sigma": 0.9259259259259259,
     "err_kind": "relative",
     "frozen_ood_rate": 0.037037037037037035,
-    "median_rel_err": 0.10445777957961365,
+    "median_rel_err": 0.1513101287758993,
     "n_frozen": 27,
     "n_train": 120,
     "suite": "frozen_suite",
-    "suite_fingerprint": "f37529748d22c684",
+    "suite_fingerprint": "d782c04bf198af11",
     "transform": "log",
-    "utc": 1786046844.428703,
-    "wall_clock_s": 1.202593958005309
+    "utc": 1786119396.7365499,
+    "wall_clock_s": 3.1502383750048466
   },
   "wh_per_nm": {
-    "best_coverage_2sigma": 0.9629629629629629,
-    "best_median_rel_err": 0.10446180024836133,
-    "best_wall_clock_s": 1.205098333011847,
-    "coverage_2sigma": 0.9629629629629629,
+    "best_coverage_2sigma": 0.9259259259259259,
+    "best_median_rel_err": 0.15130937054355117,
+    "best_wall_clock_s": 3.1349747920176014,
+    "coverage_2sigma": 0.9259259259259259,
     "err_kind": "relative",
     "frozen_ood_rate": 0.037037037037037035,
-    "median_rel_err": 0.10446180024836133,
+    "median_rel_err": 0.15130937054355117,
     "n_frozen": 27,
     "n_train": 120,
     "suite": "frozen_suite",
-    "suite_fingerprint": "f37529748d22c684",
+    "suite_fingerprint": "d782c04bf198af11",
     "transform": "log",
-    "utc": 1786046841.930537,
-    "wall_clock_s": 1.205098333011847
+    "utc": 1786119391.34171,
+    "wall_clock_s": 3.1349747920176014
   }
 }

@@ -163,6 +163,22 @@ GATES = [
     # not a cost variable, fidelity is, and it is measured.
     Gate("Gate G", "APSE: similitude/ITTC-78/cost/planner/evidence",
          "tests/test_stageG.py"),
+    # BuildPlan 2 V2.1 -- the arrangement grammar and its algebraic gate. The
+    # suite found FIVE defects in a module that had never been executed, the
+    # worst of which let the reference layout PASS L0-A while the saloon stood
+    # 435 mm through each side of the coachroof: the envelope-Y rule checked
+    # the box FLOOR only, on a docstring argument ("half-breadth is
+    # non-decreasing upward") that is true of a hull and stops being true the
+    # moment a trunk is added.
+    Gate("Gate V2.1", "arrangement grammar: envelope, spaces, deck zones, and "
+         "an L0-A that names the space it refuses", "tests/test_arrangement.py"),
+    # BuildPlan 3 V3.0 -- the governance kernel. Its load-bearing clause is the
+    # structural one: delete the constitution and every physics result must be
+    # bit-identical, proved against a saboteur policy that perturbs gm_m by a
+    # tenth of a part per billion and must be CAUGHT.
+    Gate("Gate V3.0", "governance compiles to a parameter box and to constraint "
+         "rows, ratchets only tighter, and the ladder never imports it",
+         "tests/test_policy.py"),
     # Gate 0G reported tests/test_gapfix_product.py as owned by NO gate while
     # the tests inside it -- the proofs for register rows G7 (ES-TRIN) and G8
     # (the ISO 12217-1 scope guard) -- were FAILING. An unowned suite is outside
