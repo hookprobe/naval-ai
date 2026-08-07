@@ -86,6 +86,27 @@ HEAD_BOWL_TO_DOOR_MIN_MM = RefValue(560, "mm", _MARINE, "approx")
 SHOWER_MIN_SQUARE_MM = RefValue(
     610, "mm", _MARINE, "approx", "610 x 610 clear.")
 
+# ------------------------------------------------ the sole (V2.1 arrangement)
+
+# The arrangement grammar has to put the cabin sole SOMEWHERE, and where it
+# lands decides the interior volume every space is then fitted into. No source
+# we hold gives a minimum sole width, or a circulation/passage width, or a
+# bilge depth (see NOT_SOURCED below) — so rather than invent one at a
+# plausible value, this is the narrowest clear dimension any source here gives
+# for a space a person must stand in: the head's bowl-to-door clearance.
+#
+# IT IS NOT A SECOND NUMBER. `value` reads HEAD_BOWL_TO_DOOR_MIN_MM.value, so
+# there is exactly one 560 in this module and correcting it corrects both.
+# CLAUDE.md's design-side invariant is that this codebase's recurring defect is
+# A NUMBER DECLARED TWICE; a sole floor typed as `560` here would be the fourth
+# instance of it, and the two would drift the first time a head clearance moved.
+SOLE_MIN_CLEAR_WIDTH_MM = RefValue(
+    HEAD_BOWL_TO_DOOR_MIN_MM.value, "mm", _MARINE, "approx",
+    "DERIVED, NOT TRANSCRIBED: it IS HEAD_BOWL_TO_DOOR_MIN_MM, reused as the "
+    "narrowest clear width at which a plane counts as a sole rather than as "
+    "bilge. The reasoning is ours; only the number is sourced. Nothing we hold "
+    "gives a sole or passage width directly — see NOT_SOURCED.")
+
 # ------------------------------------------------------------------ galley
 
 GALLEY_HOB_HEIGHT_MM = RefValue(
@@ -197,6 +218,29 @@ NOT_SOURCED = (
            "plausible invented multiplier would resize every envelope in "
            "Tier E while looking transcribed.",
            "measurement against a modern anthropometric dataset"),
+    Absent("circulation_passage_width_mm",
+           "The width of the passage between joinery units — the single most "
+           "load-bearing number in an interior arrangement, since it is what "
+           "the CP solver would trade every space against. The ISA "
+           "soft-constraint vocabulary names 'min segment width' as a "
+           "constraint TYPE (BuildPlan2 §1.5) and gives no value, and no "
+           "marine-practice number in §1.1 is a passage width. "
+           "SOLE_MIN_CLEAR_WIDTH_MM is a stand-in for the SOLE only and is "
+           "labelled as derived; it must not be quietly promoted into a "
+           "passage rule.",
+           "purchase Panero & Zelnik / Larsson & Eliasson"),
+    Absent("berth_vertical_clearance_mm",
+           "How much air a berth needs above the mattress. §1.1 gives berth "
+           "length, width and taper but no height, so the L0-A minimum-"
+           "dimension table leaves a berth's z-extent unbounded and says so "
+           "rather than inventing a headroom-over-bunk figure.",
+           "purchase Panero & Zelnik"),
+    Absent("bilge_depth_mm",
+           "The clearance a sole needs above the inside of the bottom "
+           "planking for limber water and structure. Without it the "
+           "arrangement's sole is placed on a WIDTH criterion, which is "
+           "geometric and honest but is not the same rule a builder uses.",
+           "purchase Larsson & Eliasson"),
     Absent("handhold_spacing_mm",
            "Named as a first-class layout element by both the marine-practice "
            "sweep and ABYC H-41; neither yields a spacing we can cite.",
