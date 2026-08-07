@@ -34,10 +34,45 @@ WATERS = {"river": "D", "lake": "D", "coastal": "C", "offshore": "B", "ocean": "
 # imports THIS table rather than keeping a second copy — the recurring defect
 # in this codebase is a number declared twice (CLAUDE.md, design-side
 # invariants).
+#
+# CREW CEILING 12 -> 250, 2026-08-07. The old 12 was not arbitrary and it is
+# worth saying why before replacing it: Directive (EU) 2016/1629 Art. 3 and
+# ES-TRIN 1.01 define a PASSENGER VESSEL as one carrying MORE THAN 12
+# passengers, so 12 was exactly the boundary below which a craft is not one.
+# That was the right ceiling while this grammar emitted small craft only.
+#
+# It is no longer. `navalai/rules/estrin.py` now assesses inland craft in
+# ES-TRIN scope — L >= 20 m, or L.B.T >= 100 m3 — and the grammar's LWL
+# ceiling is 20.0 m, the same number this very table already carries for
+# `lwl_hint_m`. A 20 m inland vessel that is IN ES-TRIN scope is by
+# construction one whose crew the old ceiling declared impossible, and the
+# clamp did not merely warn: MEASURED, `replace(m, crew=40).crew == 12`, so
+# `translate.requirements_from_mission` built the `crew-fits-on-deck` row
+# against a 12-person boat while the brief asked for 40. The asked-for number
+# survived only as the prose note "crew 40 outside [1, 12]; clamped to 12".
+#
+# 250 is bounded by geometry, MEASURED 2026-08-07 with
+# `ergonomics.working_deck_area_m2` at `seat_area_m2()` = 0.30 m2/person:
+#
+#   LWL 20.0, BWL 6.0 (L/B 3.33, the beamiest inside L_OVER_B_BAND),
+#   otherwise mid shape parameters -> 95.53 m2 of working deck = 318 persons
+#   corner search over all 15 grammar params, LWL/BWL pinned at max
+#                                          -> 165.99 m2           = 553 persons
+#
+# Both of those are the E-DECK NECESSARY condition — the whole deck plan, with
+# no console, cabin, side deck or Z1 boundary taken out — so real capacity is
+# strictly less than either. 250 therefore sits below what the largest hull
+# this grammar can emit could nominally seat, and above any inland day-trip
+# vessel it could plausibly represent.
+#
+# This is a CONTRACT bound, not a capacity verdict. It exists to stop absurd
+# input ("5000 crew river barge") reaching the physics; whether a given crew
+# fits on a given hull is `rules.ergonomics.E-DECK`'s answer, and that bar is
+# what must fail a crowded boat. Widening the contract does not widen the bar.
 FIELD_RANGES: dict[str, tuple[float, float]] = {
     "displacement_target_kg": (300.0, 200_000.0),
     "cruise_speed_kn": (1.0, 30.0),
-    "crew": (1, 12),
+    "crew": (1, 250),
     "lwl_hint_m": (4.0, 20.0),
 }
 

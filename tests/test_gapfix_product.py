@@ -249,19 +249,59 @@ def test_the_slope_rule_excludes_deck_and_does_not_fail_it():
     """`WORKING_DECK_SLOPE_MAX_LONGITUDINAL_DEG` is recorded in refdata as a
     SCOPE rule — "surfaces steeper than this are excluded from the
     working-deck definition ... which is a scope rule, not a bar". So a steep
-    bow sheer must remove AREA, never produce a violation of its own."""
-    flat = mid_params().copy()
+    bow sheer must remove AREA, never produce a violation of its own.
+
+    FIXTURE CORRECTED 2026-08-07 — LWL 10.0 m -> 6.0 m, and this is a change to
+    the TEST, not to the rule. THE TEST WAS WRONG AND THE CODE WAS RIGHT.
+    It used `mid_params()` (LWL 10.0 m, D 1.55, x_mb 0.55) and asserted that a
+    0.5 sheer rise excludes deck there. MEASURED: on that hull the steepest
+    deck panel is 18.51 deg (closed form
+    `atan(2*sheer*D / (LWL*(1-x_mb)))` = 19.01 deg), against ISO's 25 deg
+    bound — a 775 mm rise spread over 4.5 m of deck is a 19 deg ramp, so
+    NOTHING is excluded and 0.0 is the correct answer. Asserting `x_steep >
+    0.0` there asked the checker to exclude deck that is inside the standard's
+    scope; satisfying it would have meant lowering a standard's number.
+
+    The limb is live code, it just does not bind on a 10 m hull. MEASURED at
+    the grammar's sheer_rise ceiling (0.5), mid parameters otherwise:
+
+        LWL 4.0 -> 39.94 deg  ·  5.0 -> 33.81  ·  6.0 -> 29.17  ·  7.0 -> 25.57
+        LWL 7.2 -> 24.94 deg (keeps all)       ·  10.0 -> 18.51 (keeps all)
+
+    so it fires below ~7.2 m — inside the 4-7 m Dayboat SKU, which is the
+    product this scope rule is load-bearing for. At LWL 6.0 the exclusion is
+    0.3706 m2 and the counting area falls 16.6465 -> 16.4723 m2.
+    """
+    flat = _hull_of(6.0)
     flat[grammar.NAMES.index("sheer_rise")] = 0.0
     steep = flat.copy()
     steep[grammar.NAMES.index("sheer_rise")] = 0.5
 
     c_flat, x_flat = ergonomics.working_deck_area_m2(Hull(flat))
     c_steep, x_steep = ergonomics.working_deck_area_m2(Hull(steep))
+    assert ergonomics.deck_panel_slope_deg(Hull(steep)).max() > float(
+        ergonomics.WORKING_DECK_SLOPE_MAX_LONGITUDINAL_DEG.value), (
+        "the fixture no longer has a panel past the scope bound, so the rest "
+        "of this test proves nothing — re-measure before relaxing it")
+    # the flat-hull control: a deck with no slope anywhere must lose EXACTLY
+    # nothing, or the exclusion is firing on something other than slope
     assert x_flat == pytest.approx(0.0, abs=1e-9)
-    assert x_steep > 0.0, "a 0.5 sheer rise excluded no deck at all"
+    assert c_flat == pytest.approx(16.6465, abs=1e-3)
+    assert x_steep == pytest.approx(0.3706, abs=1e-3), (
+        "a 0.5 sheer rise on a 6 m hull excluded no deck at all")
+    assert c_steep == pytest.approx(16.4723, abs=1e-3)
     assert c_steep < c_flat
     # and it is an exclusion, not a finding
     assert ergonomics.assess(Hull(steep), crew=2)[0].rule_id == "E-DECK"
+
+    # the other half of "scope rule, not a bar": on a hull where nothing is
+    # steep enough to exclude, the answer is 0.0 excluded — not a violation
+    tall = _hull_of(10.0)
+    tall[grammar.NAMES.index("sheer_rise")] = 0.5
+    _c10, x10 = ergonomics.working_deck_area_m2(Hull(tall))
+    assert x10 == pytest.approx(0.0, abs=1e-9), (
+        "18.51 deg is inside ISO's 25 deg working-deck scope bound")
+    assert ergonomics.assess(Hull(tall), crew=2)[0].passed
 
 
 def test_a_constant_this_checker_skips_says_why_in_code():
@@ -294,15 +334,69 @@ def test_the_derived_finding_carries_the_weaker_provenance():
 def test_the_mission_contract_now_carries_the_crew_requirement():
     """The checker is WIRED, not merely written. `requirements_from_mission`
     is the contract the agentic loop is graded on, and the crew count comes
-    from the mission rather than a constant in this module."""
-    m = MissionSpec(crew=2, displacement_target_kg=5000)
+    from the mission rather than a constant in this module.
+
+    FIXTURE CORRECTED 2026-08-07 — and again the TEST was wrong twice over
+    while the code was right, so both defects are recorded rather than papered
+    over. It asserted `not req.check(ev)` for 40 persons on `mid_params()`:
+
+      (1) THE CREW NEVER REACHED 40. MEASURED:
+          `replace(MissionSpec(crew=2), crew=40).crew == 12`, because
+          `mission.FIELD_RANGES["crew"]` was (1, 12) and
+          `MissionSpec.__post_init__` clamps. The row under test graded a
+          12-person boat; 40 survived only as the note "crew 40 outside
+          [1, 12]; clamped to 12". FIXED IN THE CONTRACT, not here — the
+          ceiling is now 250, justified against ES-TRIN scope in
+          `mission.FIELD_RANGES`. A clamp still happens and is still NOTED
+          (5000 clamps to 250 and says so); the LLM-seam rule is that an
+          out-of-range value is clamped and RECORDED, never accepted silently.
+      (2) EVEN UNCLAMPED, 40 PERSONS GENUINELY PASS ON THAT HULL, AND THAT IS
+          THE CORRECT ANSWER. MEASURED: the mid hull (LWL 10.0 m) has
+          27.862 m2 of working deck against 40 x 0.30 = 12.00 m2. The row
+          first fails there at 93 persons. Asserting a fail at 40 asked the
+          bar to refuse a boat that passes it.
+
+    So the fixture moves to a hull where the requirement can actually bind.
+    MEASURED working deck vs 40 x 0.30 = 12.00 m2 required:
+
+        LWL 4.0 -> 11.145 m2 FAIL   4.2 -> 11.702 FAIL   4.3 -> 11.981 FAIL
+        LWL 4.5 -> 12.538 m2 PASS   5.0 -> 13.931 PASS  10.0 -> 27.862 PASS
+
+    NECESSARY CONDITION ONLY. Every number above counts the whole deck plan
+    with no console, cabin, side deck or Z1 boundary removed, so a PASS here
+    does not mean the crew fit — only a FAIL is decisive. The stronger bar
+    needs the deck model of BuildPlan 2 V2.1-V2.3, which is unbuilt. Do NOT
+    make this row fail sooner by shrinking the 0.30 m2/person figure: it
+    derives from `refdata.ergonomics.SEAT_MIN_MM` (400 x 750 mm incl. foot
+    space) and has exactly one home.
+    """
+    m = MissionSpec(crew=2, displacement_target_kg=1200)
     names = [r.name for r in requirements_from_mission(m)]
     assert "crew-fits-on-deck" in names
-    crowded = requirements_from_mission(replace(m, crew=40))
-    req = next(r for r in crowded if r.name == "crew-fits-on-deck")
-    ev = evaluate(mid_params(), m)
-    assert not req.check(ev), "40 people fit on this deck?"
-    assert "40 persons" in req.detail(ev)
+
+    crowded = replace(m, crew=40)
+    assert crowded.crew == 40, (
+        "the contract clamped the crew away before the row could see it — "
+        "FIELD_RANGES['crew'] must admit the count this test is about")
+    req = next(r for r in requirements_from_mission(crowded)
+               if r.name == "crew-fits-on-deck")
+
+    # binds: 40 x 0.30 = 12.00 m2 against 11.70 m2 of deck on a 4.2 m hull
+    small = evaluate(_hull_of(4.2), crowded)
+    assert ergonomics.working_deck_area_m2(Hull(small.params))[0] == \
+        pytest.approx(11.702, abs=1e-3)
+    assert not req.check(small), "40 people fit on an 11.70 m2 deck?"
+    assert "40 persons" in req.detail(small)
+    assert "NECESSARY CONDITION ONLY" in req.detail(small)
+
+    # and it can fail in the OTHER direction too, or it is not a bar but a
+    # constant: the same 40 persons on the 10 m mid hull genuinely fit
+    big = evaluate(mid_params(), crowded)
+    assert ergonomics.working_deck_area_m2(Hull(big.params))[0] == \
+        pytest.approx(27.862, abs=1e-3)
+    assert req.check(big), (
+        "40 x 0.30 = 12.00 m2 on 27.86 m2 of deck must PASS — a row that "
+        "cannot pass is not a requirement")
 
 
 # ---------------------------------------------------------------------------
