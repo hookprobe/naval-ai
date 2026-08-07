@@ -229,6 +229,27 @@ def requirements_from_mission(m: MissionSpec) -> list[Requirement]:
     # It is a NECESSARY condition only, and `rules.ergonomics` says so in its
     # own note — the whole deck plan is counted with no cabin or console taken
     # out. A pass is not "the crew fit"; a fail is "they do not".
+    #
+    # WHAT THIS ROW CANNOT DO YET, MEASURED 2026-08-07, so it is not re-derived:
+    #
+    #   (1) The count is `m.crew` AFTER `MissionSpec.clamp()`, and
+    #       `mission.FIELD_RANGES["crew"]` is (1, 12). A brief asking for 40
+    #       persons arrives here as 12 and this row grades the 12-person boat —
+    #       the same substitution `length-hint` and `carries-target` exist to
+    #       catch, except that the asked-for number is not recoverable: the
+    #       spec keeps it only as the prose note "crew 40 outside [1, 12];
+    #       clamped to 12". Deciding a verdict by regexing that sentence would
+    #       make the row FAIL OPEN the day the wording changes, so the fix
+    #       belongs in the contract (record what was asked, or widen the range
+    #       for the 20 m+ craft `rules/estrin.py` now assesses), not here.
+    #   (2) Even unclamped, 40 persons PASS on a mid grammar hull and that is
+    #       the correct answer for a necessary condition: working deck 27.86 m2
+    #       (LWL 10.0 m, nothing excluded — the deck's steepest panel is 6.9 deg
+    #       against ISO's 25 deg scope bound), against 40 x 0.30 = 12.00 m2.
+    #       This row first fails at 93 persons there, or at 40 persons on a hull
+    #       of about 4.3 m. Making it fail sooner needs a deck model that takes
+    #       out the console, cabin and Z1 boundary — BuildPlan 2 V2.1-V2.3,
+    #       unbuilt — not a smaller number invented here.
     reqs.append(Requirement(
         "crew-fits-on-deck",
         f"ISO 15085 working deck vs {m.crew} persons "

@@ -38,6 +38,25 @@ does not by itself fail anything. Every hull this grammar emits has a flat
 transverse deck, so only the longitudinal limit can bind; the transverse
 constant is deliberately not used and `not_applicable()` says why.
 
+WHERE THAT LIMB BINDS, MEASURED — because "it excluded nothing" is a claim
+about the HULL, not evidence of a broken check. The deck lid rises with the
+bow sheer, so its steepest panel is at the stem and is, in closed form,
+
+    slope_max = atan( 2 * sheer_rise * D / (LWL * (1 - x_mb)) )
+
+MEASURED 2026-08-07 on grammar hulls at the sheer_rise CEILING (0.5) with
+otherwise mid parameters (D 1.55 m, x_mb 0.55), panel slopes off `Hull`:
+
+    LWL  4.0 m -> 39.9 deg   EXCLUDES     LWL  7.0 m -> 25.6 deg  EXCLUDES
+    LWL  5.0 m -> 33.8 deg   EXCLUDES     LWL  7.4 m -> 24.3 deg  keeps all
+    LWL  6.0 m -> 29.2 deg   EXCLUDES     LWL 10.0 m -> 19.0 deg  keeps all
+
+So the limb is live code — it fires below ~7.2 m — and on a 10 m hull it
+excludes NOTHING even at the maximum sheer the grammar admits, because a
+775 mm rise spread over 4.5 m of deck is a 19 deg ramp and ISO's bound is 25.
+That is the right answer for that hull, and it is recorded here so the next
+reader does not "fix" a check that is working by lowering a standard's number.
+
 TWO BASIS VOCABULARIES MEET HERE AND THEY ARE NOT THE SAME WORD. `RuleFinding.
 basis` is the Gate 6R vocabulary — 'standard' means A NAMED REVIEWER CONFIRMED
 IT ON A DATE, which is why it comes from `review.basis_for(rule_id)` and reads
@@ -86,24 +105,64 @@ def seat_area_m2() -> float:
     return (float(w_mm) / 1e3) * (float(d_mm) / 1e3)
 
 
+def deck_panel_slope_deg(hull: "Hull") -> np.ndarray:
+    """Longitudinal slope of each deck-lid PANEL [deg], transom -> stem.
+
+    The working deck this geometry builds is the lid between the port and
+    starboard sheer lines: `Hull.closed_mesh` lays it as
+    `quad(S[i], P[i], P[i+1], S[i+1])` with both edges of a station at the same
+    z, so the lid height depends on x alone. A surface z = f(x) has its
+    steepest ascent along x and is horizontal athwartships, which is why ONE
+    slope per panel describes it completely and the transverse limb is
+    identically zero (`not_applicable()` says so, with the reason).
+
+    Measured PER PANEL rather than by `np.gradient` over the stations. A
+    central difference averages the two panels either side of a station, so one
+    steep panel between two gentle ones reads as two moderate ones and the
+    exclusion silently understates itself — the same shape of defect as the
+    snappy layer table that reported the REQUESTED spec as the achieved one.
+    """
+    x = np.asarray(hull.x, dtype=float)
+    z = np.asarray(hull.z_sheer, dtype=float)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        return np.degrees(np.arctan(np.abs(np.diff(z) / np.diff(x))))
+
+
 def working_deck_area_m2(hull: "Hull") -> tuple[float, float]:
     """(counting deck area [m2], excluded area [m2]) under the slope scope rule.
 
     Deck plan area is `2 * int(y_sheer dx)` — the same integral
-    `Hull.deck_area()` performs, restricted to the stations whose LONGITUDINAL
-    sheer slope is within `WORKING_DECK_SLOPE_MAX_LONGITUDINAL_DEG`. It is not
-    a call to `deck_area()` minus a correction, because a correction computed
-    a second way is the two-copies defect; the mask is applied inside the one
-    integral and the excluded part is reported as the difference.
+    `Hull.deck_area()` performs — PARTITIONED over the panels whose
+    longitudinal slope is within `WORKING_DECK_SLOPE_MAX_LONGITUDINAL_DEG`.
+    The two returned numbers sum to `deck_area()` by construction: each panel's
+    trapezoid `(y_i + y_i+1) * dx` lands in exactly one of the two bins, so the
+    excluded area is not a second measurement of the same quantity computed a
+    different way (the two-copies defect) and cannot disagree with the total.
+
+    That partition replaces a per-STATION mask, `2 * trapezoid(where(keep, y,
+    0), x)`, which is not a partition at all: a panel between a kept station
+    and an excluded one contributes half its area to the counting integral and
+    half to nothing, so the boundary of the excluded region was smeared over
+    one panel in each direction and `total - counting` had to be clamped at
+    zero to stay positive.
+
+    An unreadable hull is REFUSED, not scored. A NaN in the sheer makes every
+    `slope <= limit` comparison False, which would have silently excluded the
+    whole deck and reported a hard, finite 0.00 m2 of working deck — an
+    unmeasurable metric scored as a measured catastrophe. Both numbers come
+    back NaN instead and `assess()` turns that into UNMEASURABLE.
     """
     x = np.asarray(hull.x, dtype=float)
     y = np.asarray(hull.y_sheer, dtype=float)
     z = np.asarray(hull.z_sheer, dtype=float)
-    slope_deg = np.degrees(np.arctan(np.abs(np.gradient(z, x))))
+    if not (np.all(np.isfinite(x)) and np.all(np.isfinite(y))
+            and np.all(np.isfinite(z))):
+        return float("nan"), float("nan")
+
+    panel = (y[:-1] + y[1:]) * np.diff(x)     # 2 * trapezoid of one panel
+    slope_deg = deck_panel_slope_deg(hull)
     keep = slope_deg <= float(WORKING_DECK_SLOPE_MAX_LONGITUDINAL_DEG.value)
-    total = 2.0 * float(np.trapezoid(y, x))
-    counting = 2.0 * float(np.trapezoid(np.where(keep, y, 0.0), x))
-    return counting, max(total - counting, 0.0)
+    return float(panel[keep].sum()), float(panel[~keep].sum())
 
 
 def not_applicable() -> dict[str, str]:
@@ -167,5 +226,6 @@ def assess(hull: "Hull", crew: int) -> list[RuleFinding]:
         f"— a fail means they do not. Refdata provenance: {prov}.")]
 
 
-__all__ = ["assess", "seat_area_m2", "working_deck_area_m2", "not_applicable",
-           "weakest_basis", "basis_for"]
+__all__ = ["assess", "seat_area_m2", "working_deck_area_m2",
+           "deck_panel_slope_deg", "not_applicable", "weakest_basis",
+           "basis_for"]
