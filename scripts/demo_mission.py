@@ -18,6 +18,7 @@ from navalai.optimize import pareto_front
 from navalai.rules import report
 from navalai.rules.iso12215 import assess as scantling
 from navalai.rules.iso12217 import assess as stability
+from navalai.engineer import assess as engineer_assess
 from navalai.seakeeping import heave_coeffs
 from navalai.translate import grade, requirements_from_mission, translate
 
@@ -71,6 +72,24 @@ def main() -> None:
     from navalai.geometry import Hull
     am, dp, nb = heave_coeffs(Hull(x), np.array([0.8, 1.5, 2.5]), nx=24, nz=6)
     print(f"  {nb} panels; added mass {am.round(0)} kg; damping {dp.round(0)} N·s/m")
+
+    # MANUFACTURING TAIL. The demo used to END at provenance, which meant the
+    # script a reader runs to judge the project stopped one clause short of the
+    # project's own headline claim -- "...before it exports as build-ready
+    # geometry". The capability was never missing: agents.run_plm reaches it
+    # because engineer imports unroll. The DEMONSTRATION was missing, and a
+    # reader who runs the demo concludes the manufacturing tail does not exist.
+    # Recorded in docs/END-TO-END-AUDIT.md as the cheaper of that audit's two
+    # findings.
+    print("\nmanufacturing (tier: derived from the VALIDATED hull):")
+    rep = engineer_assess(Hull(x), wl=ev.wl, mldc_kg=ev.hydro.disp_kg)
+    print(f"  {rep.panel_count} developable panels, {rep.bulkheads} bulkheads, "
+          f"{rep.frames} frames")
+    print(f"  {rep.ply_sheets} ply sheets ({rep.panel_area_m2:.1f} m2 panel area, "
+          f"nest utilisation {rep.nest_utilisation * 100:.1f}%)")
+    print(f"  {rep.epoxy_kg:.1f} kg epoxy; build estimate {rep.build_hours:.0f} h "
+          f"(basis={rep.basis})")
+    print(f"  BOM: {len(rep.bom)} line items")
 
     prov = db.Provenance("data/navalai.sqlite3")
     evaluate(x, m, provenance=prov)
