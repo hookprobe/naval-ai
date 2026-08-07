@@ -2,7 +2,8 @@
 
 SQLite here (single-node prototype); the schema is deliberately PostgreSQL-
 compatible so the swap is a connection string, not a redesign. Rules:
-  - a hull is content-addressed by the SHA-256 of its parameter vector
+  - a hull is content-addressed by the SHA-256 of its CANONICAL parameter
+    vector, and the canonical vector is what the row stores (see `canonical`)
   - every result row carries solver name+version, fidelity tier, uncertainty,
     and the code version that produced it
   - rows are append-only; re-runs append, never overwrite (honest history)
@@ -44,9 +45,34 @@ CREATE INDEX IF NOT EXISTS idx_result_hull ON result(hull_id, tier, quantity);
 """
 
 
+# Decimals the content address is computed at. It lives here ONCE because it
+# defines what "the same hull" means, and the id and the stored payload must
+# agree about that or the address does not address the content.
+CANON_DECIMALS = 10
+
+
+def canonical(params: np.ndarray) -> list[float]:
+    """The canonical form of a parameter vector: what gets hashed AND stored.
+
+    THE ADDRESS AND THE PAYLOAD MUST BE THE SAME OBJECT (gap E9).
+    `hull_id` hashed `round(v, 10)` while `add_hull` stored the RAW floats under
+    `INSERT OR IGNORE`, so two vectors agreeing to 10 decimals shared one id and
+    the FIRST one to arrive kept the row. MEASURED on the reference hull with
+    LWL 10.0 vs 10.00000000001: identical 24-hex id, and `get_params` returned
+    the earlier vector — the provenance DB, which is the evidence graph the
+    whole honesty argument rests on, handed back a design that did not produce
+    the results filed against it. A content address that does not address the
+    stored content is worse than no address, because nothing downstream can
+    tell. Storing the canonical form makes the collision a true identity: the
+    two vectors are the same hull *by the definition the id uses*, and the row
+    is that hull.
+    """
+    return [round(float(v), CANON_DECIMALS) + 0.0 for v in np.asarray(params).ravel()]
+
+
 def hull_id(params: np.ndarray) -> str:
-    canon = json.dumps([round(float(v), 10) for v in params])
-    return hashlib.sha256(canon.encode()).hexdigest()[:24]
+    return hashlib.sha256(
+        json.dumps(canonical(params)).encode()).hexdigest()[:24]
 
 
 class Provenance:
@@ -56,10 +82,14 @@ class Provenance:
         self.con.executescript(SCHEMA)
 
     def add_hull(self, params: np.ndarray, grammar_version: str = "chine-v1") -> str:
+        # Store the SAME canonical vector that was hashed — see `canonical`.
+        # `INSERT OR IGNORE` is only honest once these two agree: ignoring the
+        # second insert is then discarding a byte-identical row, not silently
+        # preferring whichever of two different designs arrived first.
         hid = hull_id(params)
         self.con.execute(
             "INSERT OR IGNORE INTO hull VALUES (?,?,?,?)",
-            (hid, json.dumps([float(v) for v in params]), grammar_version, time.time()),
+            (hid, json.dumps(canonical(params)), grammar_version, time.time()),
         )
         self.con.commit()
         return hid

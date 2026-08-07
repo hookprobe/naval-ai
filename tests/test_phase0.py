@@ -1,5 +1,6 @@
 """Gate 0: grammar round-trip, constraint speed, geometry sanity, DB reproducibility."""
 
+import json
 import time
 
 import numpy as np
@@ -91,3 +92,204 @@ def test_db_roundtrip(tmp_path):
     assert X.shape == (1, grammar.N_PARAMS) and y[0] == pytest.approx(812.5)
     # content addressing: same params -> same id (reproducibility)
     assert pv.add_hull(x) == hid
+
+
+def test_the_stored_hull_row_is_the_vector_that_was_hashed(tmp_path):
+    """Gap E9: `hull_id` hashed round(v, 10) while `add_hull` stored the RAW
+    floats under `INSERT OR IGNORE`.
+
+    MEASURED before the fix, on the reference hull with LWL nudged by 1e-11:
+    both vectors produced the SAME 24-hex id, the second INSERT was ignored,
+    and `get_params(hid)` returned the FIRST vector — 10.0 where the caller had
+    stored 10.00000000001. Every result row filed against that id then
+    described a hull the DB could no longer hand back. A content address must
+    address the content it stores, so the canonical form is now what is stored.
+    """
+    pv = db.Provenance(tmp_path / "e9.sqlite3")
+    a = mid_params()
+    b = a.copy()
+    b[0] += 1e-11                      # below CANON_DECIMALS: the SAME hull
+    assert b[0] != a[0], "the nudge must be representable, or this proves nothing"
+
+    hid_a, hid_b = pv.add_hull(a), pv.add_hull(b)
+    assert hid_a == hid_b, "1e-11 must canonicalise away — that is the premise"
+    # ...and because they are one id, they must round-trip to ONE content.
+    got_a, got_b = pv.get_params(hid_a), pv.get_params(hid_b)
+    assert np.array_equal(got_a, got_b)
+    assert np.array_equal(got_a, np.array(db.canonical(a)))
+    assert np.array_equal(got_a, np.array(db.canonical(b)))
+    # the stored row is EXACTLY what the hash was taken over
+    assert db.hull_id(got_a) == hid_a, "re-hashing the stored row must give its id"
+
+    # A change big enough to survive canonicalisation is a DIFFERENT hull and
+    # must get its own id and its own row — the collision fix must not have
+    # been bought by rounding everything together.
+    c = a.copy()
+    c[0] += 1e-8
+    hid_c = pv.add_hull(c)
+    assert hid_c != hid_a
+    assert pv.get_params(hid_c)[0] == pytest.approx(a[0] + 1e-8, abs=1e-11)
+
+
+def test_negative_zero_is_not_a_second_address_for_zero(tmp_path):
+    """Gap E9, the corner the round() alone does not cover.
+
+    `round(-0.0, 10)` is `-0.0` and `json.dumps` writes it as "-0.0", so the
+    canonical string — and therefore the sha256 — differed for two vectors that
+    compare equal under `==` and describe the identical hull. MEASURED: rocker
+    at -0.0 vs 0.0 gave two ids for one boat, i.e. the DB would have filed one
+    design's results in two places and the flywheel would have trained on it
+    twice. `canonical` normalises the sign of zero.
+    """
+    pv = db.Provenance(tmp_path / "e9z.sqlite3")
+    a = mid_params()
+    a[grammar.NAMES.index("rocker")] = 0.0
+    b = a.copy()
+    b[grammar.NAMES.index("rocker")] = -0.0
+    assert a[10] == b[10]                       # numerically the same boat
+    assert pv.add_hull(a) == pv.add_hull(b)
+    assert json.dumps(db.canonical(a)) == json.dumps(db.canonical(b))
+
+
+# ---------------------------------------------------------------------------
+# Gaps C9 and H1. These live here rather than in test_phase1.py only because
+# this session owns this file; they exercise navalai.energy, not Gate 0.
+# ---------------------------------------------------------------------------
+
+def test_shell_area_is_integrated_not_a_factor_times_the_waterline_area():
+    """Gap C9: the weight path multiplied `wetted_surface(0.0)` by a bare 1.6.
+
+    The factor stood in for the topsides between the design waterline and the
+    sheer, and `wetted_surface` takes the waterline as an argument — so the
+    quantity it approximated was one call away and `engineer.assess` was
+    already making it. MEASURED on the reference hull: wetted(0.0) = 30.579
+    m^2, shell to the sheer = 51.616 m^2, true ratio **1.6879**, so 1.6
+    understated the shell by 5.2% and structure mass by 3.38% (1010.7 vs
+    1046.1 kg).
+
+    The important measurement is not the reference hull, though — it is that
+    the ratio is a SHAPE, not a constant. Over 200 grammar-feasible hulls
+    (seed 3) it ran 1.251 to 6.702, mean 2.062: the one literal was wrong by up
+    to 76% of the true area, and it was wrong in a way that varied with exactly
+    the parameters the optimiser is free to move.
+    """
+    from navalai.energy import shell_area_m2
+
+    h = geometry.Hull(mid_params())
+    exact = shell_area_m2(h)
+    assert exact == pytest.approx(h.wetted_surface(float(h.z_sheer.max())))
+    assert exact == pytest.approx(51.616, abs=0.01)
+    assert h.wetted_surface(0.0) == pytest.approx(30.579, abs=0.01)
+    assert exact / h.wetted_surface(0.0) == pytest.approx(1.6879, abs=1e-3)
+
+    # ...and it is emphatically not 1.6 anywhere but by luck. Sweep the box.
+    X = grammar.sample(200, np.random.default_rng(3))
+    ratios = np.array([shell_area_m2(geometry.Hull(r)) / geometry.Hull(r).wetted_surface(0.0)
+                       for r in X])
+    assert ratios.min() < 1.3 and ratios.max() > 6.0, (
+        f"ratio spread {ratios.min():.3f}-{ratios.max():.3f} — if this ever "
+        f"collapses near 1.6 the factor was defensible and this test is stale")
+    assert np.max(np.abs(1.6 - ratios) / ratios) > 0.70
+
+
+def test_engineer_and_the_weight_path_plank_the_same_boat():
+    """Gap C9, the reason it mattered: two shell areas for one hull.
+
+    `engineer.assess` integrated the shell to the sheer while the L1 weight
+    budget took `wetted_surface(0.0) * 1.6`, so the module that counts plywood
+    and the module that weighs it disagreed by 5.2% on the reference hull with
+    nothing able to see the disagreement. One quantity, one place.
+    """
+    from navalai import engineer
+    from navalai.energy import shell_area_m2
+
+    h = geometry.Hull(mid_params())
+    rep = engineer.assess(h)
+    # the report's own panel area is that shell plus the deck — same integral
+    assert rep.panel_area_m2 == pytest.approx(
+        round(shell_area_m2(h) + h.deck_area(), 1))
+
+
+def test_wh_per_nm_sigma_is_propagated_and_says_so():
+    """Gap H1: the Wh/NM badge carried `wh_per_nm * 0.30` — a declared fraction
+    of its own value, which cannot narrow with evidence or widen without it.
+
+    Wh/NM is a pure product/quotient of Rt and the drivetrain efficiencies, so
+    relative variances add. MEASURED on the reference hull floated at wl=0
+    with the default EnergySpec:
+
+        U 2.5 m/s, Fn 0.2525, VALID:  Rt 608.1 N, sigma_R 103.6 N (0.1703)
+                                      Wh/NM 618.2, sigma 105.3  (0.30x said 185.5)
+        U 4.6 m/s, Fn 0.4645, INVALID: total_resistance widens sigma to Rt
+                                      Wh/NM 6773.4, sigma 6773.4 (0.30x said 2032.0)
+
+    The second row is the whole point: past FN_MICHELL_MAX the resistance model
+    disowns its own answer, and the flat 0.30 stayed at 0.30 — i.e. it claimed
+    MORE confidence in a prediction the physics module had withdrawn than in
+    one it stood behind.
+    """
+    import navalai.hydrostatics as H
+    from navalai.energy import (SIGMA_PLACEHOLDER, SIGMA_PROPAGATED,
+                                SIGMA_PROPAGATED_LOWER_BOUND, EnergySpec,
+                                energy_report)
+    from navalai.resistance import FN_MICHELL_MAX, total_resistance
+
+    h = geometry.Hull(mid_params())
+    hs = H.solve(h, 0.0)
+    spec, deck = EnergySpec(), h.deck_area()
+
+    res = total_resistance(h, 2.5, hs.wetted, hs.cb, wl=0.0)
+    assert res.valid
+    en = energy_report(res.total, 2.5, deck, spec, res.uncertainty)
+    assert en.sigma_basis == SIGMA_PROPAGATED_LOWER_BOUND
+    assert en.sigma_wh_per_nm == pytest.approx(
+        en.wh_per_nm * res.uncertainty / res.total, rel=1e-12)
+    assert en.sigma_wh_per_nm == pytest.approx(105.3, abs=0.5)
+    # it is NOT the old decoration, and it is not equal to it by accident
+    assert abs(en.sigma_wh_per_nm - 0.30 * en.wh_per_nm) > 0.10 * en.wh_per_nm
+
+    # Out of regime: the band must FOLLOW the resistance model's own retreat.
+    fast = 4.6
+    hot = total_resistance(h, fast, hs.wetted, hs.cb, wl=0.0)
+    assert hot.fn > FN_MICHELL_MAX and not hot.valid
+    en_hot = energy_report(hot.total, fast, deck, spec, hot.uncertainty)
+    assert en_hot.sigma_wh_per_nm == pytest.approx(en_hot.wh_per_nm, rel=1e-9)
+
+    # A drivetrain sigma, when a caller has one, adds in quadrature and the
+    # basis stops calling itself a lower bound.
+    both = energy_report(res.total, 2.5, deck, spec, res.uncertainty, 0.10)
+    assert both.sigma_basis == SIGMA_PROPAGATED
+    assert both.sigma_wh_per_nm > en.sigma_wh_per_nm
+    assert both.sigma_wh_per_nm == pytest.approx(
+        en.wh_per_nm * np.hypot(res.uncertainty / res.total, 0.10), rel=1e-12)
+
+    # And with nothing to propagate from, the placeholder is returned WEARING
+    # ITS NAME. This is the row's escape hatch and it is only acceptable
+    # because the report says so in a field a badge can read.
+    none = energy_report(res.total, 2.5, deck, spec)
+    assert none.sigma_basis == SIGMA_PLACEHOLDER
+    assert none.sigma_wh_per_nm == pytest.approx(0.30 * none.wh_per_nm)
+    assert SIGMA_PLACEHOLDER != SIGMA_PROPAGATED != SIGMA_PROPAGATED_LOWER_BOUND
+
+
+def test_the_placeholder_sigma_fraction_is_declared_in_exactly_one_place():
+    """Gap H1 + the house invariant: a number lives in exactly one place.
+
+    The 0.30 survives ONLY as `energy.WH_PER_NM_PLACEHOLDER_SIGMA_FRAC`, and it
+    is reachable only through a report that labels itself a placeholder. A
+    second copy at a call site is how `0.30` became a badge sigma in the first
+    place, and how a 15 mm ply came to fail its own scantling rule.
+    """
+    import pathlib
+    import re
+
+    from navalai import energy
+
+    assert energy.WH_PER_NM_PLACEHOLDER_SIGMA_FRAC == 0.30
+    src = pathlib.Path(energy.__file__).read_text()
+    body = "\n".join(ln for ln in src.splitlines()
+                     if not ln.lstrip().startswith("#"))
+    # one assignment, and no other bare 0.30 arithmetic in the module
+    assert len(re.findall(r"WH_PER_NM_PLACEHOLDER_SIGMA_FRAC\s*=", body)) == 1
+    assert not re.search(r"(?<!_)0\.30\s*\*", body), (
+        "a second declared 0.30 has appeared in energy.py")

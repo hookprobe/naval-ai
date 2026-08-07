@@ -41,6 +41,7 @@ from dataclasses import dataclass, replace
 
 import numpy as np
 
+from .energy import shell_area_m2
 from .geometry import Hull
 from .limits import FRAME_SPACING_M, PLY_THICKNESS_M
 from .unroll import SHEET_L_M, SHEET_M2, SHEET_W_M, Part  # noqa: F401
@@ -130,7 +131,12 @@ def assess(hull: Hull, wl: float = 0.0,
     `limits.PLY_THICKNESS_M` documents. Omitting it uses the nominal sheet and
     the BOM says so.
     """
-    shell = hull.wetted_surface(float(hull.z_sheer.max()))   # full shell girth
+    # Gap C9: the shell area is INTEGRATED to the sheer, once, in
+    # `energy.shell_area_m2` — the weight path used to reach the same quantity
+    # through a bare `wetted_surface(0.0) * 1.6`, so the boat this module planked
+    # and the boat the L1 weight budget massed were two different boats (5.2%
+    # apart on the reference hull, up to 76% over the grammar box).
+    shell = shell_area_m2(hull)                              # full shell girth
     deck = hull.deck_area()
     area = shell + deck
 
@@ -212,7 +218,7 @@ def assess(hull: Hull, wl: float = 0.0,
     # Frames are NOT sheet goods. Counting a 2.5 x 1.0 m blank per ring frame
     # would inflate the sheet count with a fiction; they are laminated timber
     # ring frames and are quantified in linear metres of their own girth.
-    girth = float(np.mean(hull.wetted_surface(float(hull.z_sheer.max())) / lwl))
+    girth = shell / lwl        # same integrated shell area, not a third copy
     for k in range(frames):
         bom.append(BomLine(
             part=f"frame-{k + 1}", qty=1, material="laminated timber",
