@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 
 from navalai.evaluate import evaluate
-from navalai.mission import MissionSpec
+from navalai.mission import MissionSpec, parse_mission
 from navalai.translate import (grade, requirements_from_mission, sanitize,
                                translate)
 from tests.test_phase0 import mid_params
@@ -159,3 +159,94 @@ def test_explicit_design_category_is_honoured():
     assert m.design_category == "D"
     assert "waters imply category A" in m.notes
     assert gm_floor("D") != gm_floor("A")
+
+
+# ---------------------------------------------------------------------------
+# E12 — the range table guarded the LLM path only
+# ---------------------------------------------------------------------------
+
+def test_prose_and_direct_construction_pass_the_same_range_gate():
+    """`_FIELD_RANGES` lived in `translate.py` and clamped the LLM's JSON.
+    The SAME fields arriving as prose, or over HTTP as `MissionSpec(**body)`,
+    were unbounded.
+
+    MEASURED before the fix:
+
+        parse_mission("6 tonne boat at 0 knots") -> cruise_speed_kn 0.0
+          with notes EMPTY, and evaluate() then returned
+          range_solar_nm_day = 3.0e12 NM/day at tier L1 with no warning.
+          Earth's circumference is ~21,600 NM.
+        parse_mission("5000 crew river barge")   -> crew 5000
+        MissionSpec(displacement_target_kg=-1.0) -> accepted verbatim
+
+    MEASURED after: speed clamps to 1.0 kn, the range falls to 130.4 NM/day,
+    and every clamp is written into `.notes`. The note is the point — 0 knots
+    being rejected is worth little if the caller cannot tell that the mission
+    it got back is not the mission it asked for.
+    """
+    from navalai.mission import FIELD_RANGES
+
+    m = parse_mission("6 tonne boat at 0 knots")
+    assert m.cruise_speed_kn == FIELD_RANGES["cruise_speed_kn"][0]
+    assert "cruise_speed_kn" in m.notes and "clamped" in m.notes
+    ev = evaluate(mid_params(), m)
+    assert ev.energy.range_solar_nm_day < 21_600, (
+        f"solar range {ev.energy.range_solar_nm_day:.3g} NM/day exceeds the "
+        f"circumference of the Earth")
+
+    m2 = parse_mission("5000 crew river barge")
+    assert m2.crew == FIELD_RANGES["crew"][1] and "crew" in m2.notes
+
+    # the HTTP path: a bare constructor is the same gate
+    m3 = MissionSpec(displacement_target_kg=-1.0, cruise_speed_kn=0.0,
+                     crew=5000)
+    lo_d, _ = FIELD_RANGES["displacement_target_kg"]
+    assert m3.displacement_target_kg == lo_d
+    assert m3.cruise_speed_kn == FIELD_RANGES["cruise_speed_kn"][0]
+    assert m3.crew == FIELD_RANGES["crew"][1]
+    assert m3.notes.count("clamped") == 3
+
+    # NaN survives min/max — sanitize() learned that the hard way and the
+    # contract must not have to learn it again.
+    m4 = MissionSpec(displacement_target_kg=float("nan"))
+    assert m4.displacement_target_kg == 6000.0 and "non-finite" in m4.notes
+    m5 = MissionSpec(design_category="Z")
+    assert m5.design_category == "C" and "design_category" in m5.notes
+
+
+def test_there_is_one_range_table_not_two():
+    """The recurring defect in this codebase is a number declared twice (GM
+    0.35 vs 0.45). `translate` now READS `mission.FIELD_RANGES` instead of
+    keeping its own copy, so the LLM seam and the prose parser cannot drift.
+    """
+    import navalai.mission as M
+    import navalai.translate as T
+
+    assert T._FIELD_RANGES is M.FIELD_RANGES
+    assert T._ENERGY_RANGES is M.ENERGY_RANGES
+
+
+def test_prose_battery_capacity_is_bounded_too():
+    """Found while closing E12. `parse_mission` set `battery_kwh` straight from
+    prose with no bound at all — the one writer of that field that the LLM
+    range table never covered. MEASURED: "999999 kWh" parsed verbatim, which is
+    7,499,993 kg of LiFePO4 in a 6 t mission.
+
+    It is clamped where the untrusted VALUE arrives, not in
+    `MissionSpec.__post_init__`: `battery_kwh == 0` is a live sentinel that
+    switches off the solar-positive requirement, and clamping it up to the
+    1.0 kWh floor would silently add a requirement the caller turned off.
+    """
+    from navalai.energy import EnergySpec
+    from navalai.mission import ENERGY_RANGES
+
+    m = parse_mission("canal boat with 999999 kwh battery")
+    assert m.energy.battery_kwh == ENERGY_RANGES["battery_kwh"][1]
+    assert "battery" in m.notes and "clamped" in m.notes
+
+    # the sentinel is untouched by the contract's own gate
+    zero = MissionSpec(energy=EnergySpec(battery_kwh=0.0))
+    assert zero.energy.battery_kwh == 0.0
+    assert not any("battery" in n for n in zero.notes.split("; ") if n)
+    names = {r.name for r in requirements_from_mission(zero)}
+    assert "solar-positive-day" not in names

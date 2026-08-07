@@ -30,7 +30,18 @@ python -m pytest tests/ -q
 python -m navalai.gates
 ```
 
-Expected: 93 passed (~3 min), then 14 GREEN gates.
+Expected: the suite green in a few minutes, then the gate table.
+
+No test count and no gate count is written here on purpose (gap J8). This file
+promised "93 passed, 14 GREEN gates" long after both had moved — the counts
+are a function of the tree, so ask the tree: `python -m navalai.gates` is the
+registry's single source, and `data/gate-ledger.json` carries every RED row's
+measured watermark, owner and review-by date.
+
+Two skips are EXPECTED on a fresh clone and are not failures: the KCS
+benchmark geometry is not redistributed, so Gate 2G reports SKIPPED until you
+run `python scripts/fetch_benchmark_geom.py` against the IGES you obtained
+(see §4.1 below). That skip used to be invisible; it is a gate row now.
 
 All of these publish macOS arm64 wheels (capytaine, mujoco, pymoo: PyPI;
 CadQuery via the cadquery-ocp arm64 wheels). If `cadquery` pip resolution
@@ -68,11 +79,22 @@ or `docker run -it opencfd/openfoam-default` (arm64 images exist).
 1. **Benchmark geometry**: download KCS (and optionally JBC) IGES + tank data
    from the Tokyo 2015 workshop site (t2015.nmri.go.jp). Model scale
    (KCS: 1:31.6, L≈7.28 m) — matches the published validation practice.
+   Then `python scripts/fetch_benchmark_geom.py --iges downloads/KCS.igs`,
+   which runs the measured conversion recipe and checks the result against
+   `data/benchmark_geom/CHECKSUMS.json`. The geometry itself is NOT committed
+   (workshop terms); the record of what it should be is. Note the acceptance
+   test is the submerged VOLUME, not the sha256 — the tessellation is
+   OCC-version-dependent, so a hash mismatch means regenerated, not wrong.
 2. **Case generation** (repo side): `navalai.cfd.case.write_resistance_case`
    emits the case skeleton; point the STL/IGES at the benchmark hull instead
    of a grammar hull for calibration runs.
-3. **Run**: `navalai/cfd/run-case.sh <case> 10` (10 = performance cores;
-   leave efficiency cores for the OS).
+3. **Run**: `openfoam scripts/run_campaign.sh <case-or-root> 10` — resumable,
+   which matters because this Mac thermal-sleeps out of long runs.
+   **10 is MEASURED, not a rule of thumb about efficiency cores.** There is no
+   efficiency tier on this M5 Pro (`sysctl hw.perflevel{0,1}`: "Super" x5 +
+   "Performance" x10 = 15). On the same 0.4 s slice of the medium grid:
+   np=5 → 212.7 s, np=10 → 127.2 s (1.67x), np=15 → 153.1 s. Oversubscribing
+   all 15 costs ~20%.
 4. **Three-grid GCI**: run coarse/medium/fine at refinement r = sqrt(2)
    (≈0.7 M / 2 M / 5.6 M cells). Post-process each with
    `navalai.cfd.post.mean_resistance` + `navalai.cfd.post.gci`.

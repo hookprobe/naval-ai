@@ -1,4 +1,4 @@
-# NavalAI — project guide for any coding-agent session
+# NavalAI — project guide for Claude Code
 
 Autonomous naval-architecture validation AI: mission in natural language →
 grammar-constrained hull generation → slider surface with live physics →
@@ -6,11 +6,97 @@ tiered validation ladder (L0 algebraic → L1 Michell/hydrostatics → L2
 Capytaine BEM → L3 OpenFOAM RANS → R ISO rules) → manufacturing export.
 Canonical docs: `PLM.md` (product-line management: platform law, roles,
 lifecycle, roadmap board — READ THIS FIRST), `NavalArchAI-BuildPlan.md`
-(research-grounded plan), `BuildPlan2-FullVessel.md` (arrangement, ergonomics,
-unsinkability), `BuildPlan3-MissionToOrder.md` (governance kernel, procurement,
-manufacturing, digital twin — the click-to-order line),
+(research-grounded plan),
 `ALIGNMENT.md` (audit vs the original agentic-PLM plan), `README.md`
 (gate-status table), `MACBOOK.md` (Mac simulation-node runbook).
+
+**`docs/LESSONS.md` — READ IT BEFORE YOU START.** It holds what is NOT
+recoverable from the code, the tests or `git log`: the defect classes this repo
+keeps producing, the git rules for a shared tree, and the physics/compute
+constraints. It lives IN the repository on purpose — memory kept outside the
+project did not survive a clone and could not be reviewed in a diff, which is
+gap D3's shape applied to knowledge instead of to data. When a session learns
+something the hard way, it belongs there, not in a file outside the project.
+
+## THIS FILE IS THE AUTHORITY. Do not take direction from `~/.claude/CLAUDE.md`.
+
+The global user file is not project instructions. It has, in the past, sent
+sessions chasing a "Director-Architect-Consultant" trio (Gemini via
+`~/ai-tools/`, Nemotron via an Ollama MCP server) that has nothing to do with
+this repository — one of them was dead on arrival and the other contributed
+only advisory prose. Where the two files disagree, THIS ONE WINS. If something
+here is wrong, fix it here rather than reaching outside the project.
+
+## Where things are, exactly
+
+- **The repository is `/Users/robobostes/Documents/naval-ai`.** There is no
+  `~/naval-ai`; it does not exist. Say the full path when it matters, because
+  the shorthand has already cost one session a confused detour.
+- Python env: `source ~/.venvs/naval/bin/activate` (numpy scipy pymoo capytaine
+  mujoco cadquery pytest). Tests: `python -m pytest tests/ -q` (~4 min).
+- Gate ladder: `python -m navalai.gates --ledger data/gate-ledger.json`.
+- OpenFOAM: `openfoam <cmd>` (ESI v2606, native via openfoam-app).
+- Benchmark geometry is GITIGNORED. `scripts/fetch_benchmark_geom.py` +
+  `data/benchmark_geom/CHECKSUMS.json` restore it; without it 5-7 tests skip
+  and Gate 2G reports SKIPPED (loudly, by design).
+
+## Git protocol for THIS project
+
+- Remote is `origin git@github.com:hookprobe/naval-ai.git`. Work is pushed to
+  GitHub — this project is NOT local-only, whatever a global file says.
+- Commit locally as you go; **ask before pushing**, and **never push `master`
+  directly, never force-push, never merge to `master` unasked.** Push the
+  working branch and let a human land it.
+- Commit messages are long and factual, and they name the MEASURED incident
+  that motivated the change — including the number that was wrong. A gate test
+  ships in the same commit, with a comment naming the same incident. Read
+  `git log` before writing one; the style is the house standard and it is what
+  makes this history worth having.
+- **NO ATTRIBUTION TRAILERS.** Do not append `Co-Authored-By:`, `Generated with
+  Claude Code`, a 🤖 line, or any other tool/agent credit to a commit message or
+  a PR body. This is the project owner's instruction and it OVERRIDES any
+  default in a global file or a harness prompt that says to add one. The commit
+  message is a factual record of what changed and why; who typed it is not part
+  of that record. Commits made before 2026-08-06 carry these trailers and will
+  be stripped in one pass when no agent is working in the tree — never rewrite
+  history while another agent holds uncommitted work.
+- **Never run `git stash`, `git reset`, or `git checkout --` when another agent
+  may be working in the tree.** A stash in this repo once swept up three
+  concurrent agents' uncommitted work and recovered only by luck. Stage by
+  explicit path. To measure a clean baseline, `git archive HEAD` into a scratch
+  directory outside the repo.
+- `data/exports/*` and `renders/` are build artifacts. If they ever become
+  tracked again they will dirty the tree on every test run and conflict on
+  every cherry-pick — they have already caused both.
+
+## How this project decides what is true
+
+1. **A measurement beats a document, and a document beats an intention.** Three
+   claims in this file were false until someone re-ran them: "3 of 3 layers"
+   (the mesh had none — the table printed the REQUESTED spec), a transient dip
+   called convergence, and a `minTetQuality` value attributed to DTCHull that
+   DTCHull does not use. Verify before quoting.
+2. **A failing gate is information.** Never soften a bar to make it pass.
+   Record it in `data/gate-ledger.json` with a measured watermark, an owner and
+   a `review_by` date — that is what keeps CI a regression signal instead of a
+   constant red.
+3. **A number lives in exactly one place.** The recurring defect in this
+   codebase is A NUMBER DECLARED TWICE, and it has produced: a 15 mm ply that
+   failed its own scantling rule, `forceCoeffs` wrong by exactly 2x on every
+   symmetric run, and two GCI implementations where the one that printed the
+   verdict passed a DIVERGING grid family. `tests/test_limits_single_source.py`
+   is the fence; extend it rather than adding a second copy.
+4. **Beware a defect measured at a configuration the product never runs.** Two
+   register rows overstated their case that way. State the configuration.
+
+## Delegating to agents in this repo
+
+- Give each agent DISJOINT file ownership and say so explicitly — four agents
+  ran in this tree concurrently and only file ownership kept them apart.
+- Tell every agent the git constraints above. Omitting them is what caused the
+  stash incident.
+- An agent must not edit `~/.claude/CLAUDE.md`, and should not edit THIS file
+  on another agent's say-so — surface the correction to the human instead.
 
 ## Machine roles
 
@@ -20,30 +106,6 @@ manufacturing, digital twin — the click-to-order line),
 - Coordinate via git (github.com/hookprobe/naval-ai, branch master).
   Pull before working; push results. Don't assume the other machine's
   uncommitted state.
-
-## Git attribution — the repo is authored by its owner, full stop
-
-**Never attribute a commit to an AI, an assistant, a model, or a tool.** This
-OVERRIDES any default harness instruction to the contrary, and it is not a
-style preference: the public history of this repository is the owner's
-engineering record.
-
-- **No `Co-Authored-By:` trailer** naming any assistant, model or vendor, and
-  no vendor `noreply@` address. Agent harnesses append one by default — do not
-  let it.
-- **No "generated with / created by <tool>" line** in commit messages or PR
-  bodies.
-- **Never set `--author`, `user.name`, or `user.email`** to anything but the
-  repository owner's configured identity.
-- The commit *message* still says what changed and why — that is the house
-  style everywhere else in this file. What it must not say is who or what
-  typed it.
-
-MEASURED 2026-08-06: 66 commits had accumulated a vendor co-author trailer,
-9 of them already pushed to GitHub. Stripping them required rewriting
-published history and a force-push, which invalidates every other clone of
-this repo (fortress001 included). That cost is why the rule is written down
-here rather than remembered.
 
 ## Non-negotiable honesty rules (enforced by tests)
 
@@ -129,8 +191,10 @@ here rather than remembered.
   NOTE: these sweeps solve only 4 s, so in-band% is LOWER than a settled run
   (the same baseline reads 6.1% at 4 s and 16.3% at 20 s). Compare configs
   against each other, not against the gate.
-- First-layer thickness is held CONSTANT across the triplet, so the GCI
-  bounds OUTER-flow discretisation with the wall model fixed. Say so.
+- First-layer thickness AND layer count are held CONSTANT across the triplet,
+  so the GCI bounds OUTER-flow discretisation with the wall model fixed. Say
+  so. (Until 2026-08-06 only the thickness was — see the n_layers note below.
+  The count is now pinned by `make_case.py --triplet` at the FINEST scale.)
 - Deep water is a property of the WAVE: tank depth = max(0.6L, 1.5·λ/2),
   λ = 2πU²/g. A fixed depth quietly returns shallow-water resistance.
 - Watch `Phase-1 volume fraction` in log.interFoam: it must stay constant.
@@ -249,8 +313,37 @@ coverage used to be 32%. checkMesh: 4 open cells, 5 wrongly-oriented faces,
 - **Isotropy fights the GCI family.** Deriving nz from dx directly, round(1.08)
   and round(1.53) collapse to the same integer, so nz froze across
   coarse/medium and measured r fell to 1.376 against the sqrt(2) the triplet
-  claims. Fix the near-cubic count once at scale 1 and SCALE it: r is now
-  1.4175 / 1.4109, spread 0.47%.
+  claims. Fix the near-cubic count once at scale 1 and SCALE it: r was then
+  1.4175 / 1.4109, spread 0.47% — **on the FULL domain, which nothing runs.**
+- **The 0.47% above described a mesh we do not use.** RE-MEASURED 2026-08-06:
+  `ny = round((1.5 if symmetric else 3.0)*lwl/dx_bg)` re-rounds a HALF-SIZE
+  number in the symmetric case, so the symmetric family — the one this file
+  recommends — came out 18/25/36 with spread **0.85%**, and the full domain's
+  ny was ODD (36/51/72), meaning the "half" domain was not half of anything but
+  a third mesh. Fixed by `_NX_BASE 54 -> 57` (57/81/114 are ALL multiples of 3,
+  so `ny = nx/3` is exact and tracks nx's ratio) and `ny_full = 2*ny_half`:
+
+      base   family        symmetric   full     symmetric == half of full
+       54    54/76/108     0.85%       0.47%    NO (38000 vs 77520/2)
+       57    57/81/114     0.03%       0.03%    YES
+
+  Cost is measured: (57/54)^3 = **+19% cells** at every grid. Coarse symmetric
+  goes 13608 -> 16245 bg cells. Any triplet generated before 2026-08-06
+  (including `runs/kcs_gci2`) is at the old base and is not this family.
+  The exactness holds only where nx is a multiple of 3, i.e. for
+  `--anchor coarse` (57/81/114). MEASURED for `--anchor fine`: 28/40/57,
+  spread **1.92%** (it was 1.7% at base 54). `make_case.py --triplet` now
+  PRINTS `family: r12 ... r23 ... spread ...` and flags anything over 1%, so
+  a non-uniform family is known at generation time rather than after the solve.
+- **A GCI triplet must freeze the LAYER COUNT, not just the first layer.**
+  case.info claimed the wall model was held fixed; only `first_layer_m` was.
+  `n_layers_to_bridge` reads the hull cell, which scales with nx, so a KCS
+  triplet ran 7/6/5 layers and the prism stack thinned 12.9*t1 -> 7.4*t1 —
+  p was absorbing two refinements. `make_case.py --triplet` now pins n_layers
+  once and passes it to every member. It pins at the **FINEST** grid, not at
+  scale 1: the stack has a fixed height in metres while the hull cell halves,
+  so the coarse grid's 7 layers give a 34.2 mm stack against the fine grid's
+  17.96 mm cell (ratio 1.90) and the generator refuses above 1.2.
 - The two ungraded core z-bands are EQUAL (0.09 Lwl each). A thin 0.03 band
   divided into the >=2 cells the family needs gave 109 mm cells against 607 mm
   dx — 5.6:1, reintroducing the very anisotropy the fix removes.
@@ -258,16 +351,205 @@ coverage used to be 32%. checkMesh: 4 open cells, 5 wrongly-oriented faces,
   "skip coarse/medium/fine" then "done" — a successful-looking exit that ran
   nothing.
 
+## What the 2026-08-06 re-audit changed about RUNNING things
+
+- **`gate2m.py` has no GCI of its own.** It carried a second copy beside
+  `navalai.cfd.post.gci`, missing every safety rule, and it was the copy that
+  printed PASS/FAIL. MEASURED: on a monotone but DIVERGING triplet (fine
+  3.700e-3, medium 4.100e-3, coarse 4.300e-3) it returned GCI = **-27.027%**,
+  and `gci <= 5.0` is TRUE of a negative number, so the gate printed
+  `VERDICT: PASS` and exited 0. It also understated a p=0.3 family by 2.4x
+  (3.280% vs 7.872%) and inverted the Richardson sign (3.911e-3 for a triplet
+  built around 3.711e-3). It now delegates, PRINTS the `method` string so you
+  can see which safety rule fired, and refuses a negative or non-finite GCI.
+- **`gate2m.py` refuses a case that is not KCS.** It applied `KCS.EFD` and
+  `KCS.scatter_band()` to any directory: `gate2m.py runs/wigley` printed
+  `C_T 5.9010e-03, E%D -59.0` for a Wigley hull under a header naming KCS's
+  speed and Lpp. Identity comes from `stl_sha256` in case.info matched against
+  `data/benchmark_geom/CHECKSUMS.json`; case.info now records `benchmark=`.
+- **`run-case.sh` guards, in order.** The concurrency check is now FIRST (it
+  used to sit after `rm -rf constant/polyMesh`, after the whole mesh build, and
+  after the resume early-exit — so in resuming mode it never fired at all) and
+  matches the serial path (`pgrep -x interFoam`). `MESH_ONLY=1` is EXEMPT, so
+  2-minute mesh sweeps run alongside a solve. `setFields` is FATAL (it was
+  `|| true`; a failure starts the tank as pure air and produces a complete,
+  plausible, meaningless force history). checkMesh now has a bar: **0**
+  zero-volume cells, **10** incorrectly-oriented faces (calibrated between the
+  fixed KCS mesh, 5 faces, which SOLVES, and the mirrored KCS.igs mesh, 73,
+  which dies on the first timestep). `--force` / `FORCE=1` overrides.
+- **Regenerating a FIXED case over a FREE one no longer leaves it moving.**
+  `dynamicMeshDict` and `pointDisplacement` were written and never removed, and
+  `correctPhi yes` plus the setFields `boxToFace` block were unconditional — so
+  a regenerated fixed case was not the configuration that produced the recorded
+  numbers. All four are now gated on `free_motion`.
+
+## THE DERIVED LAYER COUNT KILLS THE DEFAULT KCS CASE (MEASURED 2026-08-06)
+
+`make_case.py` with no `--n-layers` DERIVES n_layers from `n_layers_to_bridge`,
+and for symmetric KCS coarse at `_NX_BASE` 57 it derives **7**. That mesh passes
+every build-time check, passes the checkMesh bar by exactly one face, and
+**interFoam dies at t = 0.0072 s**: deltaT 1.2e-3 -> 2.5e-26 while Courant max
+stays 9-12 and alpha.water reaches 1503.95. The documented pathological-cell
+signature, from the generator's own default.
+
+Sweep — same hull, same background, ONLY n_layers varies (mesh-only, ~3 min each):
+
+    n   cells   zeroVol  wrongOri  nonOrtho  maxSkew  cover%  achieved  solve
+    3  227597      0        0        73.5      6.32    97.7%   2.93/3   clean mesh
+    5  230725      0        0        73.5      8.93    92.6%   4.63/5   SOLVES
+    7  218736      0       10       105.2     42.94    81.2%   5.68/7   DIES t=0.0072
+
+Note the cell count FALLS at n=7 while coverage falls to 81%: the failure is
+PARTIAL stacks, which fold cells where full stacks and no stacks do not.
+
+**Do NOT "fix" this with a build-time cap on stack/hull_cell.** That was the
+obvious hypothesis and the data refutes it:
+
+    hull    n_layers  stack/hull_cell  outcome
+    KCS         7          0.952       DIES
+    Wigley     10          1.084       SOLVES (runs/wigley, 10 s complete,
+                                       0 wrongly-oriented faces, skew 8.68)
+
+Wigley survives a THICKER relative stack than the one that kills KCS, so the
+discriminator is the geometry snappy has to terminate layers on (bulb, transom,
+skeg), not any ratio computable before meshing. There is no build-time
+predictor; the mesh-time gate is the mechanism, which is why the bars moved:
+
+- **incorrectly-oriented faces: 10 -> 5.** The old bar was INTERPOLATED between
+  5 (solves) and 73 (dies). The gap is now filled at 10 (dies), so the
+  interpolation was on the wrong side of it. 5 is the largest count measured to
+  solve; the next count up is measured to die.
+- **max skewness: new, fatal at 20** — checkMesh's own boundary-face limit.
+  Measured 6.32 / 8.68 / 8.93 / 9.64 on meshes that solve, 42.94 on the one
+  that died. (Its internal limit of 4 would refuse everything we have run.)
+- `make_case.py --n-layers N` overrides the derivation. `--triplet` pins its own
+  value at the finest scale and for KCS that is **5** — so the TRIPLET path was
+  already generating the good mesh and only the single-case default was broken.
+
+### Two receipts were lying, both in run-case.sh
+
+- **`layers: ... first 5.68 m`.** snappy prints TWO `hull ...` tables with
+  different columns — the 5-field SPEC before extrusion, the 6-field ACHIEVED
+  result after — and the parse matched both and kept `tail -1`. It printed the
+  achieved MEAN LAYER COUNT (5.68) under the label of a first-layer thickness in
+  metres, on a 7.28 m hull, against a 2.648 mm request. Tables are now told apart
+  by field count and BOTH lines are printed; `layers_achieved` goes into case.info.
+- **`checkMesh flagged 1 check(s)`** came from `grep -c 'Failed'`, which counts
+  LINES, and checkMesh writes one: "Failed 3 mesh checks." Three failures were
+  announced as one. Now parsed, and each `***` line is echoed.
+
+### An unmeasured metric is REFUSED, never assumed good
+
+Every mesh-quality receipt used to end in `${VAR:-0}`, which turns "I could not
+measure this" into "this is perfect", and 0 passes every bar. Same failure class
+as the layer table that reported the REQUESTED spec as achieved, and as
+`${_L_WANT:-1}` dividing by a fabricated denominator. checkMesh's wording is not
+contractual — the skewness line carries a `***` prefix when it FAILS and none
+when it passes, so a fixed field index reads a different token depending on the
+answer. The value is now read by substring after `Max skewness =`, and an
+unreadable one sets the fatal flag directly.
+
+(For the record, since it was reported the other way: this guard did NOT fail
+open on `runs/val_coarse`. That mesh was built before the skewness guard
+existed. Re-running the CURRENT `run-case.sh` against the same `log.checkMesh`
+parses 42.9417 and exits 1. Verify the version that produced an artefact before
+concluding a guard let it through.)
+
+Receipts are also REWRITTEN, not appended. A case meshed three times carried
+three copies of every `checkmesh_*` line in case.info, and a reader gets
+whichever it happens to hit — so a receipt from a superseded mesh outlives the
+mesh that produced it.
+
+### A crash is not a nap
+
+`run_campaign.sh` treated every non-zero exit as "interrupted, will resume",
+which is right for this Mac's thermal sleeps and wrong for a divergence. The
+diverging case above left NO checkpoint, so the loop re-meshed and re-died with
+a 120 s cool-down between attempts — ~100 minutes of re-running an unsolvable
+mesh, ending in a WARNING phrased as a thermal problem. A nap always leaves a
+LATER checkpoint than the attempt started from; a divergence leaves the same
+one. Two attempts with no progress is now `exit 4`.
+
+## Flow-throughs: the gate now counts them, and refuses below one
+
+Domain length is 4.5 Lwl, so at KCS Fn 0.26 ONE flow-through is
+32.75 m / 2.196 m/s = **14.92 s**. `--end-time 20` is **1.34 flow-throughs**;
+the 75 s figure quoted for a settled KCS run is 5.0. The re-audit found every
+run in the repository at 0.13-0.70 with conclusions drawn from all of them.
+
+**A low drift is not stationarity, and MEASURED on `runs/beach` the difference
+is not academic.** At 10.4 s = **0.70** of a flow-through, gate2m printed
+`settled: yes` on 3.3% drift and reported a C_T. The same force history in eight
+windows:
+
+    window (s)   pressure N   x expected   viscous N   x ITTC-57
+     2.62-3.91      37.50        1.80        78.52       1.21
+     3.91-5.21      64.66        3.11        75.25       1.16
+     7.81-9.11      96.53        4.64        77.42       1.20
+     9.11-10.40     65.31        3.14        74.82       1.16
+
+The pressure part swings 2.6x with no trend while viscous sits flat. The drift
+test is applied to the TOTAL, the total is dominated by the STABLE viscous part,
+and the part that is actually wrong oscillates underneath a passing number.
+
+`grid_result` therefore requires drift <= 5% **and** >= 1.0 flow-throughs. The
+floor is physics, not a tuned constant — a domain the free stream has not
+crossed still holds its initial condition — and it is necessary, not sufficient:
+anything settled under 5.0 is printed as `UNDER-RUN`. `case.info` now records
+`domain_length_m`, `flow_through_s` and `end_time_flow_throughs`; a case
+predating them gets the 4.5 Lwl assumption, said out loud.
+
+## R5.5 REPRODUCES on the new mesh family, and it is an OSCILLATION
+
+`runs/val_coarse5` — symmetric KCS, `_NX_BASE` 57, `--n-layers 5`, 230725 cells,
+transient, 19.81 s of a 20 s run = **1.33 flow-throughs**, ~2.5 h on 10 ranks.
+Mass conserved (Phase-1 0.800164 -> 0.800106, 7e-5), alpha in [-1.4e-4, 1],
+deltaT stable at 1.7-2.1e-3, no thermal sleep.
+
+    window (s)    pressure N   x expected   viscous N   x ITTC-57   C_T
+     0.02- 2.49     123.12        5.92        79.19       1.23    8.796e-3
+     2.49- 4.97      39.71        1.91        87.65       1.36    5.537e-3
+     4.97- 7.44     104.03        5.00        87.45       1.35    8.325e-3
+     7.44- 9.91      21.82        1.05        88.16       1.36    4.782e-3
+     9.91-12.39      85.08        4.09        79.76       1.23    7.167e-3
+    12.39-14.86      67.61        3.25        85.06       1.32    6.637e-3
+    14.86-17.34       5.57        0.27        78.65       1.22    3.661e-3
+    17.34-19.81     121.89        5.86        80.73       1.25    8.809e-3
+
+- **Viscous is right and stays right**: 1.22-1.36x ITTC-57 across the whole run.
+  For KCS a form factor (1+k) of 1.1-1.15 is expected, so this is the correct
+  band and it is the one number here that is stable. R5.5's "viscous is correct"
+  survives re-measurement on the new family.
+- **Pressure is NOT "3-6x and growing" — it OSCILLATES between 0.27x and 5.92x
+  of the expected 20.8 N, with a period near 5 s.** The wave period at Fn 0.26
+  is 2πU/g = 1.41 s, so this is not the ship wave; it is something at domain
+  scale. Every previously recorded value (2.6x, 2.9x, 4.2x, 6.0x) lies inside
+  this envelope, so the earlier "grows with time" readings are consistent with
+  having sampled a rising quarter of the same oscillation from runs too short to
+  see it turn over. That reframes R5.5's remaining candidates: the question is
+  what has a ~5 s period in a 32.75 m tank, not what is adding a constant.
+- Consequently the drift criterion is meaningless here at 1.33 flow-throughs:
+  16.6% over the last fifth. `gate2m.py runs/val_coarse5` correctly returns
+  **NO RESULT, exit 2**. Do not quote the -95.0% E%D as a result; it is a phase
+  of an oscillation.
+- Next experiment: run to 5+ flow-throughs (75 s) and FFT the pressure history.
+  If the period matches a tank mode, the boundary treatment is the cause and a
+  longer/absorbing domain is the fix; if it does not, R5.5 candidate (b) — the
+  transom wetting/ventilating at Fn 0.26 — is next.
+
 ## Gate 2M: KCS meshes cleanly now; the NUMBER is still owed
 
 The mesh blocker is closed (above). Geometry pipeline and acceptance data were
-already done (`benchmarks/kcs.py`, displacement -0.09%; EFD Ct 3.711e-3 @
-Fn 0.26, 13-group scatter 3.620-3.733e-3).
+already done (`benchmarks/kcs.py`, displacement **-0.267%** re-measured on the
+committed STL — the -0.09% previously recorded here and in kcs.py was a second
+figure for one measurement; EFD Ct 3.711e-3 @ Fn 0.26, **7**-group scatter
+3.620-3.733e-3 — the band is min/max over the seven rows transcribed in
+`SUBMITTED_CT_FINEST`, not the 13 the docstring used to claim).
 
 Still open: the 75 s (5 flow-through) KCS solve on the fixed mesh, ~16 h at
 637k cells on 10 ranks. Run it resumably:
 
-    openfoam scripts/run_campaign.sh runs/kcs_iso 10
+    openfoam scripts/run_campaign.sh <case-dir> 10
 
 Last recorded Ct was 4.283e-3 = **-15.4%** against EFD, on the OLD 306k mesh
 with y+ median 2475 and 32% layer coverage. The new mesh addresses all three
@@ -308,11 +590,21 @@ band, runs Roache GCI over a triplet, and prints PASS/FAIL. It REFUSES a verdict
 it cannot support: an unsettled grid (drift > 5% over the last fifth) is excluded
 and reported, and fewer than three grids gives "C_T comparison only, NO GCI".
 
-    python scripts/gate2m.py runs/kcs_sym        # live, single grid
-    python scripts/gate2m.py runs/kcs_gci        # the triplet, when it exists
+    python scripts/gate2m.py <case>       # single grid, C_T comparison only
+    python scripts/gate2m.py <root>       # a triplet: C_T + GCI
 
-**Running now:** `runs/kcs_sym` — symmetric, 241,946 cells, 75 s, ~6.1 h,
-resumable (`openfoam scripts/run_campaign.sh runs/kcs_sym 10`).
+**NOTHING IS RUNNING, AND NO KCS RUN SURVIVES.** `runs/kcs_sym`, `runs/kcs`,
+`runs/kcs_gci`, `runs/kcs_free` and `runs/kcs_iso` were all deleted; every
+sentence below that cites one is HISTORY, not a live artifact. Do not quote a
+number from them as current — re-measure it. The generator has moved since
+(`_NX_BASE` 54 -> 57, layers, `movingWallVelocity`), so any surviving mesh
+would not even belong to the same family.
+
+This is gap N6, and it kept recurring because a run directory is deleted by
+`clean-runs.sh --purge` while the prose that cites it is not. The ledger now
+refuses to quote a deleted directory (`"watermark": "NONE"`, enforced by
+`test_the_gate2m_ledger_entry_points_at_something_real`); this file has no such
+enforcement, so it is on the writer.
 
 Two cost fixes that were sitting unused and cost 2.6x on every experiment:
 - `--symmetric` on make_case.py. The hull IS symmetric, so the full-width domain
@@ -321,7 +613,8 @@ Two cost fixes that were sitting unused and cost 2.6x on every experiment:
   of roughly +-0.06 m — six times taller than the physics occupies.
 
 Then, in order:
-1. When `runs/kcs_sym` settles, `scripts/gate2m.py` gives the single-grid C_T.
+1. Re-run a single symmetric KCS grid FROM SCRATCH; gate2m.py then gives the
+   single-grid C_T. The old one is gone (see above).
 2. Build the triplet (`make_case.py --triplet --symmetric`) for the GCI. Budget
    honestly: medium is ~3x coarse and fine ~8x, so ~3 days on this Mac.
 3. **Free sinkage and trim.** KCS Case 2.1 is towed FREE to sink and trim; we
@@ -339,10 +632,10 @@ Then, in order:
 `scripts/render_case.py` produces noise on any case with `_REFINE_ROUNDS > 0`.
 Hanging-node cells are POLYHEDRA and ParaView cannot contour them; MergeBlocks,
 Tetrahedralize and ResampleToImage+mask were all tried and all failed. The older
-`renders/medium-t40-fixed.png` is clean because that mesh had no such cells.
+`renders/medium-t40-fixed.png` (gitignored; on this Mac only) is clean because that mesh had no such cells.
 
 This is COSMETIC. The physics was verified numerically instead, and is sound:
-MEASURED on `runs/kcs_iso` at t=7.5 — **2.6 interface cells per column** (a clean
+MEASURED on `runs/kcs_iso` (SINCE DELETED) at t=7.5 — **2.6 interface cells per column** (a clean
 VOF interface is 2-4), 45.4% water / 50.7% air, alpha bounded -6e-5..1, Phase-1
 volume constant to 0.005%. Do not re-diagnose the interface from the picture.
 

@@ -40,8 +40,26 @@ _FS_BOX = dict(x0=-1.6, x1=1.3, y=0.7, z=0.025)
 # layers gave y+ min 42 / avg 7491 / max 60017 on the hull -- one to three
 # orders of magnitude outside where nutkWallFunction is valid. Skin friction
 # is most of this hull's drag at Fn 0.26, so that is not a rounding error.
-_TARGET_YPLUS = 30.0
-_LAYER_EXPANSION = 1.3
+# TARGET y+ 100, NOT 30, AND FIVE LAYERS AT 1.2 — the Wolf Dynamics KCS
+# reference regime, adopted after measuring why we had NO LAYERS AT ALL.
+#
+# The old settings asked for a 0.795 mm first layer at y+ 30 with 3 layers at
+# expansion 1.3: a 3.06 mm stack against a 19 mm hull cell, i.e. a 28:1 jump
+# from the last layer to the first background cell, and a stack covering 3.2%
+# of the boundary layer. snappy's medial-axis solver will not bridge that: it
+# extruded 44.98% of the hull faces on iteration 0 and DECAYED TO ZERO over 35
+# iterations. Meanwhile the summary table kept printing the REQUESTED spec, so
+# run-case.sh and CLAUDE.md both reported "3 of 3 layers, near-wall 0.795 mm"
+# on a mesh with no prism cells whatsoever, for weeks.
+#
+# MEASURED with y+ 100 / 5 layers / 1.2 (first 2.65 mm, stack 19.7 mm, jump
+# 4.5:1, ~20% of delta — the reference's proportions):
+#     Extruding 11056 out of 11153 faces (99.13%)   coverage 97.4%
+# 30 is also the WRONG target for a wall-function mesh whose measured min y+
+# was already 12.8, i.e. in the buffer layer where nutkWallFunction is least
+# valid. 100 puts the low-friction regions near 47, safely in the log layer.
+_TARGET_YPLUS = 100.0
+_LAYER_EXPANSION = 1.2
 
 # snappy refinementSurfaces level (min, max) on the hull. MEASURED why this
 # matters: at (2 3) the FLAT hull areas take only level 2, i.e. background/4
@@ -91,8 +109,52 @@ _Z_BANDS = dict(hull=0.09, wave=0.09)
 # halves the cell HEIGHT there, giving the interface the thin cells VOF needs
 # without ever handing snappy an anisotropic mesh to snap.
 _REFINE_ROUNDS = 3
+# Tank extents, as multiples of Lwl, DECLARED ONCE. The half-width appeared
+# three times — in `y_half` (which was computed and never read), in the
+# blockMesh `y0`/`y1` entries, and inside the ny expression — and it is the
+# third that decides the refinement family, so a drift between them would be
+# invisible until a GCI came out wrong.
+_DOMAIN_X = (-2.5, 2.0)                       # inlet .. outlet, x/Lwl
+_DOMAIN_LENGTH_L = _DOMAIN_X[1] - _DOMAIN_X[0]
+_DOMAIN_HALF_WIDTH_L = 1.5                    # y/Lwl, one side
+
+# THE BACKGROUND x COUNT AT scale = 1, IN ONE PLACE.
+# It was the literal `54` in two expressions — `_write_case_dicts` and
+# `write_resistance_case`'s STL-resolution estimate — which is this project's
+# documented anti-pattern (a number declared twice) in the file carrying the
+# two RED gates.
+#
+# 57, NOT 54, AND THE THREE IS THE WHOLE POINT. ny is nx/3 (symmetric) or 2nx/3
+# (full), so ny's own refinement ratio equals nx's only when nx divides by 3 at
+# EVERY member of the family. At 54 the family is 54 / 76 / 108 and only the
+# ends divide, so ny went 18 / 25 / 36 with ratios 1.3889 and 1.4400 against
+# nx's 1.4074 and 1.4211 — ny was rounding independently and its error is
+# largest on the SYMMETRIC domain, where the count is half the size.
+# MEASURED spread between the two refinement steps (|r23-r12| / max):
+#
+#     base   family        symmetric        full domain
+#      54    54/76/108     0.85%            0.47%
+#      57    57/81/114     0.03%            0.03%
+#
+# 57*sqrt(2) = 80.61 -> 81, which also divides by 3, and 114 = 2*57; so the
+# whole triplet is a multiple of 3 and ny is EXACT at every member. The cost is
+# measured and real: (57/54)^3 = +19% cells at every grid. That buys a family
+# whose two steps agree to 0.03% instead of 0.85%, which is what Richardson
+# extrapolation assumes and what CLAUDE.md's recorded 0.47% claimed while the
+# symmetric runs it recommends were at 0.85%.
+_NX_BASE = 57
+
+# y cells per x cell in the background, so ny is DERIVED from nx by a fixed
+# ratio rather than re-rounded from a float division of the domain width.
+# The half domain gets exactly half the cells of the full one — it must, or a
+# `--symmetric` run is not the full run with the mirror removed but a
+# different discretisation wearing the same scale number.
+_NY_PER_NX_HALF = _DOMAIN_HALF_WIDTH_L / _DOMAIN_LENGTH_L
+
 # z cells per x cell in the background. 14/54 reproduces the hand-tuned scale-1
-# mesh exactly; everything else follows from it.
+# mesh exactly; everything else follows from it. (At _NX_BASE 57 it gives 15,
+# and the background aspect ratio dx/dz_core is 1.75 against 1.85 at 54 — the
+# near-cubic property the isotropic-background fix depends on is preserved.)
 _NZ_PER_NX = 14.0 / 54.0
 
 # Layers snappy will actually INSERT on this hull, measured (coarse grid,
@@ -102,16 +164,63 @@ _NZ_PER_NX = 14.0 / 54.0
 # inserted controls no y+ at all, so coverage wins over stack depth: the ideal
 # bridging depth is still computed, and case.info records both so the gap is
 # visible rather than silently absorbed.
-_MAX_LAYERS = 3
+# CAP, not a target. `n_layers_to_bridge` computes how many layers it takes to
+# reach the adjacent cell, and that is what should decide; this only stops an
+# absurd stack. It was 3, from a measurement ("n>=6 collapses coverage AND
+# crashes interFoam") taken on the OLD 38:1 anisotropic background, which
+# CLAUDE.md marks SUPERSEDED. Raised to 10 because a 52 mm hull cell on a 10 m
+# hull needs ~9 layers to bridge at expansion 1.2, and capping at 5 there
+# reproduces exactly the 0.08-of-cell ratio that produced ZERO layers on KCS.
+# The opposite failure — a stack thicker than its host cell — is now caught by
+# the stack/hull_cell check below, so both ends are guarded.
+_MAX_LAYERS = 10
+
+# Angle across which layers may continue. 170 is the Wolf Dynamics KCS
+# reference value and snappy's own DTCHull default; 60 terminated extrusion at
+# the keel, transom, deck edge and bulb — see the SNAPPY_STUB comment.
+_LAYER_FEATURE_ANGLE = 170
+
+# LTS pseudo-iteration budget for a fixed-attitude resistance solve. The Wolf
+# Dynamics reference uses 10000; a steady KCS resistance typically converges in
+# 1-3k, and the drift criterion in gate2m decides when it HAS converged rather
+# than this number. Sized so the coarse grid fits a 10-core workstation budget.
+_LTS_ITERATIONS = 2000
 
 
-_G = 9.81   # matches constant/g in the generated case
+# FLUID PROPERTIES, ONCE. The audit found rho declared FIVE times in this file,
+# nu twice and g four times — the project's own documented anti-pattern, in the
+# module that carries the two RED gates. They are constants now, and every
+# template and helper below formats them in rather than retyping them.
+#
+# THAT CLAIM WAS FALSE WHEN IT WAS WRITTEN, and a claim of single-sourcing is
+# worse than no claim: it stops the next reader from looking. RE-MEASURED
+# 2026-08-06 — rho 998.8 also appeared as `motion_from_geometry`'s default
+# argument and hardcoded in BOTH forces function objects (`forces` and
+# `forceCoeffs`), nu 1.09e-6 as `first_layer_thickness`'s default, and g 9.81
+# in the GRAVITY template (a plain string, so it could not format anything),
+# in the deep-water half-wavelength and in the wavelength receipt. Eight
+# restatements under a comment saying there were none.
+# `tests/test_cfd_gap_closure.py` now greps this file for the bare digits, the
+# way `tests/test_limits_single_source.py` does for limits.py, so the claim is
+# enforced instead of asserted.
+_G = 9.81               # matches constant/g in the generated case
+_RHO_WATER = 998.8      # kg/m^3, ~20 C fresh water
+_RHO_AIR = 1.2
+_NU_WATER = 1.09e-6     # m^2/s
+_NU_AIR = 1.48e-5
+# Surface tension is set to ZERO, matching the Wolf Dynamics KCS reference.
+# At model scale We >> 1 so it is physically negligible, but the CSF force
+# sigma*kappa*grad(alpha) is evaluated on our ~15:1 interface cells sitting on
+# refineMesh hanging nodes, where it is a known source of spurious currents —
+# i.e. it contributes nothing but noise to exactly the cells that matter.
+_SIGMA_WATER = 0.0
 
 
 def sixdof_properties(mass_kg: float, cog: tuple[float, float, float],
                       k_roll: float, k_pitch: float, k_yaw: float,
                       lwl: float, awp_m2: float, symmetric: bool,
-                      rho: float = 998.8, zeta: float = 0.3) -> dict:
+                      i_l_m4: float | None = None,
+                      rho: float = _RHO_WATER, zeta: float = 0.3) -> dict:
     """Mass, inertia and damper coefficients for the sixDoF motion dict.
 
     THE HALVING LIVES HERE, not in the caller. A symmetric case meshes half the
@@ -137,9 +246,14 @@ def sixdof_properties(mass_kg: float, cog: tuple[float, float, float],
     c_lin = zeta * 2.0 * m_eff * omega_n         # N s/m
 
     i_pitch = m * k_pitch ** 2
-    # Angular critical damping on the pitch mode, restoring stiffness rho*g*I_L
-    # approximated through the same waterplane: k_theta ~ rho*g*Awp*(lwl/2)^2.
-    k_theta = rho * _G * awp * (0.5 * lwl) ** 2
+    # Angular critical damping on the pitch mode. The restoring stiffness is
+    # rho*g*I_L, and I_L is MEASURED from the waterplane when the caller can
+    # supply it. The old approximation Awp*(lwl/2)^2 treats the waterplane as
+    # two point areas at the ends: on KCS it gives 771030 N.m/rad against a
+    # true 194539 — 3.96x too stiff — which put the damper at zeta 0.597
+    # instead of 0.30 and roughly doubled the settling time.
+    i_l = (i_l_m4 * half) if i_l_m4 is not None else (awp * (0.5 * lwl) ** 2)
+    k_theta = rho * _G * i_l
     omega_p = math.sqrt(k_theta / max(2.0 * i_pitch, 1e-9))
     c_ang = zeta * 2.0 * (2.0 * i_pitch) * omega_p
 
@@ -155,7 +269,7 @@ def motion_from_geometry(stl_path, lwl: float, symmetric: bool,
                         kg_above_keel: float | None = None,
                         k_roll_over_beam: float = 0.40,
                         k_pitch_over_lwl: float = 0.25,
-                        cwp: float = 0.80, rho: float = 998.8) -> dict:
+                        cwp: float = 0.80, rho: float = _RHO_WATER) -> dict:
     """Free sinkage-and-trim properties, derived from the hull itself.
 
     The model must FLOAT at its own displacement, so mass = rho * submerged
@@ -170,13 +284,37 @@ def motion_from_geometry(stl_path, lwl: float, symmetric: bool,
     means neutral placement, which is honest but will not reproduce a specific
     model's trim.
     """
-    from .post import stl_submerged_properties
+    from .post import (WaterplaneError, stl_submerged_properties,
+                       stl_waterplane_properties)
 
     props = stl_submerged_properties(stl_path, 0.0)
+    # The waterplane is MEASURED, not assumed. `cwp` remains only as the
+    # fallback for a geometry whose waterplane cannot be closed; on KCS the
+    # measured C_wp is 0.829 against the 0.80 assumption, and the measured I_L
+    # is what the pitch damper actually needs.
+    try:
+        wp = stl_waterplane_properties(stl_path, 0.0)
+        awp, i_l = wp["awp_m2"], wp["i_l_m4"]
+    except WaterplaneError:
+        awp, i_l = None, None
     tris = np.asarray(_read_stl_tris_for_motion(stl_path), float)
     keel_z = float(tris[:, :, 2].min())
     beam = 2.0 * float(np.abs(tris[:, :, 1]).max())
+    if awp is None:
+        awp = cwp * lwl * beam
 
+    if kg_above_keel is None:
+        # KG is the one mass property a hull SHAPE cannot supply — it depends
+        # on how the model is ballasted — and defaulting to VCB silently
+        # answers a different ship. MEASURED on KCS: VCB gives KG-above-keel
+        # 0.187 m against the published 0.2303 m, 19% low, and KG is the lever
+        # that sets trim. Say so rather than let it pass as a derived number.
+        import warnings
+        warnings.warn(
+            "no kg_above_keel given: VCG defaults to VCB (neutral ballast). "
+            "This is NOT a specific model's ballast condition — on KCS it is "
+            "19% below the published KG — and trim will not reproduce EFD.",
+            stacklevel=2)
     vcg = keel_z + kg_above_keel if kg_above_keel is not None else props["vcb"]
     return sixdof_properties(
         mass_kg=rho * props["volume_m3"],
@@ -184,7 +322,7 @@ def motion_from_geometry(stl_path, lwl: float, symmetric: bool,
         k_roll=k_roll_over_beam * beam,
         k_pitch=k_pitch_over_lwl * lwl,
         k_yaw=k_pitch_over_lwl * lwl,
-        lwl=lwl, awp_m2=cwp * lwl * beam, symmetric=symmetric, rho=rho)
+        lwl=lwl, awp_m2=awp, i_l_m4=i_l, symmetric=symmetric, rho=rho)
 
 
 def _read_stl_tris_for_motion(path):
@@ -193,7 +331,7 @@ def _read_stl_tris_for_motion(path):
 
 
 def first_layer_thickness(speed: float, lwl: float, target_yplus: float,
-                          nu: float = 1.09e-6) -> float:
+                          nu: float = _NU_WATER) -> float:
     """Absolute first-layer THICKNESS [m] that lands the first cell centre at
     `target_yplus`, via the ITTC-1957 flat-plate friction line.
 
@@ -233,7 +371,23 @@ def _refine_boxes(lwl: float, symmetric: bool) -> list[dict]:
     boxes = []
     for i in range(_REFINE_ROUNDS):
         f = 1.0 - i / (_REFINE_ROUNDS + 1.0)          # 1.0, 0.75, 0.5 ...
-        bx0 = -(0.6 + 1.3 * f) * lwl                  # wake astern
+        # WAKE ASTERN, AND A RUN-OUT BEACH BEHIND IT.
+        # The refined wake used to reach -1.9 Lwl with the outlet at -2.5, i.e.
+        # only 0.6 Lwl of run-out coarsening a mere 4x. Waves reached the outlet
+        # still resolved, reflected, and came back onto the hull: MEASURED
+        # pressure drag was 2.6x the expected wave component at t=7.5 s, 2.9x at
+        # 13.7 s and 4.2x on the only SETTLED run at 76 s — the error GROWS with
+        # time, which is energy accumulating in a box it cannot leave. Viscous
+        # drag over the same runs is 1.08x ITTC-57, so the friction side is
+        # right and the entire discrepancy is on the wave side.
+        # The Wolf Dynamics reference has no damping model either; it leaves
+        # 2.31 Lpp of run-out coarsening 32x and lets numerical dissipation on
+        # coarse cells eat the waves. ESI v2606 has no `verticalDamping`
+        # fvOption (that is an OpenFOAM.org facility — checked, not present),
+        # and its waveModels absorption is a patch BC that would need its own
+        # constant/waveProperties. So we use the reference's mechanism: pull
+        # the refined wake forward to -1.0 Lwl, leaving 1.5 Lwl of run-out.
+        bx0 = -(0.4 + 0.6 * f) * lwl
         bx1 = (1.02 + 0.30 * f) * lwl                 # a little ahead of the bow
         by = (0.18 + 0.55 * f) * lwl                  # Kelvin wedge
         bz = (0.020 + 0.030 * f) * lwl                # THIN slab around z=0
@@ -289,7 +443,7 @@ purgeWrite      3;
 // -> ~4.9 h for the coarse grid alone, days for the fine). 2 is the compromise
 // MULESCorr's semi-implicit alpha solve supports; interface sharpness is
 // checked in the render rather than assumed.
-adjustTimeStep  yes;  maxCo 5;  maxAlphaCo 2;  maxDeltaT 0.1;
+{time_control}
 functions {{
   // NO `rho rhoInf` here. That entry makes the FO charge WATER density to
   // every face including the DRY topsides, which sit in air (1.2 kg/m3).
@@ -298,7 +452,16 @@ functions {{
   // it in the viscous term. The reference DTCHull case sets rhoInf only.
   forces {{
     type forces; libs (forces); patches (hull);
-    rhoInf 998.8; CofR (0 0 0);
+    // BIN THE FORCE ALONG THE HULL. A single total tells you the answer is
+    // wrong; the distribution tells you WHERE. MEASURED across six runs,
+    // viscous drag is consistently right (1.15-1.22x ITTC-57) while pressure
+    // drag is 3-6x the expected wave+form value and GROWS with time —
+    // independent of mesh, tank depth, run-out length, layers and solver
+    // settings. Bow-heavy would mean wave-making; transom-heavy would mean
+    // base drag from a wrongly-wetted transom; uniform would mean a numerical
+    // artefact. Costs nothing at runtime.
+    binData {{ nBin 20; direction (1 0 0); cumulative no; }}
+    rhoInf {rho_water}; CofR (0 0 0);
     writeControl timeStep; writeInterval 10;
   }}
   // OpenFOAM's own coefficient, as an independent cross-check on our
@@ -306,7 +469,7 @@ functions {{
   // inflated every drag this project reported.
   forceCoeffs {{
     type forceCoeffs; libs (forces); patches (hull);
-    rhoInf 998.8; CofR (0 0 0);
+    rhoInf {rho_water}; CofR (0 0 0);
     liftDir (0 0 1); dragDir (-1 0 0); pitchAxis (0 1 0);
     magUInf {speed_abs}; lRef {lwl}; Aref {aref:.6f};
     writeControl timeStep; writeInterval 10;
@@ -394,7 +557,7 @@ rhoInf              1;              // unused by interFoam (it carries rho)
 report              on;
 value               uniform (0 0 0);
 
-accelerationRelaxation 0.4;
+accelerationRelaxation 0.3;   // reference value; 0.4 is a known instability path
 
 solver {{ type Newmark; }}
 
@@ -457,49 +620,121 @@ actions (
      outsidePoints (({loc_x} {loc_y} {loc_z}));
      includeCut false; includeInside false; includeOutside false;
      nearDistance {shield_m:.6f}; curvature -100; }}
+  // HEXES ONLY. This is the fix for every "incorrectly oriented face" this
+  // project has ever reported. `refineMesh`'s cellCuts cannot cut the
+  // hanging-node POLYHEDRA that snappy's castellation leaves behind: it emits
+  // "unexpected bad cut" and produces cells that do not close.
+  //
+  // MEASURED across all 11 meshes on disk, the correlation is perfect:
+  //   0 refine rounds -> 0 wrongly oriented faces (7 of 7 cases, 45k..835k)
+  //   3 refine rounds -> 2..47 wrongly oriented   (4 of 4 cases)
+  // and runs/kcs uses the IDENTICAL STL with 0 rounds and is clean, which
+  // exonerates the geometry. Localising them: 47 of 47 were INTERNAL faces,
+  // zero on any patch, with owner/neighbour x and y extents equal (ratio
+  // 1.02) and z extents 2:1 or 4:1 — the signature of a z-refinement
+  // transition and nothing else.
+  //
+  // Restricting the set to genuine hexes, measured on the coarse KCS grid:
+  //   bad-cut warnings 11563 -> 0      wrongly oriented 47 -> 0
+  //   max skewness  15.66 -> 3.77      max nonOrtho  90.21 -> 84.39
+  // at NO cost in free-surface resolution (median band cell z-extent 6.20 mm
+  // vs 6.12 mm before). Copying the reference's `geometricCut yes` instead
+  // makes it WORSE (53 bad faces).
+  {{ name cHex; type cellSet; action new; source shapeToCell; shape hex; }}
+  {{ name c0;   type cellSet; action subset; source cellToCell; set cHex; }}
 );
 """
-FV_SCHEMES = """FoamFile { version 2.0; format ascii; class dictionary; object fvSchemes; }
-ddtSchemes      { default Euler; }
-gradSchemes     { default Gauss linear; }
-divSchemes {
+FV_SCHEMES = """FoamFile {{ version 2.0; format ascii; class dictionary; object fvSchemes; }}
+ddtSchemes      {{ default {ddt}; }}
+gradSchemes     {{ default Gauss linear; }}
+divSchemes {{
   div(rhoPhi,U)     Gauss linearUpwind grad(U);
   div(phi,alpha)    Gauss vanLeer;
   div(phirb,alpha)  Gauss linear;
   div(phi,k)        Gauss upwind;
   div(phi,omega)    Gauss upwind;
   div(((rho*nuEff)*dev2(T(grad(U))))) Gauss linear;
-}
-laplacianSchemes { default Gauss linear corrected; }
-interpolationSchemes { default linear; }
-snGradSchemes   { default corrected; }
-wallDist        { method meshWave; }
+}}
+laplacianSchemes {{ default Gauss linear corrected; }}
+interpolationSchemes {{ default linear; }}
+snGradSchemes   {{ default corrected; }}
+wallDist        {{ method meshWave; }}
 """
 
-FV_SOLUTION = """FoamFile { version 2.0; format ascii; class dictionary; object fvSolution; }
-solvers {
-  "alpha.water.*" {
-    nAlphaCorr 2; nAlphaSubCycles 1; cAlpha 1;
-    MULESCorr yes; nLimiterIter 3; alphaApplyPrevCorr yes;
-    solver smoothSolver; smoother symGaussSeidel; tolerance 1e-8; relTol 0;
-  }
-  "pcorr.*" { solver PCG; preconditioner DIC; tolerance 1e-5; relTol 0; }
-  p_rgh { solver GAMG; smoother DIC; tolerance 1e-7; relTol 0.01; }
-  p_rghFinal { $p_rgh; relTol 0; }
-  "(U|k|omega).*" { solver smoothSolver; smoother symGaussSeidel;
-                    tolerance 1e-7; relTol 0.1; nSweeps 1; }
-}
-PIMPLE {
+# TIME CONTROL: two regimes, and the choice is what makes Gate 2M affordable.
+#
+# TRANSIENT is physically complete but pays the Courant limit on every step.
+# MEASURED on the layered coarse KCS grid: the 2.65 mm first-layer cell with
+# ~3 m/s local flow pins dt at ~0.002 s against maxCo 5, so 75 s of physical
+# time needs ~37500 steps at ~0.95 s each -> ~10 h for the COARSE grid alone.
+# Refinement halves the cell in all three directions AND halves the timestep,
+# so cost scales as r^4: medium ~39 h, fine ~158 h. The transient triplet is
+# ~8.6 days on this machine, which is not a plan.
+#
+# LTS (local time stepping) solves the SAME equations to a STEADY state with a
+# per-cell pseudo-timestep, so the near-wall cells stop dictating a global dt.
+# This is exactly what the Wolf Dynamics reference does for its FIXED-attitude
+# KCS case (endTime 10000 pseudo-iterations). A GCI over three LTS grids is
+# valid — it bounds SPATIAL discretisation, which is what Gate 2M's <=2.5%
+# clause is about.
+#
+# Honest limits, which is why this is not the default for everything: the
+# result is steady only, it cannot feed the free sinkage-and-trim work (that
+# needs real time), and any number from it must be labelled LTS rather than
+# passed off as the transient answer.
+TIME_CONTROL_TRANSIENT = (
+    "adjustTimeStep  yes;  maxCo 5;  maxAlphaCo 2;  maxDeltaT 0.1;")
+TIME_CONTROL_LTS = (
+    "adjustTimeStep  no;   // LTS: 'time' is a pseudo-iteration count\n"
+    "maxCo 10; maxAlphaCo 5; maxDeltaT 1;")
+
+FV_SOLUTION = """FoamFile {{ version 2.0; format ascii; class dictionary; object fvSolution; }}
+solvers {{
+  // MEASURED on runs/kcs_free, timestep 1: the alpha smoothSolver reported
+  // "No Iterations 1000" with Final residual 1.55e-08 against tolerance 1e-8 —
+  // it hit the DEFAULT maxIter and bailed UNCONVERGED, and MULES then blew
+  // alpha to [-81402, +39618] and died with an FPE in GAMGSolver::scale.
+  // nLimiterIter 3 is what starves the limiter. The Wolf Dynamics KCS
+  // reference (both fixed and KCS_Dynamic) uses nAlphaCorr 3, nLimiterIter 10,
+  // minIter 1 and tolerance 1e-10 — an order of magnitude more limiter work
+  // per step, which is exactly the budget a moving interface needs.
+  "alpha.water.*" {{
+    nAlphaCorr 2; nAlphaSubCycles 1; cAlpha 1; icAlpha 0;
+    MULESCorr yes; nLimiterIter 5; alphaApplyPrevCorr yes;
+    solver smoothSolver; smoother symGaussSeidel;
+    tolerance 1e-8; relTol 0; minIter 1;
+  }}
+  "pcorr.*" {{ solver PCG; preconditioner DIC; tolerance 1e-5; relTol 0; }}
+  p_rgh {{ solver GAMG; smoother DIC; tolerance 1e-7; relTol 0.01; }}
+  p_rghFinal {{ $p_rgh; relTol 0; }}
+  "(U|k|omega).*" {{ solver smoothSolver; smoother symGaussSeidel;
+                    tolerance 1e-7; relTol 0.1; nSweeps 1; }}
+}}
+PIMPLE {{
+  {pimple_time}
   // nOuterCorrectors 1 is PISO: valid only at Co<1. Running maxCo 5 in PISO
   // mode leaves the pressure-velocity coupling unconverged within the step.
-  momentumPredictor no; nOuterCorrectors 2; nCorrectors 3;
+  // Under LTS the outer loop IS the pseudo-time iteration, so 1 is correct
+  // there and 2 would be paying twice for the same convergence.
+  momentumPredictor no; nOuterCorrectors {n_outer}; nCorrectors 3;
   // correctPhi is REQUIRED once the mesh moves: the face fluxes
   // inherited from the previous mesh do not satisfy continuity on
-  // the new one, and interFoam will not recover on its own.
-  correctPhi yes; moveMeshOuterCorrectors no;
-  nNonOrthogonalCorrectors 0;
-}
-relaxationFactors { equations { ".*" 1; } }
+  // the new one, and interFoam will not recover on its own. It is
+  // written ONLY for a moving case: it used to be unconditional, so
+  // regenerating a FIXED case produced a different configuration
+  // from the one that produced the recorded Gate 2M numbers (it adds
+  // a pcorr solve at every startup and changes the order in which
+  // alpha's and U's boundary conditions are evaluated — the very
+  // ordering the setFields note below turns on).
+  {correct_phi}moveMeshOuterCorrectors no;
+  // MEASURED: runs/kcs_sym carries 11375 severely non-orthogonal faces (max
+  // 86.6) and runs/kcs_free had 1277 (max 90.2) — an unavoidable product of
+  // the post-snappy z-only refinement, whose hanging nodes leave skewed
+  // transitions. Solving that with ZERO non-orthogonal correctors biases the
+  // pressure gradient, and pressure is 49% of our drag. The reference uses 1.
+  nNonOrthogonalCorrectors 1;
+}}
+relaxationFactors {{ equations {{ ".*" 1; }} }}
 """
 
 DECOMPOSE = """FoamFile {{ version 2.0; format ascii; class dictionary; object decomposeParDict; }}
@@ -515,12 +750,18 @@ hull.stl {
 }
 """
 
-SET_FIELDS = """FoamFile { version 2.0; format ascii; class dictionary; object setFieldsDict; }
+SET_FIELDS = """FoamFile {{ version 2.0; format ascii; class dictionary; object setFieldsDict; }}
 defaultFieldValues ( volScalarFieldValue alpha.water 0 );
 regions (
-  boxToCell { box (-1e6 -1e6 -1e6) (1e6 1e6 0);
-              fieldValues ( volScalarFieldValue alpha.water 1 ); }
-  // boxToFace as well, or the BOUNDARY faces keep the uniform 0 from 0.orig
+  boxToCell {{ box (-1e6 -1e6 -1e6) (1e6 1e6 0);
+              fieldValues ( volScalarFieldValue alpha.water 1 ); }}
+{box_to_face});
+"""
+
+# Written for a MOVING case only. It was unconditional, which quietly changed
+# every regenerated FIXED case away from the configuration that produced the
+# recorded numbers — and the comment itself says a fixed run does not need it.
+SET_FIELDS_BOX_TO_FACE = """  // boxToFace as well, or the BOUNDARY faces keep the uniform 0 from 0.orig
   // and the tank starts with every patch reading "pure air" while its cells
   // read water. MEASURED: that left alpha = 0 on the outlet, and
   // outletPhaseMeanVelocity divides by the water AREA of the patch — zero —
@@ -531,19 +772,18 @@ regions (
   // outlet condition is asked for a mean; with correctPhi the order flips.
   boxToFace { box (-1e6 -1e6 -1e6) (1e6 1e6 0);
               fieldValues ( volScalarFieldValue alpha.water 1 ); }
-);
 """
 
-TRANSPORT = """FoamFile { version 2.0; format ascii; class dictionary; object transportProperties; }
+TRANSPORT = f"""FoamFile {{ version 2.0; format ascii; class dictionary; object transportProperties; }}
 phases (water air);
-water { transportModel Newtonian; nu 1.09e-06; rho 998.8; }
-air   { transportModel Newtonian; nu 1.48e-05; rho 1.2; }
-sigma 0.07;
+water {{ transportModel Newtonian; nu {_NU_WATER:.6g}; rho {_RHO_WATER:.6g}; }}
+air   {{ transportModel Newtonian; nu {_NU_AIR:.6g}; rho {_RHO_AIR:.6g}; }}
+sigma {_SIGMA_WATER:.6g};
 """
 
-GRAVITY = """FoamFile { version 2.0; format ascii; class uniformDimensionedVectorField; object g; }
+GRAVITY = f"""FoamFile {{ version 2.0; format ascii; class uniformDimensionedVectorField; object g; }}
 dimensions [0 1 -2 0 0 0 0];
-value (0 0 -9.81);
+value (0 0 -{_G:.6g});
 """
 
 TURBULENCE = """FoamFile { version 2.0; format ascii; class dictionary; object turbulenceProperties; }
@@ -562,9 +802,20 @@ boundaryField {{
   bottom     {{ type slip; }}
   side1      {{ type slip; }}
   side2      {{ type slip; }}
-  hull       {{ type noSlip; }}
+  hull       {{ {hull_u} }}
 }}
 """
+
+# A MOVING wall needs movingWallVelocity, not noSlip. noSlip pins the face
+# velocity to zero in the ABSOLUTE frame and omits the mesh-motion flux, so a
+# hull that is sinking and trimming has a spurious mass flux through its own
+# surface. That is the leading suspect for runs/kcs_free dying on timestep 1:
+# pcorr ground through 254 iterations, then the alpha solve hit its iteration
+# ceiling unconverged. The Wolf Dynamics KCS reference uses movingWallVelocity
+# on the hull in BOTH its fixed and its free case; we keep noSlip when the mesh
+# does not move, where the two are equivalent and noSlip is clearer.
+_HULL_U_FIXED = "type noSlip;"
+_HULL_U_MOVING = "type movingWallVelocity; value uniform (0 0 0);"
 
 FIELD_P_RGH = """FoamFile { version 2.0; format ascii; class volScalarField; object p_rgh; }
 dimensions [1 -1 -2 0 0 0 0];
@@ -676,13 +927,28 @@ addLayersControls {{
   relativeSizes false; layers {{ hull {{ nSurfaceLayers {n_layers}; }} }}
   expansionRatio {layer_expansion}; firstLayerThickness {first_layer:.6e};
   minThickness {min_thickness:.6e}; nGrow 0;
-  featureAngle 60; slipFeatureAngle 30;
+  // featureAngle is the angle ACROSS WHICH LAYERS ARE ALLOWED TO CONTINUE.
+  // At 60 deg extrusion terminates at any junction sharper than that, which
+  // on a hull means the keel line, the transom edge, the deck edge and the
+  // bulb — i.e. exactly the places a boundary layer must not stop. The Wolf
+  // Dynamics KCS reference uses 170 and so does snappy's own DTCHull tutorial.
+  // MEASURED before the change: extrusion started at 44.98% of 11166 faces
+  // and DECAYED to 0 over 35 iterations as the quality controls rejected it.
+  featureAngle {layer_feature_angle}; slipFeatureAngle 30;
   nRelaxIter 5; nSmoothSurfaceNormals 1; nSmoothNormals 3; nSmoothThickness 10;
-  // Loosened from 0.5/0.3: free-surface grading makes the cells at the
-  // waterline ~20:1 anisotropic, and layer insertion refuses there. Measured
-  // hull coverage 43.9% -> 46.3%; the remainder is reported by the yPlus
-  // function object rather than assumed adequate.
+  // maxFaceThicknessRatio IS INERT HERE and is kept only so the dict is
+  // complete. snappyLayerDriver::handleWarpedFaces guards the whole check with
+  // `if (relativeSizes[patchI] && f.size() > 3)`, and we run relativeSizes
+  // false — so it is never evaluated. The comment this replaces attributed a
+  // measured 43.9% -> 46.3% coverage gain to loosening it from 0.5, which a
+  // dead parameter cannot produce; that gain came from the co-varied
+  // maxThicknessToMedialRatio, which IS live (it halves thickness toward
+  // minThickness wherever thickness/medial-distance exceeds it).
   maxFaceThicknessRatio 0.8; maxThicknessToMedialRatio 0.6;
+  // Documented purpose: "if there are just a few faces where there are mesh
+  // errors (after adding the layers) print their face centres." This is the
+  // built-in instrument for exactly the failure we were blind to for weeks.
+  additionalReporting true;
   minMedialAxisAngle 90; nBufferCellsNoExtrude 0; nLayerIter 50;
   nRelaxedIter 20;
 }}
@@ -691,8 +957,37 @@ addLayersControls {{
 // a FATAL IO ERROR after the mesh is already built. It stayed hidden while
 // nSurfaceLayers was 3 (iteration 20 was never reached) and only surfaced
 // when the near-wall fix asked for 6 layers.
+// minTetQuality -1e30, CHOSEN BY MEASUREMENT AGAINST THE DOCUMENTED ADVICE.
+//
+// First, a correction of record: an earlier commit claimed -1e30 "matches
+// snappy's own DTCHull tutorial". It does NOT. DTCHull and DTCHullMoving both
+// ship `minTetQuality 1e-30` — POSITIVE, which still rejects inside-out (<0)
+// and flat (=0) tets and only removes a positive-quality floor. `-1e30` is the
+// documented disable sentinel and accepts inverted tets. Opposite semantics.
+//
+// So 1e-30 was the obviously-correct middle setting, and it was tried. On the
+// coarse KCS grid, mesh-only, everything else identical:
+//
+//     minTetQuality   layers   nonOrtho errors   wrongly oriented   skew
+//     1e-30 (DTCHull)  75.8%        10                 18          13.18
+//     -1e30 (disabled) 89.8%         0                  0           9.64
+//
+// The STRICTER check produced the WORSE mesh, including 18 folded cells and 10
+// faces past the 90-degree legality limit. The mechanism is snappyLayerDriver's
+// checkAndUnmark, which is MONOTONE — a face unmarked at iteration 3 is never
+// re-enabled — so rejecting more faces mid-process leaves a patchy, unevenly
+// terminated layer field, and partial stacks fold cells where full stacks or
+// no stacks do not. It is not that the tet check is wrong; it is that
+// enforcing it DURING a monotone extrusion is worse than enforcing it after.
+//
+// This is a knowing trade, so it carries a receipt: run-case.sh re-checks the
+// FINISHED mesh with `checkMesh -meshQuality` against minTetQuality 1e-15 and
+// records the count, because the mesh-motion machinery used by free sinkage
+// and trim does consume the tet decomposition. minVol (1e-13) guards the
+// finite-volume discretisation and is unchanged; the two are not
+// interchangeable.
 meshQualityControls {{ maxNonOrtho 70; maxBoundarySkewness 20; maxInternalSkewness 4;
-  maxConcave 80; minVol 1e-13; minTetQuality 1e-15; minArea -1; minTwist 0.02;
+  maxConcave 80; minVol 1e-13; minTetQuality -1e30; minArea -1; minTwist 0.02;
   minDeterminant 0.001; minFaceWeight 0.05; minVolRatio 0.01; minTriangleTwist -1;
   nSmoothScale 4; errorReduction 0.75;
   // Limits snappy falls back to for the final nRelaxedIter layer iterations.
@@ -705,7 +1000,7 @@ meshQualityControls {{ maxNonOrtho 70; maxBoundarySkewness 20; maxInternalSkewne
   // and died with an FPE in the GAMG pressure solve. A dropped layer costs
   // accuracy; a degenerate cell costs the whole run.
   relaxed {{ maxNonOrtho 75; maxBoundarySkewness 25; maxInternalSkewness 6;
-    maxConcave 80; minVol 1e-13; minTetQuality 1e-15; minArea -1;
+    maxConcave 80; minVol 1e-13; minTetQuality -1e30; minArea -1;
     minTwist 0.02; minDeterminant 0.001; minFaceWeight 0.05;
     minVolRatio 0.01; minTriangleTwist -1; }}
 }}
@@ -769,16 +1064,65 @@ def stl_watertight_report(path: Path) -> dict:
                 tris.append(tuple(cur))
                 cur = []
     from collections import Counter
-    edges: Counter = Counter()
+    edges: Counter = Counter()      # undirected: closedness
+    directed: Counter = Counter()   # directed: consistent winding
     vol = 0.0
     for a, b, c in tris:
         for e in ((a, b), (b, c), (c, a)):
             edges[tuple(sorted(e))] += 1
+            directed[e] += 1
         va, vb, vc = np.array(a), np.array(b), np.array(c)
         vol += float(np.dot(va, np.cross(vb, vc))) / 6.0
     bad = [e for e, n in edges.items() if n != 2]
+    # WINDING, not just closedness. Keying only on tuple(sorted(edge)) is
+    # blind to orientation: a flipped triangle still gives each of its edges a
+    # count of 2, so this reported `watertight: True` on our own hulls while
+    # 397 deck triangles pointed INTO the boat and the signed volume was 38%
+    # low. A manifold edge that is traversed the same way TWICE means the two
+    # triangles sharing it disagree — that is the actual signature.
+    conflicts = sum(1 for e, n in directed.items() if n > 1)
     return {"n_tris": len(tris), "open_or_nonmanifold_edges": len(bad),
-            "watertight": len(bad) == 0, "signed_volume": vol}
+            "winding_conflicts": conflicts,
+            "watertight": len(bad) == 0 and conflicts == 0,
+            "outward": vol > 0.0,
+            "signed_volume": vol}
+
+
+def layer_spec(lwl: float, speed: float, scale: float = 1.0) -> dict:
+    """The near-wall stack this case WOULD get at `scale`, without writing it.
+
+    Exists so `scripts/make_case.py --triplet` can pin the anchor grid's layer
+    count and hand it to every member. Deriving it inside each case is what
+    made the stack thin from 12.9*t1 to 7.4*t1 across a triplet whose own
+    case.info claimed the wall model was held fixed.
+    """
+    nx = max(int(round(_NX_BASE * scale)), 20)
+    hull_cell = _DOMAIN_LENGTH_L * lwl / nx / 2 ** _HULL_REFINE[0]
+    t1 = first_layer_thickness(speed, lwl, _TARGET_YPLUS)
+    n_ideal = n_layers_to_bridge(t1, hull_cell, _LAYER_EXPANSION)
+    return {"n_layers": min(n_ideal, _MAX_LAYERS), "n_ideal": n_ideal,
+            "first_layer_m": t1, "hull_cell_m": hull_cell, "nx": nx}
+
+
+def benchmark_of_sha(stl_sha: str) -> str | None:
+    """Name the benchmark hull this STL hash belongs to, or None.
+
+    `data/benchmark_geom/CHECKSUMS.json` already pins the hash of every
+    benchmark geometry, so the case can record WHICH SHIP it is instead of
+    leaving a downstream gate to assume. Gate 2M assumed, and scored a Wigley
+    hull against KRISO KCS tank data.
+    """
+    import json
+    checks = (Path(__file__).resolve().parents[2] / "data" /
+              "benchmark_geom" / "CHECKSUMS.json")
+    try:
+        entries = json.loads(checks.read_text())
+    except (OSError, ValueError):
+        return None
+    for name, entry in entries.items():
+        if isinstance(entry, dict) and entry.get("sha256") == stl_sha:
+            return Path(name).stem.lower()
+    return None
 
 
 def write_resistance_case_from_stl(stl_path: str | Path, lwl: float,
@@ -786,7 +1130,9 @@ def write_resistance_case_from_stl(stl_path: str | Path, lwl: float,
                                    end_time: float = 40.0, scale: float = 1.0,
                                    np_procs: int = 8,
                                    symmetric: bool = False,
-                                   free_motion: dict | None = None) -> dict:
+                                   free_motion: dict | None = None,
+                                   lts: bool | None = None,
+                                   n_layers: int | None = None) -> dict:
     """Same case generator, but for EXTERNAL geometry (KCS/JBC calibration).
 
     The STL must be watertight, in metres, with the free surface at z=0 and
@@ -798,36 +1144,45 @@ def write_resistance_case_from_stl(stl_path: str | Path, lwl: float,
     (out / "constant" / "triSurface" / "hull.stl").write_bytes(data)
     stl_sha = hashlib.sha256(data).hexdigest()
     return _write_case_dicts(out, stl_sha, lwl, speed, end_time, scale,
-                             np_procs, symmetric, free_motion)
+                             np_procs, symmetric, free_motion, lts, n_layers)
 
 
 def write_resistance_case(hull: Hull, speed: float, out_dir: str | Path,
                           end_time: float = 40.0, scale: float = 1.0,
                           np_procs: int = 8, symmetric: bool = False,
-                          free_motion: dict | None = None) -> dict:
+                          free_motion: dict | None = None,
+                          lts: bool | None = None,
+                          n_layers: int | None = None) -> dict:
     """Generate a COMPLETE, runnable interFoam resistance case.
 
     scale: background-mesh refinement multiplier (1.0 / sqrt(2) steps give
     the GCI triplet). Templates are DTCHull-tutorial-derived; first-run
     tuning on the OpenFOAM machine is expected and normal.
+
+    n_layers: prism-layer count. Leave None for a single case (it is derived
+    from the local hull cell); PIN it across a GCI triplet, or the wall mesh
+    refines along with the outer mesh and the observed order p absorbs both.
     """
     out = Path(out_dir)
     (out / "constant" / "triSurface").mkdir(parents=True, exist_ok=True)
     lwl = float(hull.x[-1])
     # Triangulate finer than the smallest cell that will snap to this surface,
     # or snappy snaps to facets and the layer stack sits on a faceted wall.
-    bg_dx = (2.0 * lwl - (-2.5 * lwl)) / max(int(round(54 * scale)), 20)
+    bg_dx = _DOMAIN_LENGTH_L * lwl / max(int(round(_NX_BASE * scale)), 20)
     nx, nz = stl_resolution(lwl, 0.5 * bg_dx / 2 ** _HULL_REFINE[1])
     stl_sha = hull_to_stl(hull, out / "constant" / "triSurface" / "hull.stl",
                           nx=nx, nz=nz)
     return _write_case_dicts(out, stl_sha, lwl, speed,
-                             end_time, scale, np_procs, symmetric, free_motion)
+                             end_time, scale, np_procs, symmetric,
+                             free_motion, lts, n_layers)
 
 
 def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
                       end_time: float, scale: float, np_procs: int,
                       symmetric: bool = False,
-                      free_motion: dict | None = None) -> dict:
+                      free_motion: dict | None = None,
+                      lts: bool | None = None,
+                      n_layers: int | None = None) -> dict:
     (out / "system").mkdir(parents=True, exist_ok=True)
     # Initial fields live in 0.orig and are COPIED to 0 (the OpenFOAM tutorial
     # convention). setFields rewrites 0/alpha.water as a full non-uniform field
@@ -849,12 +1204,18 @@ def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
     # ample at the Fn ~ 0.26 design point; a planing-speed case deepens itself
     # instead of quietly computing shallow-water resistance and calling it
     # deep-water resistance.
-    half_lambda = math.pi * speed ** 2 / 9.81
-    depth = max(0.6 * lwl, 1.5 * half_lambda)
+    half_lambda = math.pi * speed ** 2 / _G
+    # TANK DEPTH >= 1 SHIP LENGTH, not 0.6.
+    # The deep-water WAVE criterion (depth > lambda/2) was already satisfied at
+    # 0.6 L, but the snappyHexMesh user guide section 4.4.2 discussion of marine
+    # domains and the Wolf Dynamics KCS reference (1.37 Lpp) both use at least a
+    # ship length, and the reference deck states it outright: "the depth must be
+    # greater than 1 wave length... a good choice is at least 1 ship length".
+    # A shallow tank raises wave resistance, and pressure drag was MEASURED at
+    # 2.6-4.2x the expected wave component in every run. The extra cells are in
+    # the most graded, cheapest part of the mesh.
+    depth = max(1.0 * lwl, 1.5 * half_lambda)
 
-    # A symmetric case models only y >= 0 and closes it with a symmetry plane:
-    # half the cells for the same resolution, and no mirrored-geometry seam.
-    y_half = 1.5 * lwl
     # z bands. The uniform core spans the hull draft plus the wave, because
     # refineMesh cannot refine z at all — every z cell we need must exist in
     # blockMesh. zh reaches below the deepest keel we expect (0.09L covers a
@@ -872,9 +1233,21 @@ def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
     # sqrt(2) the triplet claims. Richardson extrapolation then measures a
     # changing cell SHAPE mixed in with the changing cell SIZE, which is the
     # same defect that made the v1 triplet oscillate.
-    nx = max(int(round(54 * scale)), 20)
-    dx_bg = (2.0 * lwl + 2.5 * lwl) / nx
-    ny = max(int(round((1.5 if symmetric else 3.0) * lwl / dx_bg)), 6)
+    nx = max(int(round(_NX_BASE * scale)), 20)
+    dx_bg = _DOMAIN_LENGTH_L * lwl / nx
+    # ny FROM nx BY A FIXED RATIO, and the full domain is EXACTLY twice the
+    # half domain. It used to be `round((1.5 if symmetric else 3.0) * lwl /
+    # dx_bg)`, i.e. a second, independent rounding of a half-size number, and
+    # half-size is where rounding hurts most: MEASURED on the scale
+    # 1 / sqrt2 / 2 family at base 54, ny went 18 / 25 / 36 (ratios 1.3889 and
+    # 1.4400) while the full domain got 36 / 51 / 72 (1.4167 and 1.4118). The
+    # symmetric triplet's two refinement steps then disagreed by 0.85% against
+    # the full domain's 0.47% — and 51 is ODD, so the "half domain" was not
+    # half of anything, it was a third mesh. See `_NX_BASE` for the base change
+    # that makes nx divisible by 3 at every member, which is what makes this
+    # division exact.
+    ny_half = max(int(round(nx * _NY_PER_NX_HALF)), 6)
+    ny = ny_half if symmetric else 2 * ny_half
 
     # z resolution is tied to nx by a fixed constant, then apportioned across
     # the four bands by their scale-1 shares (6:2:2:4 of 14) using largest
@@ -889,8 +1262,9 @@ def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
     nz_deep, n_hull, n_wave, nz_air = counts
     dz_core = abs(zh) / n_hull
 
-    dom = dict(x0=-2.5 * lwl, x1=2.0 * lwl,
-               y0=0.0 if symmetric else -1.5 * lwl, y1=1.5 * lwl,
+    dom = dict(x0=_DOMAIN_X[0] * lwl, x1=_DOMAIN_X[1] * lwl,
+               y0=0.0 if symmetric else -_DOMAIN_HALF_WIDTH_L * lwl,
+               y1=_DOMAIN_HALF_WIDTH_L * lwl,
                z0=-depth, zh=zh, za=za, z1=0.25 * lwl,
                side1_type="symmetry" if symmetric else "wall",
                nx=nx, ny=ny,
@@ -903,20 +1277,98 @@ def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
     dx = (dom["x1"] - dom["x0"]) / dom["nx"] / 2 ** 2
     # z cell there after the z-only refineMesh rounds that follow snappy
     fs_dz = dz_core / 2 ** 2 / 2 ** _REFINE_ROUNDS
-    wavelength = 2 * math.pi * speed ** 2 / 9.81
+    wavelength = 2 * math.pi * speed ** 2 / _G
     # near-wall stack sized for the wall functions, bridging to the local
     # hull cell (background dx divided by the hull surface refinement level)
-    t1 = first_layer_thickness(speed, lwl, _TARGET_YPLUS)
     # Size the stack against the cell on FLAT hull area, which takes the MIN
     # refinement level — that is most of the hull, and it is where layers have
     # to bridge the furthest. Using the max level here flattered the estimate.
-    hull_cell = (dom["x1"] - dom["x0"]) / dom["nx"] / 2 ** _HULL_REFINE[0]
-    n_ideal = n_layers_to_bridge(t1, hull_cell, _LAYER_EXPANSION)
-    n_layers = min(n_ideal, _MAX_LAYERS)
+    # ONE derivation, shared with `layer_spec` so make_case.py can ask what the
+    # anchor grid would get WITHOUT writing a case to find out.
+    _spec = layer_spec(lwl, speed, scale)
+    t1, hull_cell, n_ideal = (_spec["first_layer_m"], _spec["hull_cell_m"],
+                              _spec["n_ideal"])
+    assert _spec["nx"] == dom["nx"], "layer_spec disagrees with the block mesh"
+    # THE WALL MODEL MUST BE FROZEN ACROSS A GCI TRIPLET, AND IT WAS NOT.
+    # case.info has told every reader "first-layer thickness is held constant
+    # across the GCI triplet, so the GCI bounds OUTER-flow discretisation, not
+    # the wall model", and CLAUDE.md repeats it. The first layer IS constant —
+    # `first_layer_thickness` depends only on speed and Lwl — but the LAYER
+    # COUNT is not, because `n_layers_to_bridge` reads `hull_cell`, which
+    # scales with nx. REPRODUCED on a scale 1 / sqrt2 / 2 symmetric KCS
+    # triplet at base 54: n_layers came out 7 / 6 / 5, so the prism stack
+    # height went 12.9*t1 -> 9.9*t1 -> 7.4*t1. The near-wall mesh was being
+    # refined at the same time as the outer mesh, and the observed order p
+    # absorbs BOTH — which is precisely the quantity the note says it excludes.
+    # `n_layers` is therefore pinned ONCE at the anchor scale by the caller
+    # (scripts/make_case.py --triplet) and passed to every member.
+    n_layers = min(n_ideal, _MAX_LAYERS) if n_layers is None else int(n_layers)
+    if n_layers < 1:
+        raise ValueError(f"n_layers must be >= 1, got {n_layers}")
+
+    # LAYER PROPORTIONS ARE ASSERTED AT BUILD TIME, not discovered after a
+    # multi-hour solve. OpenFOAM's shipped default is `finalLayerThickness 0.3`
+    # RELATIVE — i.e. its own intent is that the outermost layer is ~0.3 of the
+    # adjacent undistorted cell, a ~3:1 step into the background. DTCHull goes
+    # to 0.7. The configuration that produced NO LAYERS AT ALL had a last layer
+    # at 0.071 of the adjacent cell and a stack at 0.167 of it: four times below
+    # the documented proportion, and at the edge of the default minThickness.
+    # This check is the thing that would have caught it in 2 minutes rather
+    # than after weeks of solves on a layerless mesh.
+    stack = t1 * (_LAYER_EXPANSION ** n_layers - 1) / (_LAYER_EXPANSION - 1)
+    last_layer = t1 * _LAYER_EXPANSION ** (n_layers - 1)
+    last_ratio = last_layer / hull_cell
+    # The bar is 0.12, CALIBRATED FROM THE TWO MEASUREMENTS WE HAVE, not from
+    # the documented 0.3 aspiration:
+    #     last/adjacent = 0.071  ->   0% coverage (extrusion ratcheted to zero)
+    #     last/adjacent = 0.145  -> 89.8% coverage, 5 layers
+    # `hull_cell` is the MIN refinement level (37.9 mm), which is most of the
+    # hull; against the max level (19 mm) the same stack reads 0.289, i.e. bang
+    # on OpenFOAM's default. Setting the bar at 0.15 would have rejected a
+    # configuration measured to work, so it sits just below the known-good
+    # point and well above the known-bad one. Move it when a measurement says
+    # to, not when a document does.
+    # WARN, do not refuse. This is a PREDICTION calibrated from two KCS
+    # measurements, and it fires on the analytic own-hull cases too — which is
+    # itself a real finding (they share the bridging problem), but refusing to
+    # generate a case on a predicted failure is overreach when the ACHIEVED
+    # layer count is measured 2 minutes later and is already fatal in
+    # run-case.sh. Predict here, gate there, and record the prediction so the
+    # two can be compared.
+    # THE STACK MUST ALSO FIT IN THE CELL IT IS INSERTED INTO.
+    # Checking only last_layer/hull_cell misses the opposite failure. MEASURED:
+    # at Fn 0.10 the first-layer thickness scales as 1/u_tau, so it is 2.9x
+    # THICKER than at Fn 0.26 and the 5-layer stack came to 57 mm against a
+    # 37.9 mm hull cell — layers thicker than the cell they extrude into. The
+    # mesh built, and interFoam then died at t=0.0012 with deltaT collapsing to
+    # 1e-23: CLAUDE.md's documented pathological-cell signature. The bar is
+    # 1.2, just above OpenFOAM's own defaults (finalLayerThickness 0.3 with 5
+    # layers at 1.2 gives a stack of ~1.08 of the adjacent cell).
+    stack_ratio = stack / hull_cell
+    if stack_ratio > 1.2:
+        raise ValueError(
+            f"layer stack {stack * 1e3:.1f} mm does not FIT the "
+            f"{hull_cell * 1e3:.1f} mm hull cell (ratio {stack_ratio:.2f} > "
+            f"1.2). snappy will extrude cells larger than their host and "
+            f"interFoam will die with deltaT collapsing to ~1e-20. Lower "
+            f"_MAX_LAYERS or _TARGET_YPLUS, or refine the hull less. "
+            f"(first layer {t1 * 1e3:.2f} mm scales as 1/u_tau, so this bites "
+            f"at LOW speed, not high.)")
+    if last_ratio < 0.12:
+        import warnings
+        warnings.warn(
+            f"layer stack may not bridge to the background: last layer "
+            f"{last_layer * 1e3:.2f} mm is {last_ratio:.3f} of the "
+            f"{hull_cell * 1e3:.1f} mm hull cell, against OpenFOAM's default "
+            f"proportion of 0.3 (finalLayerThickness). MEASURED on KCS: 0.071 "
+            f"gave ZERO layer coverage, 0.145 gave 89.8%. Raise _TARGET_YPLUS "
+            f"or _MAX_LAYERS, or lower the hull refinement level. run-case.sh "
+            f"will fail on the achieved count if this prediction is right.",
+            stacklevel=2)
     dom.update(
         hull_lvl_min=_HULL_REFINE[0], hull_lvl_max=_HULL_REFINE[1],
         n_layers=n_layers, first_layer=t1, layer_expansion=_LAYER_EXPANSION,
-        min_thickness=0.25 * t1,
+        min_thickness=0.25 * t1, layer_feature_angle=_LAYER_FEATURE_ANGLE,
         fs_level=2, fs_dz_bg=dz_core, refine_rounds=_REFINE_ROUNDS,
         fs_x0=_FS_BOX["x0"] * lwl, fs_x1=_FS_BOX["x1"] * lwl,
         fs_y0=0.0 if symmetric else -_FS_BOX["y"] * lwl,
@@ -928,9 +1380,19 @@ def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
         loc_x=-1.97 * lwl, loc_z=0.137 * lwl,
         loc_y=0.31 * lwl if symmetric else 0.0)
 
-    # turbulence inlet: I = 2%, length scale 1% LWL
-    k_in = 1.5 * (0.02 * speed) ** 2 + 1e-8
-    w_in = k_in ** 0.5 / (0.09 ** 0.25 * 0.01 * lwl)
+    # TURBULENCE INLET. The length scale is 1% of the BOUNDARY LAYER, not 1% of
+    # the ship. MEASURED against the Wolf Dynamics KCS reference (k 7.233e-4,
+    # omega 60.78): their inlet eddy viscosity is nu_t/nu = 11.9; ours was
+    # 1968 — 165x — because the scale was 0.01*Lwl = 72.8 mm instead of ~0.8 mm,
+    # and omega 1.35 1/s barely decays before reaching the hull. Excess
+    # freestream nu_t thickens the boundary layer and RAISES skin friction,
+    # which is the direction our C_T error already points (we over-predict).
+    # delta ~ 0.37 L Re^-0.2 is the flat-plate estimate; 1% of it is the scale.
+    re_l = max(speed * lwl / _NU_WATER, 1e4)
+    delta = 0.37 * lwl * re_l ** -0.2
+    turb_len = 0.01 * delta
+    k_in = 1.5 * (0.01 * speed) ** 2 + 1e-8      # I = 1%, matching the reference
+    w_in = k_in ** 0.5 / (0.09 ** 0.25 * turb_len)
 
     sysd, cons, zero = out / "system", out / "constant", out / "0.orig"
     # Checkpoint ~10 times per run. On a machine that thermal-sleeps mid-run
@@ -938,16 +1400,50 @@ def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
     # ~1.7 h of fine-grid wall time thrown away each time. purgeWrite 3 keeps
     # the disk bounded regardless.
     write_int = max(end_time / 10.0, 0.5)
-    # Aref for the coefficient: the wetted surface the CFD actually sees.
+    # Aref must be the area the PATCH INTEGRAL actually covers, so a symmetric
+    # case gets HALF the hull's wetted surface. MEASURED on runs/kcs_sym at
+    # t=13.7063: forceCoeffs reported Cd 2.2158e-3 while force.dat gives
+    # 4.4316e-3 — exactly 2x, because the STL spans the full beam while the
+    # patch is half of it. gate2m.py is correct (it doubles the drag and uses
+    # the full-hull area); forceCoeffs was silently wrong on EVERY symmetric
+    # run, which disabled the independent cross-check that exists precisely to
+    # catch a factor-of-two.
     from .post import stl_wetted_area
     try:
         aref = stl_wetted_area(out / 'constant' / 'triSurface' / 'hull.stl', 0.0)
-    except Exception:
-        aref = 1.0
+        if symmetric:
+            aref *= 0.5
+    except Exception as exc:
+        # Falling back to 1.0 silently turns every reported coefficient into
+        # the raw force with a plausible-looking name. Refuse instead.
+        raise RuntimeError(
+            f"cannot compute Aref from the hull STL, so forceCoeffs would be "
+            f"meaningless: {exc}") from exc
+    # LTS is the default for FIXED-attitude cases and impossible for moving
+    # ones: local time stepping has no global time, so a body that must move
+    # through real time cannot use it.
+    # LTS is impossible for a moving body (no global time), and it is also
+    # WRONG for wave-making even when fixed: MEASURED on KCS, pressure drag
+    # came out 14.5x the expected wave component under LTS against 2.6-4.2x
+    # transient, because local pseudo-timesteps make wave propagation speed
+    # meaningless. It is kept only as a cheap flow-field initialiser.
+    lts = (not free_motion) if lts is None else bool(lts)
+    if lts and free_motion:
+        raise ValueError("LTS has no global time; a moving body needs transient")
+    # Under LTS `endTime` counts PSEUDO-ITERATIONS, not seconds, so a caller
+    # asking for "75 s" is asking for a physical duration that does not exist
+    # here. Substitute an iteration budget and say so in case.info, rather than
+    # silently running 75 iterations and reporting an unconverged number as a
+    # result.
+    if lts:
+        end_time = float(_LTS_ITERATIONS)
+        write_int = max(end_time / 10.0, 1.0)
     sysd.joinpath("controlDict").write_text(
-        CONTROL_DICT.format(end_time=end_time, dt=0.001, write_int=write_int,
-                            speed_abs=abs(speed), lwl=lwl,
-                            aref=max(aref, 1e-6)))
+        CONTROL_DICT.format(
+            end_time=end_time, dt=1 if lts else 0.001, write_int=write_int,
+            speed_abs=abs(speed), lwl=lwl, aref=max(aref, 1e-6),
+            rho_water=f"{_RHO_WATER:.6g}",
+            time_control=TIME_CONTROL_LTS if lts else TIME_CONTROL_TRANSIENT))
     sysd.joinpath("blockMeshDict").write_text(BLOCKMESH.format(**dom))
     # Two passes: snap first (needs cubic cells), layers last (must not be
     # z-refined afterwards). With no refineMesh rounds the second dict is
@@ -973,6 +1469,20 @@ def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
             POINT_DISPLACEMENT.format(
                 side1_pd_entry="" if symmetric else
                 "side1      { type fixedValue; value uniform (0 0 0); }"))
+    else:
+        # A CASE DIRECTORY MUST BE REGENERABLE INTO WHAT WAS ASKED FOR.
+        # These two files were only ever WRITTEN, never removed, so
+        # regenerating a case FIXED on top of a previously FREE one left
+        # `constant/dynamicMeshDict` and `0.orig/pointDisplacement` in place —
+        # and interFoam reads dynamicMeshDict if it exists. The result is a
+        # case that still sinks and trims while every receipt in it, including
+        # `free_motion=False` in case.info, says it does not. The existing test
+        # could not see it because it generates into a fresh `tmp_path`, which
+        # is exactly the one situation where the stale file cannot exist.
+        cons.mkdir(parents=True, exist_ok=True)
+        (cons / "dynamicMeshDict").unlink(missing_ok=True)
+        (zero / "pointDisplacement").unlink(missing_ok=True)
+        (out / "0" / "pointDisplacement").unlink(missing_ok=True)
 
     sysd.joinpath("refineMeshDict").write_text(REFINE_MESH)
     # Nested boxes, each round halving x,y inside it. Box 1 covers the hull and
@@ -984,15 +1494,25 @@ def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
         sysd.joinpath(f"topoSetDict.{i}").write_text(
             TOPO_SET.format(shield_m=shield, loc_x=dom["loc_x"],
                             loc_y=dom["loc_y"], loc_z=dom["loc_z"], **box))
-    sysd.joinpath("fvSchemes").write_text(FV_SCHEMES)
-    sysd.joinpath("fvSolution").write_text(FV_SOLUTION)
+    sysd.joinpath("fvSchemes").write_text(FV_SCHEMES.format(
+        ddt="localEuler rDeltaT" if lts else "Euler"))
+    sysd.joinpath("fvSolution").write_text(FV_SOLUTION.format(
+        # LTS needs the pseudo-timestep smoothing/damping controls, or the
+        # local dt field is discontinuous and the solve rings.
+        pimple_time=("rDeltaTSmoothingCoeff 0.05; rDeltaTDampingCoeff 0.5;\n"
+                     "  nAlphaSpreadIter 0; nAlphaSweepIter 0;" if lts else ""),
+        # Under LTS the outer loop IS the pseudo-time march, so one is right.
+        n_outer=1 if lts else 2,
+        correct_phi="correctPhi yes; " if free_motion else ""))
     sysd.joinpath("decomposeParDict").write_text(DECOMPOSE.format(np=np_procs))
     sysd.joinpath("surfaceFeatureExtractDict").write_text(SURFACE_FEATURES)
-    sysd.joinpath("setFieldsDict").write_text(SET_FIELDS)
+    sysd.joinpath("setFieldsDict").write_text(SET_FIELDS.format(
+        box_to_face=SET_FIELDS_BOX_TO_FACE if free_motion else ""))
     cons.joinpath("transportProperties").write_text(TRANSPORT)
     cons.joinpath("g").write_text(GRAVITY)
     cons.joinpath("turbulenceProperties").write_text(TURBULENCE)
-    zero.joinpath("U").write_text(FIELD_U.format(u=speed))
+    zero.joinpath("U").write_text(FIELD_U.format(
+        u=speed, hull_u=_HULL_U_MOVING if free_motion else _HULL_U_FIXED))
     zero.joinpath("p_rgh").write_text(FIELD_P_RGH)
     zero.joinpath("alpha.water").write_text(FIELD_ALPHA)
     zero.joinpath("k").write_text(FIELD_K.format(k_in=f"{k_in:.3e}"))
@@ -1018,21 +1538,52 @@ def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
     cells_per_wave = wavelength / dx
     (out / "case.info").write_text(
         f"speed_ms={speed}\nlwl={lwl}\nscale={scale}\nstl_sha256={stl_sha}\n"
+        # WHICH SHIP THIS IS. scripts/gate2m.py compared ANY directory against
+        # the KRISO KCS tank data — `gate2m.py runs/wigley` printed E%D -59.0
+        # for a Wigley hull under a header naming KCS's speed and Lpp. The
+        # case now says what it is, from the STL hash the checksum record
+        # pins, so the gate can refuse a hull it has no experiment for.
+        f"benchmark={benchmark_of_sha(stl_sha) or 'unknown'}\n"
+        f"free_motion={bool(free_motion)}\n"
+        f"nx={dom['nx']}\nny={dom['ny']}\n"
+        f"nz_total={dom['nz_deep'] + dom['nz_hull'] + dom['nz_wave'] + dom['nz_air']}\n"
         f"cells_bg={bg_cells}\n"
+        # THE FLOW-THROUGH TIME, so a reader never has to reconstruct the
+        # domain to know whether a run is long enough to mean anything. The
+        # 2026-08-06 re-audit found EVERY run in the repository sitting at
+        # 0.13-0.70 of ONE flow-through while conclusions were drawn from
+        # them, and nothing in case.info made that visible.
+        f"domain_length_m={dom['x1'] - dom['x0']:.4f}\n"
+        f"flow_through_s={(dom['x1'] - dom['x0']) / speed:.4f}\n"
+        f"end_time_flow_throughs={end_time * speed / (dom['x1'] - dom['x0']):.3f}\n"
         f"wavelength_m={wavelength:.4f}\ntank_depth_m={abs(dom['z0']):.4f}\n"
         f"fs_dz_m={fs_dz:.5f}\nfs_dx_m={dx:.5f}\n"
         f"cells_per_wavelength={cells_per_wave:.1f}\n"
         f"target_yplus={_TARGET_YPLUS}\nfirst_layer_m={t1:.6e}\n"
         f"n_layers={n_layers}\nn_layers_to_fully_bridge={n_ideal}\n"
+        f"layer_stack_m={stack:.6f}\nlast_layer_m={last_layer:.6f}\n"
+        f"last_layer_over_hull_cell={last_ratio:.4f}\n"
+        f"  # OpenFOAM's default finalLayerThickness is 0.3 of the adjacent\n"
+        f"  # cell. MEASURED on KCS: 0.071 -> ZERO layers, 0.145 -> 89.8%.\n"
         f"symmetric={symmetric}\n"
         "NOTE: layers are capped for insertion success, so the stack does NOT\n"
         "  bridge to the local cell; y+ is controlled on layered faces only.\n"
         "  Check postProcessing/yPlus for what was actually achieved.\n"
-        "NOTE: first-layer thickness is held constant across the GCI triplet,\n"
-        "  so the GCI bounds OUTER-flow discretisation, not the wall model.\n"
+        "NOTE: first-layer thickness AND layer count are held constant across\n"
+        "  the GCI triplet (make_case.py --triplet pins n_layers at the anchor\n"
+        "  scale), so the GCI bounds OUTER-flow discretisation with the wall\n"
+        "  model fixed. Until 2026-08-06 only the THICKNESS was constant: the\n"
+        "  count followed the hull cell and went 7/6/5 across the family, so\n"
+        "  the prism stack thinned from 12.9*t1 to 7.4*t1 and p absorbed it.\n"
         "run: navalai/cfd/run-case.sh <this-dir> <np>\n"
         "Gate 2M = KCS/JBC resistance within Tokyo-2015 scatter, per-case GCI.\n")
     return {"stl_sha256": stl_sha, "speed": speed, "end_time": end_time,
             "scale": scale, "bg_cells": bg_cells,
+            # n_layers is returned so a triplet can PIN the anchor's value on
+            # every other member; first_layer_m was already constant by
+            # construction and is returned beside it so both halves of the
+            # "wall model held fixed" claim are checkable from the caller.
+            "n_layers": n_layers, "first_layer_m": t1,
+            "nx": dom["nx"], "ny": dom["ny"],
             "cells_per_wavelength": cells_per_wave, "fs_dz": fs_dz,
             "wavelength": wavelength, "tank_depth": abs(dom["z0"])}

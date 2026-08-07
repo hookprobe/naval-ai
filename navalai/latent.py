@@ -47,26 +47,34 @@ class Genome:
         Xc = np.atleast_2d(X) - self.mean
         return Xc @ self.W @ self.M_inv.T        # posterior mean E[z|x]
 
-    def decode(self, Z: np.ndarray, project: bool = True) -> np.ndarray:
+    def decode(self, Z: np.ndarray, project: bool = True,
+               return_info: bool = False):
+        """Latent -> parameters, through the L0 gate.
+
+        THE PROJECTION USED TO BE INVISIBLE. Its `for t in np.linspace(0.1, 1.0,
+        10)` loop ends AT the nearest training hull and its `else` returned that
+        hull outright, so a decode could hand back a boat from the training set
+        while the caller believed it had the point it asked for. MEASURED on 200
+        prior draws: 12.0% needed projection, and the register recorded 6.0%
+        coming back as the anchor itself.
+
+        `return_info=True` yields a `DecodeInfo` — projected / displacement /
+        is_anchor / t — so the substitution is a fact the caller can read
+        instead of a silence. The projection itself now bisects toward the
+        feasible boundary rather than stepping to the anchor.
+        """
+        from .generative import _project_to_feasible
         X = np.atleast_2d(Z) @ self.W.T + self.mean
         X = np.clip(X, grammar.LOW, grammar.HIGH)
         if not project:
+            if return_info:
+                ok = np.array([grammar.check(r).ok for r in X])
+                from .generative import DecodeInfo
+                return X, DecodeInfo(~ok, np.zeros(len(X)),
+                                     np.zeros(len(X), bool), np.zeros(len(X)))
             return X
-        out = []
-        for row in X:
-            if grammar.check(row).ok:
-                out.append(row)
-                continue
-            d = np.linalg.norm(self.X_train - row, axis=1)
-            anchor = self.X_train[int(np.argmin(d))]
-            for t in np.linspace(0.1, 1.0, 10):
-                cand = (1 - t) * row + t * anchor
-                if grammar.check(cand).ok:
-                    out.append(cand)
-                    break
-            else:
-                out.append(anchor)
-        return np.array(out)
+        Xp, info = _project_to_feasible(X, self.X_train)
+        return (Xp, info) if return_info else Xp
 
     # ---- generative sampling from the 8-D prior ----
 

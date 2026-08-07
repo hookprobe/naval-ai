@@ -157,9 +157,15 @@ async function evalNow() {
       <div class="band">&plusmn;${q.sigma.toLocaleString()} (1&sigma;)</div>`;
     qh.appendChild(el);
   }
+  // Every mass line now arrives badged ({value, tier, sigma}), including the
+  // DECLARED `unaccounted` item, so the panel prints the band instead of a
+  // bare number and the lines sum to the displacement shown above them.
   const w = d.weights_kg;
   document.getElementById("weights").textContent = w ?
-    `weight budget: structure ${w.structure} · battery ${w.battery} · panels ${w.panels} · outfit ${w.outfit} · payload ${w.payload} → total ${w.total} kg` : "";
+    "mass model (" + Object.entries(w).map(([k, q]) =>
+      `${k} ${q.value === null ? "—" : q.value.toLocaleString()}` +
+      (q.sigma ? `±${q.sigma.toLocaleString()}` : "")
+    ).join(" · ") + " kg, 1σ)" : "";
 }
 
 document.getElementById("apply").addEventListener("click", async () => {
@@ -172,8 +178,11 @@ document.getElementById("suggest").addEventListener("click", async () => {
   const b = document.getElementById("suggest");
   b.disabled = true; b.textContent = "sampling…";
   try {
+    // The mission goes with the request. Without it the widget ranked
+    // candidates under the SERVER's default mission while this panel showed
+    // the user's — a wrong answer wearing a conditioned label.
     const d = await (await fetch("/generate", { method: "POST",
-      body: JSON.stringify({ percentile: 0.8, n: 1 }) })).json();
+      body: JSON.stringify({ percentile: 0.8, n: 1, mission }) })).json();
     if (d.hulls && d.hulls.length) {
       params = d.hulls[0];
       document.querySelectorAll("#sliders input").forEach(inp => {

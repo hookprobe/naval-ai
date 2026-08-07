@@ -1,5 +1,28 @@
 # Consultation brief — OpenFOAM near-wall / y+ blocker
 
+> **SUPERSEDED 2026-08-06. RETAINED AS A RECORD, NOT AS CURRENT STATE.**
+>
+> This brief was written while the blocker was believed to be the wall model.
+> It was not. The root cause was a **38:1 background cell**: `hexRef8` refines
+> ISOTROPICALLY, so every refinement level preserved the aspect ratio while
+> shrinking the height, and snap displacement — which scales with the LONG
+> edge — moved nodes several cell HEIGHTS and folded cells inside out. That
+> single fact explains every failure the brief lists below, including the ones
+> it calls unexplained: (2,3) clean / (3,4) worse / (4,5) worse still,
+> `addLayers false` producing a byte-identical broken mesh, and snap
+> `tolerance` having no effect. See CLAUDE.md's root-cause section for the
+> four-step fix and the measured result (72 988 zero-volume cells → 4 open
+> cells), and `docs/BuildPlan3-GapClosure.md` R5.5 for what is ACTUALLY open
+> now: pressure drag 3–6× high and growing with time, with viscous drag
+> correct.
+>
+> **The C_t figure quoted below is one of five that circulated (gap J1) and is
+> superseded.** The one measurement lives in `data/gate-ledger.json`.
+>
+> Left in place rather than deleted because the elimination work in it is real
+> and re-doing it would cost machine-days. PLM §3 step 7: superseded material
+> is removed with a note, never left ambiguous — this is the note.
+
 Written to be self-contained for an outside reader (human or AI). Everything
 below is measured on the machine, not estimated.
 

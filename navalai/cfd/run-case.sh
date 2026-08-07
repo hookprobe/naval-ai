@@ -1,9 +1,23 @@
 #!/usr/bin/env bash
 # OpenFOAM resistance case runner (metal-gated: needs OpenFOAM 2306+).
-# Usage: ./run-case.sh <case-dir> [n-procs]
+# Usage: ./run-case.sh <case-dir> [n-procs] [--force]
 # Produces postProcessing/forces/0/force.dat consumed by navalai.cfd.post.
 set -euo pipefail
-CASE="${1:?usage: run-case.sh <case-dir> [n-procs]}"
+
+# --force (or FORCE=1) proceeds past a mesh-quality refusal. It exists so a
+# deliberate experiment on a known-bad mesh is possible; it must never be the
+# default, because a degenerate cell does not degrade a run, it invalidates it.
+FORCE="${FORCE:-0}"
+ARGS=()
+for a in "$@"; do
+  case "$a" in
+    --force) FORCE=1 ;;
+    *) ARGS+=("$a") ;;
+  esac
+done
+set -- "${ARGS[@]+"${ARGS[@]}"}"
+
+CASE="${1:?usage: run-case.sh <case-dir> [n-procs] [--force]}"
 NP="${2:-4}"
 
 [ -d "$CASE" ] || { echo "FATAL: case dir '$CASE' does not exist." \
@@ -15,6 +29,44 @@ command -v interFoam >/dev/null || { echo "FATAL: OpenFOAM not in PATH" \
 
 cd "$CASE"
 say() { echo "[$CASE] $1"; }
+
+# --- ONE SOLVE AT A TIME, CHECKED FIRST ------------------------------------
+# This Mac has 15 cores and np=10 is the measured optimum for a SINGLE job.
+# Three 10-rank jobs were once left running concurrently: load average 51.5,
+# every rank at ~46% of a core, and each case at roughly a third of its proper
+# speed — which reads as "the solver is slow" rather than "you are
+# oversubscribed 3x". Refuse rather than crawl.
+#
+# THIS CHECK USED TO SIT AFTER THE ENTIRE MESH BUILD, and everything about that
+# placement was wrong:
+#   - it came after `rm -rf constant/polyMesh processor*`, so a run that was
+#     about to be REFUSED had already destroyed the mesh it was refused for;
+#   - it came after the resume early-exit, so in the normal (resuming) mode —
+#     the mode this machine runs in, because it thermal-sleeps — it never fired
+#     at all, which is exactly when a second solve is most likely to be running;
+#   - it came BEFORE the MESH_ONLY exit, so the 2-minute mesh sweeps CLAUDE.md
+#     recommends running while a solve is in progress were refused, and
+#     `run_campaign.sh` retries exit 3 up to 20 times;
+#   - `pgrep -f "interFoam -parallel"` misses `interFoam` run serially (NP=1),
+#     which is the same machine and the same cores.
+# It is now first, it matches both paths by process name, and MESH_ONLY skips it
+# because meshing is not the thing that oversubscribes the box.
+# `pgrep -x interFoam` matches the SOLVER PROCESS by name, which is what both
+# the serial run and every mpirun rank actually is; the -f pattern additionally
+# catches the mpirun wrapper. Neither matches `tail -f .../log.interFoam`, which
+# a bare `pgrep -f interFoam` would — and CLAUDE.md tells people to run exactly
+# that, so a looser pattern would refuse runs because someone is watching one.
+solve_running() {
+  pgrep -x interFoam > /dev/null 2>&1 ||
+  pgrep -f "interFoam -parallel" > /dev/null 2>&1
+}
+if [ "${MESH_ONLY:-0}" != "1" ] && solve_running; then
+  say "FATAL: an interFoam solve is already running on this machine."
+  say "       $(pgrep -xl interFoam 2>/dev/null | head -1)"
+  say "       np is per-MACHINE, not per-job. Wait for it, or kill it first."
+  say "       (MESH_ONLY=1 sweeps are exempt and may run alongside a solve.)"
+  exit 3
+fi
 
 # --- resume support -------------------------------------------------------
 # This machine has no working cooling and has already lost a triplet to
@@ -121,18 +173,6 @@ if [ "$ROUNDS" -gt 0 ]; then
     { say "FATAL: layer pass failed — see log.snappy.layers"; exit 1; }
 fi
 
-# ONE SOLVE AT A TIME. This Mac has 15 cores and np=10 is the measured optimum
-# for a SINGLE job. Three 10-rank jobs were once left running concurrently:
-# load average 51.5, every rank at ~46% of a core, and each case at roughly a
-# third of its proper speed — which reads as "the solver is slow" rather than
-# "you are oversubscribed 3x". Refuse rather than crawl.
-if pgrep -f "interFoam -parallel" > /dev/null 2>&1; then
-  say "FATAL: an interFoam solve is already running on this machine."
-  say "       $(pgrep -fl 'interFoam -parallel' | head -1)"
-  say "       np is per-MACHINE, not per-job. Wait for it, or kill it first."
-  exit 3
-fi
-
 say "checkMesh ..."
 checkMesh > log.checkMesh 2>&1 || true
 # Report mesh quality rather than bury it: free-surface grading leaves ~20:1
@@ -141,15 +181,201 @@ checkMesh > log.checkMesh 2>&1 || true
 say "mesh: $(grep -m1 'cells:' log.checkMesh | tr -s ' ') | \
 $(grep -m1 'non-orthogonality Max' log.checkMesh | tr -s ' ' | cut -c1-46) | \
 $(grep -m1 'Max skewness' log.checkMesh | tr -s ' ' | sed 's/^ *//' | cut -c1-40)"
-# The layer summary is the `patch faces layers avg thickness` table snappy
-# prints at the END of the layer pass — NOT the "Added N out of M cells" lines,
-# which report castellation iterations and read as 0.3% coverage on a patch
-# that is in fact fully layered. With staged meshing that table lives in
-# log.snappy.layers; fall back to log.snappy for the single-pass case.
+# LAYER COVERAGE IS MEASURED FROM THE CELL DELTA, NOT FROM THE TABLE.
+#
+# This block used to parse the `patch faces layers avg thickness` table and
+# report "n=3, near-wall 0.000795 m (11175 faces)". That table is the layer
+# specification snappy was ASKED for — it is printed at log line 246, BEFORE
+# `Outer iteration : 0` at line 251 — and it prints identically whether the
+# extrusion succeeds or fails completely. The old comment here asserted the
+# opposite and dismissed the "Added N out of M cells" lines as misleading.
+#
+# MEASURED 2026-08-06 on runs/kcs_sym, the mesh that had been solving for
+# hours, and on a freshly generated runs/kcs_gci2/coarse:
+#     Initial mesh : cells:241946
+#     Layer mesh   : cells:241946          <-- zero cells added
+#     Extruding 0 out of 11175 faces (0%)
+#     Added 0 out of 33525 cells (0%)
+# Independent geometric check: wall-normal distance from each hull face to its
+# owner cell centre had p50 = 10.62 mm against a requested first-layer
+# half-height of 0.397 mm, and 0 of 11175 faces below 1 mm. Measured y+ on the
+# hull averaged 644. There were NO PRISM LAYERS AT ALL, and both CLAUDE.md and
+# this script had been reporting full coverage for weeks.
+#
+# A wall model with no boundary-layer mesh is not a degraded result, it is a
+# different simulation. So this is FATAL unless LAYERS_OPTIONAL=1.
+# A RECEIPT IS REWRITTEN, NOT APPENDED. Every invocation appended its lines, so
+# a case meshed three times (a MESH_ONLY sweep and then two campaign attempts)
+# ended up with three copies of each — MEASURED on runs/val_coarse, whose
+# case.info carries checkmesh_wrong_oriented_faces=10 three times over. Whoever
+# reads it next gets whichever duplicate they happen to hit, so a receipt from a
+# superseded mesh can outlive the mesh that produced it.
+_mq_record() {
+  grep -v "^$1=" case.info > case.info.tmp 2>/dev/null || : > case.info.tmp
+  mv case.info.tmp case.info
+  echo "$1=$2" >> case.info
+}
 _LAYERLOG=log.snappy; [ -s log.snappy.layers ] && _LAYERLOG=log.snappy.layers
-say "layers: $(awk '/^hull +[0-9]/ {print "n="$3", near-wall "$4" m, overall "$5" m ("$2" faces)"; found=1}
-                   END {if (!found) print "none reported"}' "$_LAYERLOG" | tail -1)"
-grep -q 'Mesh OK' log.checkMesh || say "NOTE: checkMesh flagged $(grep -c 'Failed' log.checkMesh) check(s) — see log.checkMesh"
+_L_INIT=$(awk '/^Initial mesh :/ {gsub(/cells:/,"",$4); print $4}' "$_LAYERLOG" | tail -1)
+_L_FINAL=$(awk '/^Layer mesh :/  {gsub(/cells:/,"",$4); print $4}' "$_LAYERLOG" | tail -1)
+_L_ADDED=$(( ${_L_FINAL:-0} - ${_L_INIT:-0} ))
+_L_WANT=$(awk '/Added [0-9]+ out of [0-9]+ cells/ {print $5}' "$_LAYERLOG" | tail -1)
+# TWO `hull ...` TABLES, DIFFERENT COLUMNS, AND `tail -1` READ THE WRONG ONE.
+# snappy prints the layer SPEC before extrusion and the ACHIEVED result after:
+#
+#   patch faces    layers avg thickness[m]        (5 fields: NF==5)
+#                        near-wall overall
+#   hull  11915    7      0.00265   0.0342
+#
+#   patch faces        layers        overall thickness   (6 fields: NF==6)
+#                 target   mesh     [m]       [%]
+#   hull  11915    7        5.68     0.0292    85.5
+#
+# The old `awk '/^hull +[0-9]/ {... "first "$4" m"}' | tail -1` matched BOTH and
+# kept the LAST, so it printed column 4 of the *achieved* table under the label
+# of column 4 of the *spec* table. MEASURED on this very case: it reported
+# `first 5.68 m` — a first-layer thickness of 5.68 METRES on a 7.28 m hull,
+# 2145x the 2.648 mm the case asked for. The number was not even wrong in
+# magnitude, it was a different quantity: 5.68 is the achieved MEAN LAYER COUNT.
+# Tables are told apart by NF, not by position, so inserting another one cannot
+# silently re-point this again.
+_L_SPEC=$(awk '/^hull +[0-9]/ && NF==5 {printf "requested n=%s, first %s m", $3, $4}' "$_LAYERLOG" | tail -1)
+_L_GOT=$(awk '/^hull +[0-9]/ && NF==6 {printf "achieved %s of %s layers, stack %s m (%s%% of target)", $4, $3, $5, $6}' "$_LAYERLOG" | tail -1)
+if [ "${_L_ADDED:-0}" -le 0 ]; then
+  say "FATAL: layer addition produced ZERO cells (${_L_SPEC:-no spec found})."
+  say "       The hull has no prism layers, so y+ is uncontrolled and the wall"
+  say "       model is invalid. See log.snappy.layers 'Extruding 0 out of ...'."
+  say "       Set LAYERS_OPTIONAL=1 to proceed deliberately anyway."
+  [ "${LAYERS_OPTIONAL:-0}" = "1" ] || exit 1
+else
+  say "layers: ADDED ${_L_ADDED} of ${_L_WANT:-?} cells ($(awk -v a="$_L_ADDED" -v w="${_L_WANT:-1}" 'BEGIN{printf "%.1f", 100*a/w}')%), ${_L_SPEC}"
+  say "layers: ${_L_GOT:-no achieved table found}"
+  [ -n "$_L_GOT" ] && _mq_record layers_achieved \
+    "$(awk '/^hull +[0-9]/ && NF==6 {print $4}' "$_LAYERLOG" | tail -1)"
+fi
+# `grep -c 'Failed'` COUNTS LINES, NOT CHECKS. checkMesh writes one line,
+# "Failed 3 mesh checks.", so a mesh failing three checks was reported as
+# "flagged 1 check(s)". MEASURED on runs/val_coarse: 3 failures (non-ortho,
+# face pyramids, skewness) announced as 1.
+if ! grep -q 'Mesh OK' log.checkMesh; then
+  _MQ_NFAIL=$(awk '/Failed [0-9]+ mesh check/ {print $2}' log.checkMesh | tail -1)
+  say "NOTE: checkMesh FAILED ${_MQ_NFAIL:-?} check(s) — see log.checkMesh"
+  awk '/^ \*\*\*/ {sub(/^ *\*\*\* */,""); print "         " $0}' log.checkMesh
+fi
+
+# CHECKMESH HAD NO FATAL THRESHOLD AT ALL. It ran with `|| true` and the only
+# consequence was the NOTE above, so a mesh with degenerate cells went straight
+# into a multi-hour solve. Two counts are read, and they are treated
+# differently because the measurements say different things:
+#
+#   ZERO-VOLUME CELLS -> FATAL AT 1. Every mesh in this project that solved had
+#   zero (the fixed KCS meshes at all three refinement levels: 0, 0, 0); every
+#   mesh that died had some (72988 with the refineMesh rounds last, 20 on the
+#   (4,5)/n=4 sweep, 14 on the mirrored KCS.igs path). A cell of zero volume is
+#   CLAUDE.md's documented pathological-cell signature: no timestep can fix it,
+#   the adaptive controller shrinks deltaT to ~1e-40 and interFoam dies with an
+#   FPE in the GAMG p_rgh solve.
+#
+#   INCORRECTLY-ORIENTED FACES -> FATAL AT 5. The bar was 10, interpolated
+#   between the only two points then available (5 faces -> the fixed KCS mesh,
+#   which SOLVES; 73 -> the mirrored KCS.igs mesh, which dies on the first
+#   timestep). MEASURED 2026-08-06, the gap between them is now filled and 10
+#   is on the WRONG side of it:
+#       0  faces -> KCS coarse n_layers=3 and n=5, and runs/wigley (n=10,
+#                   solved 10 s to completion) -- all clean
+#       5  faces -> the fixed KCS mesh, SOLVES
+#      10  faces -> KCS coarse symmetric, nx 57, n_layers=7 (what make_case.py
+#                   DERIVES for this hull today). interFoam died at t=0.0072
+#                   with deltaT 1.2e-3 -> 2.5e-26 while Courant max stayed 9-12
+#                   and alpha.water reached 1503.95 -- the documented
+#                   pathological-cell signature, and it passed this guard by
+#                   exactly one face.
+#      73  faces -> the mirrored KCS.igs mesh, dies on the first timestep
+#   5 is now the largest count measured to SOLVE, and the next count up is
+#   measured to die. Interpolating a bar between two points is a guess; this
+#   one is now pinned by the measurement in between. Tightening a gate on
+#   evidence is the opposite of softening one.
+#
+#   MAX SKEWNESS -> FATAL AT 20, which is checkMesh's OWN boundary-face limit
+#   (its internal limit is 4, which every mesh in this project exceeds, so 4
+#   would refuse everything we have ever solved). MEASURED:
+#       6.32  KCS coarse n=3   |  8.68  wigley (solved)   |  8.93  KCS n=5
+#       9.64  kcs_gci2/coarse  | 42.94  KCS n=7 (DIED at t=0.0072)
+#   Every mesh that solved is under 10; the one that died is 4.7x the worst of
+#   them. The bar sits at OpenFOAM's documented value rather than at a number
+#   invented to separate these two clusters.
+#
+#   AN UNPARSED METRIC IS FATAL, NEVER ZERO. Every one of these used to end in
+#   `${VAR:-0}`, which silently converts "I could not measure this" into "this
+#   is perfect" — the same failure class as the layer table that reported the
+#   REQUESTED spec as the achieved one, and as `${_L_WANT:-1}` dividing by a
+#   fabricated denominator. checkMesh's wording is not contractual (the counts
+#   only appear when non-zero, and the skewness line carries a `***` prefix
+#   when it fails and none when it passes), so a parse that comes back empty
+#   means the guard has no evidence, and a guard with no evidence must refuse.
+#   The skewness value is read by SUBSTRING after "Max skewness =" rather than
+#   by field index, so the `***` prefix cannot shift the column out from under
+#   it.
+_mq_num() {   # _mq_num <awk-program> <what>  -> value, or "UNPARSED"
+  local v; v=$(awk "$1" log.checkMesh | tail -1)
+  case "$v" in ''|*[!0-9.eE+-]*) echo "UNPARSED";; *) echo "$v";; esac
+}
+# The zero-volume and wrong-orientation lines are printed ONLY when the count
+# is non-zero, so "no line" genuinely means zero for those two and the default
+# is correct. Skewness is printed on EVERY run, so a missing value there means
+# the parse broke.
+_MQ_ZEROVOL=$(awk '/zero volume cells to set zeroVolumeCells/ {print $2}' log.checkMesh | tail -1)
+_MQ_WRONGOR=$(awk '/faces with incorrect orientation to set wrongOrientedFaces/ {print $2}' log.checkMesh | tail -1)
+_MQ_ZEROVOL=${_MQ_ZEROVOL:-0}; _MQ_WRONGOR=${_MQ_WRONGOR:-0}
+_MQ_SKEW=$(_mq_num '/Max skewness *=/ {v=$0; sub(/.*Max skewness *= */,"",v); sub(/[^0-9.eE+-].*/,"",v); print v}' skewness)
+say "mesh quality: ${_MQ_ZEROVOL} zero-volume cell(s), ${_MQ_WRONGOR} incorrectly-oriented face(s), max skewness ${_MQ_SKEW}"
+# RECEIPTS ARE REWRITTEN, NOT APPENDED. Every invocation appended, so a case
+# meshed three times (a MESH_ONLY sweep then two campaign attempts) carried
+# three copies of each line — MEASURED on runs/val_coarse and runs/val_coarse5.
+# A later reader gets whichever duplicate it happens to hit, which is how a
+# stale receipt outlives the mesh that produced it.
+_mq_record checkmesh_zero_volume_cells "${_MQ_ZEROVOL}"
+_mq_record checkmesh_wrong_oriented_faces "${_MQ_WRONGOR}"
+_mq_record checkmesh_max_skewness "${_MQ_SKEW}"
+if [ "$_MQ_SKEW" = "UNPARSED" ]; then
+  _MQ_SKEWBAD=1
+else
+  _MQ_SKEWBAD=$(awk -v s="$_MQ_SKEW" 'BEGIN{print (s+0 > 20.0) ? 1 : 0}')
+fi
+if [ "$_MQ_ZEROVOL" -gt 0 ] || [ "$_MQ_WRONGOR" -gt 5 ] || [ "$_MQ_SKEWBAD" = "1" ]; then
+  say "FATAL: mesh quality below the bar (${_MQ_ZEROVOL} zero-volume cells,"
+  say "       ${_MQ_WRONGOR} incorrectly-oriented faces, max skewness ${_MQ_SKEW};"
+  say "       bars are 0, 5 and 20)."
+  [ "$_MQ_SKEW" = "UNPARSED" ] && \
+    say "       max skewness could NOT BE READ from log.checkMesh. An unmeasured"
+  [ "$_MQ_SKEW" = "UNPARSED" ] && \
+    say "       metric is refused, not assumed good — see the comment above."
+  say "       A degenerate cell does not degrade a solve, it invalidates it:"
+  say "       deltaT collapses to ~1e-40 while Courant stays high and interFoam"
+  say "       dies in the GAMG p_rgh solve. Re-mesh; do not spend hours on this."
+  say "       If the layer count is the cause (MEASURED on KCS coarse: n=7 gives"
+  say "       10 faces and dies, n=5 gives 0 and solves), pass n_layers to the"
+  say "       generator -- make_case.py --n-layers N."
+  say "       Pass --force (or FORCE=1) to run it anyway, deliberately."
+  [ "$FORCE" = "1" ] || exit 1
+  say "       --force given: proceeding on a mesh that failed the bar."
+fi
+# TET-DECOMPOSITION RECEIPT. minTetQuality is DISABLED during layer addition
+# (see the meshQualityControls comment in case.py: enforcing it there made the
+# mesh measurably worse — 18 folded cells against 0). That is a knowing trade,
+# but the mesh-motion machinery used by free sinkage and trim DOES consume the
+# tet decomposition, so the finished mesh is re-checked against a real bar and
+# the number is recorded rather than left unknown.
+# checkMesh in v2606 takes NO -dict; -meshQuality reads system/meshQualityDict.
+cat > system/meshQualityDict <<'TETEOF'
+FoamFile { version 2.0; format ascii; class dictionary; object meshQualityDict; }
+#includeEtc "caseDicts/meshQualityDict"
+minTetQuality 1e-15;
+TETEOF
+checkMesh -meshQuality > log.checkMesh.tet 2>&1 || true
+_TETBAD=$(awk '/tet quality/ {print $NF}' log.checkMesh.tet | tail -1)
+say "tet-decomposition check (minTetQuality 1e-15 on the FINISHED mesh): ${_TETBAD:-not reported} bad faces"
+_mq_record tet_bad_faces_at_1e-15 "${_TETBAD:-unknown}"
 # MESH_ONLY exists so the robustness harness measures THIS pipeline. It used
 # to call `snappyHexMesh -overwrite` itself, which was a fair copy of the
 # single-pass mesher and is now simply a different mesher: it skips the z-only
@@ -160,7 +386,21 @@ if [ "${MESH_ONLY:-0}" = "1" ]; then
   exit 0
 fi
 
-setFields > log.setFields 2>&1 || true
+# setFields IS NOT OPTIONAL, AND `|| true` SAID IT WAS.
+# It is what puts water in the tank: `0.orig/alpha.water` is uniform 0, and
+# every cell below z=0 is filled by the boxToCell entry here. If setFields
+# fails the solve starts in PURE AIR, runs to completion, writes forces, and
+# reports a drag that is ~1/800 of the right one — a plausible-looking number
+# from a tank with no water in it. The `boxToFace` entry (written only for
+# moving cases) is exactly the kind of selector that can be rejected on a
+# version mismatch, so this failure mode is reachable, not hypothetical.
+say "setFields ..."
+setFields > log.setFields 2>&1 || {
+  say "FATAL: setFields failed — see log.setFields."
+  say "       The tank would start as PURE AIR and the run would produce a"
+  say "       complete, plausible, meaningless force history."
+  exit 1
+}
 if [ "$NP" -gt 1 ]; then
   # Reconcile the rank count with the dict BEFORE meshing costs anything.
   # A mismatch is only discovered by interFoam, which aborts after the whole

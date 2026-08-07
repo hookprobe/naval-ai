@@ -1,0 +1,85 @@
+{
+  "_README": [
+    "GAP J5. The KCS benchmark geometry is gitignored (the Tokyo-2015 workshop",
+    "bundle may carry redistribution terms), which meant the '-0.09% on",
+    "displacement' validation SILENTLY SKIPPED on every machine but the one",
+    "Mac that happened to have generated the file. Five pytest skips in every",
+    "run, invisible in the gate table, and nothing in the repository recorded",
+    "what the missing file should have BEEN.",
+    "",
+    "This file is that record. It is committed; the geometry is not.",
+    "",
+    "TWO ACCEPTANCE TESTS, AND THE WEAKER ONE IS THE CHECKSUM.",
+    "",
+    "  sha256   pins the exact bytes THIS machine produced. It is the strong",
+    "           test for 'did the file change', and a WEAK test for 'is the",
+    "           file right', because the STL comes out of an OCC tessellation",
+    "           and a different OCC version legitimately produces different",
+    "           triangles from the same IGES. A sha256 mismatch therefore",
+    "           means REGENERATED, not WRONG.",
+    "",
+    "  submerged_volume  is version-independent. It is sensitive to the unit",
+    "           scale, the draft shift, the mirroring and the deck capping",
+    "           simultaneously, so one number confirms the whole recipe. This",
+    "           is the test that decides whether a regenerated file is usable.",
+    "",
+    "MEASURED 2026-08-06 on the committed recipe's output, and it does NOT",
+    "agree with what benchmarks/kcs.py records (gap F18). GEOMETRY_CHECK says",
+    "measured_submerged_m3 1.6474 / -0.09%; re-running",
+    "navalai.cfd.post.stl_submerged_properties on the actual file gives",
+    "1.644484 / -0.267%. The 0.18% disagreement is hidden by that test's",
+    "rel=0.01. The number recorded below is the one measured here, because a",
+    "checksum record that restates an unreproducible figure is the J1 defect",
+    "(five circulating Gate 2M numbers) starting over in a new file."
+  ],
+
+  "wigley.stl": {
+    "_why": [
+      "ADDED 2026-08-06. `benchmark_of_sha` says this file 'pins the hash of",
+      "every benchmark geometry' and it pinned exactly one. wigley.stl is",
+      "COMMITTED to the repository and was not in here, so",
+      "`gate2m.py runs/wigley` identified the case as None. The refusal still",
+      "fired — None is not 'kcs' — but it fired because the hull was",
+      "UNIDENTIFIABLE, not because it was identified as a different ship, and",
+      "the printed reason said so. A guard that happens to be right for the",
+      "wrong reason is one geometry away from being wrong."
+    ],
+    "sha256": "b8f0fe51fb4327ee6228fe8c0b0702c009f64c4dafc5b3c2498ec8d9a372a90f",
+    "bytes": 7411159,
+    "produced_by": "scripts/wigley_stl.py (analytic, nx=161 nz=41), macOS arm64, 2026-08-06",
+    "source_document": "Wigley parabolic hull, y = (B/2)(1-(2x/L)^2)(1-(z/T)^2), L=10 B=L/10 T=L/16. Analytic: no redistribution question, and the acceptance value is closed-form rather than transcribed.",
+    "recipe": [
+      "python scripts/wigley_stl.py --out data/benchmark_geom/wigley.stl --lwl 10.0"
+    ],
+    "acceptance": {
+      "metric": "submerged volume at z=0, navalai.cfd.post.stl_submerged_properties",
+      "measured_m3": 2.777235,
+      "published_m3": 2.7777777777777777,
+      "published_from": "4*L*B*T/9, the closed-form displacement of the Wigley form (L=10, B=1, T=0.625)",
+      "error_pct": -0.0195,
+      "tolerance_pct": 0.5,
+      "why_this_tolerance": "The residual is pure faceting of a smooth analytic surface at nx=161/nz=41, so it shrinks with the tessellation and has no lower bound worth pinning. The tolerance matches kcs.stl's for the same reason it was chosen there: it must admit a re-tessellation while still failing a wrong unit scale, a missing draft shift or an unmirrored half body, all of which are tens of percent."
+    }
+  },
+
+  "kcs.stl": {
+    "sha256": "87062dbf11fc20683ee51de7d9526342a4ff28bab89308569b44c2e9fd82faec",
+    "bytes": 2482114,
+    "produced_by": "cadquery-ocp 7.9.3.1.1 (OCCT 7.9), macOS arm64, 2026-08-05",
+    "source_document": "KCS.igs — Tokyo 2015 Workshop on CFD in Ship Hydrodynamics (t2015.nmri.go.jp), bundle All_20160729.zip. NOT redistributed here; workshop geometry may carry redistribution terms.",
+    "recipe": [
+      "python scripts/iges2stl.py downloads/KCS.igs /tmp/kcs_full.stl --scale 0.001 --z-shift -0.34178 --deflection 0.004 --sew-tol 1e-3 --mirror-y",
+      "python -c \"from navalai.cfd.post import cap_planar_holes; cap_planar_holes('/tmp/kcs_full.stl','data/benchmark_geom/kcs.stl')\""
+    ],
+    "fetch": "python scripts/fetch_benchmark_geom.py",
+    "acceptance": {
+      "metric": "submerged volume at z=0, navalai.cfd.post.stl_submerged_properties",
+      "measured_m3": 1.644484,
+      "published_m3": 1.6488933938288857,
+      "published_from": "52030 m^3 full-scale displacement / 31.6^3",
+      "error_pct": -0.267,
+      "tolerance_pct": 0.5,
+      "why_this_tolerance": "It has to admit an OCC-version difference in the tessellation while still failing a wrong unit scale (x1000), a missing draft shift (z=0 at the keel instead of the waterline, which roughly doubles the volume) or an unmirrored half body (x0.5). Every failure mode this check exists to catch is tens of percent, not tenths."
+    }
+  }
+}

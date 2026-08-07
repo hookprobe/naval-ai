@@ -130,13 +130,396 @@ def _restart_index(p: Path) -> int:
 
 
 def mean_resistance(path: str | Path, tail_frac: float = 0.3) -> tuple[float, float]:
-    """(mean, std) of drag over the final tail_frac of the run (settled)."""
+    """(mean, std) of drag over the final tail_frac of the run (settled).
+
+    A raw sample mean over a file. It is NOT the settledness rule — that is
+    `settled_drag`, which time-averages, tests the COMPONENTS and reports why.
+    Kept because the low-level parse/average is worth testing on its own.
+    """
     t, fx = parse_forces(path)
     if len(t) < 10:
         raise ValueError("force history too short")
     cut = t[0] + (1.0 - tail_frac) * (t[-1] - t[0])
     seg = fx[t >= cut]
     return float(np.mean(seg)), float(np.std(seg))
+
+
+# ===========================================================================
+# ONE settledness rule, ONE cell count, ONE symmetric doubling.
+#
+# scripts/post_gci.py and scripts/gate2m.py were two independent
+# post-processors over the same files, and they DISAGREED on all three. All of
+# the following was MEASURED on the recorded runs on 2026-08-06, before any of
+# it moved here:
+#
+#   * CELL COUNT.  post_gci read checkMesh's `cells:` and FELL BACK to
+#     case.info's `cells_bg=`; gate2m read `cells_bg` only. Those are different
+#     quantities — the meshed count and the background block spec — and on
+#     these runs they differ by ~16x (beach: 222444 vs 13608). `post_gci.py
+#     runs/kcs_gci2` mixed one of each inside a single ratio and printed
+#         cells 243354 / 38000 / 108864
+#         measured refinement ratio 0.538 (c->m), 1.420 (m->f)
+#     i.e. a grid that gets COARSER under refinement, from a family generated
+#     at sqrt(2). gate2m, on the same directory, got 1.410 / 1.418.
+#   * SETTLEDNESS.  post_gci split the last 30% in half; gate2m compared the
+#     last fifth to the previous fifth BY SAMPLE INDEX. On runs/kcs_gci2/coarse
+#     that is 2.1% drift (post_gci: settled) against 10.9% (gate2m: NOT
+#     settled) — same file, same instant, two verdicts.
+#   * DOUBLING.  gate2m doubled a symmetric case's force; post_gci acquired the
+#     same rule later and independently.
+#
+# The rules below are the ones that survived, and each is CHOSEN, with the
+# measurement that chose it recorded next to it.
+# ===========================================================================
+
+# The settled window is the LAST FIFTH of the record, and drift is measured
+# against the fifth before it. That is gate2m's definition — the one that
+# prints the Gate 2M verdict and the one `navalai.pipeline.check_cfd`
+# documents — so it wins over post_gci's tail/2 split. It is applied BY TIME
+# here, not by sample index: dt is adaptive, so an index window over-weights
+# exactly the instants where the solver was struggling. MEASURED on runs/beach,
+# where the two disagree materially: 3.34% drift by index, 5.77% by time.
+TAIL_FRAC = 0.2
+
+# Drift above which a force history has not settled. MIRRORED as SETTLE_TOL in
+# scripts/gate2m.py because navalai/pipeline.py reads that literal out of that
+# file by regex; tests/test_settled_drag.py fences the two together.
+DRIFT_TOL = 0.05
+
+# Batches the settled window is split into for the standard error of its mean.
+# This is the drift test's own fifth-split, generalised from 2 windows to 5 —
+# see `settled_drag` for the measurement that made 2 insufficient.
+N_BATCHES = 5
+
+# A domain the free stream has not yet crossed still contains its initial
+# condition, so no average over it can be stationary. Physics, not a tuned
+# constant. The TARGET for a KCS resistance number is 5.0 (75 s); anything
+# between is reported as under-run.
+FLOW_THROUGH_FLOOR = 1.0
+FLOW_THROUGH_TARGET = 5.0
+
+# Two refinement steps that differ by more than this are not one family, and
+# Richardson extrapolation does not apply to them. Both scripts had this check
+# with this number; it now has one home.
+FAMILY_SPREAD_TOL_PCT = 5.0
+
+# Samples required in the settled window. Drift compares two window means and
+# the batch error splits one of them five ways; below this there is no
+# statistic, only noise. runs/val_coarse holds FOUR samples (a solve that
+# diverged at t=0.0072) and must never produce a mean.
+MIN_WINDOW_SAMPLES = 20
+
+
+class ForceHistoryError(ValueError):
+    """This case cannot yield a drag number, and says why.
+
+    A dedicated type so a caller can tell "no data" from "unusable data"
+    without a broad `except ValueError` swallowing a file-read failure as
+    well — the same lesson `WaterplaneError` records.
+    """
+
+
+class CellCountError(ValueError):
+    """The mesh size could not be MEASURED for this case.
+
+    Never substitute another quantity for it. `${VAR:-0}` has already cost this
+    project a run, and the cells_bg fallback above cost it a refinement ratio
+    of 0.538.
+    """
+
+
+def read_case_info(case: str | Path) -> dict:
+    """`case.info` as a dict. One parser; there were three.
+
+    Only `key=value` lines with a bare identifier key are receipts. That rule
+    drops the prose lines (`Gate 2M = KCS/JBC resistance ...` has a SPACE in
+    its key) without a per-prefix blacklist that has to be kept in step with
+    whatever the generator writes next.
+    """
+    out: dict = {}
+    p = Path(case) / "case.info"
+    if not p.exists():
+        return out
+    for line in p.read_text().splitlines():
+        s = line.strip()
+        if not s or s.startswith("#") or "=" not in s:
+            continue
+        k, v = s.split("=", 1)
+        k = k.strip()
+        if k.isidentifier():
+            out[k] = v.strip()
+    return out
+
+
+def is_symmetric(case: str | Path) -> bool:
+    """True when case.info records a half domain. A missing receipt is FULL.
+
+    THE ONE PLACE THIS IS DECIDED. A symmetric case meshes half the hull, so
+    its patch integral is half the force — "the single easiest way to be
+    exactly 2x wrong and never notice", and post_gci.py was exactly 2x wrong
+    for as long as it had no symmetric handling at all.
+    """
+    return read_case_info(case).get("symmetric", "False").strip().lower() == "true"
+
+
+def cell_count(case: str | Path) -> int:
+    """Cells in the mesh that was SOLVED, from checkMesh. No fallback.
+
+    checkMesh runs last in run-case.sh — after castellation, snapping, the
+    z-only refineMesh rounds and the layer pass — so its `cells:` is the mesh
+    the solver saw. `cells_bg` in case.info is the background block SPEC, ~16x
+    smaller, and the two are not interchangeable: post_gci.py mixed them inside
+    one refinement ratio and reported 0.538 for a sqrt(2) family (see the block
+    comment above). An unmeasurable count raises; it never defaults.
+    """
+    log = Path(case) / "log.checkMesh"
+    if log.exists():
+        for line in log.read_text().splitlines():
+            if line.strip().startswith("cells:"):
+                try:
+                    return int(line.split()[-1])
+                except ValueError:
+                    break
+    raise CellCountError(
+        f"no checkMesh cell count under {case}. The mesh size is MEASURED from "
+        f"log.checkMesh, never taken from case.info's cells_bg — that is the "
+        f"background block spec, not the mesh, and substituting it produced a "
+        f"refinement ratio of 0.538 on a sqrt(2) family.")
+
+
+def _time_average(t: np.ndarray, y: np.ndarray) -> float:
+    """Trapezoidal time-average. dt is adaptive; a sample mean is not one."""
+    if len(t) < 2:
+        return float(np.mean(y))
+    return float(np.trapezoid(y, t) / (t[-1] - t[0]))
+
+
+def _batch_error(t: np.ndarray, y: np.ndarray) -> float:
+    """Standard error of the window mean by BATCH MEANS (N_BATCHES batches).
+
+    Why not the drift test alone: drift compares TWO adjacent windows, so an
+    oscillation whose period is close to the window length puts both windows at
+    the same phase and cancels itself out of the comparison. That is not a
+    hypothetical.
+
+    MEASURED on runs/val_coarse5 (1.33 flow-throughs) at a 0.40 tail: drift on
+    the TOTAL is 0.3% and the worst component drift is 2.9% — inside the 5% bar
+    on every component — while the batch error of the pressure component is
+    17.5%. On runs/beach at a 0.25 tail: worst drift 1.2%, batch error 5.5%.
+    Both are runs this repository has drawn conclusions from.
+
+    That oscillation is not noise and its period is now known independently:
+    a tank mode at **5.53 s**, measured from the free surface rather than the
+    forces (docs/PRESSURE-OSCILLATION.md). val_coarse5's settled window is
+    3.94 s — SHORTER THAN ONE CYCLE — so its mean is a phase sample whatever
+    the drift between two such windows happens to say. The batch error is what
+    reports that, and it needs no period estimator to do it: batch means of a
+    window that cannot average one cycle simply do not agree.
+
+    Equal-TIME batches; NaN if any batch is too thin to average, which is a
+    refusal upstream, never a pass.
+    """
+    edges = np.linspace(t[0], t[-1], N_BATCHES + 1)
+    means = []
+    for i in range(N_BATCHES):
+        m = (t >= edges[i]) & (t <= edges[i + 1])
+        if int(m.sum()) < 2:
+            return float("nan")
+        means.append(_time_average(t[m], y[m]))
+    return float(np.std(means, ddof=1) / math.sqrt(N_BATCHES))
+
+
+def settled_drag(case: str | Path, *, drift_tol: float = DRIFT_TOL,
+                 tail_frac: float = TAIL_FRAC) -> dict:
+    """The settled drag of ONE case, and whether it is settled at all.
+
+    THE single home for: reading the force history, choosing the averaging
+    window, doubling a symmetric case, and deciding stationarity. Both
+    scripts/post_gci.py and scripts/gate2m.py call it and neither may re-derive
+    any of it.
+
+    Stationarity is THREE conditions, and all must hold:
+
+      1. `flow_throughs >= FLOW_THROUGH_FLOOR`. A domain the free stream has
+         not crossed still holds its initial condition. MEASURED on runs/beach
+         at 0.70: 3.3% drift on the total, and the gate printed a C_T.
+      2. `drift <= drift_tol` on the TOTAL **and on the PRESSURE and VISCOUS
+         components separately**. The drift test used to be applied to the
+         total only, and the total is dominated by the viscous part, which is
+         the stable one — so the component that is actually wrong was free to
+         move underneath a passing number. MEASURED on runs/lts: total drift
+         4.5% (the old rule: SETTLED, and the gate reported C_T = 1.1995e-02
+         from it) against 7.5% on the pressure component.
+      3. `batch error <= drift_tol` on each component — the guard against an
+         oscillation that aliases with the two-window drift comparison. See
+         `_batch_error` for the two recorded runs where it, and only it, fires.
+
+    Returns a dict; `settled` is the verdict, `reasons` says what failed and
+    `method` names the rule so the reader never has to infer it. Values in
+    newtons are the FULL hull (doubled for a symmetric case). Signs are as
+    OpenFOAM writes them — a hull towed toward -x has a negative x-force — so
+    resistance is `abs(drag_n)`.
+
+    Raises ForceHistoryError when there is no usable history at all. That is a
+    refusal, not a zero.
+    """
+    case = Path(case)
+    try:
+        fpath = forces_path(case)
+    except FileNotFoundError as exc:
+        raise ForceHistoryError(str(exc)) from exc
+
+    t, fx = parse_forces(fpath)
+    tc, fp, fv = parse_forces_components(fpath)
+    if len(t) < 2:
+        raise ForceHistoryError(
+            f"{fpath} holds {len(t)} usable row(s); there is no history here")
+    if len(tc) != len(t):
+        raise ForceHistoryError(
+            f"{fpath} has {len(t)} total rows but {len(tc)} with a "
+            f"pressure/viscous split. The components are what the settledness "
+            f"rule tests, so a file without them cannot be judged.")
+
+    span = float(t[-1] - t[0])
+    if span <= 0:
+        raise ForceHistoryError(f"{fpath} spans no time (t[0] == t[-1])")
+    cut = t[-1] - tail_frac * span
+    prev_cut = t[-1] - 2.0 * tail_frac * span
+    win = t >= cut
+    prev = (t >= prev_cut) & (t < cut)
+    n_win, n_prev = int(win.sum()), int(prev.sum())
+    if n_win < MIN_WINDOW_SAMPLES or n_prev < MIN_WINDOW_SAMPLES:
+        raise ForceHistoryError(
+            f"{case.name}: the settled window holds {n_win} samples and the "
+            f"one before it {n_prev}; {MIN_WINDOW_SAMPLES} are required in "
+            f"each. A drift between two means of a handful of samples is "
+            f"noise, not a stationarity test. (runs/val_coarse holds 4 samples "
+            f"in total, from a solve that diverged at t=0.0072.)")
+
+    parts = {"total": fx, "pressure": fp, "viscous": fv}
+    for name, arr in parts.items():
+        seg = arr[win]
+        if not np.isfinite(seg).all():
+            raise ForceHistoryError(
+                f"{case.name}: the {name} force is not finite over the settled "
+                f"window. A diverged solve is not a small number, and it must "
+                f"never be averaged into one.")
+
+    tw = t[win]
+    window_s = float(tw[-1] - tw[0])
+    factor = 2.0 if is_symmetric(case) else 1.0
+    total_avg = factor * _time_average(tw, fx[win])
+    ref = max(abs(total_avg), 1e-12)
+
+    means, drifts, errors = {}, {}, {}
+    for name, arr in parts.items():
+        means[name] = factor * _time_average(tw, arr[win])
+        drifts[name] = abs(means[name]
+                           - factor * _time_average(t[prev], arr[prev])) / ref
+        errors[name] = factor * _batch_error(tw, arr[win]) / ref
+
+    info = read_case_info(case)
+    try:
+        lwl = float(info["lwl"])
+        speed = float(info["speed_ms"])
+    except (KeyError, ValueError) as exc:
+        raise ForceHistoryError(
+            f"{case.name}: case.info has no usable lwl/speed_ms, so neither "
+            f"C_T nor the flow-through count can be MEASURED. Both are part of "
+            f"the verdict; neither has a default.") from exc
+
+    from .case import _DOMAIN_LENGTH_L          # one domain proportion, in case.py
+    domain_assumed = "domain_length_m" not in info
+    dom_len = float(info.get("domain_length_m", 0.0) or 0.0) or _DOMAIN_LENGTH_L * lwl
+    flow_throughs = float(t[-1]) * speed / dom_len
+
+    stl = case / "constant" / "triSurface" / "hull.stl"
+    if stl.exists():
+        s_wetted = stl_wetted_area(stl, 0.0)
+        ct = resistance_coefficient(total_avg, s_wetted, speed)
+    else:
+        s_wetted, ct = float("nan"), float("nan")
+
+    try:
+        cells: int | None = cell_count(case)
+    except CellCountError:
+        cells = None
+
+    reasons: list[str] = []
+    if flow_throughs < FLOW_THROUGH_FLOOR:
+        reasons.append(
+            f"{flow_throughs:.2f} of a flow-through (floor "
+            f"{FLOW_THROUGH_FLOOR:.1f}) — the free stream has not crossed the "
+            f"domain, so it still holds its initial condition")
+    for name in parts:
+        if not math.isfinite(drifts[name]) or drifts[name] > drift_tol:
+            reasons.append(f"{name} drift {100*drifts[name]:.1f}% > "
+                           f"{100*drift_tol:.0f}%")
+    for name in parts:
+        if not math.isfinite(errors[name]):
+            reasons.append(
+                f"{name} batch error could not be measured (a batch of the "
+                f"settled window holds fewer than 2 samples)")
+        elif errors[name] > drift_tol:
+            reasons.append(
+                f"{name} batch error {100*errors[name]:.1f}% > "
+                f"{100*drift_tol:.0f}% — the window mean is not reproducible "
+                f"across the window, which drift alone cannot see")
+
+    drift = max(drifts.values())
+    method = (
+        f"time-averaged over the last {100*tail_frac:.0f}% "
+        f"(t={tw[0]:.4g}..{tw[-1]:.4g} s, {n_win} samples); drift vs the "
+        f"preceding window and a {N_BATCHES}-batch standard error, BOTH "
+        f"applied to total/pressure/viscous, bar {100*drift_tol:.0f}%; "
+        f"flow-through floor {FLOW_THROUGH_FLOOR:.1f}"
+        + ("; symmetric case doubled" if factor == 2.0 else ""))
+
+    return {
+        "name": case.name, "case": str(case),
+        "drag_n": total_avg, "pressure_n": means["pressure"],
+        "viscous_n": means["viscous"],
+        "std_n": factor * float(np.std(fx[win])),
+        "drift": drift, "drift_total": drifts["total"],
+        "drift_pressure": drifts["pressure"], "drift_viscous": drifts["viscous"],
+        "error_total": errors["total"], "error_pressure": errors["pressure"],
+        "error_viscous": errors["viscous"],
+        "settled": not reasons, "reasons": tuple(reasons),
+        "symmetric": factor == 2.0, "cells": cells,
+        "flow_throughs": flow_throughs, "domain_assumed": domain_assumed,
+        "t_end": float(t[-1]), "window_s": window_s, "n_window": n_win,
+        "ct": ct, "s_wetted_m2": s_wetted, "speed": speed, "lwl": lwl,
+        "method": method,
+    }
+
+
+def family_refinement(coarse: int | None, medium: int | None,
+                      fine: int | None) -> dict:
+    """The refinement ratio of a triplet, MEASURED from its cell counts.
+
+    Assuming r = sqrt(2) is what the nz-snapping incident punished: the
+    generator was quietly producing 1.297 and 1.368 while post_gci assumed
+    sqrt(2), and the report came out p = nan, GCI 58.5%. So there is no assumed
+    default here — a missing count raises.
+
+    Both scripts computed this, and they even used the label `r12` for opposite
+    steps (post_gci: coarse->medium; gate2m: fine->medium). The steps are named
+    here.
+    """
+    counts = {"coarse": coarse, "medium": medium, "fine": fine}
+    missing = [k for k, v in counts.items() if not v]
+    if missing:
+        raise CellCountError(
+            f"no measured cell count for: {', '.join(missing)}. The refinement "
+            f"ratio is the whole basis of a GCI; it is MEASURED from the grids "
+            f"or it is not reported.")
+    r_cm = (medium / coarse) ** (1 / 3)
+    r_mf = (fine / medium) ** (1 / 3)
+    spread = 100.0 * abs(r_mf - r_cm) / max(r_cm, r_mf)
+    return {"r_coarse_to_medium": r_cm, "r_medium_to_fine": r_mf,
+            "spread_pct": spread, "r": (r_cm * r_mf) ** 0.5,
+            "one_family": spread <= FAMILY_SPREAD_TOL_PCT,
+            "cells": (coarse, medium, fine)}
 
 
 def stl_wetted_area(path: str | Path, waterline: float = 0.0) -> float:
@@ -425,10 +808,20 @@ def cap_planar_holes(src: str | Path, dst: str | Path,
 
 
 def resistance_coefficient(drag: float, wetted_area: float, speed: float,
-                           rho: float = 998.8) -> float:
-    """C_t = R_t / (0.5 rho S U^2) — the form Tokyo-2015 reports."""
+                           rho: float | None = None) -> float:
+    """C_t = R_t / (0.5 rho S U^2) — the form Tokyo-2015 reports.
+
+    rho defaults to the density the forces function object is TOLD, which lives
+    at `navalai.cfd.case._RHO_WATER`. It used to be retyped as a default here
+    and again as `RHO` in scripts/gate2m.py — two more copies of the literal
+    that tests/test_cfd_reference_parity.py already fences inside case.py, and
+    the gate's copy was the one that divided every reported C_T.
+    """
     if wetted_area <= 0 or speed <= 0:
         raise ValueError("wetted_area and speed must be positive")
+    if rho is None:
+        from .case import _RHO_WATER
+        rho = _RHO_WATER
     return abs(drag) / (0.5 * rho * wetted_area * speed ** 2)
 
 
@@ -452,12 +845,107 @@ def gci(f_coarse: float, f_medium: float, f_fine: float,
         return GCIReport(f_fine, f_fine, float("nan"),
                          100.0 * 1.25 * spread / max(abs(f_fine), 1e-12),
                          "oscillatory: spread bound, Fs=1.25")
-    p = math.log(abs(e32 / e21)) / math.log(refinement)
-    p = min(max(p, 0.5), 4.0)              # clamp to sane observed orders
+    p_raw = math.log(abs(e32 / e21)) / math.log(refinement)
+    # THE LOW-END CLAMP WAS ANTI-CONSERVATIVE. Raising a below-first-order p up
+    # to 0.5 SHRINKS the reported uncertainty, because GCI ~ 1/(r^p - 1).
+    # MEASURED on an exact Richardson triplet at r=sqrt(2) with true p=0.1: the
+    # analytic GCI is 6.392% and this function reported 1.191% — an
+    # understatement of 5.37x, in precisely the direction that lets a barely
+    # converging triplet claim the <=2.5% bar. Roache's own recommendation for
+    # a poorly-behaved p is to fall back to first order with the SAFER factor
+    # Fs = 3.0, so that is what fires, and the method string says which rule
+    # was used. The high-end clamp is conservative and stays.
+    if p_raw < 1.0:
+        # Keep the OBSERVED order and raise the safety factor. Substituting
+        # p = 1 here was still anti-conservative: at p_obs = 0.1 it reported
+        # 1.306% against an analytic 6.392%, because 1/(r^p - 1) collapses as p
+        # rises. The observed p with Fs = 3.0 gives 15.3% — larger than the
+        # Fs=1.25 figure, which is the point: a triplet below first order is
+        # not in the asymptotic range and its uncertainty must not look small.
+        # p is floored only to keep the denominator finite.
+        p, fs = max(p_raw, 0.05), 3.0
+        rule = f"p_obs={p_raw:.2f}<1, NOT asymptotic -> Fs=3.0"
+    else:
+        p, fs, rule = min(p_raw, 4.0), 1.25, "Richardson p (capped at 4), Fs=1.25"
     f_exact = f_fine - e21 / (refinement**p - 1.0)
-    gci_pct = 100.0 * 1.25 * abs(e21 / f_fine) / (refinement**p - 1.0)
-    return GCIReport(f_fine, f_exact, p, gci_pct,
-                     "Roache GCI, Fs=1.25, Richardson p (clamped 0.5..4)")
+    gci_pct = 100.0 * fs * abs(e21 / f_fine) / (refinement**p - 1.0)
+    return GCIReport(f_fine, f_exact, p, gci_pct, f"Roache GCI, {rule}")
+
+
+class WaterplaneError(ValueError):
+    """The waterplane could not be closed from this geometry.
+
+    A dedicated type so callers can fall back on a GEOMETRY problem without
+    also swallowing a file-read failure. Learned the hard way: a binary STL
+    raised UnicodeDecodeError, which is a ValueError, which a broad
+    `except ValueError` upstream absorbed into a silent fallback.
+    """
+
+
+def stl_waterplane_properties(path, waterline: float = 0.0) -> dict:
+    """Waterplane area, LCF and LONGITUDINAL second moment about it.
+
+    Why this exists: the pitch restoring stiffness of a floating body is
+    rho*g*I_L, and `sixdof_properties` was approximating I_L as Awp*(L/2)^2.
+    MEASURED on the KCS STL: true I_L = 19.854 m^4 giving k_theta = 194539
+    N.m/rad, against the approximation's 771030 — **3.96x too stiff**. That put
+    the pitch damper at zeta 0.597 instead of the intended 0.30, roughly
+    doubling settling time on a run already budgeted in days.
+
+    Method: the closed waterplane is recovered from the hull surface by the
+    divergence theorem rather than by cutting the mesh. For the submerged
+    volume V bounded by hull + cap, integrating div(F) with F = (0,0,1) gives
+    A_wp = -sum(A_i n_z,i) over the HULL triangles below the waterline, because
+    the cap's own contribution is what we are solving for. The same trick with
+    F = (0,0,x^2) yields the second moment about x=0; the parallel axis then
+    moves it to the centre of flotation.
+    """
+    tris = np.asarray(_read_stl_tris(path), float)
+    tris = tris - np.array([0.0, 0.0, waterline])
+
+    kept = []
+    for tri in tris:
+        z = tri[:, 2]
+        if (z <= 0).all():
+            kept.append(tri)
+            continue
+        if (z > 0).all():
+            continue
+        poly = []
+        for i in range(3):
+            a, b = tri[i], tri[(i + 1) % 3]
+            if a[2] <= 0:
+                poly.append(a)
+            if (a[2] <= 0) != (b[2] <= 0):
+                f = a[2] / (a[2] - b[2])
+                poly.append(a + f * (b - a))
+        for i in range(1, len(poly) - 1):
+            kept.append(np.array([poly[0], poly[i], poly[i + 1]]))
+    if not kept:
+        raise WaterplaneError("no submerged geometry below the waterline")
+
+    T = np.asarray(kept)
+    a, b, c = T[:, 0], T[:, 1], T[:, 2]
+    n2 = np.cross(b - a, c - a)          # 2 * area * unit normal
+    nz = n2[:, 2] * 0.5                  # signed area projected on z
+    xbar = (a[:, 0] + b[:, 0] + c[:, 0]) / 3.0
+
+    awp = -float(nz.sum())
+    if awp <= 0:
+        raise WaterplaneError(f"non-physical waterplane area {awp:.6g} m^2")
+    # int(x) over a triangle IS area * centroid — exact, because x is linear.
+    lcf = -float((nz * xbar).sum()) / awp
+    # int(x^2) is NOT area * centroid^2. The exact quadrature over a triangle is
+    # A * (sum xi^2 + sum_{i<j} xi xj) / 6; using the centroid squared
+    # understated a 4 x 2 m box's I_L as 3.556 m^4 against the closed-form
+    # B*L^3/12 = 10.667 — a factor of 3, and in the unsafe direction for a
+    # stiffness. Caught by the box anchor, which is why the anchor exists.
+    x1, x2, x3 = a[:, 0], b[:, 0], c[:, 0]
+    x2_quad = (x1 * x1 + x2 * x2 + x3 * x3
+               + x1 * x2 + x1 * x3 + x2 * x3) / 6.0
+    i_x0 = -float((nz * x2_quad).sum())
+    i_l = i_x0 - awp * lcf ** 2
+    return {"awp_m2": awp, "lcf": lcf, "i_l_m4": max(i_l, 1e-12)}
 
 
 def stl_submerged_properties(path, waterline: float = 0.0) -> dict:

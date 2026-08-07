@@ -23,11 +23,10 @@ from typing import Any
 
 import numpy as np
 
-from . import grammar
 from .engineer import EngineerReport, assess
 from .evaluate import Evaluation, evaluate, sample_valid
 from .geometry import Hull
-from .hull_ast import HullDesign, Typology, type_check
+from .hull_ast import HullDesign, Typology, infer_typology, type_check
 from .latent import Genome
 from .mission import MissionSpec
 from .translate import grade, requirements_from_mission, translate
@@ -49,6 +48,10 @@ class DesignRecord:
     engineering: EngineerReport
     requirements: dict
     fitness: float
+    # Which typology the Validator's L0 type-check actually accepted. It used
+    # to be nowhere on the record because the check could not reject anything
+    # (see `_validator`), so there was no accepted typology to name.
+    typology: str = ""
 
 
 class Audit:
@@ -84,14 +87,49 @@ async def _validator(inbox: asyncio.Queue, out: asyncio.Queue, audit: Audit,
         if msg.kind == "stop":
             return
         x = msg.payload
-        rep = type_check(HullDesign.from_vector(x, Typology.SHARP_CHINE))
-        ev = evaluate(x, mission) if rep.ok or grammar.check(x).ok else None
-        if ev is None or not ev.ok:
-            reason = (ev.violations if ev else rep.violations)
+        # THE L0 TYPE-CHECK COULD NOT REJECT ANYTHING. It read
+        #
+        #     rep = type_check(HullDesign.from_vector(x, Typology.SHARP_CHINE))
+        #     ev = evaluate(x, mission) if rep.ok or grammar.check(x).ok else None
+        #
+        # and `type_check` ends by appending `grammar.check(...).violations` to
+        # its own list (hull_ast.py:168-169), so `rep.ok` IMPLIES
+        # `grammar.check(x).ok` and the disjunction is identically
+        # `grammar.check(x).ok`. The typology arm was inert. MEASURED over
+        # 200,000 uniform in-box vectors: 48,243 pass `grammar.check`, of which
+        # 27,440 (56.9%) FAIL the sharp-chine type check — example violation
+        # "typology[sharp-chine]: forefoot 0.32 outside [0.4, 1.0]" — and the
+        # shipped code delivered 100% of them while the docstring above claimed
+        # an "L0 type-check".
+        #
+        # It is now ENFORCED, and the typology is INFERRED rather than asserted.
+        # Hard-coding SHARP_CHINE would have the Validator reject hulls for not
+        # being a typology nobody asked for: the Builder samples a Genome fitted
+        # on `sample_valid` draws, which carries no typology conditioning.
+        # `infer_typology` asks the question the grammar can actually answer —
+        # "does this vector type-check as ANY declared typology, and which?" —
+        # and the answer is recorded on the delivered design. MEASURED on the
+        # Builder's own distribution (512 genome samples): 512 pass
+        # `grammar.check`, 324 pass sharp-chine, 324 pass some typology, so on
+        # today's genome the inferred form costs nothing against the hard-coded
+        # one; it is simply the honest question, and stays right when a PRAM
+        # genome is added.
+        typ = infer_typology(x)
+        if typ is None:
+            why = []
+            for t in Typology:
+                why += list(type_check(HullDesign.from_vector(x, t)).violations)
             audit.log(Message("validator", "orchestrator", "rejected",
-                              {"fitness": float("inf"), "why": reason}))
+                              {"fitness": float("inf"), "why": tuple(why),
+                               "stage": "L0 type-check"}))
             continue
-        out_msg = Message("validator", "engineer", "validated", (x, ev))
+        ev = evaluate(x, mission)
+        if not ev.ok:
+            audit.log(Message("validator", "orchestrator", "rejected",
+                              {"fitness": float("inf"), "why": ev.violations,
+                               "stage": "L1 ladder"}))
+            continue
+        out_msg = Message("validator", "engineer", "validated", (x, ev, typ))
         audit.log(out_msg)
         await out.put(out_msg)
 
@@ -102,10 +140,22 @@ async def _engineer(inbox: asyncio.Queue, out: asyncio.Queue, audit: Audit,
         msg = await inbox.get()
         if msg.kind == "stop":
             return
-        x, ev = msg.payload
-        eng = assess(Hull(x), ev.wl)
+        x, ev, typ = msg.payload
+        # `mldc_kg` IS NOT OPTIONAL HERE. `assess(Hull(x), ev.wl)` bills the
+        # NOMINAL stock sheet while the SAME ladder run already derived the
+        # bottom-panel thickness from ISO 12215-5 and charged the boat that
+        # structural weight. MEASURED on a 6 t mission: the delivered BOM read
+        # 15.0 mm bottom / 140 sheets against `ev.ply_thickness_m` = 21.0 mm,
+        # and the BOM lines even carried the note "thickness nominal stock
+        # sheet (no mLDC given — NOT rule-derived)". Honest, and still a bill
+        # of materials for a boat that fails the platform's own scantling rule.
+        # `evaluate()` derives its thickness from
+        # `select_stock_thickness_m(mission.displacement_target_kg)`, so this is
+        # the same argument the ladder used — one number, one source.
+        eng = assess(Hull(x), ev.wl, mldc_kg=mission.displacement_target_kg)
         reqs = grade(ev, requirements_from_mission(mission))
-        rec = DesignRecord(x, ev, eng, reqs, fitness=ev.energy.wh_per_nm)
+        rec = DesignRecord(x, ev, eng, reqs, fitness=ev.energy.wh_per_nm,
+                           typology=typ.value)
         out_msg = Message("engineer", "orchestrator", "engineered", rec)
         audit.log(out_msg)
         await out.put(out_msg)

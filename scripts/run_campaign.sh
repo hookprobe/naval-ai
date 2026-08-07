@@ -48,6 +48,7 @@ for GRID in $GRIDS; do
   [ "$GRID" = "." ] && CASE="$ROOT"
   [ -d "$CASE" ] || { echo "[campaign] skip $GRID (no case dir)"; continue; }
   END="$(end_time_of "$CASE" 2>/dev/null || echo 0)"
+  STALL=0            # consecutive attempts that advanced t by nothing
 
   for attempt in $(seq 1 "$MAX"); do
     NOW="$(latest_of "$CASE")"
@@ -59,12 +60,36 @@ for GRID in $GRIDS; do
     "$HERE/navalai/cfd/run-case.sh" "$CASE" "$NP" || \
       echo "[campaign] $GRID attempt $attempt returned non-zero — will resume"
 
-    # If a nap killed it, the machine may still be hot; let it breathe.
+    # A CRASH IS NOT A NAP, AND THIS LOOP COULD NOT TELL THEM APART.
+    # Every non-zero exit was treated as "interrupted, will resume", so a
+    # DIVERGED case was re-meshed and re-run up to MAX times. MEASURED
+    # 2026-08-06 on runs/val_coarse: interFoam died at t=0.0072 with the
+    # pathological-cell signature, no checkpoint was ever written, and the loop
+    # settled into "attempt N/20 (at t=0/20)" -> mesh 3 min -> die -> cool
+    # 120 s, i.e. ~100 minutes of re-running a mesh that cannot solve, ending
+    # in a WARNING phrased as though the machine had napped.
+    # A thermal nap always leaves a LATER checkpoint than the attempt started
+    # from; a divergence leaves the same one. So: no progress twice in a row
+    # is fatal, and the message names the real cause.
     AFTER="$(latest_of "$CASE")"
-    if ! awk -v a="$AFTER" -v b="$END" 'BEGIN{exit !(a+0 >= b+0-1e-6)}'; then
-      echo "[campaign] $GRID interrupted at t=$AFTER — cooling 120 s before resume"
-      sleep 120
+    if awk -v a="$AFTER" -v b="$END" 'BEGIN{exit !(a+0 >= b+0-1e-6)}'; then
+      continue
     fi
+    if awk -v a="$AFTER" -v b="$NOW" 'BEGIN{exit !(a+0 <= b+0)}'; then
+      STALL=$((${STALL:-0} + 1))
+      if [ "$STALL" -ge 2 ]; then
+        echo "[campaign] FATAL: $GRID made NO progress in $STALL attempts" \
+             "(still t=$AFTER of $END)." >&2
+        echo "[campaign] That is a DIVERGENCE, not a thermal nap — resuming" \
+             "cannot help. Check log.interFoam for deltaT collapsing while" \
+             "Courant stays high (a pathological cell) and re-mesh." >&2
+        exit 4
+      fi
+    else
+      STALL=0
+    fi
+    echo "[campaign] $GRID interrupted at t=$AFTER — cooling 120 s before resume"
+    sleep 120
   done
 
   FINAL="$(latest_of "$CASE")"

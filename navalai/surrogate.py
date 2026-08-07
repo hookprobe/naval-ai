@@ -10,15 +10,39 @@ Honesty rules implemented here:
   - every predict() returns (mean, sigma), never a bare number
   - is_ood() flags queries far outside training support -> ladder escalation,
     the "a query far from support must say so" gate
+  - predict_or_escalate() is the only caller-facing entry point that is allowed
+    to hand back a tier badge: out of support it either runs real physics or
+    raises OODRefusal. It never returns a surrogate-badged number for a query
+    the surrogate cannot support.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import warnings
+from dataclasses import dataclass, field
 
 import numpy as np
 from scipy.linalg import cho_factor, cho_solve
-from scipy.optimize import minimize
+from scipy.optimize import minimize, minimize_scalar
+
+
+class OODRefusal(RuntimeError):
+    """The surrogate was asked for a number it has no support for.
+
+    `is_ood()` had TWO call sites in the whole repository and both were in
+    tests: it flagged, and nothing anywhere escalated or refused. Gate 3's bar
+    is "OOD queries reliably escalate to L2/L3", so a boolean that no caller
+    consumes is not an implementation of it. Raising is the fallback when the
+    caller offers no escalation route — silence is the one answer that is
+    never honest.
+    """
+
+    def __init__(self, message: str, sigma: float | None = None,
+                 distance: float | None = None, threshold: float | None = None):
+        super().__init__(message)
+        self.sigma = sigma
+        self.distance = distance
+        self.threshold = threshold
 
 
 def _rbf(A: np.ndarray, B: np.ndarray, ls: np.ndarray) -> np.ndarray:
@@ -26,8 +50,84 @@ def _rbf(A: np.ndarray, B: np.ndarray, ls: np.ndarray) -> np.ndarray:
     return np.exp(-0.5 * np.sum(d * d, axis=2))
 
 
+def _pairwise(X: np.ndarray) -> np.ndarray:
+    d = X[:, None, :] - X[None, :, :]
+    return np.sqrt(np.einsum("ijk,ijk->ij", d, d))
+
+
+def _nn_distance(Q: np.ndarray, X: np.ndarray) -> np.ndarray:
+    """Distance from every row of Q to its NEAREST row of X, unweighted.
+
+    Deliberately NOT lengthscale-weighted. The ARD lengthscales are what the
+    sigma test already looks through, and they saturate: MEASURED on a GP
+    trained on 100 L1 hulls, two of the fifteen lengthscales sat exactly on the
+    optimiser's upper bound (10.0), which means the kernel — and therefore
+    sigma — is blind to those two axes entirely. A support test that divides by
+    the same lengthscales inherits the same blind spot and adds nothing. This
+    one asks the plain question the name promises: have we ever seen a hull
+    like this?
+    """
+    d = Q[:, None, :] - X[None, :, :]
+    return np.sqrt(np.einsum("ijk,ijk->ij", d, d)).min(axis=1)
+
+
+class _Escalates:
+    """The escalation seam, shared by GP and CoKriging.
+
+    Gate 3 says "OOD queries reliably escalate to L2/L3". Before this the whole
+    mechanism was `is_ood()` returning a boolean into two test files. A caller
+    that wanted a number called `predict()`, which answers everywhere with the
+    same confidence-shaped tuple whether or not the model has any business
+    answering at all.
+    """
+
+    def predict_or_escalate(self, X, escalate_fn=None, tier: str = "S1",
+                            escalate_tier: str = "L1", **ood_kw):
+        """(value, tier, sigma) — and never a surrogate badge off support.
+
+        `escalate_fn(x)` is the real-physics fallback: it takes ONE parameter
+        vector and returns either a value or a (value, sigma) pair. Results it
+        produces are badged `escalate_tier`, because the tier a number carries
+        must name the solver that actually produced it. With no fallback
+        offered, an out-of-support query raises OODRefusal.
+
+        A 1-D X is one query and returns scalars; a 2-D X returns arrays.
+        """
+        Q = np.asarray(X, float)
+        single = Q.ndim == 1
+        Q = np.atleast_2d(Q)
+        mean, sigma = self.predict(Q)
+        ood = self.is_ood(Q, **ood_kw)
+        d = self.support_distance(Q)
+        tiers = np.array([tier] * len(Q), dtype=object)
+        val = np.asarray(mean, float).copy()
+        sig = np.asarray(sigma, float).copy()
+        for i in np.flatnonzero(ood):
+            if escalate_fn is None:
+                raise OODRefusal(
+                    f"query {i} is outside the surrogate's support "
+                    f"(sigma {sigma[i]:.4g} of a {np.sqrt(self.prior_var):.4g} "
+                    f"prior; nearest training point {d[i]:.3f} against a "
+                    f"support radius of {self.d_support:.3f}) and no "
+                    f"escalation route was given. Pass escalate_fn=... to run "
+                    f"real physics, or evaluate() it directly — a "
+                    f"{tier}-badged number here would be a guess wearing a "
+                    f"tier badge.",
+                    sigma=float(sigma[i]), distance=float(d[i]),
+                    threshold=float(self.d_support))
+            out = escalate_fn(Q[i])
+            if isinstance(out, tuple):
+                val[i], sig[i] = float(out[0]), float(out[1])
+            else:
+                val[i], sig[i] = float(out), float("nan")
+            tiers[i] = escalate_tier
+        if single:
+            return float(val[0]), str(tiers[0]), float(sig[0])
+        return val, tiers, sig
+
+
 @dataclass
-class GP:
+class GP(_Escalates):
     X: np.ndarray
     y: np.ndarray
     ls: np.ndarray
@@ -38,6 +138,13 @@ class GP:
     _alpha: np.ndarray
     x_lo: np.ndarray
     x_hi: np.ndarray
+    # Radius of the largest hole the training set leaves between neighbouring
+    # points, in the normalised input box. Set by fit(); see is_ood().
+    d_support: float = field(default=np.inf)
+
+    @property
+    def prior_var(self) -> float:
+        return self.var
 
     @staticmethod
     def fit(X: np.ndarray, y: np.ndarray, nugget: float = 1e-8,
@@ -53,9 +160,16 @@ class GP:
         var0 = max(float(yc.var()), 1e-12)
         rng = np.random.default_rng(seed)
 
-        def nll(log_ls):
-            ls = np.exp(log_ls)
-            K = var0 * _rbf(Xn, Xn, ls) + (nugget + 1e-10) * var0 * np.eye(n)
+        # THE NUGGET IS LEARNED, not fixed at 1e-8 jitter. With a fixed tiny
+        # nugget the GP INTERPOLATES: sigma -> 0 at every training point and
+        # the predictive variance is structurally too small everywhere else.
+        # MEASURED: 2-sigma coverage 0.85-0.91 against a nominal 0.95 on the
+        # Gate 3 GP, and injecting sigma=0.05 label noise dropped it to 0.782
+        # with std(z)=1.93. A surrogate whose band is too narrow is worse than
+        # one with no band, because the OOD test is built on that same sigma.
+        def nll(theta):
+            ls, nug = np.exp(theta[:-1]), np.exp(theta[-1])
+            K = var0 * _rbf(Xn, Xn, ls) + (nug + 1e-10) * var0 * np.eye(n)
             try:
                 c = cho_factor(K, lower=True)
             except np.linalg.LinAlgError:
@@ -63,18 +177,33 @@ class GP:
             a = cho_solve(c, yc)
             return float(0.5 * yc @ a + np.log(np.diag(c[0])).sum())
 
-        best, best_v = np.zeros(d), np.inf
+        best, best_v = np.zeros(d + 1), np.inf
+        bounds = [(np.log(1e-2), np.log(10.0))] * d + [(np.log(1e-8), np.log(0.5))]
         for r in range(restarts):
-            x0 = rng.uniform(np.log(0.05), np.log(2.0), d) if r else np.full(d, np.log(0.3))
-            res = minimize(nll, x0, method="L-BFGS-B",
-                           bounds=[(np.log(1e-2), np.log(10.0))] * d)
+            x0 = (np.append(rng.uniform(np.log(0.05), np.log(2.0), d),
+                            np.log(max(nugget, 1e-6))) if r
+                  else np.append(np.full(d, np.log(0.3)), np.log(max(nugget, 1e-6))))
+            res = minimize(nll, x0, method="L-BFGS-B", bounds=bounds)
             if res.fun < best_v:
                 best, best_v = res.x, res.fun
-        ls = np.exp(best)
+        ls, nugget = np.exp(best[:-1]), float(np.exp(best[-1]))
         K = var0 * _rbf(Xn, Xn, ls) + (nugget + 1e-10) * var0 * np.eye(n)
         c = cho_factor(K, lower=True)
         a = cho_solve(c, yc)
-        return GP(Xn, y, ls, var0, nugget, mu, c, a, x_lo, span)
+        # The support radius is MEASURED from the training set, not declared:
+        # the 95th percentile of each training point's distance to its own
+        # nearest neighbour. A query farther from the data than the data is
+        # from itself is in a hole the model was never shown. Calibrating it
+        # this way is what makes the test dimension- and density-aware; a fixed
+        # distance in 15-D means nothing (uniform points in [0,1]^15 sit ~1.6
+        # apart on average, so any absolute bar is either never or always hit).
+        if n >= 2:
+            dd = _pairwise(Xn)
+            np.fill_diagonal(dd, np.inf)
+            d_support = float(np.quantile(dd.min(axis=1), 0.95))
+        else:
+            d_support = float("inf")
+        return GP(Xn, y, ls, var0, nugget, mu, c, a, x_lo, span, d_support)
 
     def _norm(self, X: np.ndarray) -> np.ndarray:
         return (np.atleast_2d(np.asarray(X, float)) - self.x_lo) / self.x_hi
@@ -83,42 +212,309 @@ class GP:
         Xn = self._norm(X)
         k = self.var * _rbf(Xn, self.X, self.ls)
         mean = self.mu + k @ self._alpha
-        v = self.var - np.einsum("ij,ji->i", k, cho_solve(self._chol, k.T))
+        # The learned noise belongs in the PREDICTIVE variance too, or the
+        # band still collapses at the data even after learning it.
+        v = (self.var * (1.0 + self.nugget)
+             - np.einsum("ij,ji->i", k, cho_solve(self._chol, k.T)))
         return mean, np.sqrt(np.maximum(v, 1e-14))
 
-    def is_ood(self, X: np.ndarray, sigma_frac: float = 0.6) -> np.ndarray:
-        """True where predictive sigma exceeds sigma_frac of prior sigma —
-        i.e. the GP admits it knows (almost) nothing there."""
+    def posterior_cov(self, X: np.ndarray) -> np.ndarray:
+        """FULL joint posterior covariance at X, not just its diagonal.
+
+        The co-kriging likelihood needs this one. A GP's extrapolation error is
+        a smooth function reverting to the prior mean, so it is strongly
+        CORRELATED between neighbouring query points; treating it as
+        independent per-point noise overstates how much independent information
+        those points carry and over-penalises the term it multiplies. MEASURED:
+        the diagonal form drove rho to exactly 0.0000 on three of the
+        narrow-LF cases in `CoKriging.fit`'s table — the register's own failure
+        mode, reproduced by the fix meant to remove it.
+        """
+        Xn = self._norm(X)
+        k = self.var * _rbf(Xn, self.X, self.ls)
+        C = self.var * _rbf(Xn, Xn, self.ls) - k @ cho_solve(self._chol, k.T)
+        return 0.5 * (C + C.T)
+
+    def support_distance(self, X: np.ndarray) -> np.ndarray:
+        """Distance from each query to the nearest TRAINING point, normalised."""
+        return _nn_distance(self._norm(X), self.X)
+
+    def is_ood(self, X: np.ndarray, sigma_frac: float = 0.6,
+               support_frac: float = 1.0) -> np.ndarray:
+        """Out of support: the GP's band is wide, OR the query sits in a hole.
+
+        IT USED TO BE THE FIRST TEST ALONE, AND THAT IS A SIGMA THRESHOLD, NOT
+        A SUPPORT TEST. MEASURED on the Gate 3 GP (250 L1 hulls, 240 held-out
+        queries): it fired on 11 of 240 and the queries it rejected had a
+        median relative error of 0.200 against 0.161 for the ones it kept — no
+        separation at all, and on one seed the rejected set was the MORE
+        accurate one. It fired at 100% only on hulls scaled 3x outside the
+        grammar box, which `grammar.check` rejects before a surrogate is ever
+        consulted, and at 0.0% on in-box queries whose error reached 146%.
+
+        Two things were wrong and only one of them was the criterion. The other
+        was the probe: train and test were both drawn uniformly from the same
+        grammar box, so there was NO out-of-distribution query in the
+        experiment. Nothing can separate an OOD set that is empty. Re-measured
+        against a training set restricted to part of the box — which is what a
+        real surrogate sees, since it is trained on wherever the optimiser has
+        been — the two tests do different work:
+
+            training support   criterion       rejected kept  rej  ratio recall
+            full box (no OOD)  sigma only         1/240 0.172 0.186  1.08   --
+            full box (no OOD)  sigma + distance  12/240 0.172 0.181  1.05   --
+            LWL <= 12 m        sigma only       132/240 0.274 0.867  3.16  0.89
+            LWL <= 12 m        sigma + distance 132/240 0.274 0.867  3.16  0.89
+            beta_mid >= 12 deg sigma only        68/240 0.200 0.416  2.08  0.46
+            beta_mid >= 12 deg sigma + distance  99/240 0.184 0.378  2.06  0.66
+            T <= 0.85 m        sigma only        52/240 0.189 0.335  1.77  0.49
+            T <= 0.85 m        sigma + distance  65/240 0.202 0.299  1.48  0.60
+
+        "recall" is the fraction of queries that are out of the training
+        support BY CONSTRUCTION which the criterion catches. The distance term
+        is what catches an axis the kernel has decided to ignore: it lifts
+        recall from 0.46 to 0.66 on the beta_mid split and 0.49 to 0.60 on the
+        draft split, and costs a 5% false-alarm rate on a training set that
+        really does span the box. Recorded rather than sold: on the draft split
+        the extra rejections are milder cases, so the kept/rejected error RATIO
+        drops from 1.77 to 1.48 even though both medians move the right way for
+        the ones it now catches. Recall is the quantity this test exists to
+        maximise — a missed OOD query returns a confident wrong number, a false
+        alarm only costs an escalation.
+        """
         _m, s = self.predict(X)
-        return s > sigma_frac * np.sqrt(self.var)
+        far = self.support_distance(X) > support_frac * self.d_support
+        return (s > sigma_frac * np.sqrt(self.var)) | far
+
+
+class RhoDegenerate(RuntimeWarning):
+    """rho was selected at a value that makes the co-kriging model a lie.
+
+    Two shapes, both MEASURED (see `CoKriging.fit`):
+      - |rho| below `rho_floor`: `predict` is then `0 * m_lo + m_delta`, i.e.
+        single-fidelity kriging on the high-fidelity points, while the object
+        still calls itself CoKriging and still carries a low-fidelity GP that
+        contributes nothing. Silently discarding the cheap model is the one
+        outcome a multi-fidelity method must never do quietly.
+      - the optimum sits ON a scan endpoint: the scan did not bracket it, so
+        the reported rho is a boundary artefact, not an estimate.
+    """
 
 
 @dataclass
-class CoKriging:
+class CoKriging(_Escalates):
     """Kennedy-O'Hagan AR(1): f_hi = rho * f_lo + delta."""
 
     gp_lo: GP
     gp_delta: GP
     rho: float
+    # Selection diagnostics — recorded on the object because a scalar rho with
+    # no provenance is exactly what let rho = -0.64 pass unnoticed.
+    nll: float = float("nan")            # joint KOH negative log-likelihood
+    lf_hf_corr: float = float("nan")     # Pearson corr(m_lo(X_hi), y_hi)
+    loo_rmse: float = float("nan")       # of the selected delta-GP
+    rho_evidence: float = float("nan")   # nats of nll(rho=0) - nll(rho_hat)
+    rho_scan: tuple = ()                 # (lo, hi) of the final scan bracket
+    rho_warning: str = ""                # "" when the fit is clean
+
+    @property
+    def prior_var(self) -> float:
+        return (self.rho * self.rho) * self.gp_lo.var + self.gp_delta.var
+
+    @property
+    def d_support(self) -> float:
+        """The BINDING support radius — the one that refuses first."""
+        return min(self.gp_lo.d_support, self.gp_delta.d_support)
+
+    def support_distance(self, X: np.ndarray) -> np.ndarray:
+        """Worst of the two, each measured against its own radius.
+
+        Reported as a multiple of each GP's own radius and then scaled back, so
+        a query that is fine for the delta-GP but far outside the low-fidelity
+        data reports the distance that actually matters.
+        """
+        a = self.gp_lo.support_distance(X) / max(self.gp_lo.d_support, 1e-12)
+        b = self.gp_delta.support_distance(X) / max(self.gp_delta.d_support, 1e-12)
+        return np.maximum(a, b) * self.d_support
 
     @staticmethod
     def fit(X_lo: np.ndarray, y_lo: np.ndarray,
-            X_hi: np.ndarray, y_hi: np.ndarray, seed: int = 0) -> "CoKriging":
+            X_hi: np.ndarray, y_hi: np.ndarray, seed: int = 0,
+            n_scan: int = 25, refine: int = 12, rho_floor: float = 0.05,
+            rho_max: float = 50.0, min_evidence: float = 2.0,
+            strict: bool = False) -> "CoKriging":
+        """Fit the AR(1) pair, selecting rho by the JOINT KOH LOG-LIKELIHOOD.
+
+        IT USED TO MINIMISE THE DELTA-GP'S *ABSOLUTE* LEAVE-ONE-OUT RMSE, and
+        the comment beside it claimed that was "the KOH MLE spirit". It is not:
+        LOO-RMSE carries the units of delta, so the criterion is minimised by
+        whatever rho makes the residual SMALL, not by whatever rho makes the
+        residual most LIKELY under its own fitted covariance. A magnitude
+        minimiser is not an estimator, and it behaved like one.
+
+        MEASURED, LF = `forrester_lo` (an EXACT AR(1) partner with
+        rho_true = 2.0, so the right answer is known to the last digit):
+
+            n_hi   old (LOO-RMSE)   new (KOH NLL)
+              6        1.9337           1.9955
+              8        2.0401           1.9996
+             10        2.0018           2.0001
+             12        1.9773           1.9997
+             15        1.9509           1.9999
+             20        1.9210           2.0001
+             25        1.9009           2.0013
+
+        The old column is NON-MONOTONE and then walks steadily AWAY from 2.0 as
+        data is added — the one thing an estimator may never do. More data made
+        it worse because more high-fidelity points give delta more room to be
+        small somewhere other than the truth. Worst error 0.0991 against 0.0045.
+
+        Worse, MEASURED on a broad-HF / narrow-LF case (LF on [0, 0.3], HF on
+        [0, 1], the situation every real campaign is in, since the cheap model
+        is run where the expensive one has not been):
+
+            LF span   n_hi   old rho
+            [0, 0.3]    12   -0.6422
+            [0, 0.4]    12   -0.7209
+            [0, 0.35]   16   -0.4281
+            [0, 0.3]    20   +0.3045
+
+        A NEGATIVE rho on a low-fidelity model that is a positively-correlated
+        half of the truth means the fit is subtracting the cheap model, and at
+        +0.30 it is discarding three-quarters of it. Either way the object
+        still reports itself as co-kriging and emits no diagnostic at all.
+
+        The criterion here is the marginal likelihood of the high-fidelity data
+        under the KOH model (`_koh_nll`), and it carries the term that fixes
+        the case above: the low-fidelity mean at X_hi is itself a PREDICTION,
+        so `rho^2 * Sigma_lo(X_hi)` joins the covariance. Where the LF GP is
+        extrapolating that is large and the likelihood declines to lean on it
+        rather than inverting its sign. `Sigma_lo` is the FULL posterior
+        covariance, not its diagonal — the diagonal form drove rho to exactly
+        0.0000 on three narrow-LF cases, reproducing the very failure it was
+        added to remove (see `GP.posterior_cov`).
+
+        The bracket is re-centred and doubled while the optimum sits on an end
+        (up to 3 times), then golden-section-refined. What is left over is
+        RECORDED, not swallowed: `rho_warning` is non-empty and a
+        `RhoDegenerate` warning is raised when
+
+          - |rho| < `rho_floor`, i.e. the low-fidelity model is being discarded;
+          - the optimum still sits on a scan endpoint after four expansions;
+          - `rho_evidence` — nll(rho=0) minus nll(rho_hat), in nats — is below
+            `min_evidence`, i.e. the fit cannot beat single-fidelity kriging
+            and the value of rho is whatever the noise preferred. MEASURED with
+            an LF model replaced by white noise: rho lands anywhere from -2.36
+            to +4.02 across five seeds and buys 0.06 to 0.96 nats.
+
+        Pass `strict=True` to make those a refusal instead of a warning.
+        """
+        X_hi = np.atleast_2d(np.asarray(X_hi, float))
+        y_hi = np.asarray(y_hi, float)
         gp_lo = GP.fit(X_lo, y_lo, seed=seed)
-        m_lo_at_hi, _ = gp_lo.predict(X_hi)
-        # rho: centered-covariance start, then pick the candidate whose residual
-        # the delta-GP explains best (leave-one-out error) — the KOH MLE spirit
+        m_lo_at_hi, _s = gp_lo.predict(X_hi)
+        cov_lo_at_hi = gp_lo.posterior_cov(X_hi)
         mc = m_lo_at_hi - m_lo_at_hi.mean()
         rho0 = float(np.dot(mc, y_hi - y_hi.mean()) / max(np.dot(mc, mc), 1e-12))
-        span = max(abs(rho0), 0.5)
-        best_rho, best_gp, best_err = rho0, None, np.inf
-        for rho in np.linspace(rho0 - 1.5 * span, rho0 + 1.5 * span, 25):
-            delta = y_hi - rho * m_lo_at_hi
-            gp_d = GP.fit(X_hi, delta, seed=seed + 1, restarts=1)
-            err = _loo_error(gp_d)
-            if err < best_err:
-                best_rho, best_gp, best_err = float(rho), gp_d, err
-        return CoKriging(gp_lo, best_gp, best_rho)
+        yc = y_hi - y_hi.mean()
+        corr = float(np.dot(mc, yc)
+                     / max(np.sqrt(np.dot(mc, mc) * np.dot(yc, yc)), 1e-300))
+
+        # A CONSTANT low-fidelity mean makes rho structurally unidentifiable:
+        # `rho * const` is absorbed by the delta-GP's own mean, so the
+        # likelihood is FLAT in rho and rho0 divides by ~0. MEASURED on an LF
+        # model that is a constant plus 1e-6 noise: the scan ran out to
+        # rho = 2,378,233.8, which then multiplies s_lo into the predictive
+        # sigma and makes every query out of support. Named and handled.
+        if float(np.std(mc)) <= 1e-6 * max(float(np.std(y_hi)), 1e-300):
+            msg = (f"the low-fidelity mean is CONSTANT over the high-fidelity "
+                   f"points (std {np.std(mc):.3g}); rho is not identifiable "
+                   f"and is set to 0 — this model is single-fidelity kriging")
+            if strict:
+                raise ValueError("co-kriging refused: " + msg)
+            warnings.warn(msg, RhoDegenerate, stacklevel=2)
+            gp_d = GP.fit(X_hi, y_hi, seed=seed + 1, restarts=1)
+            return CoKriging(gp_lo, gp_d, 0.0,
+                             nll=_koh_nll(gp_d, cov_lo_at_hi, 0.0),
+                             lf_hf_corr=corr, loo_rmse=float(_loo_error(gp_d)),
+                             rho_evidence=0.0, rho_scan=(0.0, 0.0),
+                             rho_warning=msg)
+
+        cache: dict[float, tuple[float, GP]] = {}
+
+        def score(rho: float) -> tuple[float, GP]:
+            r = round(float(rho), 12)
+            if r not in cache:
+                gp_d = GP.fit(X_hi, y_hi - r * m_lo_at_hi,
+                              seed=seed + 1, restarts=1)
+                cache[r] = (_koh_nll(gp_d, cov_lo_at_hi, r), gp_d)
+            return cache[r]
+
+        span = max(abs(rho0), 0.5) * 1.5
+        lo, hi = max(rho0 - span, -rho_max), min(rho0 + span, rho_max)
+        on_edge = False
+        for _expand in range(4):
+            grid = np.linspace(lo, hi, n_scan)
+            vals = [score(r)[0] for r in grid]
+            j = int(np.argmin(vals))
+            on_edge = j in (0, n_scan - 1)
+            if not on_edge:
+                break
+            # the optimum is outside the bracket: re-centre on it and double
+            centre, span = float(grid[j]), (hi - lo)
+            lo = max(centre - span, -rho_max)
+            hi = min(centre + span, rho_max)
+
+        # golden-section refinement inside the bracketing triple
+        a = float(grid[max(j - 1, 0)])
+        b = float(grid[min(j + 1, n_scan - 1)])
+        gr = 0.5 * (np.sqrt(5.0) - 1.0)
+        c, d = b - gr * (b - a), a + gr * (b - a)
+        for _ in range(max(refine, 0)):
+            if score(c)[0] < score(d)[0]:
+                b, d = d, c
+                c = b - gr * (b - a)
+            else:
+                a, c = c, d
+                d = a + gr * (b - a)
+        best_rho = min(list(cache), key=lambda r: cache[r][0])
+        best_nll, best_gp = cache[best_rho]
+        # How much the low-fidelity model is WORTH, in nats: the likelihood
+        # ratio of the fitted rho against rho = 0, which IS single-fidelity
+        # kriging on the HF points. A co-kriging model that cannot beat that is
+        # a co-kriging model with nothing to co-krige.
+        evidence = float(score(0.0)[0] - best_nll)
+
+        notes = []
+        if on_edge:
+            notes.append(
+                f"rho={best_rho:.4f} sits on a scan endpoint after 4 bracket "
+                f"expansions ([{lo:.3f}, {hi:.3f}]) — this is a boundary "
+                f"artefact, not an estimate")
+        if abs(best_rho) < rho_floor:
+            notes.append(
+                f"rho={best_rho:.4f} is below the floor {rho_floor}: the "
+                f"low-fidelity model contributes nothing and this object is "
+                f"single-fidelity kriging wearing a co-kriging name "
+                f"(LF/HF correlation {corr:+.3f})")
+        if evidence < min_evidence:
+            notes.append(
+                f"rho is NOT IDENTIFIED: the fitted rho={best_rho:.4f} beats "
+                f"rho=0 by only {evidence:.2f} nats against a bar of "
+                f"{min_evidence} (LF/HF correlation {corr:+.3f}). The "
+                f"low-fidelity data carries no usable information about the "
+                f"high-fidelity function here, and the value of rho is "
+                f"whatever the noise preferred")
+        msg = "; ".join(notes)
+        if msg:
+            if strict:
+                raise ValueError("co-kriging refused: " + msg)
+            warnings.warn(msg, RhoDegenerate, stacklevel=2)
+        return CoKriging(gp_lo, best_gp, float(best_rho),
+                         nll=float(best_nll), lf_hf_corr=corr,
+                         loo_rmse=float(_loo_error(best_gp)),
+                         rho_evidence=evidence,
+                         rho_scan=(float(lo), float(hi)), rho_warning=msg)
 
     def predict(self, X: np.ndarray):
         m_lo, s_lo = self.gp_lo.predict(X)
@@ -127,8 +523,21 @@ class CoKriging:
         sigma = np.sqrt((self.rho * s_lo) ** 2 + s_d**2)
         return mean, sigma
 
-    def is_ood(self, X: np.ndarray) -> np.ndarray:
-        return self.gp_delta.is_ood(X)
+    def is_ood(self, X: np.ndarray, sigma_frac: float = 0.6,
+               support_frac: float = 1.0) -> np.ndarray:
+        """BOTH GPs get a vote, because both are in the prediction.
+
+        It consulted `gp_delta` alone. But `predict()` returns
+        `rho * m_lo + m_d`, so the low-fidelity GP's mean is multiplied into
+        every answer this model gives. DEMONSTRATED: with the low-fidelity data
+        confined to x in [0, 0.5] and the high-fidelity points spanning [0, 1],
+        probes at x = 0.8 and 0.95 have `gp_lo.is_ood == [True, True]` — the
+        term carrying rho is extrapolating — and the old `CoKriging.is_ood`
+        returned [False, False], because the delta-GP had seen points nearby
+        and it was the only one asked.
+        """
+        return (self.gp_lo.is_ood(X, sigma_frac, support_frac)
+                | self.gp_delta.is_ood(X, sigma_frac, support_frac))
 
 
 def _loo_error(gp: GP) -> float:
@@ -137,6 +546,54 @@ def _loo_error(gp: GP) -> float:
     Ki = np.linalg.inv(K)
     resid = (Ki @ (gp.y - gp.mu)) / np.diag(Ki)
     return float(np.sqrt(np.mean(resid**2)))
+
+
+def _koh_nll(gp_delta: GP, cov_lo_at_hi: np.ndarray, rho: float) -> float:
+    """Negative log marginal likelihood of y_hi under the KOH AR(1) at `rho`.
+
+        y_hi ~ N(rho*m_lo(X_hi) + mu_delta,  rho^2 * Sigma_lo(X_hi) + K_delta)
+
+    The low-fidelity mean fed into `delta = y_hi - rho * m_lo` is a PREDICTION,
+    not data. A criterion that treats it as data leans on the LF model exactly
+    where the LF model is guessing, which is how the old rule ended up choosing
+    a NEGATIVE rho against a positively-correlated LF partner. `Sigma_lo` is
+    the FULL posterior covariance for the reason recorded on
+    `GP.posterior_cov`.
+
+    delta is a deterministic shift of y_hi given the LF GP, so the Jacobian is
+    1 and this is exactly log p(y_hi | rho) up to the rho-free LF factor of the
+    joint — i.e. maximising it maximises the joint KOH likelihood in rho.
+
+    THE PROCESS VARIANCE IS PROFILED, and that is not a detail. `GP.fit` pins
+    `var` to the EMPIRICAL variance of its labels, so at a fixed var the whole
+    scale dependence of the likelihood collapses into `(n/2) log var(delta)` —
+    which is a monotone function of |delta| and reinstates the exact
+    residual-magnitude criterion this rewrite exists to remove. MEASURED on the
+    4-point Forrester case (rho_true = 2.0): at fixed var the profile bottomed
+    at rho = 0.98 (delta small and wiggly) instead of 2.0 (delta LARGE and
+    perfectly linear, hence very likely under a smooth GP). Profiling var over
+    the correlation matrix lets smoothness pay for magnitude, which is what a
+    likelihood is for.
+    """
+    n = len(gp_delta.X)
+    R = (_rbf(gp_delta.X, gp_delta.X, gp_delta.ls)
+         + (gp_delta.nugget + 1e-10) * np.eye(n))
+    S = (rho * rho) * np.asarray(cov_lo_at_hi, float)
+    yc = gp_delta.y - gp_delta.mu
+    const = 0.5 * n * np.log(2.0 * np.pi)
+
+    def nll(log_v: float) -> float:
+        K = np.exp(log_v) * R + S
+        try:
+            c = cho_factor(K, lower=True)
+        except np.linalg.LinAlgError:
+            return 1e12
+        return float(0.5 * yc @ cho_solve(c, yc)
+                     + np.log(np.diag(c[0])).sum() + const)
+
+    v0 = np.log(max(float(gp_delta.var), 1e-300))
+    res = minimize_scalar(nll, bounds=(v0 - 25.0, v0 + 10.0), method="bounded")
+    return float(min(res.fun, nll(v0)))
 
 
 def expected_improvement(gp, X: np.ndarray, y_best: float) -> np.ndarray:
@@ -148,19 +605,115 @@ def expected_improvement(gp, X: np.ndarray, y_best: float) -> np.ndarray:
     return (y_best - m) * norm.cdf(z) + s * norm.pdf(z)
 
 
+class InfillStarved(RuntimeError):
+    """`batch_infill` could not honour k under the diversity constraint.
+
+    It used to return a short array and say nothing. A batch method whose whole
+    reason to exist is "run k expensive simulations at once instead of one per
+    cycle" cannot silently deliver fewer than k: the caller sizes a compute
+    budget on k, and MEASURED it asked for 60 and got 51 with no signal.
+    """
+
+    def __init__(self, message: str, chosen: np.ndarray, k: int):
+        super().__init__(message)
+        self.chosen = chosen
+        self.k = k
+
+
 def batch_infill(gp, candidates: np.ndarray, y_best: float, k: int,
-                 min_dist: float = 0.05) -> np.ndarray:
-    """Pick k EI-ranked candidates with mutual distance (batched, not 1/cycle)."""
-    ei = expected_improvement(gp, candidates, y_best)
+                 min_dist: float = 0.05, bounds: tuple | None = None,
+                 strict: bool = True) -> np.ndarray:
+    """Pick k EI-ranked candidates with mutual distance (batched, not 1/cycle).
+
+    `min_dist` is a EUCLIDEAN distance in the CANDIDATE BOX normalised to the
+    unit cube — each axis is rescaled onto [0, 1] by the box, and the bar is
+    applied to the NORM of the difference, not per axis. The box is the right
+    reference (it is the only one the caller can reason about); it used to be
+    the GP's TRAINING span — `gp._norm` — and that is the span of the few
+    high-fidelity points already run, not of the region being searched.
+
+    READ THE UNITS BEFORE SETTING IT: THE BAR DOES NOT MEAN WHAT IT MEANS IN 1-D.
+    This docstring said "a fraction of the candidate box PER AXIS", and in one
+    dimension those are the same sentence — which is why the 1-D table below is
+    honest and the design-space case was not covered at all. In d dimensions the
+    norm accumulates d independent gaps, so a request that reads like "5% apart
+    on every axis" is satisfied by points that are 5%/sqrt(d) apart on one axis
+    and nearly coincident on the rest. MEASURED in the 15-D grammar box, k=5
+    from 400 uniform candidates:
+
+        min_dist requested   picks change?   min PER-AXIS gap   min EUCLIDEAN gap
+              0.05               —               0.00121             1.1945
+              0.10           identical           0.00121             1.1945
+              0.20           identical           0.00121             1.1945
+              0.50           identical           0.00121             1.1945
+              1.00           identical           0.00121             1.1945
+              1.50             changed           0.00172             1.5202
+              2.00           k drops to 3        0.00984             2.0133
+
+    The same five points are returned for every request from 0.05 to 1.00: the
+    bar is INERT over a twentyfold range, because random points in a 15-cube are
+    already ~1.2 apart in norm. Two picks 0.0012 of an axis apart — a tenth of a
+    millimetre of beam — are billed as two experiments and the filter says
+    nothing. The bar first binds between 1.0 and 1.5, and by 2.0 it starves the
+    batch.
+
+    So `min_dist=0.05` is a real constraint in 1-D and a no-op in 15-D. Scale it
+    with the dimension (sqrt(d) x the per-axis separation you actually want:
+    ~0.19 for 5% per axis in 15-D, and note that is still a NORM, so it does not
+    forbid two picks agreeing closely on one axis). This is documented rather
+    than changed: switching to a per-axis (Chebyshev) test would silently alter
+    every caller's batch, and no measurement has been made of what that does to
+    infill quality. The behaviour is Euclidean; the sentence now says so.
+
+    The two spans are different by construction (you infill where you have NOT
+    been), and the error is in the dangerous direction: a small training span
+    INFLATES every normalised distance, so the diversity filter passes
+    everything and the batch collapses onto the EI peak. MEASURED, HF points
+    drawn on [0.40, 0.55], candidates on [0, 1], min_dist 0.05, k=5:
+
+        n_candidates   picks                              min gap
+                 21    0.25 0.30 0.35 0.65 0.70            0.0500
+                 51    0.34 0.36 0.38 0.64 0.66            0.0200
+                101    0.36 0.37 0.63 0.64 0.65            0.0100
+                201    0.36 0.37 0.63 0.64 0.65            0.0100
+
+    The requested separation is 0.05 and the delivered separation falls to the
+    candidate grid spacing — the filter is not filtering, it is rounding. Five
+    CFD runs at 0.36, 0.37, 0.63, 0.64, 0.65 is two experiments billed as five.
+    Note the failure HIDES at coarse candidate grids: at 21 candidates the grid
+    itself enforces 0.05, so a test written on a coarse grid passes.
+
+    `bounds=(lo, hi)` overrides the inferred box for the case where the
+    candidate set is a sample rather than a grid and does not span the design
+    space. Short batches raise `InfillStarved` unless `strict=False`.
+    """
+    C = np.atleast_2d(np.asarray(candidates, float))
+    if bounds is None:
+        lo, hi = C.min(0), C.max(0)
+    else:
+        lo, hi = np.asarray(bounds[0], float), np.asarray(bounds[1], float)
+    span = np.where(hi - lo < 1e-12, 1.0, hi - lo)
+    Xn = (C - lo) / span
+
+    ei = expected_improvement(gp, C, y_best)
     order = np.argsort(-ei)
     chosen: list[int] = []
-    Xn = gp._norm(candidates) if isinstance(gp, GP) else gp.gp_delta._norm(candidates)
     for idx in order:
         if len(chosen) == k:
             break
         if all(np.linalg.norm(Xn[idx] - Xn[j]) > min_dist for j in chosen):
             chosen.append(int(idx))
-    return np.array(chosen, dtype=int)
+    out = np.array(chosen, dtype=int)
+    if len(out) < k and strict:
+        raise InfillStarved(
+            f"asked for {k} infill points at min_dist {min_dist} (normalised "
+            f"EUCLIDEAN, in {C.shape[1]}-D) but only {len(out)} survive the "
+            f"diversity filter. "
+            f"Widen the candidate set, lower min_dist, or pass strict=False "
+            f"and size the compute budget on len(result) — a short batch "
+            f"returned silently is a compute plan that quietly shrinks.",
+            out, k)
+    return out
 
 
 # ---- the standard multi-fidelity test problem (Forrester et al. 2007) -------

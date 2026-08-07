@@ -303,6 +303,48 @@ asserted; 12 known hulls round-trip.
 
 ---
 
+## R4b — BENCHMARK STRATEGY: a plan defect, not a chore
+*Added 2026-08-06 after measurement. Inherits: BuildPlan 1 Phase 2 Gate 2,
+ALIGNMENT.md "Benchmark anchor set is wrong for the product line".*
+
+**PLM.md §2 says what we build: sharp-chine small craft, 4–14 m, buildable from
+sheet — a 6 t solar liveaboard as the reference product and a 1–3 t dayboat.
+BuildPlan 1's Gate 2 certifies the physics tier against KCS: a 230 m container
+ship, slender, round-bilge, no chine, no immersed transom, at Fn 0.26.** The
+gate that certifies the physics was written for ships and the product is boats.
+Everything downstream inherited it — benchmark geometry, y+ targets, case
+generator defaults, and months of CFD.
+
+This was recorded (ALIGNMENT.md, PLM roadmap "second anchor QUEUED") but filed
+as a future task rather than treated as the plan defect it is.
+
+**The correction is SEQUENCE, not substitution.** KCS is not demoted: the
+physics it teaches is hull-agnostic and every part of it transfers.
+
+| Anchor | What it validates | Status |
+|---|---|---|
+| **Wigley** (analytic) | the wave-resistance MACHINERY, against a closed-form Michell answer we derived ourselves. Free, no tank data, no transom to confound it. | ADDED 2026-08-06, `scripts/wigley_stl.py` |
+| **KCS** (tank) | free-surface capture, wall treatment and y+, force integration, grid convergence, AND — via its published sinkage −1.394e-2 m and trim −0.169° — the mass/inertia/CoG/6DoF chain that EVERY boat needs. The only hull we have with published truth. | keeps full workload |
+| **DSYHS** | 9–14 m displacement/semi-displacement yachts. Directly the Solar Liveaboard. | OWED |
+| **Fridsma / Series 62** | hard-chine planing: chine, immersed transom, spray, dynamic lift. Directly the Dayboat and tender. | OWED |
+
+Gate 2 is rewritten to require the product anchors, not only KCS. Reading a
+green Gate 2M as small-craft validation remains forbidden.
+
+**Corollary for L1, same root cause:** Michell thin-ship is being applied at
+Fn 1.09 on the tender case and reported as PASS (gap B7). A ship method on a
+boat. The Froude validity envelope in R1.5 is the same correction one tier down.
+
+**Corollary for the mesh:** `_HULL_REFINE`, `_TARGET_YPLUS` and the layer count
+were all tuned on KCS and DO NOT TRANSFER. MEASURED: KCS bridges its 37.9 mm
+hull cell with 5 layers, Wigley's 52.1 mm cell needs 10, and capping at 5 there
+reproduces exactly the last-layer/cell ratio (0.082 vs 0.071) that produced ZERO
+layers on KCS. The layer count is now DERIVED per hull by `n_layers_to_bridge`
+and guarded at both ends — a stack that cannot bridge warns, a stack thicker
+than its host cell raises. Any constant tuned on one hull is suspect.
+
+---
+
 ## R5 — L2/L3 correctness, then the number
 *Inherits: BuildPlan 1 Phase 2 (Gate 2, in full), §1.3's named traps.*
 *Owner: cfd-engineer. Effort: ▪▪▪. Closes: F1–F19.*
@@ -348,9 +390,43 @@ the largest un-started clause in the plan.
 them into the verdict — today the gate can print PASS on C_T alone with sinkage 3×
 wrong.
 
-**R5.5 · Then run it.** The symmetric triplet for the GCI, and
-`mesh_robustness.py --n 200 --solve` for Gate 2U's "converges" half, which has
-never had a number. Budget honestly: ~3 days on this Mac, resumably.
+**R5.5 · THE OPEN BLOCKER: pressure drag is 3–6× too high and grows with time.**
+MEASURED across six runs at 2026-08-06. Viscous drag is now CORRECT
+(1.15–1.22× ITTC-57, stable) — the layer work landed. The entire discrepancy is
+on the pressure side, and it is independent of mesh resolution, tank depth,
+run-out length, layers, solver settings and time-stepping scheme:
+
+| run | t | pressure | vs expected (~20.8 N) | viscous | vs ITTC |
+|---|---|---|---|---|---|
+| kcs_iso | 7.5 s | 41.4 N | 2.9× | 40.9 N | 0.63× |
+| kcs_sym | 13.7 s | 36.8 N | 2.6× | 52.8 N | 0.82× |
+| kcs | 76 s (settled) | 60.1 N | 4.2× | 93.3 N | 1.44× |
+| beach + deep tank | 8–10 s | 84.8 N | 6.0× | 76.0 N | 1.18× |
+
+Hypotheses TESTED AND ELIMINATED, each at real compute cost — recorded so they
+are not re-tried:
+- *insufficient convergence* — no; the error GROWS with convergence.
+- *missing boundary layer* — fixed; viscous corrected, pressure unchanged.
+- *wave reflection off the outlet* — a beach (run-out 0.6 → 1.5 Lwl) and a
+  deeper tank (0.6 → 1.0 Lpp) made it WORSE (2.9× → 5.7× at the same t).
+- *LTS as a cheap path* — far worse (14.5×). Waves are inherently unsteady, so
+  per-cell pseudo-timesteps make propagation speed meaningless. LTS is kept
+  only as a flow-field initialiser and can never produce a resistance number.
+- *mass leak* — no; Phase-1 volume constant to 0.001%.
+
+REMAINING CANDIDATES, in order: (a) the wave-resistance machinery is
+systematically wrong — decided by the Wigley run against Michell; (b) the KCS
+transom is wetted where it should ventilate at Fn 0.26, giving a growing
+low-pressure base region, which matches the signature exactly.
+
+**Nothing downstream of this is trustworthy.** A GCI would converge onto a
+wrong number more precisely, and a DSYHS or Fridsma validation would be
+corrupted identically. This is the gate on R5.6.
+
+**R5.6 · Then run it.** The symmetric triplet for the GCI, the free
+sinkage-and-trim run against the published values (the only validation of the
+mass/inertia chain we have), and `mesh_robustness.py --n 200 --solve` for Gate
+2U's "converges" half, which has never had a number.
 
 **Gate R5:** C_T, sinkage and trim each inside the Tokyo-2015 band, with GCI ≤5%
 computed from a measured refinement ratio on a solved triplet; added resistance

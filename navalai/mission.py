@@ -8,6 +8,7 @@ gates enforce' boundary.
 from __future__ import annotations
 
 import json
+import math
 import re
 from dataclasses import asdict, dataclass, field
 
@@ -15,6 +16,56 @@ from .energy import EnergySpec
 
 DESIGN_CATEGORIES = ("A", "B", "C", "D")   # ISO 12217 / CE categories
 WATERS = {"river": "D", "lake": "D", "coastal": "C", "offshore": "B", "ocean": "A"}
+
+# ---------------------------------------------------------------------------
+# THE ONE RANGE TABLE. It used to live in `translate._FIELD_RANGES` and guard
+# the LLM path ONLY, so the SAME numbers arriving as prose or over HTTP were
+# unbounded. MEASURED before this moved:
+#
+#   parse_mission("6 tonne boat at 0 knots")  -> cruise_speed_kn 0.0, notes ""
+#     and evaluate() then returned range_solar_nm_day = 3.0e12 NM/day
+#     (Earth's circumference is ~21,600 NM) with ok/L1 and no warning at all
+#   parse_mission("5000 crew river barge")    -> crew 5000
+#   MissionSpec(displacement_target_kg=-1.0)  -> accepted verbatim
+#   ui/server.py `MissionSpec(**body)`        -> no clamp anywhere on the path
+#
+# The dataclass is the typed contract every front end must pass through, so the
+# gate belongs on the contract and not on one of its three callers. `translate`
+# imports THIS table rather than keeping a second copy — the recurring defect
+# in this codebase is a number declared twice (CLAUDE.md, design-side
+# invariants).
+FIELD_RANGES: dict[str, tuple[float, float]] = {
+    "displacement_target_kg": (300.0, 200_000.0),
+    "cruise_speed_kn": (1.0, 30.0),
+    "crew": (1, 12),
+    "lwl_hint_m": (4.0, 20.0),
+}
+
+# EnergySpec's writable ranges, for the same reason and with the same history:
+# `translate._ENERGY_RANGES` guarded the LLM only, while `parse_mission` set
+# `battery_kwh` straight from prose. MEASURED: "canal boat with 999999 kWh"
+# parsed to 999999 kWh, i.e. 7,499,993 kg of battery in a 6 t mission.
+#
+# These are NOT applied in `MissionSpec.__post_init__`. `battery_kwh == 0` is a
+# live sentinel — `translate.requirements_from_mission` adds the
+# solar-positive-day requirement only when it is positive, so clamping 0 up to
+# the 1.0 floor would silently add a requirement the caller switched off. They
+# are applied where an untrusted VALUE arrives (prose parse, LLM sanitise), not
+# where a caller constructs a spec deliberately.
+ENERGY_RANGES: dict[str, tuple[float, float]] = {
+    "payload_kg": (50.0, 20_000.0),
+    "battery_kwh": (1.0, 500.0),
+    "hotel_kwh_day": (0.2, 50.0),
+    "solar_yield_kwh_m2_day": (1.0, 7.0),
+    "panel_packing": (0.1, 0.85),
+    "panel_eff": (0.10, 0.30),
+    "prop_efficiency": (0.3, 0.75),
+    "motor_efficiency": (0.7, 0.98),
+    "cruise_hours_day": (1.0, 24.0),
+}
+
+_DEFAULTS = {"displacement_target_kg": 6000.0, "cruise_speed_kn": 5.0,
+             "crew": 2, "lwl_hint_m": None, "design_category": "C"}
 
 
 @dataclass
@@ -28,6 +79,60 @@ class MissionSpec:
     waters: str = "river+coastal"
     energy: EnergySpec = field(default_factory=EnergySpec)
     notes: str = ""
+
+    def __post_init__(self) -> None:
+        self.notes = "; ".join(n for n in [self.notes, *self.clamp()] if n)
+
+    def clamp(self) -> list[str]:
+        """Force every field into `FIELD_RANGES`; return one note per change.
+
+        Idempotent, and callable AFTER construction — `parse_mission` and
+        `translate.sanitize` both build a spec and then `setattr` onto it, which
+        bypasses `__post_init__` entirely. A gate that only fires in the
+        constructor would have been no gate at all for the two paths that
+        actually carry untrusted numbers.
+
+        A clamp is always RECORDED. The original finding was not that 0 knots
+        was accepted; it was that 0 knots was accepted with `notes` EMPTY, so
+        the caller had no way to know the mission it got back was not the
+        mission it asked for.
+        """
+        notes: list[str] = []
+        for k, (lo, hi) in FIELD_RANGES.items():
+            raw = getattr(self, k)
+            if raw is None:
+                continue                      # lwl_hint_m is legitimately unset
+            try:
+                val = float(raw)
+            except (TypeError, ValueError):
+                notes.append(f"{k}={raw!r} is not a number; default "
+                             f"{_DEFAULTS[k]} used")
+                setattr(self, k, _DEFAULTS[k])
+                continue
+            # NaN survives min/max — every comparison against it is False — so
+            # `min(max(nan, lo), hi)` returns nan. translate.sanitize learned
+            # this the hard way (a nan displacement target floated the hull at
+            # its own budget and reported ok=True); the contract must not have
+            # to learn it again.
+            if not math.isfinite(val):
+                notes.append(f"{k} was non-finite ({raw!r}); default "
+                             f"{_DEFAULTS[k]} used")
+                setattr(self, k, _DEFAULTS[k])
+                continue
+            new = min(max(val, lo), hi)
+            if new != val:
+                notes.append(f"{k} {val:g} outside [{lo:g}, {hi:g}]; "
+                             f"clamped to {new:g}")
+            setattr(self, k, int(new) if k == "crew" else float(new))
+
+        cat = str(self.design_category).upper()
+        if cat not in DESIGN_CATEGORIES:
+            notes.append(f"design_category {self.design_category!r} is not one "
+                         f"of {'/'.join(DESIGN_CATEGORIES)}; "
+                         f"{_DEFAULTS['design_category']} used")
+            cat = _DEFAULTS["design_category"]
+        self.design_category = cat
+        return notes
 
     def cruise_speed_ms(self) -> float:
         return self.cruise_speed_kn * 0.514444
@@ -119,9 +224,23 @@ def parse_mission(text: str) -> MissionSpec:
 
     solar = "solar" in t
     if g := re.search(_NUM + _SEP + r"kwh", t):
-        m.energy = EnergySpec(battery_kwh=float(g.group(1)))
+        # Clamped through the SHARED table: prose was the one writer of
+        # battery_kwh that had no bound at all. "999999 kWh" parsed verbatim,
+        # which is 7,499,993 kg of LiFePO4 in a 6 t mission.
+        lo, hi = ENERGY_RANGES["battery_kwh"]
+        raw = float(g.group(1))
+        kwh = min(max(raw, lo), hi)
+        if kwh != raw:
+            unparsed.append(f"battery {raw:g} kWh outside [{lo:g}, {hi:g}]; "
+                            f"clamped to {kwh:g}")
+        m.energy = EnergySpec(battery_kwh=kwh)
     if solar and m.energy.battery_kwh == 30.0:
         pass  # defaults already solar-electric
 
+    # The clamp runs LAST, after every `setattr` above: `__post_init__` saw only
+    # the defaults, so a parsed 0 knots or 5000 crew would have walked straight
+    # past it. Its notes join the unparsed list, which is the only channel this
+    # function has for saying "what you got back is not what you asked for".
+    unparsed.extend(m.clamp())
     m.notes = "; ".join(unparsed)
     return m

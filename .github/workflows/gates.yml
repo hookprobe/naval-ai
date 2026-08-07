@@ -1,15 +1,24 @@
 name: gate ladder
 
 # PLM.md §5 makes `python -m navalai.gates` the single source of gate truth,
-# and §3 step 5 says a gate goes GREEN only by meeting its bar. Until now
-# nothing enforced that outside a developer's own shell.
+# and §3 step 5 says a gate goes GREEN only by meeting its bar.
 #
-# Deliberately NOT --strict here: this runner installs only the core
-# requirements, so the tiers needing capytaine / mujoco / cadquery report
-# SKIPPED. That is honest and visible in the log. It is NOT green — the runner
-# refuses to call a suite that ran no tests GREEN. The metal gates (2M, needing
-# OpenFOAM) and review gates (6R, needing a qualified human) can never run here
-# by design.
+# THE PROBLEM THIS FILE NOW FIXES (audit 2026-08-05).
+# The previous version ran `python -m navalai.gates` with no ledger. Gate 2M
+# and Gate 2U are honestly, deliberately RED and will stay red for a while, so
+# the runner exited 1 on EVERY push, forever. GitHub renders one status per
+# job, so a job that is always red cannot distinguish "2M is still red as
+# recorded" from "Gate 3 just broke" — the honesty mechanism had consumed the
+# very signal it existed to protect, and branch protection could never be
+# enabled on a check that can never pass.
+#
+# Nothing here softens a bar. The red rows still print, FIRST, on every run,
+# and now land on the run summary page instead of a collapsed log. What
+# changed is the QUESTION the required check asks:
+#     before: "is anything red?"                      (a constant)
+#     after:  "is anything red that we did not
+#              already record, or REDDER than we
+#              recorded, or past its review date?"    (a variable)
 
 on:
   push:
@@ -18,12 +27,13 @@ on:
   workflow_dispatch:
 
 jobs:
+  # ---------------------------------------------------------------- required
   ladder:
+    name: regression signal (required)
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -37,14 +47,59 @@ jobs:
       - name: test suite
         run: python -m pytest tests/ -q
 
-      - name: gate ladder
-        run: python -m navalai.gates
+      - name: gate ladder, judged against the expected-red ledger
+        run: python -m navalai.gates --ledger data/gate-ledger.json
 
-      - name: which gates could not be verified here
+      - name: publish the red gates on the run summary
         if: always()
         run: |
-          echo "Gates whose suites skipped need the optional tiers:"
-          cat requirements-optional.txt
-          echo
-          echo "Gate 2M needs an OpenFOAM machine; Gate 6R needs a qualified reviewer."
-          echo "Neither can be verified in CI — see PLM.md section 5."
+          # Exit code deliberately ignored: this step exists to PUBLISH, not to
+          # gate. Nothing is hidden — the red rows are the first thing a reader
+          # sees, on every run, forever.
+          {
+            echo '## Gate ladder'
+            echo '```'
+            python -m navalai.gates || true
+            echo '```'
+            echo '### Expected-red ledger'
+            echo 'A gate listed here is red BY RECORD, with a measured'
+            echo 'watermark, an owner and a review-by date. A red gate that is'
+            echo 'NOT listed, or is worse than its watermark, or is past its'
+            echo 'review date, fails the required check above.'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ------------------------------------------------------------ optional tiers
+  full-tiers:
+    name: optional tiers (--strict)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    # Not required to merge: these wheels are heavy and occasionally break for
+    # reasons that have nothing to do with this repo. But it must RUN, because
+    # without it Gate 2 is entirely unverified in CI — tests/test_phase2.py has
+    # a MODULE-LEVEL importorskip("capytaine"), so all 18 of its tests vanish
+    # and the row reads "SKIPPED", while Gates C and D read GREEN with their
+    # cadquery/mujoco claims silently skipped.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: install core + optional requirements
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-optional.txt
+
+      - name: gate ladder, strict
+        # --strict makes a suite that ran NOTHING a failure. It is documented
+        # in status_of() as "use that in CI" and was, until now, used nowhere.
+        run: python -m navalai.gates --ledger data/gate-ledger.json --strict
+
+      - name: what could not be verified here
+        if: always()
+        run: |
+          echo "Gate 2M needs an OpenFOAM machine; Gate 6R needs a qualified"
+          echo "reviewer. Neither can be verified in CI — see PLM.md section 5."

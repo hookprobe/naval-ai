@@ -79,6 +79,13 @@ class MassAggregate:
     free_surface_moment: float      # sum rho * i_t over SLACK tanks [kg m^2]
     by_tier: dict = field(default_factory=dict)
     n_items: int = 0
+    # The items this aggregate was built from, kept so a CONSUMER can report a
+    # per-item {value, tier, sigma} without re-declaring the sigma model.
+    # `ui/server.py` served the five weight buckets as bare rounded floats
+    # (honesty rule 1 violation, gap H3) and the only way to badge them without
+    # this was to retype `0.15 * mass` in the server — the "number declared
+    # twice" defect CLAUDE.md's design-side invariants exist to prevent.
+    items: tuple = ()
 
     def vcg_above_keel(self, t_design: float) -> float:
         """KG for `hydrostatics.gm`, which measures from the keel plane."""
@@ -116,16 +123,31 @@ def aggregate(items: list[MassItem]) -> MassAggregate:
 
     return MassAggregate(total_kg=total, sigma_kg=sigma, lcg_m=lcg, tcg_m=tcg,
                          vcg_m=vcg, free_surface_moment=fsm, by_tier=by_tier,
-                         n_items=len(items))
+                         n_items=len(items), items=tuple(items))
 
 
 def trim_angle_deg(agg: MassAggregate, lcb_m: float, disp_kg: float,
-                   gm_l_m: float) -> float:
+                   gm_l_m: float) -> float | None:
     """Static trim from the LCG-LCB lever [deg], positive = bow down.
 
-    theta = (LCG - LCB) / GM_L for small angles. Returns 0 when GM_L is not
-    available rather than pretending to a number.
+    theta = (LCG - LCB) / GM_L for small angles. Returns **None** when GM_L is
+    not positive-finite, because at that point the equilibrium this formula
+    solves does not exist and there is no trim angle to report.
+
+    IT USED TO RETURN 0.0, AND 0.0 IS THE BEST POSSIBLE ANSWER. Gap E11.
+    MEASURED with an LCG-LCB lever of 4.0 m against `limits.TRIM_LIMIT_DEG`:
+
+        GM_L = +40 m   ->  +5.71 deg   g['trim'] = +3.710   VIOLATED
+        GM_L =   0 m   ->  +0.00 deg   g['trim'] = -2.000   FEASIBLE
+        GM_L = -500 m  ->  +0.00 deg   g['trim'] = -2.000   FEASIBLE
+
+    So a hull that had just gone LONGITUDINALLY UNSTABLE — the one state where
+    trim is a real engineering problem — satisfied the trim constraint more
+    comfortably than a merely badly-balanced one, and NSGA-II was free to
+    descend into it. Mapping "undefined" onto "ideal" is the whole defect; the
+    caller must treat None as a violation, never as a pass.
     """
-    if gm_l_m <= 0:
-        return 0.0
-    return math.degrees(math.atan((agg.lcg_m - lcb_m) / gm_l_m))
+    if not math.isfinite(gm_l_m) or gm_l_m <= 0:
+        return None
+    val = math.degrees(math.atan((agg.lcg_m - lcb_m) / gm_l_m))
+    return val if math.isfinite(val) else None

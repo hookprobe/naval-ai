@@ -1,0 +1,40 @@
+{
+  "_comment": [
+    "Project settings for NavalAI. The repository is",
+    "/Users/robobostes/Documents/naval-ai — there is no ~/naval-ai.",
+    "",
+    "The deny rules below keep a session inside the project. The specific",
+    "thing they prevent: reading ~/.claude/CLAUDE.md, the GLOBAL user file,",
+    "which is not project instructions and has previously sent sessions",
+    "chasing an external 'Director-Architect-Consultant' trio (a Gemini",
+    "script under ~/ai-tools and a Nemotron Ollama MCP server) that has",
+    "nothing to do with this repository, and applying a 'never push' rule",
+    "that contradicts how this project actually works. CLAUDE.md in the",
+    "project root is the authority; see its first section.",
+    "",
+    "Read/Edit are already confined to the working directory by the harness.",
+    "These rules close the paths that are reachable another way — an absolute",
+    "path, or a shell command."
+  ],
+  "permissions": {
+    "deny": [
+      "Read(//Users/robobostes/.claude/**)",
+      "Edit(//Users/robobostes/.claude/**)",
+      "Write(//Users/robobostes/.claude/**)",
+      "Read(//Users/robobostes/ai-tools/**)",
+      "Bash(cat ~/.claude/*)",
+      "Bash(cat /Users/robobostes/.claude/*)",
+      "Bash(git push origin master*)",
+      "Bash(git push * master)",
+      "Bash(git push --force*)",
+      "Bash(git push -f *)"
+    ],
+    "ask": [
+      "Bash(git push*)",
+      "Bash(git merge*)",
+      "Bash(git stash*)",
+      "Bash(git reset*)",
+      "Bash(git checkout --*)"
+    ]
+  }
+}

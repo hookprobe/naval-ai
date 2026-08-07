@@ -47,6 +47,8 @@ escalation, and no path that could refuse an export.
 | A4 | Gate 3 "OOD queries reliably escalate to L2/L3" | `is_ood()` has two call sites, both in tests. Nothing escalates. | `surrogate.py:11,89-93` | **CRITICAL** |
 | A5 | Honesty rule 2 "nothing ships un-re-validated" | `export_dxf`/`export_step` take a `Hull`, not an `Evaluation`. Verified: an **L0-failing** hull (`deadrise.order`) exported to an 8,487-byte DXF and a 174,406-byte STEP without complaint. | `export.py:40,52`; `unroll.py:97` | **HIGH** |
 | A6 | Gate 3 | `is_ood` is a σ-threshold, not a support test, and does not discriminate: median error of kept 0.161 vs rejected 0.200. Fires 100% only on hulls 3× outside the box, which `grammar.check` already rejects; fires **0.0%** on in-box points whose error reaches 113%. | measured | **HIGH** |
+| A6b | Gate 3 | **HALF OF A6 WAS THE PROBE, not the detector, and the register did not say so.** Gate 3 draws its training hulls AND its query hulls uniformly from the same grammar box, so the experiment **contained no out-of-distribution query at all** — nothing can separate an empty set, and "no separation" could not have come out any other way. Restrict the training support the way a real surrogate is restricted (it is trained on wherever the optimiser has been) and the picture inverts. MEASURED: full box → rejected/kept error ratio 1.08; training support LWL ≤ 12 m → **3.16×, recall 0.89**; β_mid ≥ 12° → 2.08; T ≤ 0.85 m → 1.77. So the σ test was not as broken as A6 implies — **what it lacked was RECALL** on axes the kernel ignores. Recorded 2026-08-06. | measured | **HIGH** *(corrects A6)* |
+| A6c | Gate 3 / honesty rule 1 | **ARD lengthscales saturate at the optimiser's bound, so σ is blind to two axes entirely.** MEASURED on the GP trained on 100 L1 hulls: `ls[3]` (D) and `ls[5]` (β_bow) sit at exactly **10.0**, the L-BFGS-B upper bound. Any support test that divides by those lengthscales inherits the blind spot and adds nothing, which is why the distance test added for A6 is deliberately NOT lengthscale-weighted. The saturation itself is unfixed: it means the kernel has decided two design axes do not matter, and no uncertainty the GP reports can disagree. | measured | **MED** *(open)* |
 
 ---
 
@@ -128,7 +130,8 @@ NSGA-II enforces on all 5 × 12 values. **The defects are in what surrounds them
 
 | ID | Plan clause | Finding | Evidence | Sev |
 |---|---|---|---|---|
-| E1 | Gate 1 "Holtrop reproduces its own validation set" | **Holtrop-Mennen does not exist.** `grep -rin holtrop` hits only the plan document. Gate 1 prints GREEN. | none | **CRITICAL** |
+| E1 | Gate 1 "Holtrop reproduces its own validation set" | **Holtrop-Mennen does not exist.** `grep -rin holtrop` hits only the plan document. Gate 1 prints GREEN. | none | **CRITICAL** — **CLOSED 29f5dc6** (Gate 1H, `navalai/holtrop.py` + `benchmarks/holtrop_cases.py`, worst per-intermediate agreement 0.383%) |
+| E1b | — | **E1's LETTER is closed; its value to the product line is not.** Holtrop-Mennen is implemented and anchored against the 1982 worked example, but **it is not wired into `evaluate()`** — that seam is owned elsewhere and was not claimed — and **our own small craft fall outside its statistical envelope**. MEASURED: a 10 m tender returns `L1H-INVALID` on B/T **6.67** against a band of 2.1–4.0 and L/B **3.33** against 3.9–9.5. It is a 1982 merchant-ship regression offered as one: available, anchored, and honest about where it does not apply. Same root cause as R4b — a ship method reaching for a boat. | measured | **MED** *(open)* |
 | E2 | Gate 1 "Wigley matches the analytic/tank curve within published error bars" | **The anchor is not anchored.** Tests assert a magnitude band (`8e-4 < Cw < 5e-3`) and ≥2 sign changes. No reference curve exists in the repo; no per-point comparison is made. | `tests/test_phase1.py:34-63` | **CRITICAL** |
 | E3 | "hydrostatics (volume, GM, trim)" | **GM — the binding constraint — uses the light-ship KG at the ballasted displacement.** At the 6 t mission **3230 kg (54% of displacement) has no declared position**; at 12 t, 77%. KG stays pinned at 0.9330 m while GM swings 3.80 → 1.78 → 0.78 m. Every stability verdict rests on a mass model that does not sum to the displacement. | `evaluate.py:105,115-118` | **CRITICAL** |
 | E4 | Gate 0 "49 closed-form constraints" | **9 live constraints, not 49.** 28 emitted; 15 are bound checks the optimiser cannot violate; 4 more are tautologies inside the declared bounds (0 hits in 400,000 in-bounds samples). `ALIGNMENT.md` claims "30+". | `grammar.py:57-108` | **HIGH** |
@@ -138,6 +141,7 @@ NSGA-II enforces on all 5 × 12 values. **The defects are in what surrounds them
 | E8 | "integration + calibration harness" | **Michell is not grid-converged at production defaults**: 425.8 N shipped vs 456.0 N converged = **−6.6%**; the z-grid adds −2.0%. The Wigley convergence test uses its own finer grid and never exercises the shipped ones. | `geometry.py:27`; `resistance.py:77` | **MED** |
 | E9 | Gate 0 "DB reproduces any stored result bit-for-bit" | **`hull_id` collides.** It hashes `round(v, 10)` but stores unrounded floats under `INSERT OR IGNORE`; two designs differing by 1e-11 collide and `get_params` returns the *first* one's parameters. Result rows record no mission, no rho, no library versions; `solver_version` is the literal `"0.1"` typed three times. | `db.py:47-49,58-65`; `evaluate.py:169-174` | **HIGH** |
 | E10 | honesty rule 1 | **NaN in any constraint makes a design feasible** — `nan > 0.0` is False → `violations=[]`, `ok=True`. The NaN reaches the DB `uncertainty` column and the HTTP response as invalid JSON. | `evaluate.py:147` | **HIGH** |
+| E10b | honesty rule 1 | **E10 has a COMPLEX-NUMBER variant, and it is the better-disguised one.** MEASURED while implementing Holtrop: at Cp = 0.96 the method returns `(8504.47-1749.72j)` N — a complex resistance landing in a float-typed dataclass field — from `(0.95-Cp)^-0.521448`. Sibling defects in the same family, all reproduced on the first draft: `Cwp = 1.0` → ZeroDivisionError inside c1 (i_E lands on exactly 90° and c1 carries `(90-i_E)^-1.37565`); `Cp = 0.25` → division by `(4Cp-1)`; `A_T > B·T·C_M` → **no error at all**, c5 goes negative and R_W comes back as a plausible **positive 2528 N computed from a negative amplitude**. `holtrop.domain_errors()` now names each impossibility in words and `total()` refuses — but the register's E10 row should be read as covering non-finite AND non-real, because a `>` comparison against a complex number raises rather than returning False, and a `nan` silently passes. Two different failures, one root: no type or finiteness guard on the constraint vector. | measured | **HIGH** |
 | E11 | honesty rule 1 | **Pathological states are reported as the best possible case.** Trim returns 0.0 when GM_L ≤ 0; heel returns 0.0 when GM ≤ 1e-6. So a longitudinally unstable hull satisfies the trim constraint and a negative-GM hull satisfies the list constraint — 2 of 5 constraints are "satisfied" exactly where the physics broke. | `weights.py:129`; `evaluate.py:122` | **HIGH** |
 | E12 | — | **`_FIELD_RANGES` guards only the LLM path.** `parse_mission("… 0 knots")` → speed 0.0; `"5000 crew"` → 5000. At 0 kn: **1.278e13 NM/day solar range**, `ok=True`, tier L1, no warning. `ui/server.py` builds `MissionSpec(**body)` with no clamp at all. | `mission.py`; `ui/server.py:69-71` | **HIGH** |
 | E13 | "`Evaluation.g` is the ONE inequality vector" | **The `list` constraint is inert** — identically `−2.000` across 800 evaluations, because no mass item declares a transverse offset. It occupies an NSGA-II constraint dimension and carries no information. | `evaluate.py:122,132`; `energy.py:94-102` | **MED** |
@@ -234,19 +238,88 @@ NSGA-II enforces on all 5 × 12 values. **The defects are in what surrounds them
 | J6 | `renders/` is not ignored and **9 PNGs (~2.3 MB) are committed**; `data/exports/hull.{iges,step}` are tracked build artifacts re-modified by 5 of the last 10 commits. | `git ls-files` | **MED** |
 | J7 | ALIGNMENT.md carries three findings CLAUDE.md marks **SUPERSEDED 2026-08-05**, and its scorecard still says OpenFOAM execution is BLOCKED/synthetic-only. PLM §3 step 7 requires removal "with a note, never left ambiguous". | `ALIGNMENT.md:57-60,124-128` | **MED** |
 | J8 | MACBOOK.md promises "93 passed, 14 GREEN gates"; actual is 135 passed, 15 GREEN + 2 RED across 17. README per-gate test counts stale throughout (Gate 1 13→22, Gate 2 4→18, Gate D 12→19). | measured | **LOW** |
-| J9 | **PLM §3 step 4 compliance: 7 of 10 recent commits comply, 3 violate**, and the violations are consistently CFD-path and script changes. **`scripts/gate2m.py` — now the executable authority on Gate 2M — has no test of its own**, which is how its number diverged from `gates.py`'s. | `git log` audit | **MED** |
+| J9 | **PLM §3 step 4 compliance: 7 of 10 recent commits comply, 3 violate**, and the violations are consistently CFD-path and script changes. **`scripts/gate2m.py` — now the executable authority on Gate 2M — has no test of its own**, which is how its number diverged from `gates.py`'s. | `git log` audit | **MED** *(open — `scripts/` is CFD-owned)* |
 | J10 | Uncommitted CFD work sits in the working tree while docs and the gate registry are read as truth. | live tree vs `5bbffb7` | **LOW** |
+
+### J · what closed, and how (2026-08-06)
+
+The fix for this whole section is one idea: **stop the documents being a second
+source.** Every J row above is the same defect wearing different clothes — a
+machine-readable fact copied into prose, where it cannot be re-derived and
+nothing notices when it goes stale.
+
+| ID | Closed by | Mechanism |
+|---|---|---|
+| J1 | ledger + a test | `data/gate-ledger.json` is the ONLY place a Gate 2M measurement lives, with the superseded-by trail naming all five figures. `test_gate_integrity.py::test_no_document_restates_a_gate_2m_figure` fails if any of them reappears in README, PLM, MACBOOK or ALIGNMENT. `docs/CFD-BLOCKER-BRIEF.md` keeps its figure under a SUPERSEDED banner, because deleting the elimination work in it would cost machine-days to redo. |
+| J2 | generation, not correction | README's gate table is emitted by `navalai.gates.readme_block()` with test counts from pytest's own collection; `--readme --write` regenerates it; a test fails when file and runner disagree. Honesty rule 6 added. Gate 2U now has a row — it never did. |
+| J3 | **Gate 6R flipped RED** | See the 6R block below. |
+| J5 | committed record + a gate row | `data/benchmark_geom/CHECKSUMS.json` (committed although the geometry is not) + `scripts/fetch_benchmark_geom.py`; **Gate 2G** is a row whose whole purpose is that a missing artefact prints `SKIPPED` in the gate table instead of skipping invisibly inside Gate 2. Its module-level skip is deliberate: one always-passing test in that file would make the row read `GREEN (n skipped)`, which answers "is the KCS geometry validated here?" with a yes. |
+| J6 | `.gitignore` + `git rm --cached` | `renders/` (9 PNGs, ~2.3 MB) and `data/exports/` (regenerated by the suite on every run) untracked. **Cost, recorded:** CLAUDE.md cites `renders/medium-t40-fixed.png` as the one clean free-surface render; it survives on this Mac and is now reproducible-only elsewhere. |
+| J7 | supersessions applied | ALIGNMENT.md's three superseded rows are struck through **with the superseding measurement beside them**, not deleted (PLM §3 step 7). Its scorecard's `BLOCKED 1` row is retired: OpenFOAM executes, so "blocked on hardware" understated the state — Gate 2M is measured and failing, which is a worse claim, not a better one. |
+| J8 | literals removed | MACBOOK.md quotes no test or gate count; it points at `python -m navalai.gates`. Its "leave efficiency cores for the OS" was also false — `sysctl hw.perflevel{0,1}` shows no efficiency tier on this M5 Pro, and np=10 is the MEASURED optimum (np=5 212.7 s, np=10 127.2 s, np=15 153.1 s on the same slice). |
+| E4 (doc half) | count removed | README's "30+ closed-form checks" and ALIGNMENT.md's identical claim replaced with the measured 9 live / 28 emitted, and the plan's "49" named as wrong. |
+
+**NOT CLOSED, and why.** J4 (`requirements.txt` completely unpinned) and J9
+(`scripts/gate2m.py` has no test) are both real and both untouched here: the
+files belong to other roles who were editing them concurrently, and pinning an
+environment out from under three running agents would have been the more
+expensive kind of correct.
+
+**OWED TO CLAUDE.md, and it cannot be written by an agent.** CLAUDE.md's
+root-cause section states, as a measured result of the isotropy fix, *"hull
+patch fully layered (3 of 3 layers, near-wall 0.795 mm against a 0.706 mm
+target)"*. **That claim is now known to be FALSE**: the mesh had NO prism
+layers, and the summary table that produced the sentence was printing the
+REQUESTED spec rather than the achieved one. The correction belongs in
+CLAUDE.md itself, which is the project's operating instructions — an agent must
+not edit it on another agent's say-so, so it is recorded here instead. A reader
+who acts on that sentence will believe the wall treatment is solved when it is
+not, which is exactly the class of error CLAUDE.md exists to prevent.
+
+### J3 · Gate 6R: flipped RED, deliberately, on 2026-08-06
+
+`review.py`'s own docstring reads *"a confirmation that cannot say WHO checked
+WHICH edition is not a review, it is a rumour"* — and `is_complete()` checked
+`reviewer` and `confirmed` and **not `editions`**, whose two values both read
+`"edition not recorded — set this"` (gap D8). The parity gate was green on a
+record that admits in its own field values that it cannot name the document it
+checked.
+
+`is_complete()` now requires every edition to be present and to carry a year,
+and `edition_defects()` reports the reasons in words. **This flipped Gate 6R
+red.** Under honesty rule 6 that is the correct outcome and not a regression:
+the check got stricter, the state did not get worse, and nothing was reworded to
+absorb it. The row is in `data/gate-ledger.json` — metric "dated editions
+recorded", watermark 0 of 2, owner **compliance**, review by **2026-11-06** —
+and the clearing condition costs no compute: a reviewer writes two edition
+strings. `tests/test_phase6r.py` asserts that a properly filled record *does*
+complete, so the clearing condition is executable rather than prose.
+
+The suite split in two so this does not swallow what is genuinely verified:
+**Gate 6R** (the parity claim) is RED, **Gate 6R-mech** (basis routing, no
+unreviewed basis leaking `'standard'`, our own practice values not blessed by a
+green gate) is GREEN.
+
+**AND 6R ANSWERS A DIFFERENT QUESTION THAN GATE 6 (gap D9), which no amount of
+edition-recording changes.** Gate 6R's scope is **THRESHOLD parity**: does our
+number equal the standard's number. **BuildPlan Gate 6's bar is VERDICT
+parity** — the same verdict as a qualified reviewer on **≥ 3 reference
+designs**, hand-calculated. Zero reference designs and zero hand calculations
+exist anywhere in the repository. The reviewer of record is also the project
+owner reviewing his own code, with no qualification recorded. **Clearing 6R does
+not open Gate 6**, and a green 6R must never be cited as evidence for it.
 
 ---
 
 ## K · BuildPlan 2 — coverage
 
-No file matching `refdata`, `ergonom*`, `flotation*`, `arrange*` or `material*`
-exists anywhere in the repo.
+At audit time no file matching `refdata`, `ergonom*`, `flotation*`, `arrange*`
+or `material*` existed anywhere in the repo. **V2.0 landed 2026-08-06**; the
+rest is unchanged.
 
 | Phase | Deliverable | Status |
 |---|---|---|
-| V2.0 | `refdata/ergonomics.py`, `flotation.py` | **ABSENT** |
+| V2.0 | `refdata/ergonomics.py`, `flotation.py` | **CLOSED 2026-08-06** — Gate V2.0, `navalai/refdata/` |
 | V2.1 | Arrangement grammar + AST, L0-A | **ABSENT** |
 | V2.2 | Tier E ergonomics checker | **ABSENT** |
 | V2.3 | CP + GA arrangement solver | **ABSENT** (no CP library in requirements) |
@@ -254,12 +327,73 @@ exists anywhere in the repo.
 | V2.5 | Material DB + fire posture | **ABSENT** |
 | V2.6 | "Unsinkable Solar Liveaboard" SKU | **ABSENT** |
 
-PLM's "PLANNED" is accurate. But the hook in `weights.py` is half-real: `x_m`,
-`y_m`, `z_m`, `sigma_kg`, `slack`/`fluid_rho`/`fsm_i_t_m4` are **load-bearing and
-tested**, while `volume_m3`, `material`, `by_tier` and the `'E'`/`'F'` tier
-vocabulary have **no reader anywhere** — no producer ever emits `tier="E"` or
-`tier="F"`. Worth one word of precision so a future reader does not assume the
-tier half is live.
+PLM's "PLANNED" is accurate for V2.1–V2.6. But the hook in `weights.py` is
+half-real: `x_m`, `y_m`, `z_m`, `sigma_kg`, `slack`/`fluid_rho`/`fsm_i_t_m4` are
+**load-bearing and tested**, while `volume_m3`, `material`, `by_tier` and the
+`'E'`/`'F'` tier vocabulary have **no reader anywhere** — no producer ever emits
+`tier="E"` or `tier="F"`. Worth one word of precision so a future reader does
+not assume the tier half is live.
+
+### K1 · V2.0, and the part of it that is a finding
+
+Gate V2.0's bar is provenance, not physics: *"constants importable, every one
+carries source+basis, no bare numbers."* `navalai/refdata/` meets it
+structurally — a `RefValue` cannot be constructed without a non-empty `source`
+and a `basis` from `('standard-2003' | 'approx' | 'purchased')`, and
+`tests/test_refdata.py` walks every value including the ones nested inside
+category tables.
+
+**Two provenance decisions are worth recording because both were tempting to
+get wrong:**
+
+- **ISO 15085:2024 preview numbers ship as `'approx'`, not `'standard-2003'`.**
+  The zone system (Z1/Z2/Z3, Z2 at ≤ 4 kn) and the 400 × 750 mm seat minimum
+  are real and verified, and they are **not in the 2003 text**. Labelling them
+  `standard-2003` would attribute them to a document that does not contain
+  them — quiet false provenance, which is the exact failure the field exists to
+  prevent. A test asserts it.
+- **Nothing carries `'purchased'`, and a test asserts that too.** Six documents
+  are in `refdata.PURCHASE_QUEUE`, and `refdata.absent()` names which quantity
+  each purchase unblocks.
+
+**WHAT COULD NOT BE SOURCED, AND IS THEREFORE ABSENT RATHER THAN INVENTED**
+(`refdata.absent()`, 11 entries). An invented constant is indistinguishable
+from a transcribed one the moment it lands in a module, and the tiers above
+will divide by it:
+
+| Absent | Why |
+|---|---|
+| Panero & Zelnik anthropometric tables | The book is named as the canonical decomposition and its 5th–95th percentile organisation is verified, but no body dimension is reproduced in anything we hold. **No anthropometric number is in `refdata`**, and a test asserts no constant cites Panero. Every accommodation number we do ship is marine practice and says so. |
+| percentile stretch factor | BuildPlan 2 §1.1 states the MECHANISM (1979 data, modern bodies larger) and no value. A plausible invented multiplier would silently resize every Tier-E envelope. `RefValue.percentile` exists and is `None` everywhere — the honest state. |
+| ABYC H-41 dimensions | Only the 1780 N (400 lb) load and "unassisted reboarding on all boats" are verified at claim level; ladder step spacing, immersion depth and handhold clearance are in inches behind membership. |
+| handhold spacing | Named as a first-class layout element by two sources; neither yields a spacing. |
+| ISO 15085:2024 per-zone equipment lists | Paywalled. Zone STRUCTURE encoded, 2003 numeric floors alongside. |
+| ISO 12217-3:2022 thresholds | Paid text. (§1's own refutation list corrects an earlier "category D ceiling" claim to **C or D**.) |
+| USCG reference-area freeboard rules | The level-flotation criteria include freeboard rules against a reference area; the plan names them without the geometry, and they cannot be inferred from the heel angles. |
+| ISO 9094 fire thresholds | Not captured free at all. **No fire number ships.** |
+| fire-retardant coating ratings | §1.4 sends the specifics to the purchase list explicitly. |
+| SG for aluminium and steel | The plan prints **K** for both and SG for neither. Back-solving `1/(1-K)` gives 2.70 and **8.33** — and structural steel is ~7.85, so the second would be a manufactured number wearing transcribed clothes. K is stored alone, with the discrepancy in the note. |
+| **USCG handbook worked examples** | **This one is a gate defect, not a data gap.** Gate V2.4's bar is *"reproduces the USCG handbook worked examples exactly, including the plywood −0.81 negative-contribution case"* — and no worked example is transcribed anywhere in this repository. That is gap **E1's shape** (Gate 1's bar named Holtrop-Mennen while nothing implemented it, and Gate 1 printed GREEN), caught before V2.4 can be written. V2.4 must not go green on the method alone. |
+
+**What IS transcribed, with the K = (SG−1)/SG core:** GRP +0.33 (SG 1.50),
+fir plywood **−0.81** (SG 0.55 — negative, i.e. inherently buoyant), aluminium
++0.63, steel +0.88; 2 lb/ft³ PU foam netting 60.3 lb/ft³ ≈ 966 kg/m³ after
+self-weight and a 5% moisture allowance; the swamped criteria (heel ≤ 10°,
+off-centre load ≤ 30°); 3-D placement (propulsion flotation within 36 in of the
+transom, passenger flotation within 6 in of the sides); §183.114 durability
+(≤ 5% loss after 30-day immersion) and the **polystyrene ban** that follows from
+it; the Etap acceptance criterion (fully flooded, freeboard loss < 3% LOA, still
+manoeuvrable). `submerged_factor()` computes K rather than tabulating it, and a
+test closes the printed K against the printed SG for the two materials where
+both are given — one unit in the last printed place, the same trick
+`benchmarks/holtrop_cases.py` uses on an OCR'd table.
+
+Two numbers are labelled **OURS** and must never be cited as sourced: the −15%
+foam aging derate and "foam is never the only defence". Both are policy adopted
+in response to the field evidence; no standard sets either. And
+`SCOPE_IS_NOT_OURS` records that 33 CFR 183 governs monohulls **under 20 ft**
+and therefore does not govern a single SKU — we adopt its method, and the output
+is an assessment aid, exactly as honesty rule 5 requires of `rules/`.
 
 ---
 
@@ -298,3 +432,271 @@ supplies both the design category and the energy plan that the requirements are
 graded against (B-section, D). Each is individually fixable; the pattern is what
 lets a green ladder mean less than it says — and it is why the fix plan opens by
 making the gates unfakeable rather than by fixing physics.
+
+---
+
+## R · Reconciled against the code, 2026-08-06
+
+**THE FINDING ROWS ABOVE ARE NOT EDITED AND MUST NOT BE.** They are the audit
+of `5bbffb7`, and every one of them was true of that tree. What was missing is
+the other half: `navalai/gaps.py` imported all 119 as `Open`, which is this
+DOCUMENT'S state, and by the following day roughly seventy of them had been
+closed in code with nothing propagating it. That is section J's own diagnosis
+— a machine-readable fact living in prose — applied to section J's own queue.
+
+`scripts/reconcile_gaps.py` is the propagation, and it does not read commit
+messages. Each of the 119 rows carries a PREDICATE over the checkout: a gap is
+CLOSED only when a named symbol, test or file demonstrably does the thing the
+row says is missing, OPEN when the predicate is false, and NEEDS-HUMAN when no
+predicate can honestly be written. `python scripts/reconcile_gaps.py` re-runs
+it; **Gate SR** (`tests/test_reconcile_gaps.py`) guards it.
+
+| measured | CRITICAL | HIGH | MED | LOW | total |
+|---|---|---|---|---|---|
+| Closed | 17 | 38 | 22 | 6 | **83** |
+| Open | 3 | 15 | 11 | 4 | **33** |
+| Needs human | 0 | 1 | 1 | 1 | **3** |
+| | 20 | 54 | 34 | 11 | **119** |
+
+Still open, worst first: **D11, E2, F1** (CRITICAL); **B4, B5, D9, D10, E5, E6,
+E7, E9, F2, F4, F16, G7, G8, I1, I5** (HIGH); **A6c, E1b, E8, E13, E15, F3, F5,
+F17, H1, I13, I14** (MED); **C9, E14, E17, E18** (LOW). NEEDS-HUMAN: **A6b**
+(a correction to A6, closed by the same code — whether a correction row is
+itself closeable is a judgement), **J9** (a commit-compliance ratio is a
+property of history, not of a checkout; its actionable half — `gate2m.py` has
+no test — IS done), **J10** (a working tree at one instant).
+
+> **The NEEDS-HUMAN line above is SUPERSEDED (2026-08-07) and the counts with
+> it — see section S.** All three were resolved: **A6b** was re-filed with a
+> predicate of its own (it is a defect, not a correction, and its clearing
+> condition differs from A6's), **J9** and **J10** were RETIRED under PLM §3
+> step 7. The 2026-08-06 numbers are left as written; they are the measurement
+> of that day.
+
+### The negative control, and what it caught
+
+The register was audited at `5bbffb7`, so every predicate must report OPEN
+there: a check that cannot fail on the defect cannot verify the fix. Running
+all 119 against `git archive 5bbffb7` found **four that reported CLOSED on the
+broken tree**, three of which would have closed a live gap:
+
+- **D15** — `gates.yml` already contained the string `--strict`, inside a
+  comment reading *"Deliberately NOT --strict here"*, and already `cat`-ed
+  `requirements-optional.txt` without installing it.
+- **D16** — the `-x` was written `"--no-header", "-x"`, which the pattern
+  `g.suite, "-x"` never matched in either direction.
+- **F16 / F17** — `not ledger_has("Gate 2M")` is TRUE when there is no ledger,
+  and at `5bbffb7` `data/gate-ledger.json` had not been written. **An absent
+  record read as a green gate — gap D3's exact shape, rebuilt inside the tool
+  that checks for it.**
+
+All 83 closures now flip: CLOSED today, OPEN at `5bbffb7`.
+
+### The incident that cost 332 log records
+
+Gap **B4** is *"payload_kg is a flat 800 kg regardless of crew"*. Its first
+predicate asked whether `navalai/energy.py` mentions `crew`, and line 19 reads
+
+    payload_kg: float = 800.0          # crew + stores + water
+
+— the word is in the COMMENT ON THE DEFECT. B4 reported CLOSED and `--apply`
+wrote it to Closed in an append-only log **that has no reopen edge**; 332
+transitions had to be unwound.
+
+The hazard is structural rather than careless, and it is worth stating plainly
+because it will catch the next tool too: **the comments in this codebase are
+unusually good, so the vocabulary of every OPEN gap appears verbatim in the
+file that would close it.** Predicates about behaviour now read a
+comment-and-docstring-blanked view of the source; only predicates about prose
+(F19's attribution, J7's supersessions, J8's retraction) read the raw text.
+
+### Rows whose text is now WRONG about the code
+
+Recorded here rather than edited into the tables above.
+
+- **F4** — *"No L2 number ever leaves the module with a convergence-derived
+  sigma"* is **false now**: `evaluate.revalidate` solves two meshes and badges
+  `unc_rel` from their difference. What survives is the narrower letter of the
+  row — `SeakeepingResult` is still constructed nowhere. Read F4 as being about
+  the unused dataclass, not about L2 uncertainty.
+- **D11** — the measured figures (*31.98% raw / 77.60% clipped*) are stale.
+  Re-measured 2026-08-06 with `raw_feasibility(600, seed=0)`: **GMM 79.3%,
+  pPCA 88.7%**, both still short of the 99% bar. The metric defect the row
+  names is fixed; the CLAUSE is not, which is why it stays open — see below.
+- **C2** — the demo no longer hides C1 (it passes `ev.ply_thickness_m`), but
+  the row's second citation, `tests/test_phase6.py:87`, still contains
+  `provided_mm=20.0`. It is now an ordinary above-requirement unit-test value,
+  not a fourth undeclared thickness.
+
+### Three findings this reconciliation produced
+
+1. **The gap queue does not survive a clone.** `data/evolution/` is in
+   `.gitignore`, so `data/evolution/gaps.jsonl` — the append-only log that is
+   supposed to be the machine-readable half of this document — is a local
+   artifact. On a fresh checkout the queue is empty and every closure recorded
+   here is gone. That is **gap D3's shape** (`data/baselines.json` untracked ->
+   the first retrain always deployed) and **J5's** (benchmark geometry
+   gitignored -> a validation that silently skipped). It is why D11 below
+   cannot simply be filed in the queue and forgotten.
+2. **Gate 4's raw-feasibility shortfall is recorded in a prose `scope`
+   string.** `navalai/gates.py` states the miss (79.3% / 88.7% against >=99%)
+   in the row's scope text, and `Gate.detail` is documented in the same file as
+   *"human context; NEVER load-bearing"* — the scope is no more load-bearing.
+   The gate prints GREEN, no ledger row owns the clause, and nothing fails if
+   the number gets worse. **That is gap D1** (a measured miss erased by editing
+   a prose string) surviving in the one place D1's own fix did not reach. D11
+   is therefore recorded OPEN, and its clearing condition is a ledger row.
+3. **`tests/test_reconcile_gaps.py` needed a gate row it could not add
+   itself** — file ownership put `navalai/gates.py` with another agent. It was
+   added as **Gate SR** in `1ad6f8b`, along with four other orphaned suites.
+   Worth noting as a coordination cost of concurrent agents, not a defect.
+
+---
+
+## S · The three findings of section R, resolved (2026-08-07)
+
+Section R ended by producing three findings of its own. This section records
+what was decided about each, because a finding a reconciliation produces and
+then forgets is the defect that reconciliation exists to stop.
+
+| measured | CRITICAL | HIGH | MED | LOW | total |
+|---|---|---|---|---|---|
+| Closed | 18 | 39 | 22 | 6 | **85** |
+| Open | 2 | 15 | 11 | 4 | **32** |
+| Needs human | 0 | 0 | 0 | 0 | **0** |
+| Retired | 0 | 0 | 1 | 1 | **2** |
+| | 20 | 54 | 34 | 11 | **119** |
+
+Measured against the tree as committed. Four further rows (**E6, E7, G8**
+HIGH, **E8** MED) read CLOSED in the working tree at the time of writing on
+another agent's uncommitted edits; `--apply` refuses to close on evidence that
+is not at HEAD, and so does this table. **RETIRED IS NOT CLOSED** — nothing was
+done to the code for those two rows; see below.
+
+### S1 · Gate 4's feasibility miss now has a row that can fail
+
+**D11 closes.** The shortfall lived in `navalai/gates.py`'s Gate 4 `scope`
+string — a measurement in a prose field, in a file whose own dataclass
+documents the neighbouring `detail` field as *"human context; NEVER
+load-bearing"*. The gate printed GREEN, no ledger row owned the clause, no
+`review_by` could expire, and nothing would have failed if the number got
+worse. That is **gap D1** (`"RED"` → `"AMBER"` bought exit 0) surviving in the
+one place D1's own fix did not reach: D1 typed the STATUS field and left the
+prose fields able to carry the only copy of a measurement.
+
+The clause is now **Gate 4F**, a typed RED row with a `data/gate-ledger.json`
+entry — watermark, units, bar, owner, `verify` command, `review_by`. The same
+split as Gate 6R (a clause of Gate 6) and Gate 1H (a clause of Gate 1). The
+99% bar was NOT softened; it is the BuildPlan's number, and the row is red
+against it. Re-measured 2026-08-07 for the entry: the shipped GMM and the pPCA
+latent, same fit, same draw — **the numbers are in the ledger and nowhere
+else**, which is gap J1's rule applied to the registry J1's fix created.
+
+`tests/test_red_by_record.py` (**Gate 0R**) is the fence, and it performs the
+attack rather than describing it: rewording the row buys nothing, deleting the
+ledger entry is a failure and not a silence, and **no gate row's `scope` or
+`detail` may contain a measured figure** — a rule that fails on the exact
+string this finding was about.
+
+### S2 · The queue is a cache: reconstructible and loud, not tracked
+
+**Decision: `data/evolution/gaps.jsonl` stays gitignored.** Tracking it was the
+obvious fix and it was rejected for reasons that are measurable rather than
+stylistic:
+
+- **The log is derived.** All 83 closures in it were written by `--apply` from
+  predicates over code that is already tracked. Committing it stores a
+  conclusion beside its own evidence — *a number declared twice*, this
+  codebase's recurring defect — and the log is the copy that goes stale. The
+  suite already carries
+  `test_no_gap_is_closed_in_the_queue_while_the_code_says_it_is_open` because
+  that divergence is possible.
+- **It cannot be merged.** Append-only, four records per closure, and
+  `GapQueue.next_id` mints ids by scanning the log it has: two agents closing
+  two different gaps both mint `G-120` and neither side of the merge is right.
+  `data/exports/*` and `renders/` taught the cheaper version of this lesson —
+  a tree dirtied by every test run, a conflict on every cherry-pick, and an
+  unasked `git checkout --`. `tests/test_pipeline.py::test_the_default_archive
+  _path_is_gitignored` pins the ignore for the archive sitting beside it.
+- **What must survive a clone already does:** `docs/GAP-REGISTER.md` holds the
+  findings and `scripts/reconcile_gaps.py` holds their verdicts.
+
+What the decision owes in return is two properties, and both are now enforced:
+
+    RECONSTRUCTIBLE   python scripts/reconcile_gaps.py --rebuild
+    LOUD              an absent queue is a banner and exit 2, never an empty
+                      report
+
+The loudness is not politeness. An empty queue produces a report in which every
+row reads `NOT IN QUEUE`, which skims as *"nothing outstanding"* — the same
+error as gap D3 (`prior is None -> ok = True`, so the first retrain always
+deployed), gap J5 (geometry ignored, so a validation silently skipped) and this
+script's own F16/F17, where `not ledger_has("Gate 2M")` was TRUE of a ledger
+file that did not exist. `.gitignore` carries the reasoning and the rebuild
+command so the next agent does not re-litigate it from a lost queue.
+
+### S3 · Coordination cost, again
+
+Gate SR needed a row it could not add itself; this session `tests/test_gapfix
+_physics.py` arrived from a concurrently-running agent with the same problem and
+was registered as **Gate 1P**, scope taken verbatim from the suite's own header
+line. Noted as a cost of disjoint file ownership, not as a defect.
+
+## S4 · Retired under PLM §3 step 7
+
+> *"dead parameters, superseded stand-ins, stale rules: removed with a note,
+> never left ambiguous"*
+
+A **RETIRED** row is not a fixed row and the reconciler will never let it read
+as one: it has its own verdict string, its own column in every summary, and no
+path into `--apply` — the gap log has no reopen edge, so a retirement written
+there as a closure would be permanent and false.
+
+The test for admission is narrow, and it is not "we could not write the
+predicate". It is that **the proposition is not about the thing a predicate
+reads**: both rows below assert something about a MOMENT IN HISTORY, so no
+check over a checkout can answer them stably in either direction. A NEEDS-HUMAN
+row is still a gap awaiting judgement; a retired row is not a gap.
+
+<!-- The first column is deliberately NOT headed `ID` and the second NOT `Sev`.
+     MEASURED 2026-08-07, minutes after this section was first written:
+     `navalai.gaps.import_gap_register` treats any table whose header begins
+     `| ID |` and contains `Sev` as a table of FINDINGS, so this retirement
+     record imported J9 and J10 a second time and the register grew from 119
+     rows to 121 — `tests/test_gaps.py` caught it. A section that documents the
+     removal of two findings must not file two findings. -->
+
+| Row | Sev as filed | Retired because | What was separable, and where it went |
+|---|---|---|---|
+| J9 | MED | *"7 of 10 recent commits comply with PLM §3 step 4"* is a statistic over a sliding window of git history. It re-answers itself every commit and was already stale when the register was written; no state a tree can be in makes it false. | Its actionable half — the row's own evidence sentence, *"`scripts/gate2m.py` has no test of its own"* — **is done**: `tests/test_cfd_reference_parity.py` (Gate 2R), including `test_gate2m_has_no_gci_of_its_own`. Enforcing commit-message compliance should be filed as a NEW finding naming a mechanism (a hook), not kept as a ratio nobody can re-derive. |
+| J10 | LOW | *"Uncommitted CFD work sits in the working tree"* describes one machine at one instant. It is true again right now, for an unrelated reason (concurrent agents), and will be true tomorrow. A condition no fix can move to false is a fact about how work happens here, not a gap. | Its real content — that a document read as truth may describe uncommitted code — is already mechanised where it belongs: `head_export()` refuses to close a gap on evidence that is not at HEAD, after doing exactly that for **A4** on another agent's in-flight edit. |
+
+### S5 · A6b re-filed as a defect of its own
+
+A6b was parked NEEDS-HUMAN as *"a correction to A6, closed by the same code —
+whether a correction row is itself closeable is a judgement"*. That reading
+cost the row its verdict, and it was wrong: A6b's own text ends **"what it
+lacked was RECALL"**, which is a defect with a different clearing condition
+from A6's.
+
+- **A6** closes when a support test EXISTS (`GP.support_distance`,
+  `is_ood(support_frac=...)`).
+- **A6b** closes only when that test is MEASURED against a **restricted**
+  training support — because A6b's finding is that the original experiment drew
+  training and query hulls from the same box and therefore contained no
+  out-of-distribution query at all. *Nothing can separate an empty set.*
+
+A predicate reading *"does a support test exist"* would answer A6 twice and
+A6b never. The predicate filed instead requires all three things the finding
+names: `GP.fit(X[inside])` rather than `GP.fit(X)`, recall computed on the
+excluded region for sigma alone and for sigma-plus-support, and the support
+term required to raise it by ≥ 0.10. All three are read from the
+comment-and-docstring-blanked view, because the word *recall* appears verbatim
+in the docstrings of both `surrogate.is_ood` and the test itself — the B4
+hazard exactly.
+
+Verified both ways: **OPEN at `5bbffb7`**, CLOSED now, and
+`test_a6b_asks_for_the_recall_MEASUREMENT_not_merely_for_a_support_test`
+doctors a copy of `tests/test_phase3.py` with the recall bar removed and
+requires A6b to go OPEN while A6 stays CLOSED. A predicate that cannot come
+apart from its neighbour is not answering its own row.
