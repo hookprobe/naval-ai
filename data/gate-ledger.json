@@ -17,17 +17,16 @@
     "review_by is the anti-wallpaper clause: an expected-red gate must not",
     "become permanent furniture."
   ],
-
   "Gate 2M": {
     "metric": "C_T vs KRISO EFD 3.711e-3, and Roache GCI over a solved triplet",
-    "watermark": "NONE — no reproducible measurement exists (see why_red)",
+    "watermark": "NONE \u2014 no reproducible measurement exists (see why_red)",
     "units": "E%D, (EFD-CFD)/EFD * 100; negative = we over-predict",
     "better_is": "toward_zero",
     "bar": "inside the Tokyo-2015 scatter 3.620e-3..3.733e-3 AND GCI <= 5%",
     "measured_utc": "2026-08-06",
     "measured_on": "NOTHING. runs/kcs, which carried the -79.8 watermark, was DELETED (see why_red)",
     "owner": "cfd-engineer",
-    "verify": "python scripts/gate2m.py runs/kcs_gci2   (exits 2, NO RESULT: 10.9% drift)",
+    "verify": "no settled run exists to read, so the verify is the command that PRODUCES the evidence, not one that reads a directory: python scripts/make_case.py --triplet --symmetric --out runs/<case> ; openfoam scripts/run_campaign.sh runs/<case> 10 ; python scripts/gate2m.py runs/<case>  (>= 5 flow-throughs; 1.33 is not settled)",
     "review_by": "2026-09-06",
     "why_red": [
       "THE WATERMARK IS DELIBERATELY NOT A NUMBER, AND THAT IS THE FINDING.",
@@ -62,9 +61,9 @@
       "runs/kcs_gci2 was generated at the old mesh base (nx 54, n_layers derived",
       "per grid) and is superseded by the base-57 family with n_layers pinned;",
       "regenerate with `make_case.py --triplet --symmetric` before solving."
-    ]
+    ],
+    "verify_note": "RE-CHECKED 2026-08-07 during the four-branch consolidation: the previous verify named runs/kcs_gci2, which does not exist on this machine either. That is the same defect the watermark already records \u2014 a ledger that cites a deleted run is citing nothing \u2014 so the field now names no run directory at all."
   },
-
   "Gate 6R": {
     "metric": "dated editions recorded in navalai/rules/review.py REVIEW['editions']",
     "watermark": 0,
@@ -72,23 +71,23 @@
     "better_is": "up",
     "bar": "every implemented standard named with the DATED edition the reviewer held, e.g. 'ISO 12217-1:2022'",
     "measured_utc": "2026-08-06",
-    "measured_on": "navalai/rules/review.py, both entries read 'edition not recorded — set this'",
+    "measured_on": "navalai/rules/review.py, both entries read 'edition not recorded \u2014 set this'",
     "owner": "compliance",
     "verify": "python -m pytest tests/test_phase6r.py -q  (and: python -c \"from navalai.rules.review import edition_defects; print(edition_defects())\")",
     "review_by": "2026-11-06",
     "why_red": [
       "GAP D8. This gate WAS GREEN, and it should not have been. review.py's",
       "own docstring states 'a confirmation that cannot say WHO checked WHICH",
-      "edition is not a review, it is a rumour' — and then is_complete()",
+      "edition is not a review, it is a rumour' \u2014 and then is_complete()",
       "checked `reviewer` and `confirmed` and NOT `editions`, whose two values",
-      "both read 'edition not recorded — set this'. The parity gate was green",
+      "both read 'edition not recorded \u2014 set this'. The parity gate was green",
       "on a record that admits in its own field values that it cannot name the",
       "document it checked.",
       "",
       "is_complete() now requires every edition to be set and to carry a year.",
       "That FLIPPED THIS GATE RED on 2026-08-06. Under honesty rule 6 that is",
       "the correct outcome and not a regression: the check got stricter, the",
-      "underlying state did not get worse. Nothing was softened to absorb it —",
+      "underlying state did not get worse. Nothing was softened to absorb it \u2014",
       "the row prints RED, first, on every run.",
       "",
       "CLEARING CONDITION, and it costs no compute: a reviewer writes the two",
@@ -99,7 +98,7 @@
       "",
       "AND NOTE WHAT THIS GATE DOES NOT ANSWER (gap D9). Its scope is",
       "THRESHOLD parity: does our number equal the standard's number.",
-      "BuildPlan Gate 6's bar is VERDICT parity — the same verdict as a",
+      "BuildPlan Gate 6's bar is VERDICT parity \u2014 the same verdict as a",
       "qualified reviewer on at least three reference designs, hand",
       "calculated. Zero reference designs and zero hand calculations exist,",
       "and the reviewer of record is the project owner reviewing his own code",
@@ -110,7 +109,6 @@
       "practice values not blessed by a green gate) are genuinely verified."
     ]
   },
-
   "Gate 2U": {
     "metric": "% of a random valid-hull batch that meshes AND converges unattended",
     "watermark": 75.0,
@@ -132,11 +130,10 @@
       "has not been run, so today's 75% is a MESHING rate only."
     ]
   },
-
   "Gate 4F": {
     "metric": "raw generative feasibility: the fraction of UNFILTERED model draws that pass grammar.check",
     "watermark": 79.33,
-    "units": "percent, HullFamilyModel (GMM) — the implementation Gate 4 ships",
+    "units": "percent, HullFamilyModel (GMM) \u2014 the implementation Gate 4 ships",
     "better_is": "up",
     "bar": ">= 99% (NavalArchAI-BuildPlan.md Phase 4)",
     "measured_utc": "2026-08-07",
@@ -146,15 +143,15 @@
     "review_by": "2026-11-07",
     "why_red": [
       "GAP D11. THIS WAS A PROSE STRING UNTIL 2026-08-07, AND THAT IS THE",
-      "FINDING. Gate 4's suite passes everything it asserts — including",
-      "`f < 0.99`, which is the HONEST assertion of a missed bar — so the",
+      "FINDING. Gate 4's suite passes everything it asserts \u2014 including",
+      "`f < 0.99`, which is the HONEST assertion of a missed bar \u2014 so the",
       "ladder printed GREEN while the plan's headline generative clause was",
       "unmet. The 2026-08-06 fix wrote the shortfall into Gate 4's `scope`",
       "text, in a file whose own dataclass documents `detail` as 'human",
       "context; NEVER load-bearing'. A `scope` is no more load-bearing: the",
       "measurement could be softened, reworded or deleted by editing one",
-      "string and NOTHING would fail. That is gap D1 — 'RED' -> 'AMBER' bought",
-      "exit 0 — surviving in the one place D1's own fix did not reach.",
+      "string and NOTHING would fail. That is gap D1 \u2014 'RED' -> 'AMBER' bought",
+      "exit 0 \u2014 surviving in the one place D1's own fix did not reach.",
       "",
       "The clause is now Gate 4F, a typed RED row, and this entry is what makes",
       "it fail: an unrecorded red is a NEW break, and past review_by is a",
@@ -168,7 +165,7 @@
       "",
       "AND NOTE WHICH NUMBER THIS IS. Feasibility read off `sample()` is 100%",
       "for ANY proposal distribution whatsoever, because `grammar.check` sits",
-      "INSIDE its rejection loop — it measures the loop, not the model, and",
+      "INSIDE its rejection loop \u2014 it measures the loop, not the model, and",
       "Gate 4's bar was reading it. `raw_feasibility()` asks the model. The two",
       "are kept demonstrably different by",
       "tests/test_surrogate_honesty.py::test_feasibility_measured_on_the_sampler",
@@ -179,7 +176,7 @@
       "`HullGenerator` (PLM section 6, owner ml-engineer, READY on PyTorch-MPS)",
       "raising raw feasibility to >= 99%, re-measured with the `verify` command",
       "above. Swapping the shipped implementation to pPCA would be an honest",
-      "+9.34 points and still RED — record the new watermark, do not delete",
+      "+9.34 points and still RED \u2014 record the new watermark, do not delete",
       "this entry."
     ]
   }

@@ -32,14 +32,13 @@
     "checksum record that restates an unreproducible figure is the J1 defect",
     "(five circulating Gate 2M numbers) starting over in a new file."
   ],
-
   "wigley.stl": {
     "_why": [
       "ADDED 2026-08-06. `benchmark_of_sha` says this file 'pins the hash of",
       "every benchmark geometry' and it pinned exactly one. wigley.stl is",
       "COMMITTED to the repository and was not in here, so",
       "`gate2m.py runs/wigley` identified the case as None. The refusal still",
-      "fired — None is not 'kcs' — but it fired because the hull was",
+      "fired \u2014 None is not 'kcs' \u2014 but it fired because the hull was",
       "UNIDENTIFIABLE, not because it was identified as a different ship, and",
       "the printed reason said so. A guard that happens to be right for the",
       "wrong reason is one geometry away from being wrong."
@@ -61,12 +60,11 @@
       "why_this_tolerance": "The residual is pure faceting of a smooth analytic surface at nx=161/nz=41, so it shrinks with the tessellation and has no lower bound worth pinning. The tolerance matches kcs.stl's for the same reason it was chosen there: it must admit a re-tessellation while still failing a wrong unit scale, a missing draft shift or an unmirrored half body, all of which are tens of percent."
     }
   },
-
   "kcs.stl": {
     "sha256": "87062dbf11fc20683ee51de7d9526342a4ff28bab89308569b44c2e9fd82faec",
     "bytes": 2482114,
     "produced_by": "cadquery-ocp 7.9.3.1.1 (OCCT 7.9), macOS arm64, 2026-08-05",
-    "source_document": "KCS.igs — Tokyo 2015 Workshop on CFD in Ship Hydrodynamics (t2015.nmri.go.jp), bundle All_20160729.zip. NOT redistributed here; workshop geometry may carry redistribution terms.",
+    "source_document": "KCS.igs \u2014 Tokyo 2015 Workshop on CFD in Ship Hydrodynamics (t2015.nmri.go.jp), bundle All_20160729.zip. NOT redistributed here; workshop geometry may carry redistribution terms.",
     "recipe": [
       "python scripts/iges2stl.py downloads/KCS.igs /tmp/kcs_full.stl --scale 0.001 --z-shift -0.34178 --deflection 0.004 --sew-tol 1e-3 --mirror-y",
       "python -c \"from navalai.cfd.post import cap_planar_holes; cap_planar_holes('/tmp/kcs_full.stl','data/benchmark_geom/kcs.stl')\""
@@ -81,5 +79,17 @@
       "tolerance_pct": 0.5,
       "why_this_tolerance": "It has to admit an OCC-version difference in the tessellation while still failing a wrong unit scale (x1000), a missing draft shift (z=0 at the keel instead of the waterline, which roughly doubles the volume) or an unmirrored half body (x0.5). Every failure mode this check exists to catch is tens of percent, not tenths."
     }
+  },
+  "kcs_full.stl": {
+    "sha256": "36ccbc74c5c44ecedd82e780942f03514856e583aedfb5c0fd14d0c7f7806d4d",
+    "bytes": 5507826,
+    "note": "Intermediate of the KCS geometry pipeline (iges2stl from KCS.igs): the FULL-width mirrored hull before symmetry trimming.",
+    "recorded": "2026-08-07, when the four branches were consolidated. Present on disk and unrecorded, which is the exact defect this file exists to prevent: gate2m identifies a case built on an unrecorded STL as None, and a refusal that fires because the hull is UNIDENTIFIABLE looks identical to one that fires because it is the wrong ship."
+  },
+  "kcs_half.stl": {
+    "sha256": "6a4504aa440e6b944240347f8a8252de5510915ccee612a2187a4211ec56d370",
+    "bytes": 3143612,
+    "note": "Intermediate of the KCS geometry pipeline: the HALF hull on the symmetry plane, before mirroring.",
+    "recorded": "2026-08-07, when the four branches were consolidated. Present on disk and unrecorded, which is the exact defect this file exists to prevent: gate2m identifies a case built on an unrecorded STL as None, and a refusal that fires because the hull is UNIDENTIFIABLE looks identical to one that fires because it is the wrong ship."
   }
 }
