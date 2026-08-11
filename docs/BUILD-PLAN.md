@@ -1006,7 +1006,48 @@ every domain extent is a multiple of Lwl and the tank depth is wave-derived.
 Shrinking the geometry costs exactly the same CPU and throws away Reynolds
 number (λ^1.5) and Weber number (λ²). Model scale is what a *towing tank* is
 forced into; CFD has no such constraint. Guarded by
-`test_geometric_scale_buys_no_cpu`.
+`test_geometric_scale_buys_no_cpu` (`tests/test_stageG.py:54`, Gate G), which
+asserts an identical `bg_cells` at 2.3 m / 7.28 m / 230 m and requires the
+Reynolds span to exceed 900× so the point cannot be made vacuously. The
+derivation is `docs/research/APSE.md` §1; the step count is scale-invariant too,
+because the run length is a number of flow-throughs and `T ~ L/U`.
+
+**So "shrink the model" is not the compute strategy, and it never was.** It is
+the intuition imported from towing-tank practice, and this repository has the
+measurement that refutes it. Naming the replacement matters, because a refuted
+strategy with no successor gets re-invented by the next session:
+
+> **The compute strategy is ADAPTIVE FIDELITY — buy the cheapest run that can
+> still answer the question, and refuse the ones that cannot answer it at all.**
+
+That is not aspiration; the machinery is built and gated under Gate G:
+
+- `navalai/fidelity.py` — `estimate()` costs a case from measured constants
+  (`CELL_STEP_S`, `COURANT_EFFICIENCY`, `NP_SPEEDUP`, `BYTES_PER_CELL`), each
+  with a sigma; `admit()` returns a typed `Refusal` rather than raising, so a
+  rejected option **keeps its cost and its reason** and can be compared against
+  the ones that were admitted; `cheapest_admissible()` picks against a `Budget`.
+  `MIN_CELLS_PER_WAVELENGTH = 20` is the §11.3 bar, applied here rather than
+  restated.
+- `navalai/planner.py` — expected information gain per CPU-second, in closed
+  form on Gaussian beliefs. Three behaviours fall out of the arithmetic that a
+  rule table would get wrong: an experiment vaguer than the current belief
+  scores ≈ 0; diminishing returns are automatic (a second identical run gains
+  `ln√2`); and **"do I actually need CFD?" is answered by arithmetic** — no CFD
+  tier informs GM, so CFD's information gain on initial stability is exactly
+  zero and it is never selected at any budget.
+
+Two properties of that design are load-bearing and must survive any rewrite.
+**The planner deliberately does not choose a geometric scale** — §1 of APSE
+shows scale has no effect on the objective, so searching it would return an
+arbitrary answer dressed as an optimum. And **the tier is discovered from the
+uncertainty arithmetic, not hard-coded**: `QUESTION_QUANTITIES` maps a question
+to the quantities it needs, and which rung to buy falls out. That is the same
+refusal-over-rounding-up discipline as `tier_rank`, applied to spending money.
+
+The honest limit: the planner's cost constants come from runs on one machine,
+so it is a good instrument for *comparing* options and a weak one for
+*promising* a wall clock. §11.5's 75% under-budget is the worked example.
 
 ### 11.3 A result has a minimum shape
 
@@ -1223,6 +1264,43 @@ And both must be tested as **data-flow** properties, not as name disjointness �
 the existing geometry-seam test would pass if someone added a field a downstream
 caller decoded into a genome.
 
+### 14.1.1 A model council is a DEVELOPMENT tool. It is never a runtime dependency.
+
+Stated architecturally because the confusion has already cost this project a
+session. Consulting a second or third frontier model — an MCP council, a
+review-by-another-model pass, an adversarial critique of a diff — is a
+legitimate and sometimes valuable way to **write** this software. It is a
+property of the workbench, like a debugger or a linter.
+
+**It must never appear in the product's dependency graph, its runtime, its CI,
+or any gate's evidence path.** Three independent reasons, and any one of them is
+sufficient:
+
+1. **Law 3, applied one level up.** An LLM has no code path to geometry. A
+   council of LLMs is still LLMs; routing a decision through several does not
+   create a code path that law 3 permits, it creates several that it forbids.
+2. **Correlated failure is the measured behaviour, not a worry.** Four
+   independent models selected the **same wrong branch** on 36 failed runs of a
+   benchmarked engineering workflow (`docs/research/PRIOR-ART.md` §5). That is
+   the same evidence §14.2 uses to refuse an agent-per-component design.
+   Redundant models do not vote their way out of correlated failure; a council
+   converts one wrong answer into a *confident* wrong answer.
+3. **A network call is an unmeasurable input with a nice interface.** A vendor
+   deprecates a model, an API is down, a temperature changes, and a number that
+   a gate depended on moves for a reason no receipt records. That is defect
+   class 1 with a subscription. §5.2's rule — *the vessel must be fully
+   operational with the internet off* — is the RUN form of the same principle,
+   and it is not weaker on the design side.
+
+`docs/LESSONS.md` records the operational half ("No external models. One was
+dead on arrival, the other returned only advisory prose") and `CLAUDE.md`
+records that a global config file has repeatedly sent sessions chasing one. The
+architectural half is here: **advisory prose is the ONLY output a council may
+produce, and a human merges it as their own change.** If a council's opinion
+ever needs to be depended on, it must first become a test, a bar or a typed
+constant with a source — at which point the dependency is on the artifact, not
+on the model.
+
 ### 14.2 Component models, not component agents
 
 The tempting design is an agent per component — solar, motor, battery, rudder,
@@ -1309,21 +1387,59 @@ if it were forgotten. Measured 2026-08-11; re-derive before working it.
    gate, or a retirement notice.**
 2. **The ledger's regression contract is documentation, not code.** The ledger's
    `_README` and the CI workflow both promise *"a RED gate worse than its
-   watermark → FAIL"*. `judge_red()` checks presence, `review_by` parseability
-   and expiry — then **prints** the watermark into an f-string. **Nothing
-   compares a fresh measurement against it.** In a repository whose thesis is
-   that prose is never load-bearing, the regression half of the ledger's own
-   contract is prose.
-3. **gap ↔ gate linkage is prose-only.** 15 predicates name a gate in their
-   evidence string; only **3** are machine-linked. `navalai/gates.py` cites gap
-   ids in 7 places, all comments. There is no field on `Gate`, no mapping table,
-   no test — **you cannot systematically say which gap blocks which gate.**
-   Cheapest structural upgrade available: a `gate: str | None` on `Check`, plus a
-   test that every named gate exists in `GATES`.
-4. **Three predicates can be closed by a comment.** Three rows call `has()` on
-   Python files instead of `has_code()`. `code()` exists precisely because a gap
-   once closed on the word appearing in a comment *on the defect* — and one of
-   the three is the row that produced that incident.
+   watermark → FAIL"* (`data/gate-ledger.json` `_README`;
+   `.github/workflows/gates.yml:66-67`). `judge_red()`
+   (`navalai/gates.py:426-443`) checks presence, `review_by` parseability and
+   expiry — then reads `wm = entry.get("watermark")` and **interpolates it into
+   an f-string**. That is the entire use of the watermark. **Nothing compares a
+   fresh measurement against it**, and nothing could: `judge_red` is handed the
+   gate NAME and the ledger, never a measurement. In a repository whose thesis
+   is that prose is never load-bearing, the regression half of the ledger's own
+   contract is prose. Re-verified 2026-08-11 at `e5942d7`.
+3. **gap ↔ gate linkage is prose-only.** RE-COUNTED 2026-08-11 at `e5942d7` by
+   walking the AST of `scripts/reconcile_gaps.py` — an earlier count of "15
+   named, 3 machine-linked" was wrong in both halves and is corrected here.
+   Of **120** `Check` rows, **14** name a gate in their evidence string (`A1`,
+   `D1`, `D9`, `D10`, `D11`, `D12`, `E1`, `F16`, `F17`, `I10`, `I13`, `J1`, `J3`,
+   `J5`) and **7** are machine-linked (`D8`, `D11`, `E1`, `F16`, `F17`, `J3`,
+   `J5`) — five via `ledger_has()`, two more by grepping `navalai/gates.py` for
+   the `Gate("Gate X"` row. **Eight name a gate that nothing checks.** The
+   structural finding survives the correction intact: `Check` has exactly three
+   fields — `source_id`, `evidence`, `closed` (`scripts/reconcile_gaps.py:423`)
+   — there is no field on `Gate` either, no mapping table and no test, so **you
+   cannot systematically say which gap blocks which gate.** Cheapest structural
+   upgrade available: a `gate: str | None` on `Check`, plus a test that every
+   named gate exists in `GATES`.
+4. **Three behaviour predicates can be closed by a comment — and two more that
+   look like them must be left alone.** `A4` and `F4` call `has()` on Python
+   files inside an `any(... for rel in (...))`, and `E2`'s first clause calls
+   `has("benchmarks/wigley.py", "REFERENCE_CW")`. `code()` exists precisely
+   because a gap once closed on the word appearing in a comment *on the defect*
+   (B4, and `code()`'s docstring is the record of it).
+
+   **The exposure is latent, not live.** MEASURED 2026-08-11 at `e5942d7` by
+   evaluating both forms of each clause: every one of the three matches REAL
+   code today (`flywheel.py` for `A4`, `seakeeping.py` for `F4`,
+   `benchmarks/wigley.py:239` for `E2`), so `has` and `has_code` agree and **no
+   gap is currently mis-closed.** What the conversion buys is that they cannot
+   become mis-closed by an edit to a comment. `E2` is nonetheless the sharpest
+   case: `REFERENCE_CW` also appears in a COMMENT at `benchmarks/wigley.py:197`,
+   so that clause would survive the symbol being deleted.
+
+   **And the conversion must not be applied by pattern.** `F19` asks
+   `has("benchmarks/kcs.py", "SEVEN groups")` and `has(..., "min/max over these
+   seven rows")`; both strings live in comments at `benchmarks/kcs.py:136-141`
+   **on purpose**, because `F19` is a claim about an ATTRIBUTION, not about
+   behaviour. MEASURED: converting it flips both clauses `True → False`, i.e. a
+   closed row would report OPEN forever. `E2`'s second clause,
+   `lacks("not an independent validation")`, is the same kind. `code()`'s own
+   docstring already states the law — *"a predicate about BEHAVIOUR reads
+   `code()`, and only a predicate about PROSE (`F19`'s attribution, `J8`'s
+   retraction, `J7`'s supersession markers) reads `text()`. Both exist, and the
+   choice is made per row."* A blanket sweep would have broken the rows that
+   document this project's retractions, which is the same class of damage as
+   deleting them. **Convert per row, and measure the verdict in both directions
+   before and after.**
 5. **Bars with no gate** — see §15.3.
 6. **SELL and RUN are absent from the register, and it does not know.** Grepped
    across the register: **zero** occurrences of `telemetry`, `in-service`,
@@ -1346,29 +1462,65 @@ bar as written** — so nothing fails if the bar itself is missed. Each needs a
 gate, a re-negotiation *in this file*, or a recorded retirement.
 
 - ≥ 95% of generated layouts pass L0-A + tier E; ≤ ~1 min per layout.
+  `tests/test_arrangement.py` proves every L0-A rule can fire and that each
+  refusal names its subject — 40-odd rules, on ONE reference layout. **Nothing
+  runs a batch and nothing computes a pass fraction**, so the number in the bar
+  has no producer.
 - Tier F reproduces the USCG worked examples **exactly**, including the plywood
-  **−0.81** negative-contribution case.
+  **−0.81** negative-contribution case. **Half-gated, and the weaker half is the
+  one that exists.** `tests/test_refdata.py:140-149` (Gate V2.0) does check
+  `flotation.submerged_factor(sg)` against every printed `MATERIAL_K`, plywood's
+  negative sign included — but that is the CONSTANTS TABLE re-derived, not a
+  worked example reproduced. There is no `navalai/flotation.py`: tier F exists
+  as sourced numbers in `navalai/refdata/flotation.py` and as a letter in
+  `weights._TIERS`, with **no computation between them**. Gate V2.0's scope is
+  "every constant carries source + basis", which is a different bar.
 - The Etap criterion: fully flooded, freeboard loss < 3% LOA, remains
-  manoeuvrable.
+  manoeuvrable. Nothing in `navalai/` computes a flooded condition.
 - Every material choice machine-checked against palette rules; the fire-exposed
   flotation redundancy rule enforced by the solver.
 - End-to-end: a non-expert produces a full vessel passing every tier, and the
   report prints the purchase/review caveats it depends on.
 - Verdict parity with a qualified reviewer on **≥ 3 reference designs** — the
   original Gate 6 bar. The parity gate that exists measures *threshold* parity,
-  which is a different thing.
+  which is a different thing. `REFERENCE_DESIGNS` and `hand_calculation` appear
+  nowhere in the tree, which is exactly what row `D9` asks for.
 - ≤ 1–2% surrogate error near optima, measured across ≥ 5 holdout seeds, plus a
   separate *local* gate on a trust region around a Pareto point (which is what
-  the published bar actually refers to).
-- ≥ 90% of a held-out mission-brief set — and the **≥ 100-brief frozen corpus
-  does not exist**; today's "held-out" set is 10 in-repo briefs the parser was
-  demonstrably tuned against.
-- p95 < 100 ms on **every** interactive endpoint, not only the one that is gated.
+  the published bar actually refers to). Gate 3's error bar is still taken on
+  its one chosen seed (991); row `D10` is the ask.
+- ≥ 90% of a held-out mission-brief set — the **≥ 100-brief frozen corpus does
+  not exist**; today's "held-out" set is 10 in-repo briefs the parser was
+  demonstrably tuned against. This is the one entry in this list whose bar IS
+  executable (`tests/test_phase5.py::test_translation_set_at_least_90pct`, Gate
+  5) and whose **corpus** is the defect. Counted 2026-08-11: `BRIEFS` has 10
+  entries.
+- ~~p95 < 100 ms on **every** interactive endpoint, not only the one that is
+  gated.~~ **REFUTED 2026-08-11 at `e5942d7`.** This bar is gated and the gate
+  is not weaker than the bar:
+  `tests/test_phase4.py:354::test_every_interactive_endpoint_meets_the_p95_bar_not_just_eval`
+  (Gate 4) asserts the p95 on `/generate` at n=3 and n=20 and on `/pareto`
+  alongside `/eval`, and its docstring carries the before/after measurement that
+  motivated it. Register row `I9` is the same finding and reconciles CLOSED.
+  Kept struck through rather than deleted: this list is the argument for P0 work,
+  and an item that was already done weakens it if it is removed silently.
 
 **And one bar declared twice, with different values.** The original plan sets
-grid uncertainty at **≤ ~2.5%** ("the published bar"); the ledger sets **GCI
-≤ 5%**. Two bars for one quantity, and the live one is 2× looser than the plan.
-Nothing reconciles them. **Pick one, record why, delete the other.**
+grid uncertainty at **≤ ~2.5%** ("the published bar"); the ledger and
+`scripts/gate2m.py:53` set **GCI ≤ 5%**. Two bars for one quantity, and the live
+one is 2× looser than the plan.
+
+**A reconciliation does exist, and it is a comment** — `scripts/gate2m.py:49-53`:
+*"The plan's Gate 2 bar is 'documented grid uncertainty (target ≤ ~2.5%, the
+published bar)'. 5% is the outer limit we will call converged at all; the
+Tokyo-2015 groups achieved 2.5-3.5%."* That is a real and defensible argument —
+5% is a refusal threshold, 2.5% is a target — but it is prose beside the number
+it governs, and it is the only place the two bars are related. So the item is
+not "nothing reconciles them"; it is that **the reconciliation has no verdict.**
+There is one executable bar (5%) and one aspirational one (2.5%) with no gate,
+no ledger row and no owner. **Ratify the two-bar structure by making the 2.5%
+target a recorded, owned aim — or delete it. A target nothing can fail is not a
+bar.**
 
 ### 15.4 What a green predicate does and does not mean
 
@@ -1402,14 +1554,41 @@ from here.
 
 | # | Item | Done when |
 |---|---|---|
-| P0-1 | One `RHO_AIR`. Three copies, measured 2026-08-11: `dynamics.py` 1.225, `extrapolate.py` 1.226, `cfd/case.py` 1.2 | one definition, added to the fence's banned list |
-| P0-2 | §15.2 item 2: the ledger's regression contract becomes code | a RED gate measured worse than its watermark FAILS, proven by a test that feeds it one |
-| P0-3 | §15.2 item 3: `gate: str \| None` on `Check`, with a test that every named gate exists in `GATES` | the gap↔gate map is queryable |
-| P0-4 | §15.2 item 4: predicates that call `has()` on Python source become `has_code()` / `func_code()` | a comment can no longer close a gap |
-| P0-5 | Two remote refs, `origin/apse` and `origin/worktree-apse`, still appear in `git branch -r` (measured 2026-08-11). One branch is the law | `git fetch --prune` is run, and either they are gone or they are deleted upstream deliberately |
+| P0-1 | ~~One `RHO_AIR`. Three copies: `dynamics.py` 1.225, `extrapolate.py` 1.226, `cfd/case.py` 1.2.~~ **RETRACTED — see below. The row is kept struck through rather than deleted, because a plan that silently drops a wrong item teaches nothing.** | nothing. The item was wrong, and this row is its retirement notice |
+| P0-2 | §15.2 item 2: the ledger's regression contract becomes code. The whole comparison is `wm = entry.get("watermark")` followed by an f-string, at `navalai/gates.py:426-443` | a RED gate measured worse than its watermark FAILS, proven by a test that feeds it one |
+| P0-3 | §15.2 item 3: `gate: str \| None` on `Check` (`scripts/reconcile_gaps.py:423-433`, three fields, none of them a gate), with a test that every named gate exists in `GATES` | the gap↔gate map is queryable |
+| P0-4 | §15.2 item 4: **the three behaviour predicates** `A4`, `F4` and `E2`'s first clause move from `has()` to `has_code()`. **`F19` and `E2`'s `lacks()` clause do NOT** — they are predicates about PROSE and the conversion breaks them (measured below) | a comment can no longer close a behaviour gap, and no prose predicate was converted with it |
+| P0-5 | Two remote refs, `origin/apse` and `origin/worktree-apse`, still appear in `git branch -r` (re-measured 2026-08-11, unchanged). One branch is the law | `git fetch --prune` is run, and either they are gone or they are deleted upstream deliberately |
+| P0-6 | The `ALIGNMENT.md` scorecard reconciliation. Recorded here so it has a number instead of a sentence in Appendix A | the scorecard and its rows agree, by its owner |
 
-**Two things this table has already had to unlearn, and they are the reason it
+**Three things this table has already had to unlearn, and they are the reason it
 is written this way.**
+
+*A retracted finding can be re-filed by the document that summarises it.* P0-1
+said "one `RHO_AIR`". That finding was raised, **measured, and withdrawn at
+`140f7e4`** — five commits before this table was written — and the withdrawal
+was landed AS CODE, in a comment block at `navalai/dynamics.py:18-36` that names
+all three values and ends *"Do not centralise these. State the basis instead."*
+The three are three CONVENTIONS and collapsing them corrupts two of them:
+
+| where | value | what it is | what changing it breaks |
+|---|---|---|---|
+| `dynamics.RHO_AIR` | 1.225 | ISA sea level, dry, 15 °C — used for the windage bluff-body load only | nothing; it is the only free one |
+| `extrapolate.air_resistance_coefficient(rho_air=…, rho_water=…)` | 1.226 / 1026.0 | the ITTC-78 pair at 15 °C. `C_AA = c_d · (ρ_air/ρ_water) · A_T/S` depends on the **RATIO** | moving one without the other silently rescales every ITTC-78 extrapolation |
+| `cfd/case._RHO_AIR` | 1.2 | what is **written into** the OpenFOAM case, beside `_G = 9.81` "matches `constant/g` in the generated case" | the solver desyncs from its own receipt |
+
+This is the `FN_MICHELL_MAX` precedent (§2.3), not the `limits.py` one: **a value
+that belongs to a MODEL lives with that model.** What was genuinely missing was
+a statement of basis, which is what made a reader see copies — and that is what
+`140f7e4` added.
+
+The transferable rule, which is why this is recorded at length rather than
+quietly deleted: **a duplicate-number finding is not proved by three literals
+differing. It is proved by showing the three are the SAME quantity under one
+convention.** Law 2 says a number lives in one place; it does not say three
+conventions must become one number. Before filing the next one, name the
+convention each value is expressed in — and check `git log` for a retraction,
+because this file re-filed one that the code had already answered.
 
 *A failing test is not a plan item.* An earlier revision carried "bisect the
 latent-front diversity regression" here; re-measured 2026-08-11 on a clean
@@ -1456,8 +1635,12 @@ render the delivery route `policy/legal.py` already computes and shows nobody.
 ### P2 — BUILD earns its guarantees
 
 Wire `agents.py` onto `pipeline.py` (§4.2) — the spine has zero production
-callers and its gate is green on unused code. Populate `EvidenceGraph` from
-`evaluate()` + `db.Provenance` (§6). Resolve the badge-coverage question (§4.3).
+callers and its gate is green on unused code. (Re-measured 2026-08-11 at
+`e5942d7`: `Stage.` appears nowhere in `navalai/`, `scripts/` or `ui/` outside
+`pipeline.py` itself.) Populate `EvidenceGraph` from `evaluate()` +
+`db.Provenance` (§6), **and close the tier vocabulary while doing it** — the
+reason is argued in §17.1.1 and it is the one thing here that is cheaper before
+RUN than after. Resolve the badge-coverage question (§4.3).
 Close the demonstration gap (§4.4). Also `E5` (public-CAD hull round-trip), `E9`
 (`hull_id` collision), `E14`, `E17`, `E18`, `A6c` (ARD lengthscales saturating
 at the optimiser bound), `I5` (calibration beyond one coverage assertion).
@@ -1519,6 +1702,61 @@ P6 WindWing   ← blocked on P1 (environmental state) and on §10.2's P1/P2/P3/P
 - **P3 is compute-bound, not effort-bound.** Start it during P2 and let it run.
 - **Only P5 is truly blocked by physics.** A surrogate starved of high-fidelity
   data cannot be fixed by effort.
+
+### 17.1.1 "Land the evidence graph before RUN" — argued, and the reorder refused
+
+An external re-audit on 2026-08-11 proposed moving **EVIDENCE GRAPH** ahead of
+**RUN**, on the grounds that *"otherwise the first real boat telemetry arrives
+and you don't have the evidence infrastructure to ingest it correctly."* The
+concern is right and the reorder is unnecessary; both halves are worth writing
+down, because the second half is only true by construction and could be undone
+by a well-meaning edit.
+
+**The order is already this.** Populating `EvidenceGraph` from `evaluate()` +
+`db.Provenance` is a **P2** item (§16); RUN and the delta engine are **P5**; and
+§17.1's graph already has P5 downstream of P2. Nothing needs to move. The
+reorder would be a no-op that looked like a decision.
+
+**But the mechanism named is the wrong one, and that does change what P2 owes.**
+`EvidenceGraph` is a design-RATIONALE DAG — Requirement → Decision → Assumption
+→ Experiment → Evidence, confidence as the minimum over the ancestor set. It is
+not an ingestion path and it is not where a telemetry row lands. Telemetry lands
+in `db.py`, next to `Provenance`, which records *what was computed*. Ingesting
+an observation "correctly" needs three things, and only the third is the graph:
+
+1. **The identity chain** (§6.2). MEASURED 2026-08-11 at `e5942d7`: `mission_id`
+   appears **nowhere** in `navalai/`, `ui/` or `scripts/`, and `MissionSpec` is a
+   plain `@dataclass` (`navalai/mission.py:106`), not frozen. `vessel_id` and
+   `telemetry` return zero hits meaning those things. Only `db.hull_id` exists,
+   and it has a known collision defect (`E9`, still open). **An observation you
+   cannot join to a promise is a number, not evidence.**
+2. **A tier that means "measured on a real boat"** (§8.1). `db.py`'s `result`
+   table admits `{L0,L1,L2,L3,R}` and there is no such value.
+3. **A graph whose shape you already know**, which is the reviewer's point in
+   its strongest form. The schema is ALREADY able to hold an observation:
+   `Kind.EXPERIMENT` may support `Kind.EVIDENCE` (`navalai/evidence.py:49-56`)
+   and `Node` carries `tier`, `value` and `sigma` (`:59-69`). So the risk is not
+   that the graph will refuse telemetry. **It is that the graph's first real
+   population will BE telemetry** — the hardest case, arriving as the debut of a
+   machine with no baseline, in a subsystem whose only current callers are a
+   demo and two tests (`EvidenceGraph(` is constructed in exactly three places:
+   `scripts/demo_apse.py:81`, `tests/test_stageG.py:571` and `:601`). Exercising
+   it first on computed results, where the right answer is known and cheap to
+   recompute, is what makes the telemetry case debuggable.
+
+**One defect this argument exposes, which is why it was worth having.**
+`Node.tier` is a free-form `str` defaulting to `""` — nothing constrains it to
+the ladder's vocabulary. A real-boat observation is therefore admissible today
+**under any spelling**, including a typo, and `tier_rank`'s whole trick (a claim
+may not outrank its evidence; `S1` is −1 so a surrogate can never satisfy a
+ladder requirement) is bypassed by a node that simply says something else.
+
+So, as a **bar on the P2 item rather than a reorder**: the evidence graph is
+populated from computed results first, and **before any observation row exists,
+the tier vocabulary is CLOSED** — one enumeration, shared by `db.py`,
+`Evaluation.badges` and `evidence.Node`, containing exactly one value that means
+"measured on a real boat" — so the first telemetry cannot invent its own tier
+and rank itself.
 
 ### 17.2 Standing dependencies that are not phases
 
@@ -1585,7 +1823,10 @@ say-so — surface the correction to the human instead." So, surfaced:
 - The strikethrough oscillation section in it points at the superseded reading;
   the surviving measurement is `docs/research/CFD.md` §2.
 
-`ALIGNMENT.md` is owed the scorecard reconciliation recorded as P0-8. It is not
+`ALIGNMENT.md` is owed the scorecard reconciliation, which is **P0-6** in §16.
+(It was cited as "P0-8" in the first revision of this file, and no such row ever
+existed — a plan item that lives only as a cross-reference to itself is the same
+defect as a work item that lives only in prose. It now has a row.) It is not
 edited here because another session held it on 2026-08-11.
 
 `docs/GAP-REGISTER.md` is owed nothing and must be given nothing: it is a dated,
@@ -1595,9 +1836,26 @@ re-grade requests recorded elsewhere — §16's note on C9 is the worked example
 
 ## Appendix B · What this document does not verify
 
-- **Nothing in the code-state readings above was executed.** They are static
+- **Most of the code-state readings above were not executed.** They are static
   reading plus the greps quoted, dated 2026-08-11 at `b5002be`. No gate's colour
   is asserted anywhere in this file.
+
+  **Exception, and it is why several claims above changed.** The 2026-08-11
+  re-audit pass at `e5942d7` DID execute what it corrected: the `Check`-row
+  census in §15.2 item 3 comes from walking the file's AST, not from a grep; the
+  `has`/`has_code` verdicts in item 4 were evaluated in both forms on every
+  clause; and `scripts/reconcile_gaps.py` was run. Three §15.3 entries and one
+  P0 row did not survive that. **The pattern is worth naming: every correction
+  came from RUNNING something, and every error came from reading.** An external
+  reviewer's summary of this file was the trigger, but it reproduced the file's
+  own numbers faithfully — including the retracted `RHO_AIR` item and the "15
+  named, 3 machine-linked" count — which is the expected behaviour of a reader
+  and the reason a document cannot audit itself.
+
+- **This pass did NOT re-verify the whole of §15.3.** Four entries were checked
+  against the code (layouts, tier F, reviewer parity, the brief corpus); the
+  material-palette rule and the end-to-end non-expert bar were not, beyond
+  confirming that `I13` is open. Treat them as unre-measured.
 - **Whether the ladder has ever run above L1 on a real machine.** Whether any L2
   or L3 provenance row exists — i.e. whether `revalidate` has ever actually
   promoted a hull — was not queried. This is the single most load-bearing thing
