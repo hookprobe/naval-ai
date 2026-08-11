@@ -115,11 +115,59 @@ def test_latent_front_spans_designs(data):
     THRESHOLD does not move down: pop=24/gens=12 gives fronts of 13-24 members
     and a minimum spread of 0.810 over the same six seeds — 8x the original
     0.1 bar. Every seed is asserted, not one.
+
+    THE BUDGET MOVED AGAIN 2026-08-11, FOR THE SAME REASON AND WITH THE SAME
+    RULE: the threshold does not move. This test went RED on master and stayed
+    red long enough to block every push. Bisected by `git archive` into a
+    scratch tree outside the repo — six seeds at pop=24/gens=12:
+
+        seed        9      5      3     11     21     42
+        3b9bf36  2.440  3.435  2.886  0.810  1.248  3.516   <- bar set here
+        eb5ffb3  ...      ...    ...   1.485  1.280   ...
+        d342b8b  2.325  2.960  2.450  0.349  0.268  2.892   <- BROKE HERE
+        HEAD     2.325  2.960  2.450  0.349  0.268  2.892
+
+    `3b9bf36` reproduces the 0.810 in the paragraph above EXACTLY, so the bar
+    was honestly measured; two of six seeds later fell under it and the test
+    asserts both.
+
+    THE CAUSE IS GAP E6, IN THE COMMIT THAT BROKE IT, AND IT IS NOT A BUG.
+    `d342b8b` switched `grammar.check`'s developability test from MEAN panel
+    twist to MAX, because a sheet is bent from flat stock so the binding
+    quantity is the max — one unbuildable panel must not hide behind nine flat
+    ones. Its own measurement: twist fires on 19.062% of 400,000 in-bounds
+    vectors against 6.819% before. That removes ~13% of the feasible design
+    volume ON PURPOSE, and the commit says so: "a stricter honest metric
+    refusing more hulls is the gap doing its job."
+
+    The propagation is the part nobody re-measured. `sample_valid` draws the
+    fixture's 200 training hulls from that smaller volume, `Genome.fit` learns
+    a different 8-D latent space from them, and the front the search can reach
+    inside it is narrower at a fixed budget. E6 was KNOWN to have hit this
+    file — the sibling test's docstring above names it — and that one was fixed
+    by pooling the statistic. This one was never re-run.
+
+    MEASURED at the larger budget, same fixture, same six seeds:
+
+        pop=24/gens=12   2.325 2.960 2.450 0.349 0.268 2.892   min 0.268  FAIL
+        pop=40/gens=20   3.405 2.565 1.514 3.399 3.256 1.280   min 1.280  ok
+
+    So the property is real and the post-E6 latent space needs more search to
+    express it. Fronts at the asserted seeds go 24/15/10 members -> 40/40/26.
+    Cost is 9.4 s -> 26.1 s for three seeds, ~5% of the suite.
+
+    WHAT WAS NOT DONE, deliberately: the 0.4 bar was not lowered to 0.26 to
+    admit the measurement, and the failing seeds were not dropped from the
+    tuple. Either would have been this repo's defect class 3 — a guard edited
+    until it stops firing — and honesty rule 6 forbids both.
     """
     m, _X, _y, genome = data
     for seed in (9, 11, 21):
-        res = pareto_front_latent(m, genome, pop=24, gens=12, seed=seed)
+        # pop/gens raised 24/12 -> 40/20 on 2026-08-11: gap E6 (max panel twist)
+        # shrank the feasible volume ~13%, so the latent front needs more search
+        # to develop. The 0.4 threshold is UNCHANGED. See the docstring table.
+        res = pareto_front_latent(m, genome, pop=40, gens=20, seed=seed)
         lwls = res.X[:, 0]
         assert len(res.X) >= 10, f"seed {seed}: front of {len(res.X)}"
-        assert lwls.std() > 0.4, (   # measured minimum 0.810 over six seeds
+        assert lwls.std() > 0.4, (   # measured minimum 1.280 over six seeds
             f"seed {seed}: LWL spread {lwls.std():.3f} — a point, not a front")
