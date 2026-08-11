@@ -4,8 +4,10 @@ Licensed under **GNU AGPL-3.0** (see `LICENSE`).
 
 Mission in natural language → grammar-constrained hull generation → slider
 surface with live physics → tiered validation ladder → rules gate → export.
-Built to `docs/BUILD-PLAN.md` Part V.a (research-grounded; 24 primary sources,
-11 claims adversarially verified).
+Built to `docs/BUILD-PLAN.md` (the one plan). The literature it rests on is
+`docs/research/PRIOR-ART.md`, which also records that the earliest sweeps'
+"24 primary sources / 11 claims verified" provenance has no artifact in this
+tree and cannot be checked from it.
 
 ## The ladder
 
@@ -75,18 +77,18 @@ different Gate 2M numbers came to circulate at once (gap J1).
 | Gate C | agentic PLM network + engineer + STEP/IGES | `tests/test_stageC.py` (9 tests) |
 | Gate D | waves/RAO response + dynamics + CFD post | `tests/test_stageD.py` (19 tests) |
 | Gate E | latent-space evolution + latent GP | `tests/test_stageE.py` (3 tests) |
-| Gate F | panel unroll/DXF + Pareto dash + handoff receipt | `tests/test_stageF.py` (7 tests) |
+| Gate F | panel unroll/DXF + Pareto dash + handoff receipt | `tests/test_stageF.py` (11 tests) |
 | Gate G | APSE: similitude/ITTC-78/cost/planner/evidence | `tests/test_stageG.py` (35 tests) |
 | Gate V2.1 | arrangement grammar: envelope, spaces, deck zones, and an L0-A that names the space it refuses | `tests/test_arrangement.py` (42 tests) |
 | Gate V3.0 | governance compiles to a parameter box and to constraint rows, ratchets only tighter, and the ladder never imports it | `tests/test_policy.py` (48 tests) |
 | Gate 6P | the product surface: scope guards refuse what does not govern, and the mission contract binds | `tests/test_gapfix_product.py` (22 tests) |
-| Gate L | one limit, one home; scantling derived from the rule | `tests/test_limits_single_source.py` (12 tests) |
+| Gate L | one limit, one home; scantling derived from the rule | `tests/test_limits_single_source.py` (13 tests) |
 | Gate 6M | manufacturing back end: nesting, BOM, refold, developability controls, export receipt | `tests/test_manufacturing.py` (28 tests) |
 | Gate R3 | the ladder is climbable: L2 escalation, monotone tier promotion, honest refusal of L3 | `tests/test_ladder.py` (8 tests) |
 | Gate S | the MDO spine: one terminal state per genome, append-only archive, legal-transition graph, unmeasured metric refused | `tests/test_pipeline.py` (48 tests) |
-| Gate SG | the gap queue: findings are work items, not prose | `tests/test_gaps.py` (18 tests) |
+| Gate SG | the gap queue: findings are work items, not prose | `tests/test_gaps.py` (20 tests) |
 | Gate R4 | the ladder is WIRED: every claimed tier reachable from evaluate(), L3 read from recorded evidence and never solved, tier R alone can refuse a design | `tests/test_ladder_wiring.py` (17 tests) |
-| Gate SR | gap state is derived from the code, not from prose | `tests/test_reconcile_gaps.py` (32 tests) |
+| Gate SR | gap state is derived from the code, not from prose | `tests/test_reconcile_gaps.py` (33 tests) |
 | Gate 2S | one settled_drag: one cell-count rule, one settledness rule, and a component that oscillates cannot hide under a stable total | `tests/test_settled_drag.py` (46 tests) |
 | Gate 4H | the surrogate refuses what it has not seen, and the feasibility bar measures the model rather than the sampler | `tests/test_surrogate_honesty.py` (13 tests) |
 | Gate 2T | tank resonance is diagnosed, and a period is never claimed from too few cycles | `tests/test_tank_resonance.py` (25 tests) |
@@ -140,7 +142,7 @@ carried a second copy of five of them.
   still wrong with the number.
 - a SECOND benchmark anchor. KCS is a 230 m containership with no chine, no
   immersed transom and no spray; the SKUs are 4–14 m chined craft. A green
-  Gate 2M is **not** small-craft validation (`docs/BUILD-PLAN.md` Part V.d R4b).
+  Gate 2M is **not** small-craft validation (`docs/BUILD-PLAN.md` §11.4).
 - licensed-text ISO parity — **Gate 6R is RED**, because the review record
   cannot name the dated editions it checked. (ES-TRIN itself is no longer
   absent: `navalai/rules/estrin.py` ships and `Gate 6P` proves its scope guard.)
@@ -148,13 +150,13 @@ carried a second copy of five of them.
   V2.1 (arrangement grammar) both ship with gates; V2.2 tier E and V2.4 tier F
   are partial. **V2.3/V2.5/V2.6 have no gate row at all**, so their bars — ≥95%
   of layouts passing Tier E, the USCG worked examples including the −0.81
-  plywood case — exist only in prose. `docs/BUILD-PLAN.md` §4.6.
+  plywood case — exist only in prose. `docs/BUILD-PLAN.md` §15.3.
 - BuildPlan 3 beyond V3.0: governance ships (`navalai/policy/`, `Gate V3.0`).
   Mission intelligence, component models, BOM closure, procurement, the order
   package, the twin and fleet learning do not.
 - **RUN, entirely.** No telemetry, no sensor ingestion, no in-service data — and
   the gap register does not know it, because the audit that produced the register
-  was scoped by four documents that contain no RUN phase. `docs/BUILD-PLAN.md` §4.8.
+  was scoped by four documents that contain no RUN phase. `docs/BUILD-PLAN.md` §15.2.
 
   This list previously read "arrangement grammar, tiers E and F do not [exist]"
   while the GENERATED gate table above carried `Gate V2.1` and `Gate V3.0` — the

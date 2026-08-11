@@ -310,7 +310,7 @@ def _batch_error(t: np.ndarray, y: np.ndarray) -> float:
 
     That oscillation is not noise and its period is now known independently:
     a tank mode at **5.53 s**, measured from the free surface rather than the
-    forces (docs/PRESSURE-OSCILLATION.md). val_coarse5's settled window is
+    forces (docs/research/CFD.md section 1). val_coarse5's settled window is
     3.94 s — SHORTER THAN ONE CYCLE — so its mean is a phase sample whatever
     the drift between two such windows happens to say. The batch error is what
     reports that, and it needs no period estimator to do it: batch means of a

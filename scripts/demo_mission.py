@@ -79,8 +79,8 @@ def main() -> None:
     # geometry". The capability was never missing: agents.run_plm reaches it
     # because engineer imports unroll. The DEMONSTRATION was missing, and a
     # reader who runs the demo concludes the manufacturing tail does not exist.
-    # Recorded in docs/END-TO-END-AUDIT.md as the cheaper of that audit's two
-    # findings.
+    # Recorded in docs/BUILD-PLAN.md section 4.4 as the cheaper of that audit's
+    # two findings.
     print("\nmanufacturing (tier: derived from the VALIDATED hull):")
     rep = engineer_assess(Hull(x), wl=ev.wl, mldc_kg=ev.hydro.disp_kg)
     print(f"  {rep.panel_count} developable panels, {rep.bulkheads} bulkheads, "

@@ -148,7 +148,7 @@ def test_an_oscillation_that_hides_from_the_drift_test_is_still_refused(tmp_path
     1.2%, batch error 5.5%.
 
     The period is known independently — a tank mode at 5.53 s, measured from
-    the free surface (docs/PRESSURE-OSCILLATION.md) — and val_coarse5's settled
+    the free surface (docs/research/CFD.md section 1) — and val_coarse5's settled
     window is 3.94 s, i.e. shorter than one cycle. A mean over less than a
     cycle is a phase sample.
 

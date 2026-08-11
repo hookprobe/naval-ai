@@ -1,0 +1,461 @@
+# RESEARCH RECORD — CFD measurements
+
+> **Role: RESEARCH / EVIDENCE.** Dated measurement records for the L3 tier.
+> This file holds *what was measured, on which run directory, and what it
+> refuted*. It carries **no plan and no gate status** — the plan is
+> `docs/BUILD-PLAN.md`, gate status is `python -m navalai.gates` and
+> `data/gate-ledger.json`. Where a record was later superseded, the earlier
+> record is kept **with the superseding measurement beside it**, because the
+> elimination work is the part that cost machine-days.
+>
+> Operating lore — how to mesh, what dies, what to do on the Mac — lives in
+> `CLAUDE.md` and is deliberately not repeated here.
+>
+> **Run-directory status, checked 2026-08-11** (LESSONS defect class 5: a
+> record that cites a deleted directory is not a record):
+>
+> | run | still on this Mac? |
+> |---|---|
+> | `runs/kcs_s1` | **YES** — 3.40 flow-throughs, checkpoint intact, resumable |
+> | `runs/kcs`, `runs/kcs_sym`, `runs/kcs_iso`, `runs/kcs_free`, `runs/kcs_gci` | present |
+> | `runs/val_coarse5`, `runs/seiche_u_half`, `runs/beach`, `runs/wigley`, `runs/lts`, `runs/lowfn`, `runs/val_coarse`, `runs/kcs_gci2` | **DELETED.** §1 and §4 quote them; those numbers cannot be re-derived without re-running |
+
+---
+
+## 1 · 2026-08-06 — "the pressure oscillation is a tank mode, but not the seiche"
+
+**SUPERSEDED as a conclusion by §2. Kept for its method and its refutations,
+which stand.** Tool: `scripts/tank_resonance.py`. Gate test:
+`tests/test_tank_resonance.py`.
+
+    python scripts/tank_resonance.py runs/val_coarse5 --surface
+
+### The question
+
+`runs/val_coarse5` (symmetric KCS, `_NX_BASE` 57, `--n-layers 5`, 230 725
+cells, 19.81 s = 1.33 flow-throughs, mesh clean: 0 zero-volume cells, 0 wrongly
+oriented faces, max skewness 8.93, Phase-1 volume constant to 7e-5) split into
+two halves that behaved completely differently:
+
+- **Viscous**: steady at 1.22–1.36× ITTC-57 for the whole run. A KCS form
+  factor (1+k) of 1.10–1.15 is exactly that band, so the wall model is right.
+- **Pressure**: oscillated between 0.27× and 5.92× the expected 20.8 N, and
+  passed THROUGH ZERO into thrust. Per-second means: −7.07, −1.51, −29.23,
+  −50.30, −59.35, −39.87, −5.78, **+14.42**, −10.53, −47.83, −62.05, −71.83,
+  −40.69 N. No real hull drag does that.
+
+The ship-wave period at Fn 0.26 is 2πU/g = 1.41 s, so the ~6 s oscillation was
+domain-scale. The hypothesis on record was a **longitudinal seiche**,
+T = 2L/√(g h) = 7.75 s for this 32.75 m × 7.28 m tank.
+
+### The verdict recorded at the time
+
+The disturbance was read as a free-surface gravity wave whose WAVELENGTH the
+domain selects (~11.5 m, tank mode n=6, λ = 2L/6 = 10.92 m), running upstream
+and reflecting off inlet and outlet, seen by the hull **Doppler-shifted**:
+
+    T = λ / ( c(λ) − U )        c from the full dispersion relation
+
+That prediction differs from `2L/√(gh)` in the one way that matters: it MOVES
+WITH SPEED.
+
+### The deciding measurement: the same tank at two speeds
+
+`make_case.py` derives tank depth as `max(1.0·Lwl, 1.5·π U²/g)`, and at both
+speeds the first term wins — so halving U left the domain **bit-identical**
+(L = 32.7537 m, h = 7.2786 m) and changed only the flow. Depth could not be
+swept: the generator exposes no depth knob.
+
+| run | U (m/s) | mesh | record | λ measured | T measured | λ/(c−U) | 2L/√(gh) |
+|---|---|---|---|---|---|---|---|
+| `runs/val_coarse5` | 2.196 | 230 725 cells | 19.79 s | **11.44 m** | **5.53 s** | 5.64 s (−1.9%) | 7.75 s |
+| `runs/seiche_u_half` | 1.098 | 102 422 cells | 23.96 s | **11.50 m** | **3.67 s** | 3.66 s (+0.3%) | 7.75 s |
+
+1. **The wavelength did not move.** 11.44 → 11.50 m across a factor of two in
+   speed AND two different meshes (background scale 1.0 and 0.7). The DOMAIN
+   sets it, not the ship and not the cell size.
+2. **The period did move**, by exactly the Doppler shift — 0.3% and 1.9%, with
+   no fitted parameter anywhere.
+3. **The still-water seiche predicts 7.75 s at both speeds** and matches
+   neither: 40% high at full speed, 111% high at half.
+
+The measurement is of the FREE SURFACE, not of the forces: `alpha.water × V`
+integrated per x-bin over the whole tank at every saved time, then
+`eta'(x,t) = A(x) cos(ωt) + B(x) sin(ωt)` fitted after removing the snapshot
+mean (which cancels the hull's displaced volume and the steady Kelvin pattern).
+Two independent checks confirmed a real gravity wave rather than a numerical
+mode: the measured intrinsic phase speed matched the dispersion relation for
+the measured wavelength to **+0.9%** and **−0.2%**, and the wavelength was
+resolved by **80** free-surface cells on the fine mesh (`fs_dx` 0.14366 m) and
+**56** on the coarse one (0.20471 m) — nowhere near the cell size, and the two
+counts differ by 1.4× while the measured wavelength differs by 0.5%.
+
+Integrating rather than contouring is deliberate. `scripts/render_case.py`
+records that ParaView CANNOT contour this mesh — the z-only `refineMesh` rounds
+leave hanging-node polyhedra. A volume integral does not care.
+
+### Why Fn 0.26 was argued to be the worst case
+
+T(λ) = λ/(c−U) has a minimum where `dT/dλ = 0`, i.e. at c = 2U — precisely
+where the GROUP velocity c/2 equals U and the wave's energy holds station in
+the tank. There,
+
+    λ_block = 8 π U² / g          T_min = 8 π U / g = 4 ship-wave periods
+
+At Fn 0.26 that is λ 12.35 m against a tank mode at 10.92 m: they nearly
+coincide. At half speed they are 3.09 m and 10.92 m apart, and the pressure
+history correspondingly refused to yield a single period at all (41.7% of the
+detrended variance, below the 50% bar).
+
+The curve is also FLAT near its minimum: at Fn 0.26, tank modes n=4..8 predict
+5.76 / 5.64 / 5.65 / 5.75 / 5.94 s. **No 19.79 s record separates them**, and
+the tool reports the FAMILY, never a mode number.
+
+### What was refuted, and how — this part survives §2
+
+- **Still-water seiche, T = 2L/√(gh) = 7.75 s.** Refuted by the speed sweep (it
+  cannot move with U, and the measurement moved 5.53 → 3.67 s), and
+  independently by the mode shape: standing score 0.34 and 0.17 where a
+  standing wave is 1. *Caveat, stated because it cuts against the argument: a
+  tank mode in a CURRENT is not a clean standing wave either — its upstream and
+  downstream components share a frequency but not a wavelength — so a low
+  standing score refutes the still-water form specifically, not "a tank mode".*
+- **Transom ventilation** (the other candidate on record; the KCS transom
+  measures 100% wetted where it should ventilate). Refuted: the wave was
+  coherent over the ENTIRE tank including 10 m ahead of the bow, its wavelength
+  was speed-independent, and it obeyed the free-surface dispersion relation.
+  Nothing local to the stern does any of those three.
+- **A first, wrong reading of this same data: "the trapped band, λ = 8πU²/g".**
+  At Fn 0.26 the measured wavelength (11.44 m) sat 7% from the blocking
+  wavelength (12.35 m) and c/U came out 1.94 against a predicted 2.00, which
+  looked conclusive. It was a coincidence of the design point: that model
+  predicts λ ∝ U², so half speed should have given 3.09 m, and the measurement
+  gave 11.50 m. **One speed was not enough to tell the two apart, and the
+  second speed cost four minutes of compute.**
+
+### What the record could NOT say
+
+A period needs cycles. Every other run in the repository was checked and every
+one of them REFUSED:
+
+| run | record | why no period |
+|---|---|---|
+| `runs/beach` | 10.38 s, 0.70 flow-throughs | best sinusoid explains 33.1% (bar 50). Its leading candidate at 5.63 s needs 11.3 s of record; an unbounded FFT returns 10.40 s — the record length |
+| `runs/wigley` | 9.98 s, 0.66 flow-throughs | 20.2%. Unbounded FFT returns 10.00 s — the record length |
+| `runs/lts` | 'time' 10..2000, dt 10 | pseudo-time. Refused outright |
+| `runs/lowfn` | — | no `force*.dat` was ever written |
+| `runs/val_coarse` | 4 samples | diverged at t = 0.0072 s |
+| `runs/kcs_gci2/coarse` | 1.95 s, 0.13 flow-throughs | fits 0.82 s at 65.9%, matches no candidate: UNEXPLAINED |
+
+`runs/beach` is the calibration point for the 50% bar, and it is not academic.
+At the old 25% bar the tool returned "seiche n=3, 4.05 s" for it — on the SAME
+tank at the SAME speed where 19.79 s of record gives 5.95 s. **A short record
+does not find a different mechanism; it finds whatever it is allowed to find.**
+
+### The fix proposed at the time, and why it was not bought
+
+Not solver tuning, not deepening the tank:
+
+1. **Absorb, do not reflect.** The inlet is `fixedValue U` and the outlet
+   `outletPhaseMeanVelocity` + `zeroGradient p_rgh`; both are perfectly
+   reflecting for gravity waves. A relaxation/damping zone over the last
+   1–1.5 Lwl at each end removes the energy. ESI v2606 has **no
+   `verticalDamping` fvOption** (that is an OpenFOAM.org facility — checked, not
+   present, recorded in `navalai/cfd/case.py`); the options are its
+   `waveModels` absorption BC with a `constant/waveProperties`, or an explicit
+   momentum sink over a `cellZone`. **This is weeks of work, which is why §2
+   mattered so much.**
+2. **Or dissipate, the reference's way.** The Wolf Dynamics KCS deck has no
+   damping model either — it leaves 2.31 Lpp of run-out coarsening 32× and lets
+   numerical dissipation eat the waves. This project pulled the refined wake
+   forward to −1.0 Lwl for that reason, leaving 1.5 Lwl of run-out.
+3. **Domain sizing, secondary.** This project's domain is 1.5–2.6× smaller than
+   the DTCHull reference on every axis (worst in half-width, 0.50, and depth,
+   0.39). Lengthening the tank moves the mode wavelengths (2L/n) but does NOT
+   remove the mode — the ends still reflect — and it costs cells cubically.
+4. **Do not chase it with run length.** The oscillation had not decayed at
+   1.33 flow-throughs and had not decayed at 24 s.
+
+### Compute spent
+
+10.5 minutes of machine time, all of it on this Mac at np=10 —
+`postProcess -func writeCellVolumes/writeCellCentres` on `runs/val_coarse5`
+(~40 s, no re-solve: the fields for t = 4, 6, 8, 14, 16, 18 had survived);
+`runs/seiche_u_half` generation + mesh + 9 s of solve (~90 s mesh, 152 s solve,
+102 422 cells, `--scale 0.7 --symmetric --transient --n-layers 5`, checkMesh 0
+zero-volume, 4 incorrectly-oriented faces against a bar of 5, max skewness 5.69
+against a bar of 20); the same case resumed 9 → 24 s (267 s — at 8.90 s the fit
+sat at 4.21 s against a scan capped at 4.45 s, i.e. against its own bound, so
+24 s was needed before anything could be concluded); `postProcess` on it (~60 s).
+
+Mass was conserved on both runs (Phase-1 0.800306 → 0.800242 on the half-speed
+case, 8e-5), alpha stayed bounded, and `pmset -g log | grep -i thermal` was
+clean over the session.
+
+Note what `runs/seiche_u_half` was NOT: at U = 1.098 one flow-through is
+29.83 s, so 24 s is **0.80 flow-throughs**. It is a period measurement — a
+timescale — and a tank mode is excited by the impulsive start rather than by a
+settled wake. Nothing in it is a resistance number and `tank_resonance.py`
+prints that warning itself.
+
+**The cost lesson, which generalises:** this diagnosis cost 10.5 minutes
+because it measured a *period* rather than a drag coefficient, so mesh
+resolution barely mattered. The alternative plan was a three-day GCI triplet.
+
+---
+
+## 2 · 2026-08-07 on `runs/kcs_s1` — RE-MEASURED, and it is NOT an oscillation
+
+**This supersedes §1's conclusion and the "3–6× and growing" reading that
+preceded it.** First reproducible KCS run in the repository since the one the
+ledger records as deleted. Symmetric, `_NX_BASE` 57, `--n-layers 5`,
+`--transient`, 230 730 cells, 92.6% layer coverage (4.63 of 5 achieved), 0
+zero-volume cells, 0 incorrectly-oriented faces, max skewness 8.93. Mass
+conserved: Phase-1 volume fraction 0.80015 flat, alpha bounded [−3.9e-6, 1].
+Stopped deliberately at **t = 50.7 s = 3.40 flow-throughs** (a compute budget,
+not a failure); the checkpoint is intact and the case resumes.
+
+### The run converges, and it converges to the wrong number
+
+| flow-throughs | E%D vs EFD | drift |
+|---|---|---|
+| 1.34 | −98.1% | 26.7% |
+| 2.22 | −47.0% | 15.2% |
+| **3.40** | **−43.5%** | **0.31%** |
+
+Drift has collapsed to **0.31%**, far inside the 5% bar. The transient has
+washed out, and C_T has flattened.
+
+**So the remaining error is not a settling problem, and more wall-clock will
+not remove it.** That is the finding, and it retires the standing assumption
+that Gate 2M is waiting on run length.
+
+### The error is entirely in the pressure component
+
+Decomposed against the ITTC-57 line at Re = 1.402e7 (Cf 2.8312e-3, friction
+65.2 N on 9.551 m² of wetted surface):
+
+| component | measured | expected | ratio |
+|---|---|---|---|
+| **viscous** | 75.6 N | 65.2 N (ITTC-57) | **1.161×** — inside the 1.10–1.15 form-factor band, marginally above |
+| **pressure** | 46.9 N | 20.2 N (EFD total − friction) | **2.32× too high** |
+| total | 122.5 N | 85.4 N | 1.43× |
+
+**The viscous half is right.** 1.161× ITTC-57 is what a KCS form factor should
+give, and it is stable: batch error 1.7%. The wall model, the layer stack and
+the near-wall mesh are doing their job — which is exactly what the 2026-08-05
+mesh rebuild was for, and this is the first run to confirm it end to end.
+
+**The pressure half is 2.3× too high and it is noisy, not trending:**
+
+    drift_pressure  0.84%      error_pressure  36.1%
+    drift_viscous   1.15%      error_viscous    1.7%
+    drift_total     0.31%      error_total     36.2%
+
+A 0.8% drift with a 36% batch standard error means the window mean is not
+reproducible across its own window while having no trend. **Averaging longer
+averages noise.**
+
+### It is NOT a tank mode either
+
+`scripts/tank_resonance.py` on 2 041 samples over 33 s: **the best single
+sinusoid explains 0.4% of the detrended signal against a 50% bar — NO RESULT,
+there is no coherent oscillation to name.** Every candidate mechanism (seiche
+n=1..3, Doppler tank modes n=1..8, blocking minimum, ship transverse wave) had
+enough cycles in the record to have been seen.
+
+This **revises** §1 and the earlier R5.5 reading of a ~5 s pressure
+oscillation. On this mesh family the pressure signal is broadband, not
+periodic. The earlier record was taken on a different family (`_NX_BASE` 54) at
+1.33 flow-throughs, where a rising quarter-cycle of anything looks like a
+trend — so the two are not in contradiction so much as the older one was
+under-sampled.
+
+**A further trap, recorded because it was nearly not seen:** two runs on ONE
+domain could not separate λ/3 from the domain half-width, because 1.5 Lwl =
+10.918 m and 2L/6 = 10.92 m are the same number in that domain. A
+domain-LENGTH sweep is the experiment that would separate them: at fixed U,
+2L/n moves with L and the half-width does not.
+
+### What this means for the next experiment
+
+Extending to 5 flow-throughs was necessary and is no longer the blocker. The
+candidates are now ordered by evidence rather than by guess:
+
+1. **Free sinkage and trim.** KCS Case 2.1 is towed FREE to sink and trim; this
+   run is FIXED. That is a different condition, it acts on the pressure
+   component specifically, and it is CODE (`rigidBodyMotion`) rather than
+   compute. The single most likely candidate, because the viscous half being
+   right localises the error to exactly what sinkage and trim move.
+2. **Free-surface resolution.** `cells_per_wavelength` is 21.5, barely over the
+   ≥20 bar. The pressure component is the wave component.
+3. **Grid.** This is one grid, and the coarse member. The 36% batch error must
+   be understood before a triplet means anything — three noisy numbers do not
+   make a Richardson extrapolation.
+
+`gate2m.py runs/kcs_s1` correctly returns **NO RESULT, exit 2**. The −43.5% is
+recorded here as a diagnosis and is quoted nowhere as a result.
+
+---
+
+## 3 · Hypotheses eliminated at real compute cost — the do-not-re-try list
+
+From the 2026-08-06 gap-closure sweep across six runs (`runs/kcs_iso`,
+`runs/kcs_sym`, `runs/kcs`, `runs/beach` and two since deleted). The framing of
+that sweep — "3–6× and **grows with time**" — is superseded by §2, which
+measures 2.32× with no growth. **The eliminations below are not superseded**,
+and each cost machine-hours:
+
+- *insufficient convergence* — no; on that family the error grew with
+  convergence, and on the §2 family it is flat with a collapsed drift.
+- *missing boundary layer* — fixed; viscous corrected, pressure unchanged.
+- *wave reflection off the outlet* — a beach (run-out 0.6 → 1.5 Lwl) and a
+  deeper tank (0.6 → 1.0 Lpp) made it WORSE (2.9× → 5.7× at the same t).
+- *LTS as a cheap path* — far worse (14.5×). Waves are inherently unsteady, so
+  per-cell pseudo-timesteps make propagation speed meaningless. LTS is kept
+  only as a flow-field initialiser and can never produce a resistance number.
+- *mass leak* — no; Phase-1 volume constant to 0.001%.
+- *a tank mode / relaxation zone* — refuted by §2 at 3.40 flow-throughs. A
+  relaxation zone would have been weeks of work against a mechanism measured
+  not to exist.
+
+The per-run table that framing rested on, kept so the numbers are reviewable:
+
+| run | t | pressure | vs expected (~20.8 N) | viscous | vs ITTC |
+|---|---|---|---|---|---|
+| kcs_iso | 7.5 s | 41.4 N | 2.9× | 40.9 N | 0.63× |
+| kcs_sym | 13.7 s | 36.8 N | 2.6× | 52.8 N | 0.82× |
+| kcs | 76 s (settled) | 60.1 N | 4.2× | 93.3 N | 1.44× |
+| beach + deep tank | 8–10 s | 84.8 N | 6.0× | 76.0 N | 1.18× |
+
+Every one of those values lies inside the envelope §1 measured, which is how
+four samples of one broadband signal read as a trend.
+
+**One candidate from that sweep is still open and is not addressed by §2:**
+whether the wave-resistance machinery is systematically wrong, decided by a
+Wigley run against Michell.
+
+---
+
+## 4 · The near-wall / y+ blocker brief — SUPERSEDED 2026-08-06, kept for its eliminations
+
+> This brief was written for an outside reader while the blocker was believed
+> to be the wall model. **It was not.** The root cause was a **38:1 background
+> cell**: `hexRef8` refines ISOTROPICALLY, so every refinement level preserved
+> the aspect ratio while shrinking the height, and snap displacement — which
+> scales with the LONG edge — moved nodes several cell HEIGHTS and folded cells
+> inside out. That single fact explains every failure listed below, including
+> the ones the brief calls unexplained: (2,3) clean / (3,4) worse / (4,5) worse
+> still, `addLayers false` producing a byte-identical broken mesh, and snap
+> `tolerance` having no effect. `CLAUDE.md`'s root-cause section carries the
+> four-step fix and its measured result (72 988 zero-volume cells → 4 open
+> cells).
+>
+> **The C_t figure quoted below is one of five that circulated (gap J1) and is
+> superseded.** The one measurement lives in `data/gate-ledger.json`.
+>
+> Kept rather than deleted because the elimination work is real and re-doing it
+> would cost machine-days. PLM §3 step 7: superseded material is removed with a
+> note, never left ambiguous — this is the note.
+
+### The blocker as it was stated
+
+**We cannot get y+ into the wall-function validity band (30–300) on any mesh
+configuration that also produces a valid mesh, so skin friction — most of the
+drag at our Froude number — is computed outside the model's range of validity.**
+
+Benchmark: KCS containership, model scale 1:31.6, LPP 7.2786 m, Fn 0.260
+(U = 2.196 m/s, Re = 1.26e7). Published tank data: C_t = 3.711e-3 (KRISO),
+CFD scatter 3.620–3.733e-3.
+
+Our result at the time: **C_t = 9.33e-3, i.e. −151% vs EFD, 2.5× too high.**
+Only **16.3% of wetted hull faces** lay in 30 ≤ y+ ≤ 300; median y+ 2475. On
+our own (chined, small-craft) hull the same pipeline gave 2.0% in band and
+viscous drag 2.62× the ITTC-57 flat-plate line. Both hulls pointed the same way.
+
+### The mechanism believed at the time
+
+To land y+ ≈ 30 at this Reynolds number the first cell must be ~0.8 mm. The
+local hull cell is 76–152 mm — a 100–200× jump, needing either (a) ~15 prism
+layers or (b) a much finer surface cell.
+
+- (a) failed: snappyHexMesh inserted ~50% of layers at n=3, 26% at n=8, 11% at
+  n=15, and at n≥6 interFoam died on the first timestep. `nLayerIter` /
+  `nRelaxedIter` changed nothing.
+- (b) failed: raising `refinementSurfaces` from (2 3) to (3 4) gave 18
+  incorrectly-oriented faces (negative face pyramids) and interFoam died at
+  t≈8e-4; (4 5) gave zero-volume cells. Verified as the castellation stage, not
+  layers: `addLayers false` produced a byte-identical broken mesh.
+
+Refinement making things *worse* was the strange part — the signature of a
+sub-cell defect that coarse cells step over. But the surface was clean:
+`surfaceCheck -checkSelfIntersection` reported "not self-intersecting", OCC
+`BRepCheck_Analyzer` said the shape was valid (one shell, 649 faces), and
+displacement matched published to −0.14%.
+
+### Ruled out, with measurements
+
+| hypothesis | test | result |
+|---|---|---|
+| prism layers cause it | `addLayers false` | identical broken mesh |
+| STL sliver triangles | vertex weld | merges nothing (slivers are *collinear*, not coincident) |
+| mirrored-hull keel seam | switched to half hull + symmetry | skewness 52.2 → 9.5, defect persists |
+| self-intersecting STL | fixed sew tolerance + ear-clip capping | surface clean, defect persists |
+| bad IGES export | swapped to a NAPA `PTOL=0.002` export | zero-volume 14 → 2, still dies |
+| solver startup transient | initial `deltaT` 1e-3 → 1e-5 | still dies at t≈1e-5 |
+| free-surface refinement box | removed it | skew 63 → 7, still 7 zero-volume cells |
+
+### The architectural theory, which was right and initially unlandable
+
+OpenFOAM's own reference case (`$FOAM_TUTORIALS/multiphase/interFoam/RAS/
+DTCHull`) does NOT let snappy refine. It runs **6 rounds of `topoSet` +
+`refineMesh` first**, then snappy with `refinementSurfaces level (0 0)` and no
+refinement regions. The decisive line is in `refineMeshDict`:
+
+    directions ( tan1 tan2 );      // x and y ONLY, never z
+
+Free-surface ship meshes need **anisotropic** refinement — fine in x,y near the
+hull, fine in z only at the waterline, coarse in z at the keel. `refineMesh`
+does that directionally. **snappyHexMesh refines isotropically**, so buying x,y
+resolution through snappy levels drags z along, and every level boundary is a
+hanging-node transition.
+
+The first implementation failed: the refinement rounds worked (429k → 1.716M
+cells, exactly 4× per round) and snappy then aborted with
+
+    FATAL ERROR: cell 9404 of level 0 uses more than 8 points of equal or
+    lower level      (hexRef8::setRefinement, hexRef8.C:3763)
+
+i.e. `danglingCellRefine` still wanted to refine, and `hexRef8` cannot refine
+cells that `refineMesh` created. **The landed fix inverts the order** —
+castellate + snap FIRST on a near-cubic background, then z-only `refineMesh`,
+then a layers-only snappy pass — and it is documented in `CLAUDE.md`, including
+why the order is forced from both sides.
+
+### The mesh constants do not transfer between hulls
+
+MEASURED 2026-08-06: KCS bridges its 37.9 mm hull cell with 5 layers; Wigley's
+52.1 mm cell needs 10, and capping at 5 there reproduces exactly the
+last-layer/cell ratio (0.082 vs 0.071) that produced ZERO layers on KCS. The
+layer count is therefore DERIVED per hull by `n_layers_to_bridge` and guarded
+at both ends. **Any constant tuned on one hull is suspect** — `_HULL_REFINE`,
+`_TARGET_YPLUS` and the layer count were all tuned on KCS.
+
+And the derived count is not automatically safe: at `_NX_BASE` 57 the symmetric
+KCS coarse case derives **7**, and that mesh passes every build-time check and
+then kills interFoam at t = 0.0072 s. The mesh-time gate, not a build-time
+predictor, is the mechanism — Wigley survives a *thicker* relative stack
+(1.084) than the one that kills KCS (0.952), so no build-time predictor exists.
+`CLAUDE.md` carries the sweep and the bars it produced.
+
+---
+
+## 5 · Still owed
+
+- **A wetted-only (alpha.water-masked) y+.** The `hull` patch includes deck and
+  topsides, which sit in AIR, so the patch average and maximum are dominated by
+  dry faces. Only the MIN currently reflects the wetted, layered surface.
+- **A domain-LENGTH sweep** at fixed U, the only experiment that separates a
+  tank mode (2L/n, moves with L) from the domain half-width (does not).
+- **A Wigley run against Michell**, which is the surviving test of whether the
+  wave-resistance machinery is systematically wrong.

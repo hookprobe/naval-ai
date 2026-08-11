@@ -240,7 +240,7 @@ def energy_report(total_resistance_n: float, speed: float, deck_area: float,
     # term, because hull resistance at a positive speed is positive.
     #
     # IT BECOMES REACHABLE THE MOMENT A TRACTION TERM EXISTS. The WindWing work
-    # in docs/BUILD-PLAN.md Part II §5 enters at exactly this line, as a net
+    # in docs/BUILD-PLAN.md section 10 enters at exactly this line, as a net
     # thrust (resistance minus kite pull), and a kite that fully overcomes
     # resistance drives wh_nm to zero and through it. Guarded now, while the
     # guard can be written calmly, rather than after it has printed a range.
