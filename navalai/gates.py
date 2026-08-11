@@ -201,8 +201,11 @@ GATES = [
     # "developability controls" is plural on purpose: the suite carries the
     # POSITIVE controls (cylinder, cone) and the NEGATIVE one (hypar) — a
     # metric with no negative control is not a metric.
-    Gate("Gate 6M", "manufacturing back end: nesting, BOM, refold, "
-         "developability controls, export receipt",
+    #
+    # THE REFOLD CLAUSE IS NO LONGER HERE. It is Gate 6D, below, because this
+    # suite PASSES while the clause is MISSED — Gate 4F's shape exactly.
+    Gate("Gate 6M", "manufacturing back end: nesting, BOM, developability "
+         "controls, export receipt (refold onto the hull: Gate 6D)",
          "tests/test_manufacturing.py"),
     Gate("Gate R3", "the ladder is climbable: L2 escalation, monotone tier "
          "promotion, honest refusal of L3", "tests/test_ladder.py"),
@@ -324,6 +327,38 @@ GATES = [
          status=Verdict.RED,
          detail="see data/gate-ledger.json for the measured watermark"),
     Gate("Gate 6R", "ISO threshold parity vs licensed standard text",
+         status=Verdict.RED,
+         detail="see data/gate-ledger.json for the measured watermark"),
+    # GAP G4, AND GATE 4F'S SHAPE FOUND A SECOND TIME (2026-08-11 ALIGNMENT
+    # re-verdict).
+    #
+    # BuildPlan section 12.3 requires that "panels re-fold to the hull within
+    # the stated millimetre bar". They do not, by a factor of ~28x and ~45x
+    # against the 5 mm bar, and the shortfall does not refine away — so it is a
+    # geometric property of taking the rulings at constant station x, not a
+    # discretisation artefact. And yet NOTHING OWNED THE FAILURE:
+    # `tests/test_manufacturing.py::test_gate6_refold_clause_is_red_on_the_hull`
+    # ASSERTS the shortfall, honestly and deliberately, so the suite is GREEN
+    # BECAUSE the bar is missed; Gate 6M therefore printed GREEN; the only
+    # place the measurement lived outside that test was a sentence in
+    # ALIGNMENT.md's STEP/IGES/DXF row; and the ledger had no entry, so no
+    # owner, no review_by, and no way for CI to notice it getting worse.
+    #
+    # That is precisely gap D11 recurring: a measured miss that no STATUS can
+    # see. The remedy is the one Gate 4F established, and the one Gate 1H and
+    # Gate 6R used before it — split the clause into its own typed RED row so
+    # the ladder shows WHICH clause is covered by what, and let the ledger own
+    # the number. A test that encodes a miss is a good test; it is not a
+    # verdict, because a verdict is a thing the ladder can print and CI can
+    # fail on.
+    #
+    # THE NUMBERS ARE NOT REPEATED HERE. Watermark, units, configuration,
+    # owner and the reproducing command are in data/gate-ledger.json, which is
+    # the single home for them (gap J1). tests/test_red_by_record.py is the
+    # fence: it fails if this scope or detail starts carrying a measurement,
+    # if the row goes missing, or if Gate 6M stops pointing at it.
+    Gate("Gate 6D", "developable-panel refold: EXPORTED panels back onto the "
+         "hull vs the 5 mm bar (BuildPlan 12.3)",
          status=Verdict.RED,
          detail="see data/gate-ledger.json for the measured watermark"),
 ]

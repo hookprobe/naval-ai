@@ -58,8 +58,8 @@ different Gate 2M numbers came to circulate at once (gap J1).
 
 | Gate | Scope | Verified by |
 |---|---|---|
-| Gate 0G | the ladder cannot be talked into passing | `tests/test_gate_integrity.py` (25 tests) |
-| Gate 0R | a missed clause is RED BY RECORD, never prose in a scope | `tests/test_red_by_record.py` (10 tests) |
+| Gate 0G | the ladder cannot be talked into passing | `tests/test_gate_integrity.py` (29 tests) |
+| Gate 0R | a missed clause is RED BY RECORD, never prose in a scope | `tests/test_red_by_record.py` (14 tests) |
 | Gate 0 | grammar/geometry/DB | `tests/test_phase0.py` (14 tests) |
 | Gate 1 | L1 physics + Wigley anchor + <50ms | `tests/test_phase1.py` (25 tests) |
 | Gate 1H | Holtrop-Mennen vs the 1982 worked example | `tests/test_holtrop.py` (56 tests) |
@@ -83,7 +83,7 @@ different Gate 2M numbers came to circulate at once (gap J1).
 | Gate V3.0 | governance compiles to a parameter box and to constraint rows, ratchets only tighter, and the ladder never imports it | `tests/test_policy.py` (48 tests) |
 | Gate 6P | the product surface: scope guards refuse what does not govern, and the mission contract binds | `tests/test_gapfix_product.py` (22 tests) |
 | Gate L | one limit, one home; scantling derived from the rule | `tests/test_limits_single_source.py` (13 tests) |
-| Gate 6M | manufacturing back end: nesting, BOM, refold, developability controls, export receipt | `tests/test_manufacturing.py` (28 tests) |
+| Gate 6M | manufacturing back end: nesting, BOM, developability controls, export receipt (refold onto the hull: Gate 6D) | `tests/test_manufacturing.py` (28 tests) |
 | Gate R3 | the ladder is climbable: L2 escalation, monotone tier promotion, honest refusal of L3 | `tests/test_ladder.py` (8 tests) |
 | Gate S | the MDO spine: one terminal state per genome, append-only archive, legal-transition graph, unmeasured metric refused | `tests/test_pipeline.py` (48 tests) |
 | Gate SG | the gap queue: findings are work items, not prose | `tests/test_gaps.py` (20 tests) |
@@ -99,6 +99,7 @@ different Gate 2M numbers came to circulate at once (gap J1).
 | Gate 2M | KCS/JBC OpenFOAM calibration w/ per-case GCI | **RED** — `data/gate-ledger.json` |
 | Gate 2U | unattended meshing (plan: >=95% of a 200-hull batch) | **RED** — `data/gate-ledger.json` |
 | Gate 6R | ISO threshold parity vs licensed standard text | **RED** — `data/gate-ledger.json` |
+| Gate 6D | developable-panel refold: EXPORTED panels back onto the hull vs the 5 mm bar (BuildPlan 12.3) | **RED** — `data/gate-ledger.json` |
 
 <!-- END GATE TABLE -->
 

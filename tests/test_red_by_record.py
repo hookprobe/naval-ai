@@ -37,6 +37,18 @@ import navalai.gates as G
 # that renaming the row fails loudly rather than quietly skipping the fence.
 CLAUSE_ROW = "Gate 4F"
 
+# THE SAME SHAPE, FOUND A SECOND TIME (2026-08-11 ALIGNMENT re-verdict), which
+# is why the fence below is written twice rather than once: a defect class that
+# recurs is a defect class, and Gate 4F's split was treated as a one-off fix
+# instead of a pattern to sweep the registry with. Gate 6M's suite passes
+# everything it asserts — including the refold shortfall, which
+# `test_gate6_refold_clause_is_red_on_the_hull` asserts is PRESENT — so the
+# ladder printed GREEN for a clause the BuildPlan states in millimetres and
+# the hull misses by ~28x/~45x. The only statement of it outside that test was
+# a sentence in ALIGNMENT.md.
+REFOLD_ROW = "Gate 6D"
+REFOLD_PARENT = "Gate 6M"
+
 # A number with a decimal point followed by a percent sign. This is what a
 # MEASUREMENT looks like in prose; the bars in this registry ("<50ms",
 # ">=95% of a 200-hull batch", ">=99%") are round and carry no decimal, which is
@@ -102,6 +114,90 @@ def test_the_bar_is_the_plans_bar_and_the_scope_says_so():
     row = next(g for g in G.GATES if g.name == CLAUSE_ROW)
     assert ">=99%" in row.scope.replace(" ", "")
     assert "99" in _ledger()[CLAUSE_ROW]["bar"]
+
+
+# ------------------------------------------------- the same clause, again (6D)
+
+def test_the_missed_refold_clause_is_its_own_typed_red_row():
+    """GAP G4. The second row of Gate 4F's shape, and the reason this file now
+    checks a PATTERN rather than one row.
+
+    BuildPlan section 12.3: "panels re-fold to the hull within the stated
+    millimetre bar". They do not. The failure was owned by nothing that could
+    print a verdict: Gate 6M is GREEN, because the suite that measures the
+    shortfall ASSERTS it — a green suite whose greenness depends on the bar
+    being missed. That is not a bug in the test; it is the absence of a row.
+    """
+    row = next((g for g in G.GATES if g.name == REFOLD_ROW), None)
+    assert row is not None, (
+        f"{REFOLD_ROW} is gone. The refold shortfall then has no row that can "
+        f"fail, and the ladder is back to printing GREEN for it.")
+    assert row.status == G.Verdict.RED
+    assert row.suite is None, (
+        "a status row runs no suite; if this clause acquires one, the row "
+        "should go green by measurement, not by acquiring a passing test")
+
+
+def test_the_refold_clause_has_a_ledger_watermark_that_is_a_number():
+    """A recorded red whose watermark is a sentence cannot regress, and this
+    one has no excuse for being a sentence: the measurement is a sub-second
+    `refold_deviation_mm()` call and the ledger carries the command."""
+    entry = _ledger().get(REFOLD_ROW)
+    assert entry is not None, (
+        f"{REFOLD_ROW} is RED with no ledger entry. `judge_red` already fails "
+        f"the ladder for this; the assertion is here so the reason is named.")
+    wm = entry["watermark"]
+    assert isinstance(wm, (int, float)) and not isinstance(wm, bool), (
+        f"watermark {wm!r} is not a number, so 'REDDER than we recorded' "
+        f"cannot be evaluated")
+    assert entry["better_is"] == "down"
+    assert "n_stations=41" in entry["units"] or "41" in entry["units"], (
+        "state the configuration the number was measured at — the topside "
+        "reads 206.1 mm at 161 stations and 225.7 at 41, and a watermark "
+        "without its configuration is the defect class LESSONS calls #6")
+    assert "refold_deviation_mm" in entry["verify"], (
+        "the verify command must re-measure the refold, not re-run a test "
+        "that asserts the miss")
+
+
+def test_the_refold_bar_has_one_home_and_every_statement_of_it_agrees():
+    """Defect class 2 (a number declared twice), aimed at the cheapest way to
+    make this row green: widen the tolerance.
+
+    `REFOLD_BAR_MM` is the one home. The registry row and the ledger's `bar`
+    field both restate it in prose — as every row here restates its bar — so
+    both are read back against the constant.
+    """
+    from tests.test_manufacturing import REFOLD_BAR_MM
+
+    assert REFOLD_BAR_MM == 5.0, (
+        "the bar moved. BuildPlan section 12.3 states it in millimetres and "
+        "honesty rule 6 forbids softening it to absorb a miss")
+    row = next(g for g in G.GATES if g.name == REFOLD_ROW)
+    stated = f"{REFOLD_BAR_MM:g} mm"
+    assert stated in row.scope, f"{row.scope!r} does not state the {stated} bar"
+    assert stated in _ledger()[REFOLD_ROW]["bar"]
+    assert _ledger()[REFOLD_ROW]["watermark"] > REFOLD_BAR_MM, (
+        "the watermark clears the bar — this row should be GREEN and its "
+        "ledger entry deleted, not carried as an expected red")
+
+
+def test_gate_6m_points_at_the_row_carrying_its_missed_clause():
+    """The front-door rule Gate 4 already obeys. A reader who sees Gate 6M
+    print GREEN must be able to get from there to the clause it does not
+    cover; otherwise splitting the row just hides the miss somewhere else."""
+    parent = next(g for g in G.GATES if g.name == REFOLD_PARENT)
+    assert REFOLD_ROW in parent.scope, (
+        f"{REFOLD_PARENT} prints GREEN; if it does not point at {REFOLD_ROW}, "
+        f"the refold miss is invisible at the front door again")
+    # ...and it must POINT, not CLAIM. Before the split the word "refold" sat
+    # in this scope as one of the things Gate 6M verifies, which is how a green
+    # row came to advertise a clause it misses.
+    assert parent.scope.lower().count("refold") == 1, (
+        f"{REFOLD_PARENT} mentions the refold more than once; the single "
+        f"mention must be the pointer at {REFOLD_ROW}, not a claim to cover it")
+    head, _, pointer = parent.scope.lower().partition("refold")
+    assert REFOLD_ROW.lower() in pointer and REFOLD_ROW.lower() not in head
 
 
 # ------------------------------------------------------------- the attacks

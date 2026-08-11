@@ -70,11 +70,22 @@ def test_every_red_gate_has_a_ledger_entry_and_vice_versa():
         f"only-in-ledger={sorted(ledger - reds)}")
 
 
-@pytest.mark.parametrize("field", ["metric", "watermark", "owner", "verify",
-                                   "measured_utc", "review_by", "why_red"])
+@pytest.mark.parametrize("field", ["metric", "watermark", "units", "better_is",
+                                   "bar", "measured_utc", "measured_on",
+                                   "owner", "verify", "review_by", "why_red"])
 def test_ledger_entries_are_attributable(field):
     """A recorded red with no owner, no measurement date and no review date is
-    not a record — it is an excuse with a JSON schema."""
+    not a record — it is an excuse with a JSON schema.
+
+    WIDENED 2026-08-11, when Gate 6D was added. The list checked seven fields
+    while every entry in the file carried eleven: `units`, `better_is`, `bar`
+    and `measured_on` were house convention held up by nothing. A watermark
+    with no units and no `better_is` cannot be compared in either direction —
+    "REDDER than we recorded" is undefined for a bare number — and a bar that
+    is not written down is a bar that can be remembered generously. They were
+    present in all four existing entries, so widening the check cost nothing
+    and closed the gap through which a fifth entry could have arrived without
+    them."""
     for name, entry in G.load_ledger(None).items():
         if name.startswith("_"):
             continue
