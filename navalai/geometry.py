@@ -19,6 +19,56 @@ RHO_WATER = 1000.0  # fresh water (Danube); pass 1025 for salt
 G = 9.80665
 
 
+def station_geometry(params: np.ndarray, x: np.ndarray):
+    """Closed-form hull offsets at longitudinal positions `x`.
+
+    Returns (z_keel, y_chine, z_chine, y_sheer, z_sheer), each shaped like `x`.
+
+    This is the ONE definition of the moulded surface's three edge curves.
+    `Hull.__post_init__` calls it at `np.linspace(0, LWL, n_stations)` and
+    `Hull.edge_curves` calls it anywhere else; a second copy evaluated at
+    non-station x would be defect class 2 (a number — here a whole curve —
+    declared twice) with the two copies free to drift.
+    """
+    p = grammar.named(params)
+    L, B, T, D = p["LWL"], p["BWL"], p["T"], p["D"]
+    xm = p["x_mb"] * L
+    x = np.asarray(x, dtype=float)
+
+    # keel profile: flat middle, quadratic forefoot rise (bow) and rocker (stern)
+    zk = np.full_like(x, -T)
+    bow_zone = x > 0.7 * L
+    zk[bow_zone] += T * p["forefoot"] * ((x[bow_zone] - 0.7 * L) / (0.3 * L)) ** 2
+    st_zone = x < 0.3 * L
+    zk[st_zone] += T * p["rocker"] * ((0.3 * L - x[st_zone]) / (0.3 * L)) ** 2
+
+    # chine plan-form: fullness exponents fore/aft of max-beam station
+    w = np.empty_like(x)
+    fwd = x >= xm
+    w[fwd] = 1.0 - ((x[fwd] - xm) / (L - xm)) ** p["p_bow"]
+    aft = ~fwd
+    w[aft] = p["r_transom"] + (1.0 - p["r_transom"]) * (x[aft] / xm) ** p["p_stern"]
+    w = np.clip(w, 0.0, 1.0)
+    y_chine = 0.5 * B * w
+
+    # deadrise warp toward the bow over beta_len*L
+    beta = np.full_like(x, math.radians(p["beta_mid"]))
+    warp0 = L - p["beta_len"] * L
+    wz = x > warp0
+    frac = (x[wz] - warp0) / (p["beta_len"] * L)
+    beta[wz] += (math.radians(p["beta_bow"]) - math.radians(p["beta_mid"])) * frac**2
+    z_chine = zk + y_chine * np.tan(beta)
+
+    # sheer: freeboard at mid, rising toward bow; half-breadth from flare
+    fb = D - T
+    zs = np.full_like(x, fb)
+    zs[fwd] *= 1.0 + p["sheer_rise"] * ((x[fwd] - xm) / (L - xm)) ** 2 * (D / fb)
+    ys = y_chine + (zs - z_chine) * math.tan(math.radians(p["flare"]))
+    # taper the topside to a stem: sheer half-breadth follows w^0.15 envelope
+    y_sheer = np.maximum(ys, 0.0) * np.maximum(w, 0.0) ** 0.15
+    return zk, y_chine, z_chine, y_sheer, zs
+
+
 @dataclass
 class Hull:
     """Evaluated hull geometry at n stations."""
@@ -34,45 +84,36 @@ class Hull:
     z_sheer: np.ndarray = field(init=False)
 
     def __post_init__(self) -> None:
-        p = grammar.named(self.params)
-        L, B, T, D = p["LWL"], p["BWL"], p["T"], p["D"]
-        xm = p["x_mb"] * L
-        x = np.linspace(0.0, L, self.n_stations)
+        x = np.linspace(0.0, grammar.named(self.params)["LWL"], self.n_stations)
         self.x = x
+        (self.z_keel, self.y_chine, self.z_chine,
+         self.y_sheer, self.z_sheer) = station_geometry(self.params, x)
 
-        # keel profile: flat middle, quadratic forefoot rise (bow) and rocker (stern)
-        zk = np.full_like(x, -T)
-        bow_zone = x > 0.7 * L
-        zk[bow_zone] += T * p["forefoot"] * ((x[bow_zone] - 0.7 * L) / (0.3 * L)) ** 2
-        st_zone = x < 0.3 * L
-        zk[st_zone] += T * p["rocker"] * ((0.3 * L - x[st_zone]) / (0.3 * L)) ** 2
-        self.z_keel = zk
+    # ---- the three edge curves, at ARBITRARY x ------------------------------
 
-        # chine plan-form: fullness exponents fore/aft of max-beam station
-        w = np.empty_like(x)
-        fwd = x >= xm
-        w[fwd] = 1.0 - ((x[fwd] - xm) / (L - xm)) ** p["p_bow"]
-        aft = ~fwd
-        w[aft] = p["r_transom"] + (1.0 - p["r_transom"]) * (x[aft] / xm) ** p["p_stern"]
-        w = np.clip(w, 0.0, 1.0)
-        self.y_chine = 0.5 * B * w
+    def edge_curves(self, x: np.ndarray | None = None):
+        """(keel, chine, sheer) as (n, 3) point arrays, ANALYTICALLY at `x`.
 
-        # deadrise warp toward the bow over beta_len*L
-        beta = np.full_like(x, math.radians(p["beta_mid"]))
-        warp0 = L - p["beta_len"] * L
-        wz = x > warp0
-        frac = (x[wz] - warp0) / (p["beta_len"] * L)
-        beta[wz] += (math.radians(p["beta_bow"]) - math.radians(p["beta_mid"])) * frac**2
-        self.z_chine = zk + self.y_chine * np.tan(beta)
+        The station arrays are a sample of these curves at `np.linspace`; this
+        evaluates the same closed form anywhere, which is what a developable
+        unroller needs when its rulings are NOT at constant station x and the
+        two edges must therefore be read at different longitudinal parameters.
 
-        # sheer: freeboard at mid, rising toward bow; half-breadth from flare
-        fb = D - T
-        zs = np.full_like(x, fb)
-        zs[fwd] *= 1.0 + p["sheer_rise"] * ((x[fwd] - xm) / (L - xm)) ** 2 * (D / fb)
-        self.z_sheer = zs
-        ys = self.y_chine + (zs - self.z_chine) * math.tan(math.radians(p["flare"]))
-        # taper the topside to a stem: sheer half-breadth follows w^0.15 envelope
-        self.y_sheer = np.maximum(ys, 0.0) * np.maximum(w, 0.0) ** 0.15
+        MEASURED, and the reason this exists rather than a spline through the
+        station points: `unroll` first resampled the edges with a CubicSpline
+        through the 41 stations, and against the closed form that spline is
+        0.16 mm off on the keel, 4.9 mm on the chine and **94.95 mm on the
+        SHEER** — twenty times the 5 mm refold bar, before any developability
+        question is asked. The sheer carries a `w**0.15` taper to the stem
+        whose x-derivative is unbounded there, so a cubic interpolant
+        overshoots it badly. A refold measured against an interpolant is a
+        refold measured against the wrong hull.
+        """
+        t = self.x if x is None else np.atleast_1d(np.asarray(x, dtype=float))
+        zk, yc, zc, ys, zs = station_geometry(self.params, t)
+        return (np.stack([t, np.zeros_like(t), zk], axis=1),
+                np.stack([t, yc, zc], axis=1),
+                np.stack([t, ys, zs], axis=1))
 
     # ---- section machinery -------------------------------------------------
 

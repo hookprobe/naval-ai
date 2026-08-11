@@ -15,20 +15,39 @@ section G, BuildPlan3 R7):
 import numpy as np
 import pytest
 
-from navalai import engineer
+from navalai import engineer, unroll
 from navalai.engineer import assess
 from navalai.geometry import Hull
 from navalai.unroll import (SCARPH_RATIO, SHEET_L_M, SHEET_M2, SHEET_W_M,
                             develop, export_dxf, hull_panels, min_area_rect,
                             nest, parse_dxf_polylines, refold,
-                            refold_deviation_mm, split_panel)
+                            refold_deviation_mm, refold_surface_deviation_mm,
+                            rulings_that_cross, split_panel)
 from tests.test_phase0 import mid_params
 
 # The bar Gate 6 owes: a panel that refolds this far off the hull is a panel
 # whose seam you cannot fair. 5 mm is a fillable gap on a 10 m panel and is
 # already generous; it is NOT tuned to what the hull happens to achieve, which
-# is 28x and 45x worse. See test_gate6_refold_clause_is_red_on_the_hull.
+# was 28x and 45x worse on constant-x rulings and is 10x and 13x worse on the
+# fitted ones. THE BAR DID NOT MOVE WHEN THE GEOMETRY IMPROVED, which is the
+# only reason the improvement means anything.
+# See test_gate6_refold_clause_is_red_on_the_hull.
 REFOLD_BAR_MM = 5.0
+
+
+def _chord_error_mm(hull, edge, params):
+    """Max distance from an edge CURVE to the polyline through it at `params`.
+
+    The panel's boundary is that polyline, so this is how far the exported part
+    is from the hull before any developability question is asked."""
+    P = hull.edge_curves(params)[edge]
+    Q = hull.edge_curves(np.linspace(0.0, float(hull.x[-1]), 20001))[edge]
+    seg = P[1:] - P[:-1]
+    ll = np.einsum("ij,ij->i", seg, seg)
+    w = Q[:, None, :] - P[None, :-1]
+    s = np.clip(np.einsum("kij,ij->ki", w, seg) / np.maximum(ll, 1e-300), 0, 1)
+    return float(np.sqrt(((w - s[..., None] * seg[None]) ** 2).sum(-1))
+                 .min(axis=1).max()) * 1000.0
 
 
 # ---------------- fixtures: surfaces whose developability we KNOW ----------
@@ -122,21 +141,36 @@ def test_the_old_cylinder_fixture_was_a_conoid():
 def test_hull_panel_twist_is_recorded_not_blessed():
     """MEASURED on the reference hull, and NOT softened (honesty rule 6).
 
-    The BOTTOM panel is developable except in the bow warp: median 3.8e-15,
-    max 0.288 concentrated where the deadrise warps. The TOPSIDE panel is not
-    developable anywhere — median 0.617 — and is indistinguishable from the
-    hypar negative control above. That is a consequence of taking the rulings
-    at constant station x, which makes r lie in the y-z plane; developable
-    hull design solves for slanted rulings and `hull_panels` does not.
+    CONSTANT-X RULINGS, which is what `hull_panels` took until 2026-08-11 and
+    what `rulings="constant-x"` still reproduces verbatim: the BOTTOM panel is
+    developable except in the bow warp (median 3.8e-15, max 0.288, all of it
+    where the deadrise warps 8 deg -> 30 deg) and the TOPSIDE panel is not
+    developable anywhere — median 0.617, indistinguishable from the hypar
+    negative control above. r lies in the y-z plane, so det(A', r, r') reduces
+    to A'_x (r x r')_x, which vanishes only where the section shape stops
+    changing.
 
-    No bar is set here that the topside would pass and the hypar would fail,
-    because there is no such bar."""
-    bottom, topside = hull_panels(Hull(mid_params()))
+    THE FITTED RULINGS (the shipped default) drop the topside's MEDIAN twist
+    by 83x, from 0.617 to 0.0074, so it is no longer the hypar's. Its PEAK is
+    only halved, to 0.43, so no bar is set here that the fitted topside would
+    pass and the hypar would fail either — there is still no such bar. See
+    test_gate6_refold_clause_is_red_on_the_hull for what that costs."""
+    hull = Hull(mid_params())
+    bottom, topside = hull_panels(hull, rulings="constant-x")
     assert bottom.twist_median < 1e-9
     assert 0.2 < bottom.twist_max < 0.4
     assert 0.4 < topside.twist_median < 0.8
     assert topside.twist_max > 0.9
-    assert topside.twist_median > develop(*_hypar(41), "h").twist_median * 0.9
+    hypar = develop(*_hypar(41), "h").twist_median
+    assert topside.twist_median > hypar * 0.9
+
+    fb, ft = hull_panels(hull, rulings="developable")
+    assert fb.rulings == ft.rulings == "developable"
+    assert fb.twist_max == pytest.approx(0.029, abs=0.01)
+    assert ft.twist_max == pytest.approx(0.432, abs=0.05)
+    assert ft.twist_median == pytest.approx(0.0074, abs=0.004)
+    assert ft.twist_median < hypar / 50.0
+    assert ft.twist_max > 0.3          # the PEAK is not fixed, and is not hidden
 
 
 # ---------------- G4: the refold ------------------------------------------
@@ -157,42 +191,191 @@ def test_refold_of_a_true_developable_is_exact(fixture):
 
 
 def test_gate6_refold_clause_is_red_on_the_hull():
-    """RED, RECORDED, NOT SOFTENED (honesty rule 6).
+    """STILL RED after the slanted-ruling fix. RECORDED, NOT SOFTENED.
 
-    MEASURED max |refold - hull|, reference hull, 41 stations:
-        bottom-stbd   141.0 mm   (at x = 9.0 m, in the forefoot warp)
-        topside-stbd  225.7 mm   (at the stem)
-    At 161 stations they read 143.8 and 206.1 mm, so this is geometry and not
-    discretisation — it does not refine away.
+    The clearing condition on Gate 6D's ledger entry was "solve for SLANTED
+    rulings instead of constant-x ones". That is done — `developable_pairing`
+    — and it is a real 2.7x improvement, and it does not clear the bar.
+    MEASURED on the reference hull at 41 stations, two-sided panel-vs-hull
+    (`refold_surface_deviation_mm`), with the edge-only figure beside it:
 
-    The aft half of the BOTTOM panel refolds to 0.008 mm. That part of the hull
-    really is developable, and it is why the failure is diagnosable: every
-    millimetre of error is in the bow, where ruling_twist peaks at 0.288.
+        panel          constant-x            developable
+        bottom-stbd    140.2 (edge 141.0)    48.1 (edge  29.2)
+        topside-stbd   224.5 (edge 225.7)    66.2 (edge  66.2)
 
-    The fix is slanted rulings (developable surface FITTING), not a wider
-    tolerance. If someone implements that, this test fails and must be
-    rewritten as a pass — that is the intended way for it to break."""
-    bottom, topside = hull_panels(Hull(mid_params()))
+    So the watermark moves 224.5 -> 66.2 mm against a 5 mm bar: 13x out, where
+    it was 45x out. It is RED by record and it stays RED by record.
+
+    THE BAR IS UNTOUCHED. REFOLD_BAR_MM is still 5.0 and both panels and every
+    station are still measured; the improvement is in the geometry, not in the
+    accounting."""
+    hull = Hull(mid_params())
+    bottom, topside = hull_panels(hull)
     db = refold_deviation_mm(bottom)
     dt = refold_deviation_mm(topside)
+    sb = refold_surface_deviation_mm(hull, bottom)
+    st = refold_surface_deviation_mm(hull, topside)
 
     assert db.max() > REFOLD_BAR_MM and dt.max() > REFOLD_BAR_MM
-    assert 120.0 < db.max() < 170.0, f"bottom {db.max():.1f} mm"
-    assert 190.0 < dt.max() < 260.0, f"topside {dt.max():.1f} mm"
-    # the aft half is the developable half, and it MEETS the bar
-    assert db[:len(db) // 2].max() < REFOLD_BAR_MM
-    # and the error is where the twist is
-    assert int(np.argmax(db)) > len(db) // 2
+    assert sb > REFOLD_BAR_MM and st > REFOLD_BAR_MM
+    assert 24.0 < db.max() < 36.0, f"bottom edge {db.max():.1f} mm"
+    assert 58.0 < dt.max() < 75.0, f"topside edge {dt.max():.1f} mm"
+    assert 42.0 < sb < 55.0, f"bottom surface {sb:.1f} mm"
+    assert 58.0 < st < 75.0, f"topside surface {st:.1f} mm"
+    # the ledger watermark is the worse of the two panels, two-sided
+    assert max(sb, st) == pytest.approx(66.2, abs=2.0)
+
+
+def test_the_constant_x_control_is_worse_on_both_panels_and_both_metrics():
+    """THE GUARD, MADE TO FIRE (defect class 3). The fix is a change of ruling
+    family, so the only way to show it is a fix is to run the VERBATIM old
+    ruling selection through the same measurement and watch it lose.
+
+    `rulings="constant-x"` is that old selection — station i paired with
+    station i — and it is kept executable for exactly this reason. It must be
+    worse on BOTH panels under BOTH metrics, or the improvement is an artefact
+    of how the number is taken."""
+    hull = Hull(mid_params())
+    old = {p.name: p for p in hull_panels(hull, rulings="constant-x")}
+    new = {p.name: p for p in hull_panels(hull, rulings="developable")}
+    for name in ("bottom-stbd", "topside-stbd"):
+        o, n = old[name], new[name]
+        assert o.rulings == "constant-x" and n.rulings == "developable"
+        assert refold_deviation_mm(n).max() < refold_deviation_mm(o).max() / 2.0
+        assert (refold_surface_deviation_mm(hull, n)
+                < refold_surface_deviation_mm(hull, o) / 2.0)
+    # ...and the old family really is the recorded 2026-08-11 watermark, so a
+    # future reader can tell an improvement from a re-measurement
+    assert refold_deviation_mm(old["bottom-stbd"]).max() == pytest.approx(
+        141.0, abs=1.0)
+    assert refold_deviation_mm(old["topside-stbd"]).max() == pytest.approx(
+        225.7, abs=1.0)
+
+
+def test_the_edge_only_refold_can_be_bought_and_the_two_sided_one_cannot():
+    """WHY GATE 6D'S WATERMARK IS NOT `refold_deviation_mm` ANY MORE.
+
+    `refold_deviation_mm` watches the panel's far EDGE. A pairing free to take
+    an arbitrarily long ruling step reaches machine-zero quad warp — the strip
+    really is developable — by dumping 1.843 m of chine, 7.4x the mean station
+    spacing, into ONE quad. The edge lands on the chine at both ends of that
+    quad, so the edge metric reads 0.20 mm; the chord in between misses the
+    chine by 97.3 mm, and every point of that chord lies between keel and chine
+    (i.e. ON the hull surface), so a one-sided panel->hull test scores it
+    perfect too.
+
+    This is the shape of the defect this repository keeps producing: the number
+    the gate looks at improves while the error moves somewhere it does not
+    look. `_MAX_RULING_STEP` bounds the step and
+    `refold_surface_deviation_mm` is two-sided, and this test fires both by
+    removing the bound.
+
+    The acceptance guard in `hull_panels` still ACCEPTS the uncapped fit —
+    97.5 mm is better than the 140.2 mm constant-x panel it replaces — which
+    is the point: nothing except the bound and the two-sided metric stops the
+    trade."""
+    hull = Hull(mid_params())
+    saved = unroll._MAX_RULING_STEP
+    try:
+        unroll._MAX_RULING_STEP = 1e9
+        loose = hull_panels(hull)[0]
+    finally:
+        unroll._MAX_RULING_STEP = saved
+
+    step = float(np.diff(loose.par_b).max())
+    assert step > 6.0 * (10.0 / 40.0), f"max ruling step {step:.3f} m"
+    assert loose.rulings == "developable"
+    assert refold_deviation_mm(loose).max() < 1.0        # the edge is perfect
+    assert refold_surface_deviation_mm(hull, loose) > 90.0   # the panel is not
+    # ...and the shipped bound refuses that trade. The bound is a PENALTY, not
+    # a constraint, so it can in principle be exceeded; MEASURED, at the weight
+    # used it is overshot by 4e-9 m, and 1 micron is the bar this asserts.
+    tight = hull_panels(hull)[0]
+    assert float(np.diff(tight.par_b).max()) <= 4.0 * (10.0 / 40.0) + 1e-6
+    assert refold_surface_deviation_mm(hull, tight) < 55.0
+
+
+def test_fitted_rulings_span_the_whole_edge_and_do_not_cross():
+    """A slanted-ruling fit is only a panel if its rulings sweep the strip once
+    and both edges are still the WHOLE edge. Pinning the endpoints is what
+    stops the fit from clearing the bar by developing a convenient part of the
+    hull, which is the other way the metric could have been bought."""
+    hull = Hull(mid_params())
+    for p in hull_panels(hull):
+        assert p.par_b[0] == pytest.approx(hull.x[0])
+        assert p.par_b[-1] == pytest.approx(hull.x[-1])
+        assert np.all(np.diff(p.par_b) > 0.0)
+        assert rulings_that_cross(p) == 0, p.name
+        assert not np.allclose(p.par_b, p.par_a)   # they really are slanted
+
+
+def test_no_exact_developable_spans_the_bottom_panels_two_edges():
+    """MECHANISM (a) behind the residual 46 mm, kept executable.
+
+    Marching the planar-quad condition forward from the transom — keel at the
+    hull's own stations, chine parameter chosen so each quad is planar — the
+    march TERMINATES at keel x = 7.25 m of 10.00 m: the plane through the
+    current ruling and the next keel point no longer meets the chine ahead of
+    the current chine parameter. The developable generated off this keel runs
+    out of chine before it runs out of keel, so there is no exact developable
+    with both ends pinned, and no ruling selection can produce one."""
+    hull = Hull(mid_params())
+    grid = np.linspace(0.0, float(hull.x[-1]), 40001)
+    chine = hull.edge_curves(grid)[1]
+    v, reached = 0.0, 0
+    for i in range(len(hull.x) - 1):
+        a0, a1 = hull.edge_curves(hull.x[i:i + 2])[0]
+        b0 = hull.edge_curves(np.array([v]))[1][0]
+        f = (chine - a0) @ np.cross(a1 - a0, b0 - a0)
+        j0 = int(np.searchsorted(grid, v + 1e-9))
+        k = np.where(np.diff(np.sign(f[j0:])) != 0)[0]
+        if not len(k):
+            break
+        j = j0 + int(k[0])
+        t = abs(f[j]) / (abs(f[j]) + abs(f[j + 1]))
+        v = grid[j] + t * (grid[j + 1] - grid[j])
+        reached = i + 1
+    assert reached < len(hull.x) - 1, "the march completed; re-derive (a)"
+    assert float(hull.x[reached]) == pytest.approx(7.25, abs=0.5)
+
+
+def test_the_sheer_polyline_is_already_off_the_sheer_curve():
+    """MECHANISM (b), and the floor under the TOPSIDE panel.
+
+    `y_sheer = ys * w**0.15` sends dy/dx to infinity at the stem, so the sheer
+    is not resolvable by uniform stations: the 41-station polyline misses the
+    curve by 65.6 mm before developability is asked about, and it converges at
+    roughly O(h^0.5) — 81.0 / 65.6 / 47.3 / 29.9 mm at 21 / 41 / 81 / 161. The
+    topside panel's 82.2 mm therefore is NOT mostly a ruling problem, and no
+    unroller change will move it; the chine, whose plan-form has no such
+    exponent, reads 3.4 mm at the same 41 stations."""
+    got = []
+    for n in (21, 41, 81, 161):
+        hull = Hull(mid_params(), n_stations=n)
+        got.append(_chord_error_mm(hull, 2, hull.x))
+    assert got[1] == pytest.approx(65.6, abs=2.0)
+    assert Hull(mid_params()).x.size == 41
+    assert _chord_error_mm(Hull(mid_params()), 1, Hull(mid_params()).x) < 5.0
+    # a 4x refinement buys less than 2.5x, i.e. nowhere near O(h^2)
+    order = np.log(got[0] / got[3]) / np.log(8.0)
+    assert order < 0.75, f"sheer chord error converges at O(h^{order:.2f})"
 
 
 def test_refold_does_not_converge_with_station_count():
     """A refold error that shrank under refinement would be a discretisation
-    artefact of the development, not a statement about the panel. It does not:
-    141.0 -> 143.8 mm on the bottom over a 4x refinement."""
-    coarse = hull_panels(Hull(mid_params(), n_stations=41))[0]
-    fine = hull_panels(Hull(mid_params(), n_stations=161))[0]
-    assert (refold_deviation_mm(fine).max()
-            == pytest.approx(refold_deviation_mm(coarse).max(), rel=0.15))
+    artefact of the development, not a statement about the panel.
+
+    It does not, on EITHER ruling family. Constant-x: 141.0 -> 143.8 mm over a
+    4x refinement, i.e. slightly WORSE. Developable: 29.2 -> 64.2 mm, also
+    worse, because refinement pushes the sheer/chine chord error down while
+    leaving the pairing a harder problem in 159 unknowns instead of 39. Either
+    way the miss is geometry."""
+    for rulings, lo, hi in (("constant-x", 1.0, 1.2), ("developable", 1.0, 3.0)):
+        coarse = hull_panels(Hull(mid_params(), n_stations=41), rulings)[0]
+        fine = hull_panels(Hull(mid_params(), n_stations=161), rulings)[0]
+        ratio = (refold_deviation_mm(fine).max()
+                 / refold_deviation_mm(coarse).max())
+        assert lo <= ratio <= hi, f"{rulings}: fine/coarse = {ratio:.2f}"
 
 
 def test_refold_refuses_a_panel_it_cannot_locate():

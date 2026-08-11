@@ -6,8 +6,8 @@ curves (keel-chine for the bottom panel, chine-sheer for the topside).
 Isometric by construction along edges and one diagonal family; the residual
 on the OTHER diagonal family is `dev_error_rel`.
 
-THREE THINGS THIS MODULE NOW DOES THAT IT CLAIMED TO DO AND DID NOT
--------------------------------------------------------------------
+FOUR THINGS THIS MODULE NOW DOES THAT IT CLAIMED TO DO AND DID NOT
+------------------------------------------------------------------
 
 1. `dev_error_rel` CANNOT FAIL, and was the only developability metric here.
    It is a per-quad chord residual, i.e. O(h^2) discretisation error for ANY
@@ -50,6 +50,13 @@ THREE THINGS THIS MODULE NOW DOES THAT IT CLAIMED TO DO AND DID NOT
    design solves for SLANTED rulings; `hull_panels` does not, and no bar here
    is set where the hull would pass and the hypar would fail.
 
+   SUPERSEDED IN PART, 2026-08-11: `hull_panels` DOES now solve for slanted
+   rulings — see item 4. The twist figures above are what the CONSTANT-X
+   family reads and stay reproducible via `hull_panels(hull, "constant-x")`;
+   the fitted family reads 0.029 max / 0.000 median on the bottom and 0.432
+   max / 0.0074 median on the topside — the topside's MEDIAN is 83x lower and
+   no longer the hypar's, though its peak is not. Conclusion unchanged: item 4.
+
 2. THE REFOLD WAS NEVER TESTED. Gate 6 claims "exported panels re-fold to the
    hull within tolerance" and no code mapped 2-D back to 3-D. `refold` does,
    and the answer is a RED finding — see its docstring.
@@ -62,13 +69,51 @@ THREE THINGS THIS MODULE NOW DOES THAT IT CLAIMED TO DO AND DID NOT
    waste factor. Panels are now split at scarph joints, packed with rotation
    by MaxRects, and the sheet count is COUNTED off the layout.
 
+4. SLANTED RULINGS HALVE THE REFOLD MISS AND DO NOT CLEAR IT — the hull is not
+   developable (gap G4 / Gate 6D, 2026-08-11). The clearing condition on record
+   was "solve for SLANTED rulings instead of constant-x ones". That is now
+   done (`developable_pairing`), and MEASURED on the reference hull at the
+   shipped 41 stations, worst of the two panels, two-sided panel-vs-hull:
+
+       ruling family      bottom-stbd        topside-stbd      worst
+       constant-x          140.2 mm            224.5 mm       224.5 mm
+       developable          48.1 mm             66.2 mm        66.2 mm
+
+   Better by 3.4x, still 13x outside the 5 mm bar. THREE mechanisms hold the
+   rest and NOT ONE of them is a ruling choice:
+
+   (a) NO EXACT DEVELOPABLE SPANS THE BOTTOM PANEL'S TWO EDGES. March the
+       planarity condition forward from the transom with the keel at uniform
+       stations and it TERMINATES at keel x = 7.25 m: the plane through the
+       current ruling and the next keel point no longer meets the chine ahead.
+       The fit can still reach machine-zero warp with both ends pinned, and the
+       way it does it is to put 1.846 m of chine — 7.4x the mean station
+       spacing — into ONE quad, whose chord then misses the chine by 97.5 mm.
+       On that panel the edge-only `refold_deviation_mm` reads 0.07 mm.
+       `_MAX_RULING_STEP` refuses to buy developability that way and
+       `refold_surface_deviation_mm` is two-sided so it cannot be bought again.
+   (b) THE SHEER POLYLINE IS ALREADY 65.6 mm OFF THE SHEER CURVE at 41
+       stations, before developability is even asked about, and it converges at
+       roughly O(h^0.5): 81.0 / 65.6 / 47.3 / 29.9 mm at 21 / 41 / 81 / 161
+       stations. `y_sheer = ys * w**0.15` drives dy/dx to infinity at the stem
+       (-0.68 at x = 9.7 m, -1.99 at x = 10.0 m and unbounded in the limit), so
+       no uniform sampling resolves it. That is the floor the topside panel
+       sits on, and it is a GRAMMAR property, not an unroller one.
+   (c) THE CHINE AND SHEER HAVE A SLOPE DISCONTINUITY at x = x_mb * L (5.50 m
+       here), where the plan-form exponent switches branches and dw/dx jumps
+       from 0.1364 to 0 — a CREASE in both edge curves. The fitted topside
+       panel refolds to 0.69-0.92 mm everywhere aft of it and steps to
+       6.02-6.16 mm at exactly that station (i=22 -> i=23) and stays there. So
+       the crease costs the panel a 6 mm floor on its own, and it too is a
+       grammar property.
+
 DXF: minimal R12 ASCII (POLYLINE/VERTEX/SEQEND) — the most widely readable
 dialect for CNC/nesting shops — in MILLIMETRES, declared via $INSUNITS 4.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import numpy as np
@@ -130,6 +175,37 @@ def ruling_twist(A: np.ndarray, B: np.ndarray) -> np.ndarray:
     return np.where(den > 1e-300, num / np.maximum(den, 1e-300), 0.0)
 
 
+def quad_warp(A: np.ndarray, B: np.ndarray) -> np.ndarray:
+    """Per-QUAD non-planarity of the strip, normalised. (n-1,) array.
+
+    `ruling_twist` is the continuous criterion; this is its discrete twin, and
+    it is the one that predicts the refold, because the development and the
+    refold are both operations on QUADS:
+
+      * `develop` splits quad i on the diagonal (A[i+1], B[i]) and lays the two
+        triangles out flat. Both triangles are placed EXACTLY, so the flat
+        pattern is a perfect isometry of the polyhedral strip. What it cannot
+        preserve is the OTHER diagonal (A[i], B[i+1]) — unless the four corners
+        were coplanar to begin with.
+      * `refold` rebuilds B[i+1] by trilaterating from B[i], A[i+1] and A[i],
+        and the third of those three distances is exactly that other diagonal.
+
+    So a planar quad refolds exactly and a warped one does not, and the error
+    is fed forward into the next station's datum. This returns
+    det(A[i+1]-A[i], B[i]-A[i], B[i+1]-A[i]) over the product of the three edge
+    lengths: dimensionless, signed, zero iff the quad is planar.
+    """
+    A = np.asarray(A, dtype=float)
+    B = np.asarray(B, dtype=float)
+    d1 = A[1:] - A[:-1]
+    d2 = B[:-1] - A[:-1]
+    d3 = B[1:] - A[:-1]
+    num = np.einsum("ij,ij->i", np.cross(d1, d2), d3)
+    den = (np.linalg.norm(d1, axis=1) * np.linalg.norm(d2, axis=1)
+           * np.linalg.norm(B[1:] - B[:-1], axis=1))
+    return num / np.maximum(den, 1e-300)
+
+
 @dataclass(frozen=True)
 class FlatPanel:
     name: str
@@ -140,6 +216,14 @@ class FlatPanel:
     twist_median: float = 0.0
     src_a: np.ndarray | None = field(default=None, compare=False)
     src_b: np.ndarray | None = field(default=None, compare=False)
+    # WHICH RULING FAMILY THIS PANEL WAS DEVELOPED ON, and the longitudinal
+    # parameters the two edges were sampled at. Recorded rather than implied:
+    # the panel's flat outline is the same shape either way, and the only way a
+    # reader can tell a constant-x development from a fitted one is if the
+    # panel says so.
+    rulings: str = "constant-x"
+    par_a: np.ndarray | None = field(default=None, compare=False)
+    par_b: np.ndarray | None = field(default=None, compare=False)
 
     @property
     def outline(self) -> np.ndarray:
@@ -190,12 +274,279 @@ def develop(A: np.ndarray, B: np.ndarray, name: str) -> FlatPanel:
                      float(tw.max()), float(np.median(tw)), A.copy(), B.copy())
 
 
-def hull_panels(hull: Hull) -> list[FlatPanel]:
-    keel = np.stack([hull.x, np.zeros_like(hull.x), hull.z_keel], axis=1)
-    chine = np.stack([hull.x, hull.y_chine, hull.z_chine], axis=1)
-    sheer = np.stack([hull.x, hull.y_sheer, hull.z_sheer], axis=1)
-    return [develop(keel, chine, "bottom-stbd"),
-            develop(chine, sheer, "topside-stbd")]
+# The LAMBDA LADDER for the pairing fit. Each rung is a full LM solve warm-
+# started from the previous one, on
+#     [ quad_warp ; lam * d2(v)/dx2 ; min-step barrier ; max-step barrier ].
+# The planarity condition has several roots, and the smoothing term is what
+# keeps the fit on the one that starts at the identity. MEASURED, worst
+# two-sided deviation on the reference hull at 41 stations, taking only the
+# LAST k rungs (i.e. starting the continuation at a smaller lambda):
+#
+#     rungs        1      2      3      5      7     10
+#     bottom mm  69.9   70.2   70.2   70.2   70.2   48.1
+#     topside mm 94.5   81.1   79.3   75.6   75.5   66.2
+#
+# The full ladder is worth 22 mm on the bottom and 28 mm on the topside over
+# ANY truncation of it, and the jump is at the top rung: it is the strong
+# smoothing at lambda = 1e-1, not the fine tail, that finds the better branch.
+# Starting higher than 1e-1 was not measured.
+_PAIRING_LAMBDAS = tuple(10.0 ** (-1 - k) for k in range(9)) + (0.0,)
+_PAIRING_ITERS = 60
+# Coarsest level of the station-count multigrid (see `developable_pairing`).
+_PAIRING_COARSEST = 21
+# A ruling may not come closer than this fraction of the mean station spacing
+# to its neighbour. Rulings fanning into the stem is real, but a pairing free
+# to stack rulings on top of each other can drive the residual down by skipping
+# hull instead of by fitting it, and the metric is only evaluated AT the
+# rulings — the same shape of defect as measuring a gate at a configuration the
+# product never runs.
+_MIN_RULING_STEP = 0.05
+# ...and it may not SKIP more than this multiple of the mean spacing either.
+# The panel edge is a polyline through the paired points, so a ruling that
+# jumps 1.8 m of chine draws a chord that misses the chine by 97 mm. Bounding
+# only the lower end let the fit buy a machine-zero warp with a panel whose
+# boundary was no longer the boundary of the hull — the edge-only
+# `refold_deviation_mm` read 0.07 mm on exactly that panel.
+#
+# CHOSEN ON ONE STATED CRITERION: the WORST-PANEL two-sided deviation
+# (`refold_surface_deviation_mm`), over the reference hull and two
+# rejection-sampled grammar hulls, at 41 and 161 stations. MEASURED [mm]:
+#
+#     cap x mean spacing      2.0     3.0     4.0     6.0    none
+#     mid    n= 41           93.6    69.3    66.2    74.0    97.5
+#     mid    n=161           97.7   106.8   102.2    90.0    97.3
+#     rand0  n= 41          454.4   470.0   424.8   437.7   437.7
+#     rand0  n=161          447.5  1938.1   435.2   458.0  1755.6
+#     rand1  n= 41         1151.7   856.3   885.1   931.3  1012.9
+#     rand1  n=161         1447.6   887.7   750.9   897.8  1375.8
+#
+# 4.0 is best in four of the six rows and never far off in the other two. IT
+# IS NOT A SHARP OPTIMUM — this is a CALIBRATED constant, not a derived one,
+# and it is stated as such rather than quoted as if the geometry chose it.
+_MAX_RULING_STEP = 4.0
+# Sampling used for the ACCEPTANCE GUARD only, not for a reported number.
+# `hull_panels` is on the path of `engineer.assess`, which the PLM network runs
+# per candidate, so the guard cannot afford the reporting resolution: 0.065 s
+# against 0.50 s per call, four calls per hull. MEASURED against the reporting
+# default over the reference hull and two rejection-sampled hulls, both ruling
+# families, both panels — 12 cases: identical to 6 figures in 11 of them and
+# 47.995 vs 48.067 mm in the twelfth, i.e. 0.15%. A guard decides a
+# COMPARISON, and a 0.15% offset applied to both sides of it does not.
+_GUARD_SAMPLING = {"n_hull": 201, "n_along": 4, "n_across": 5}
+
+
+def _pairing_residual(hull, ia, ib, x, lam, A):
+    """residual(d) for the pairing v = x + [0, d, 0]."""
+    h = float(x[-1] - x[0]) / (len(x) - 1)
+
+    def f(d):
+        v = x.copy()
+        # CLIPPED TO THE CURVE'S OWN DOMAIN. The step barriers below are soft,
+        # so a trial iterate can put a parameter outside [0, LWL]; the chine
+        # plan-form then evaluates (x/x_mb)**p_stern on a negative base and
+        # `station_geometry` returns NaN, which an LM reads as "not an
+        # improvement" and quietly works around. A hull curve does not exist
+        # outside its own length, so the trial point is clamped to where it
+        # does, and the final pairing is asserted in range by the caller.
+        v[1:-1] = np.clip(x[1:-1] + d, x[0], x[-1])
+        B = hull.edge_curves(v)[ib]
+        return np.concatenate([
+            quad_warp(A, B),
+            lam * np.diff(v, 2) / h,
+            200.0 * np.maximum(_MIN_RULING_STEP * h - np.diff(v), 0.0) / h,
+            200.0 * np.maximum(np.diff(v) - _MAX_RULING_STEP * h, 0.0) / h,
+        ])
+
+    return f
+
+
+def _column_rows(npar: int, nres: int) -> list[np.ndarray]:
+    """Rows each pairing parameter can touch, per residual block.
+
+    Parameter k is the offset of v[k+1]. The residual is four banded blocks:
+    quad_warp (npar+1 rows, row j reads v[j], v[j+1]), the second difference
+    (npar rows, row j reads v[j..j+2]), and the two step barriers (npar+1 rows
+    each, row j reads v[j], v[j+1]). Written out rather than inferred, because
+    an over-wide mask is what makes a grouped finite difference silently
+    ALIAS: with columns perturbed three apart, a mask reaching two rows back
+    hands column k a derivative that belongs to column k-3, and the LM then
+    proposes steps from a Jacobian nobody measured.
+    """
+    blocks = ((0, npar + 1, 0, 2),                     # warp:  j in {k, k+1}
+              (npar + 1, npar, -1, 2),                 # smooth: j in {k-1..k+1}
+              (2 * npar + 1, npar + 1, 0, 2),          # min-step barrier
+              (3 * npar + 2, npar + 1, 0, 2))          # max-step barrier
+    out = []
+    for k in range(npar):
+        rows = []
+        for off, size, lo, hi in blocks:
+            if off >= nres:
+                continue
+            j = np.arange(max(k + lo, 0), min(k + hi, size))
+            rows.append(j + off)
+        out.append(np.concatenate(rows) if rows else np.zeros(0, dtype=int))
+    return out
+
+
+def _lm(f, d0, npar, iters):
+    """Levenberg-Marquardt with a STRUCTURED Jacobian.
+
+    Every residual block is banded in the pairing parameters, so perturbing
+    every third parameter at once touches disjoint rows and the whole Jacobian
+    costs 3 residual evaluations instead of `npar`. MEASURED on the reference
+    hull's bottom panel at 41 stations: 0.130 s against 0.646 s for a
+    column-at-a-time finite difference, i.e. 5.0x, for a Jacobian that agrees
+    with the dense one to 0.0. `hull_panels` is on the path of
+    `engineer.assess`, which the PLM network runs per candidate.
+    """
+    d = np.asarray(d0, dtype=float).copy()
+    r = f(d)
+    cost = 0.5 * float(r @ r)
+    mu = 1e-3
+    eps = 1e-7
+    groups = [np.arange(g, npar, 3) for g in range(3)]
+    rows_of = _column_rows(npar, len(r))
+    for _ in range(iters):
+        J = np.zeros((len(r), npar))
+        for g in groups:
+            if not len(g):
+                continue
+            q = d.copy()
+            q[g] += eps
+            col = (f(q) - r) / eps
+            for k in g:
+                rows = rows_of[k]
+                J[rows, k] = col[rows]
+        H = J.T @ J
+        g_ = J.T @ r
+        moved = False
+        step = np.zeros(npar)
+        for _ in range(30):
+            try:
+                step = np.linalg.solve(
+                    H + mu * np.diag(np.maximum(np.diag(H), 1e-12)), -g_)
+            except np.linalg.LinAlgError:
+                mu *= 10.0
+                continue
+            rq = f(d + step)
+            cq = 0.5 * float(rq @ rq)
+            if cq < cost:
+                d, r, cost = d + step, rq, cq
+                mu = max(mu / 3.0, 1e-12)
+                moved = True
+                break
+            mu *= 5.0
+        if not moved or float(np.linalg.norm(step)) < 1e-14:
+            break
+    return d
+
+
+def developable_pairing(hull: Hull, edge_a: int, edge_b: int) -> np.ndarray:
+    """Longitudinal parameters at which edge B is sampled, one per ruling.
+
+    THE FIX FOR GAP G4 / GATE 6D. `hull_panels` used to pair station i of one
+    edge with station i of the other, so every ruling lay in a constant-x
+    plane. A ruled surface is developable iff det(A', r, r') vanishes, and with
+    r confined to the y-z plane that determinant is A'_x (r x r')_x, which is
+    zero only where the section shape stops changing. Constant-x rulings are
+    therefore developable ONLY on a hull whose sections do not change shape —
+    which is why the aft half of the bottom panel (constant deadrise, flat
+    keel: a plane) refolded to 0.008 mm while the forefoot, where the deadrise
+    warps 8 deg -> 30 deg, refolded 141.0 mm off.
+
+    So the ruling for keel station i is allowed to land at chine parameter
+    v[i] != x[i]. v[0] and v[-1] stay pinned at the ends of the curve — the
+    panel must still span the whole edge, not a convenient part of it — and the
+    interior is solved so that every quad is planar.
+
+    Returns v (n,). The step bounds are PENALTIES rather than constraints, so
+    monotonicity is what the solve produces and not what it promises:
+    `hull_panels` checks `np.all(np.diff(v) > 0)` and falls back to constant-x
+    rulings if it fails. The caller samples edge B with `Hull.edge_curves(v)`,
+    i.e. the CLOSED FORM, not an interpolant.
+    """
+    x = np.asarray(hull.x, dtype=float)
+    if len(x) - 2 < 1:
+        return x.copy()
+    # MULTIGRID IN THE STATION COUNT: solve coarse, interpolate the pairing up,
+    # re-solve. It costs about 30% of the runtime and it is kept for ONE
+    # measured reason -- it removes a catastrophic local minimum. Worst-panel
+    # two-sided deviation [mm], cold start vs multigrid:
+    #
+    #     hull      n= 41         n=161            n=321
+    #     mid     66.3 / 66.2   94.4 / 102.2   113.4 / 104.4
+    #     rand0  426.2 / 424.8  435.1 / 435.2   439.3 / 439.3
+    #     rand1  885.1 / 885.1 1262.2 / 750.8   452.4 / 452.4
+    #
+    # So it is a WASH on five of the nine and it is worth 511 mm on rand1 at
+    # 161 stations. It also costs 8 mm on mid at 161 and buys 9 mm back at 321,
+    # which is the honest shape of the result: this is variance reduction on a
+    # non-convex fit, not convergence.
+    levels = []
+    m = _PAIRING_COARSEST
+    while m < len(x):
+        levels.append(m)
+        m = 2 * m - 1
+    levels.append(len(x))
+    d = None
+    for m in levels:
+        xm = np.linspace(float(x[0]), float(x[-1]), m)
+        Am = hull.edge_curves(xm)[edge_a]
+        dm = (np.zeros(m - 2) if d is None
+              else np.interp(xm[1:-1], prev_x, prev_d))
+        for lam in _PAIRING_LAMBDAS:
+            dm = _lm(_pairing_residual(hull, edge_a, edge_b, xm, lam, Am),
+                     dm, m - 2, _PAIRING_ITERS)
+        dm = np.clip(xm[1:-1] + dm, xm[0], xm[-1]) - xm[1:-1]
+        prev_x, prev_d = xm, np.concatenate([[0.0], dm, [0.0]])
+        d = dm
+    v = x.copy()
+    v[1:-1] = x[1:-1] + d
+    if not (v[0] >= x[0] - 1e-12 and v[-1] <= x[-1] + 1e-12
+            and np.all(v >= x[0] - 1e-12) and np.all(v <= x[-1] + 1e-12)):
+        raise ValueError("developable_pairing left the curve's domain")
+    return v
+
+
+def hull_panels(hull: Hull, rulings: str = "developable") -> list[FlatPanel]:
+    """The two shell panels, developed.
+
+    `rulings="constant-x"` is the pre-2026-08-11 behaviour, kept executable so
+    the improvement has a control to be measured against rather than a
+    remembered number (defect class 3: a guard that was never made to fire).
+    """
+    if rulings not in ("developable", "constant-x"):
+        raise ValueError(f"unknown ruling family {rulings!r}")
+    x = np.asarray(hull.x, dtype=float)
+    out: list[FlatPanel] = []
+    for name, ia, ib in (("bottom-stbd", 0, 1), ("topside-stbd", 1, 2)):
+        A = hull.edge_curves(x)[ia]
+        base = replace(develop(A, hull.edge_curves(x)[ib], name),
+                       rulings="constant-x", par_a=x.copy(), par_b=x.copy())
+        if rulings == "constant-x":
+            out.append(base)
+            continue
+        v = developable_pairing(hull, ia, ib)
+        fit = replace(develop(A, hull.edge_curves(v)[ib], name),
+                      rulings="developable", par_a=x.copy(),
+                      par_b=np.asarray(v).copy())
+        # REFUSE A FIT THAT IS NOT AN IMPROVEMENT, ON THE METRIC THAT DECIDES.
+        # An earlier version of this guard compared max |quad_warp| and it was
+        # NOT sufficient: the planarity condition has several roots, and on a
+        # rejection-sampled grammar hull at 161 stations a solve that walked
+        # onto another branch returned a lower warp and a topside panel
+        # **1938 mm** off the hull, against 612 mm for the constant-x family it
+        # replaced. A guard that watches a proxy passes the case the proxy
+        # cannot see. This one watches `refold_surface_deviation_mm`, which is
+        # the gate's own metric, and `panel.rulings` records which family the
+        # comparison chose so the answer is never implied.
+        if (np.all(np.diff(v) > 0)
+                and refold_surface_deviation_mm(hull, fit, **_GUARD_SAMPLING)
+                < refold_surface_deviation_mm(hull, base, **_GUARD_SAMPLING)):
+            out.append(fit)
+        else:
+            out.append(base)
+    return out
 
 
 # ---------------- refold: 2-D back to 3-D ----------------
@@ -275,21 +626,162 @@ def refold_deviation_mm(panel: FlatPanel) -> np.ndarray:
     MEASURED on the reference hull (`tests/test_phase0.mid_params`, 41
     stations), max over the panel:
 
-        panel            n=41      n=161     where
-        true cylinder   0.0000 mm  --        exact, as a developable must be
-        bottom-stbd      141.0 mm  143.8 mm  x = 9.0 m, in the forefoot warp
-        topside-stbd     225.7 mm  206.1 mm  at the stem
+        panel                          n=41      n=161
+        true cylinder               0.0000 mm    --      exact, as it must be
+        bottom-stbd,  constant-x     141.0 mm   143.8 mm  x=9.0 m, forefoot warp
+        topside-stbd, constant-x     225.7 mm   206.1 mm  at the stem
+        bottom-stbd,  developable     29.2 mm    64.2 mm
+        topside-stbd, developable     66.2 mm   102.9 mm
 
-    It does not shrink with refinement, so it is geometry and not
-    discretisation. The aft half of the BOTTOM panel refolds to 0.0 mm — that
-    part of the hull really is developable — and every millimetre of the error
-    is in the bow, where `ruling_twist` peaks at 0.291. Against the 5 mm bar in
-    `tests/test_stageF.py` this is a FAIL by 28x and 45x, recorded rather than
-    softened (honesty rule 6). The fix is slanted rulings, i.e. developable
-    surface FITTING, not a wider tolerance.
+    The constant-x figures do not shrink with refinement, so they are geometry
+    and not discretisation. The aft half of the constant-x BOTTOM panel refolds
+    to 0.008 mm — that part of the hull really is developable — and every
+    millimetre of its error is in the bow, where `ruling_twist` peaks at 0.288.
+
+    THIS METRIC IS NOT SUFFICIENT ON ITS OWN and must not be quoted alone.
+    It watches the far EDGE, so it cannot see a fitted panel whose edge lands
+    on the chine while the sheet in between leaves the hull: with the ruling
+    step uncapped the bottom panel reads **0.07 mm here and 97.5 mm** under
+    `refold_surface_deviation_mm`. Gate 6D's watermark is the two-sided one.
     """
     return np.linalg.norm(refold(panel) - np.asarray(panel.src_b, dtype=float),
                           axis=1) * 1000.0
+
+
+_PANEL_EDGES = {"bottom-stbd": (0, 1), "topside-stbd": (1, 2)}
+
+
+def _point_tri_dist(P: np.ndarray, T: np.ndarray) -> np.ndarray:
+    """min distance from each point in P (m,3) to the triangle set T (k,3,3)."""
+    out = np.full(len(P), np.inf)
+    a, b, c = T[:, 0], T[:, 1], T[:, 2]
+    ab, ac = b - a, c - a
+    d00 = np.einsum("ij,ij->i", ab, ab)
+    d01 = np.einsum("ij,ij->i", ab, ac)
+    d11 = np.einsum("ij,ij->i", ac, ac)
+    den = np.maximum(d00 * d11 - d01 * d01, 1e-300)
+    edges = ((a, ab), (a, ac), (b, c - b))
+    for k in range(0, len(P), 512):
+        q = P[k:k + 512]
+        ap = q[:, None, :] - a[None]
+        d20 = np.einsum("kij,ij->ki", ap, ab)
+        d21 = np.einsum("kij,ij->ki", ap, ac)
+        u = (d11 * d20 - d01 * d21) / den
+        v = (d00 * d21 - d01 * d20) / den
+        inside = (u >= 0) & (v >= 0) & (u + v <= 1)
+        proj = a[None] + u[..., None] * ab[None] + v[..., None] * ac[None]
+        best = np.where(inside, np.linalg.norm(q[:, None, :] - proj, axis=2),
+                        np.inf)
+        for p0, e in edges:                    # clamp to each edge
+            ee = np.maximum(np.einsum("ij,ij->i", e, e), 1e-300)
+            t = np.clip(np.einsum("kij,ij->ki", q[:, None, :] - p0[None], e)
+                        / ee, 0.0, 1.0)
+            foot = p0[None] + t[..., None] * e[None]
+            best = np.minimum(best, np.linalg.norm(q[:, None, :] - foot, axis=2))
+        out[k:k + 512] = best.min(axis=1)
+    return out
+
+
+def refold_surface_deviation_mm(hull: Hull, panel: FlatPanel,
+                                n_along: int = 20, n_across: int = 9,
+                                n_hull: int = 1201) -> float:
+    """Two-sided (Hausdorff) max distance [mm] between the REFOLDED PANEL
+    SURFACE and the hull's own moulded surface. The edge-only refold cannot see
+    this, and it must.
+
+    BOTH DIRECTIONS, because one of them alone is not a distance between
+    surfaces. MEASURED when only panel->hull was computed: the developable fit
+    on the bottom panel scored 28.3 mm while its chine edge, a 41-point
+    polyline over a pairing that takes 1.8 m steps near the stem, CUT THE
+    CORNER OF THE CHINE BY 97 mm. Every point of that chord lies between the
+    keel and the chine, i.e. ON the hull surface, so a panel->hull test scores
+    a panel that covers less than the hull as perfect. Hull->panel is the
+    direction that sees a missing strip.
+
+    `refold_deviation_mm` asks whether the panel's far EDGE lands on the chine
+    (or the sheer). Slanted rulings can answer that perfectly while the sheet
+    between the edges bulges off the shape the ladder floated, because a
+    slanted-ruled surface and the constant-x-ruled surface share their two
+    boundary curves and differ in the interior. Reporting only the edge after
+    changing the ruling family would move the error somewhere the gate's metric
+    does not look — this repository's most expensive defect class.
+
+    So this measures the whole strip: the surface ruled between the jig datum
+    `src_a` and the REFOLDED far edge, against `Hull.section`'s constant-x
+    ruled surface, which is what hydrostatics, the Michell integral and the
+    CFD STL all integrate.
+
+    MEASURED on the reference hull (`mid_params`, 41 stations):
+
+        panel          rulings                    edge refold    this
+        bottom-stbd    constant-x                    141.0 mm   140.2 mm
+        bottom-stbd    developable, step uncapped      0.07 mm    97.5 mm
+        bottom-stbd    developable (shipped)          29.2 mm    48.1 mm
+        topside-stbd   constant-x                    225.7 mm   224.5 mm
+        topside-stbd   developable (shipped)          66.2 mm    66.2 mm
+
+    Row two is the whole reason this function exists.
+    """
+    if panel.src_a is None or panel.src_b is None:
+        raise ValueError("needs the 3-D edges: build the panel with develop()")
+    ia, ib = _PANEL_EDGES[panel.name]
+    A = np.asarray(panel.src_a, dtype=float)
+    B = refold(panel)
+    t = np.linspace(0.0, 1.0, n_along + 1)[:, None]
+    s = np.linspace(0.0, 1.0, n_across)[:, None, None]
+    P = []
+    for i in range(len(A) - 1):
+        a = A[i] + t * (A[i + 1] - A[i])
+        b = B[i] + t * (B[i + 1] - B[i])
+        P.append((a[None] + s * (b - a)[None]).reshape(-1, 3))
+    P = np.vstack(P)
+    xs = np.linspace(float(hull.x[0]), float(hull.x[-1]), 4001)
+    e = hull.edge_curves(xs)
+    K, D = e[ia], e[ib] - e[ia]
+    dd = np.einsum("ij,ij->i", D, D)
+    worst = 0.0
+    for k in range(0, len(P), 2000):
+        q = P[k:k + 2000]
+        w = q[:, None, :] - K[None]
+        u = np.clip(np.einsum("kij,ij->ki", w, D)
+                    / np.maximum(dd, 1e-300), 0.0, 1.0)
+        diff = w - u[..., None] * D[None]
+        worst = max(worst, float(np.sqrt((diff ** 2).sum(-1)).min(axis=1).max()))
+
+    # ...and hull -> panel, against the panel's actual triangulation
+    tris = np.concatenate([
+        np.stack([A[:-1], B[:-1], A[1:]], axis=1),
+        np.stack([A[1:], B[:-1], B[1:]], axis=1)])
+    xs2 = np.linspace(float(hull.x[0]), float(hull.x[-1]), n_hull)
+    e2 = hull.edge_curves(xs2)
+    f = np.linspace(0.0, 1.0, n_across)[:, None, None]
+    HP = (e2[ia][None] + f * (e2[ib] - e2[ia])[None]).reshape(-1, 3)
+    worst = max(worst, float(_point_tri_dist(HP, tris).max()))
+    return worst * 1000.0
+
+
+def rulings_that_cross(panel: FlatPanel) -> int:
+    """How many neighbouring ruling pairs intersect INSIDE the panel.
+
+    A slanted-ruling fit is only a panel if its rulings sweep the strip once.
+    The developability condition has several roots and a solve that hops
+    between them can return a strictly monotone pairing whose rulings still
+    cross, which is a self-overlapping sheet, not a cut part.
+    """
+    A = np.asarray(panel.src_a, dtype=float)
+    B = np.asarray(panel.src_b, dtype=float)
+    bad = 0
+    for i in range(len(A) - 1):
+        p, r = A[i], B[i] - A[i]
+        q, s = A[i + 1], B[i + 1] - A[i + 1]
+        M = np.array([[r @ r, -(r @ s)], [-(r @ s), s @ s]])
+        if abs(np.linalg.det(M)) < 1e-14:
+            continue
+        ab = np.linalg.solve(M, np.array([(q - p) @ r, -((q - p) @ s)]))
+        gap = float(np.linalg.norm((p + ab[0] * r) - (q + ab[1] * s)))
+        if gap < 1e-6 and 0.02 < ab[0] < 0.98 and 0.02 < ab[1] < 0.98:
+            bad += 1
+    return bad
 
 
 # ---------------- nesting ----------------
