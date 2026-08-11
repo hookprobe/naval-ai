@@ -22,15 +22,28 @@ exist, and all four were false. **Ask the artifact that owns the question:**
 | what order do we do it in, and who owns it? | **`docs/BUILD-PLAN.md`** | the BuildPlans |
 | what do we build, what is a product, who are the roles? | `PLM.md` §1–§4 | — |
 | what was learned the hard way? | `docs/LESSONS.md` | — |
-| what is the architecture? | `docs/BUILD-PLAN.md` Part III §1–§8 | its §9–§11, retired |
+| what is the architecture? | `docs/BUILD-PLAN.md` §2 | a BuildPlan; there are none left |
+| what was MEASURED, and what was refuted? | `docs/research/*.md`, `docs/GATE-6R-REVIEW.md` | the plan (it references research, never restates it) |
+| what did the audit find, and when? | `docs/GAP-REGISTER.md` (immutable) — but its live state via `reconcile_gaps.py` | the register's prose as a current state |
 | how do I work here? | **this file** | — |
 
-`docs/BUILD-PLAN.md` is the ONE plan. `docs/BUILD-PLAN.md` Part V.a,
-`docs/BUILD-PLAN.md` Part V.b, `docs/BUILD-PLAN.md` Part V.c,
-`docs/BUILD-PLAN.md` Part V.d and `docs/BUILD-PLAN.md` Part V.e are **retired to
-research records** — read them for their research, never for their schedule or
-their status. `ALIGNMENT.md`'s row-level verdicts are stale and flagged as such
-in the file. `MACBOOK.md` is the Mac simulation-node runbook.
+`docs/BUILD-PLAN.md` is the ONE plan, and **its §0 carries a MIGRATION TABLE.**
+Commit e5942d7 restructured it from twelve documents concatenated with `cat`
+into a structured plan and moved the research out to `docs/research/`, so any
+citation in this tree that names a "Part" is pre-restructure — read it through
+that table rather than guessing. The retired BuildPlans are now research
+records: `docs/research/PRIOR-ART.md`, `docs/research/ARRANGEMENT.md`,
+`docs/research/COMPLIANCE.md`, `docs/research/WINDWING.md`,
+`docs/research/CFD.md` and `docs/research/APSE.md` — read them for their
+research and their dated measurements, never for a schedule or a status.
+
+`ALIGNMENT.md` was re-verdicted against the code on 2026-08-11 (commit 206ffa9):
+every row now names the file, the SYMBOL, the BEHAVIOUR and the gate row in
+`navalai/gates.py` that holds it, and the scorecard reconciles with the rows it
+counts. It is no longer stale — but it is still a HAND-derived audit table, so
+it is not a status source; ask `python -m navalai.gates` and
+`python scripts/reconcile_gaps.py`. `MACBOOK.md` is the Mac simulation-node
+runbook.
 
 **THIS FILE CARRIES NO STATUS AND NO MEASUREMENT IT IS NOT THE ONLY HOME OF.**
 It carried two superseded Gate 2M figures until 2026-08-11 — purged from every
@@ -543,7 +556,8 @@ predating them gets the 4.5 Lwl assumption, said out loud.
 ## ~~R5.5 REPRODUCES on the new mesh family, and it is an OSCILLATION~~
 ## SUPERSEDED 2026-08-07 — THERE IS NO OSCILLATION
 
-> **Read `docs/BUILD-PLAN.md` Part IV.a §"RE-MEASURED 2026-08-07", not this
+> **Read `docs/research/CFD.md` §2 ("2026-08-07 on `runs/kcs_s1` — RE-MEASURED,
+> and it is NOT an oscillation"), not this
 > section.** Kept, struck through, because the *reasoning* below is instructive
 > and because PLM §3 step 7 requires a superseded item to be removed with a
 > note rather than left ambiguous.
@@ -563,8 +577,10 @@ predating them gets the 4.5 Lwl assumption, said out loud.
 > **The "next experiment" at the end of this section has been RUN and it
 > refuted the hypothesis.** Do not run it again, and do not build an absorbing
 > domain or a relaxation zone: that was the fix for a mechanism now measured not
-> to exist. The next experiment is **free sinkage and trim**. `docs/BUILD-PLAN.md`
-> §7 carries the ordered candidate list.
+> to exist. The next experiment is **free sinkage and trim**.
+> `docs/research/CFD.md` §2 ("What this means for the next experiment") carries
+> the ordered candidate list; `docs/BUILD-PLAN.md` §11.5 carries the same order
+> as a plan item.
 
 `runs/val_coarse5` — symmetric KCS, `_NX_BASE` 57, `--n-layers 5`, 230725 cells,
 transient, 19.81 s of a 20 s run = **1.33 flow-throughs**, ~2.5 h on 10 ranks.
@@ -614,7 +630,7 @@ figure for one measurement; EFD Ct 3.711e-3 @ Fn 0.26, **7**-group scatter
 ~~Still open: the 75 s (5 flow-through) KCS solve ... Last recorded Ct was
 &lt;figure&gt; = &lt;figure&gt; against EFD, on the OLD 306k mesh ...~~
 
-**SUPERSEDED 2026-08-07 by `runs/kcs_s1`; see `docs/BUILD-PLAN.md` Part IV.a.**
+**SUPERSEDED 2026-08-07 by `runs/kcs_s1`; see `docs/research/CFD.md` §2.**
 The two figures that stood here are on the superseded list in
 `tests/test_gate_integrity.py` and are removed rather than updated — **no Gate
 2M measurement is restated in this file.** The ledger
@@ -660,20 +676,44 @@ these was a real drift found by measurement, not a style preference:
   were three placement tables and they disagreed by 0.7 m on payload LCG.
 - **`hydrostatics` owns both metacentres.** `bm_l` uses the parallel axis
   through LCF, not midships.
+- **Governance is a COMPILER, not a pre-filter, and it lives in
+  `navalai/policy/`** (`base.py`, `legal.py`, `dna.py`, `compiler.py`; Gate V3.0,
+  `tests/test_policy.py`). `compile_policy(Constitution)` emits TWO outputs from
+  ONE source: (1) a **parameter BOX** that `optimize.py` constructs the sampler
+  and NSGA-II inside — a length ceiling becomes a BOUND, not a rejection, so the
+  search never spends evaluations outside the legal envelope — and (2) **rows
+  APPENDED to `evaluate.CONSTRAINT_NAMES` / `Evaluation.g`**, so everything
+  already consuming that vector is governed for free. Both enforcements read the
+  same `PolicyValue`, which is why this is not the number-declared-twice defect:
+  a box bounds what the search may PROPOSE, a row measures what the ladder
+  actually FLOATED, and a design can enter the ladder from a saved genome or a
+  hand-written array without passing through the box.
+
+  Three rules make it safe to reason about, and they are the gate's clauses:
+  a policy may only **APPEND** a row, never rewrite one (not `g['gm']`, not
+  `FREEBOARD_FLOOR_M`); a ratchet may only move a bound **INWARD**; and every
+  policy call site sits behind `if policy is not None`, so an ungoverned run
+  executes the same CODE, not merely the same numbers. The load-bearing clause
+  is structural: **delete the constitution and every physics result must be
+  bit-identical.** The ladder must never import `navalai.policy`.
+
+  A quantity the ladder does not measure gets a `check_selection()` call and NOT
+  a constraint row — an always-satisfied row occupying an NSGA-II dimension is a
+  defect this repo has already shipped once.
 
 ## CFD operating notes (was "WHERE TO PICK UP", end of 2026-08-05 Mac session)
 
 > **RENAMED 2026-08-11. THIS FILE NO LONGER CARRIES SESSION STATE.** A section
 > headed "where to pick up" dated six days ago is the single most reliable way
 > to confuse the next agent: it reads as current, and `runs/kcs_s1` has landed
-> since (`docs/BUILD-PLAN.md` Part IV.a). What to do next is
-> **`docs/BUILD-PLAN.md` §5**, which is ordered, owned, and derived from
-> `scripts/reconcile_gaps.py` rather than from a session's memory.
+> since (`docs/research/CFD.md` §2). What to do next is
+> **`docs/BUILD-PLAN.md` §16 (Roadmap)**, which is ordered, owned, and derived
+> from `scripts/reconcile_gaps.py` rather than from a session's memory.
 >
 > The tooling and cost notes below are durable and stay. The numbered "then, in
-> order" list at the end of this section is superseded by ROADMAP §5 — in
-> particular its item 1 ("re-run a single symmetric KCS grid") is DONE and its
-> premise that run length is the blocker is refuted.
+> order" list at the end of this section is superseded by `docs/BUILD-PLAN.md`
+> §16 — in particular its item 1 ("re-run a single symmetric KCS grid") is DONE
+> and its premise that run length is the blocker is refuted.
 
 **Gate 2M is now MACHINE-CHECKED, not prose.** `scripts/gate2m.py <case-or-root>`
 computes C_T, compares it to the KRISO EFD 3.711e-3 and the Tokyo-2015 scatter
@@ -707,7 +747,17 @@ Then, in order:
 1. Re-run a single symmetric KCS grid FROM SCRATCH; gate2m.py then gives the
    single-grid C_T. The old one is gone (see above).
 2. Build the triplet (`make_case.py --triplet --symmetric`) for the GCI. Budget
-   honestly: medium is ~3x coarse and fine ~8x, so ~3 days on this Mac.
+   it as **~21x the coarse grid (~68.7 h)**, NOT the ~12x this file used to
+   claim. The 2.79x / 7.79x figures are CELL ratios and correct as such, but the
+   timestep is Courant-limited so a sqrt(2) finer grid also takes sqrt(2) more
+   STEPS: 2.79x1.414 = 3.9x and 7.79x2.0 = 15.6x. Using the cell ratio as a time
+   estimate under-budgets by 75%. Measured and derived in
+   `docs/research/APSE.md` §4 ("The GCI triplet costs ~21x, not ~12x" and
+   "Consequence for a GCI triplet"), which is the one home of the numbers.
+   Same section: building the family DOWNWARD from the resolved grid
+   (`--anchor fine`) is INADMISSIBLE — both coarser members fall under this
+   project's own >=20 cells-per-wavelength bar, so the GCI would be a
+   convergence study of an unresolved wave field. Anchor coarse and build up.
 3. **Free sinkage and trim.** KCS Case 2.1 is towed FREE to sink and trim; we
    solve FIXED. We are comparing against a different condition, and it is a
    known part of the error. Needs `rigidBodyMotion` — code, not compute.
