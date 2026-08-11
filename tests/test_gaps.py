@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import collections
 import hashlib
+import re
 from pathlib import Path
 
 import pytest
@@ -183,17 +184,22 @@ def test_a_shortened_queue_is_refused(queue):
 # ---------------------------------------------------------------------------
 
 def test_the_register_imports_as_work_items_not_prose(queue):
-    """119 findings become a queue. MEASURED counts, so a silent drop shows up.
+    """122 findings become a queue. MEASURED counts, so a silent drop shows up.
 
     The register's own severity definitions are the priorities; the count per
     level is asserted because a parser that quietly loses rows is the incident
     this file's docstring describes.
+
+    119 -> 122 on 2026-08-11: section T (T1 HIGH, T2 MED, T3 HIGH) shipped on
+    2026-08-07 with the header `| id | finding | where | severity |` and was
+    invisible to this importer for four days. See
+    `test_a_gradeable_table_the_importer_cannot_see_is_fatal` below.
     """
     report = import_gap_register(queue=queue)
     by_sev = collections.Counter(g.severity for g in report.imported)
-    assert len(report.imported) == 119
-    assert by_sev == {Severity.CRITICAL: 20, Severity.HIGH: 54,
-                      Severity.MED: 34, Severity.LOW: 11}
+    assert len(report.imported) == 122
+    assert by_sev == {Severity.CRITICAL: 20, Severity.HIGH: 56,
+                      Severity.MED: 35, Severity.LOW: 11}
     a1 = queue.by_source("A1")
     assert a1 is not None
     assert a1.severity is Severity.CRITICAL
@@ -235,7 +241,7 @@ def test_a_row_the_importer_cannot_grade_is_named_never_guessed(queue):
     for row, why in skipped.items():
         assert "names no level" in why
         assert queue.by_source(row) is None
-    assert report.n_rows_seen == 121
+    assert report.n_rows_seen == 124
 
 
 def test_the_closure_table_is_not_imported_as_open_work(queue):
@@ -252,6 +258,111 @@ def test_the_closure_table_is_not_imported_as_open_work(queue):
     # Section K's `| Phase | Deliverable | Status |` table has no ID column and
     # must contribute nothing either.
     assert not [g for g in queue.all() if (g.source_id or "").startswith("K")]
+
+
+# ---------------------------------------------------------------------------
+# UNDER-import: the direction nothing was watching
+# ---------------------------------------------------------------------------
+
+# The header section T shipped with on 2026-08-07, verbatim. It is fed to the
+# guard below so the guard is demonstrably FIRING and not merely present —
+# LESSONS defect class 3: "every threshold ships with a test feeding it the
+# VERBATIM input it must reject."
+BROKEN_T_HEADER = "| id | finding | where | severity |"
+
+
+def _gradeable_headers_the_importer_cannot_see(md: str) -> list[tuple[int, str]]:
+    """Header rows a HUMAN reads as a findings table and the importer skips.
+
+    `import_gap_register`'s contract is exactly two things and both are
+    case-sensitive: the first cell is `ID`, and some column name contains
+    `Sev`. Anything with an id-ish first cell AND a sev-ish column that fails
+    that contract is a table of findings which imports as NOTHING — no gap, no
+    `skipped` entry, no count anywhere.
+
+    Deliberately NOT a check that every table imports: section J's
+    `| ID | Closed by | Mechanism |` closure record and section K's
+    `| Phase | Deliverable | Status |` are correctly not findings, and the
+    existing tests pin that they contribute nothing.
+    """
+    out: list[tuple[int, str]] = []
+    for n, raw in enumerate(md.splitlines(), 1):
+        line = raw.strip()
+        if not line.startswith("|"):
+            continue
+        cells = [re.sub(r"\*\*|__|`|\*", "", c).strip()
+                 for c in re.split(r"(?<!\\)\|", line.strip().strip("|"))]
+        if not cells:
+            continue
+        looks_gradeable = (cells[0].lower() == "id"
+                           and any(c.lower().startswith("sev") for c in cells[1:]))
+        importer_sees = (cells[0] == "ID" and any("Sev" in c for c in cells))
+        if looks_gradeable and not importer_sees:
+            out.append((n, line))
+    return out
+
+
+def test_a_gradeable_table_the_importer_cannot_see_is_fatal(tmp_path, queue):
+    """THE MEASURED INCIDENT, 2026-08-07 to 2026-08-11.
+
+    Section T was added with `| id | finding | where | severity |`. The
+    importer requires `cells[0] == "ID"` and a `"Sev"` column, case-sensitively,
+    so T1, T2 and T3 — a HIGH that defeats the mechanism Gate 7 depends on, a
+    MED and a second HIGH — were never filed, had no predicate in
+    `scripts/reconcile_gaps.py`, and were in no count. The import reported 119
+    findings from a register holding 122.
+
+    The guard that existed ran in ONE direction only: the register records a
+    mis-headed table that DOUBLE-imported and grew the queue 119 -> 121, and a
+    test caught it. Nothing caught UNDER-import, and under-import is the more
+    expensive half — a row imported twice is visible twice, a row never
+    imported is invisible once and forever, which is this repository's oldest
+    defect class (an absence rendered as a result) applied to its own work
+    queue.
+    """
+    # 1. the real register: nothing gradeable may be invisible.
+    invisible = _gradeable_headers_the_importer_cannot_see(
+        REGISTER_PATH.read_text(encoding="utf-8"))
+    assert invisible == [], (
+        f"these tables in docs/GAP-REGISTER.md look like findings and import "
+        f"as NOTHING: {invisible}. Normalise the header to "
+        f"`| ID | ... | Sev |`; a finding the queue never saw is a finding "
+        f"nobody owns.")
+
+    # 2. and the guard FIRES on the verbatim header that hid T1-T3.
+    broken = tmp_path / "BROKEN-REGISTER.md"
+    broken.write_text(
+        "## T · a findings table the importer cannot see\n\n"
+        f"{BROKEN_T_HEADER}\n|---|---|---|---|\n"
+        "| **T1** | a real HIGH finding | `navalai/flywheel.py` | **HIGH** |\n",
+        encoding="utf-8")
+    flagged = _gradeable_headers_the_importer_cannot_see(
+        broken.read_text(encoding="utf-8"))
+    assert [line for _n, line in flagged] == [BROKEN_T_HEADER], (
+        "the guard did not fire on the exact header that caused the incident")
+
+    # 3. the failure it describes is real in BOTH directions: nothing filed,
+    #    and nothing even reported as skipped, which is why no count moved.
+    report = import_gap_register(md_path=broken, queue=queue)
+    assert report.imported == [] and report.skipped == []
+    assert report.n_rows_seen == 0
+    assert queue.by_source("T1") is None
+
+
+def test_section_T_is_in_the_queue_with_its_own_severities(queue):
+    """The fix, pinned. T1 is a HIGH: `suite_fingerprint` hashes the frozen
+    suite's coordinates and labels but NOT its targets, so when the production
+    Michell grid moved 41x14 -> 161x28 the frozen targets moved up to -4.2%
+    (294.99 -> 282.55 Wh/NM) and the fingerprint stayed f37529748d22c684 either
+    side — the guard Gate 7's ratchet depends on cannot see its own benchmark
+    move."""
+    import_gap_register(queue=queue)
+    for source_id, sev in (("T1", Severity.HIGH), ("T2", Severity.MED),
+                           ("T3", Severity.HIGH)):
+        gap = queue.by_source(source_id)
+        assert gap is not None, f"register row {source_id} is not in the queue"
+        assert gap.severity is sev
+    assert "suite_fingerprint" in queue.by_source("T1").detail
 
 
 def test_the_import_is_a_one_shot_that_can_be_re_run(queue):

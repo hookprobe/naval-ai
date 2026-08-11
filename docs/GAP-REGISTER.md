@@ -709,7 +709,7 @@ apart from its neighbour is not answering its own row.
 Found while diagnosing Gate 7 during the four-branch consolidation, and it is a
 finding about a GUARD rather than about a model.
 
-| id | finding | where | severity |
+| ID | Finding | Evidence | Sev |
 |---|---|---|---|
 | **T1** | `flywheel.suite_fingerprint` hashes the frozen suite's **coordinates and labels but not its targets**. Its docstring justifies that by saying `benchmark_integrity()` guards the physics. **MEASURED: that premise is false.** `benchmarks/wigley.py` builds its own 121x25 Michell grid, so when commit `02b73d8` moved the *production* grid 41x14 -> 161x28 the Wigley Cw curve did not move and `benchmark_integrity()` passed — while the frozen suite's targets moved up to **-4.2% point-wise** (294.99 -> 282.55 Wh/NM) and the fingerprint stayed **identical** (`f37529748d22c684`) either side. There is currently NO guard that notices the frozen benchmark's y values moving. | `navalai/flywheel.py` (`suite_fingerprint`, `benchmark_integrity`) | **HIGH** |
 | **T2** | Consequence of T1, latent: because the fingerprint is target-blind, the `bootstrap` re-baseline branch cannot fire on a physics change. Here the model happened to *improve*, so `make_baseline.py` still wrote a file. Had the new physics been harder to learn, all three quantities would have been REFUSED by the monotone ratchet and the documented regeneration route would have **deadlocked** — the file could never be regenerated, and the only escape is editing the committed baseline by hand, which is the thing gap D3 exists to prevent. | `navalai/flywheel.py`, `scripts/make_baseline.py` | **MED** |
@@ -727,6 +727,35 @@ fingerprint reverses a deliberate, documented choice, and
 `tests/test_surrogate_honesty.py` calls `suite_fingerprint(None, [])`
 positionally, so the signature is load-bearing. Gate 7 is carried in
 `data/gate-ledger.json` with watermark 0.1578 and a 2026-09-07 review meanwhile.
+
+### The header this section shipped with hid T1–T3 for four days
+
+Recorded here because it is a finding about this DOCUMENT rather than about the
+code, and because it is the exact inverse of one already in the register.
+
+Section T was written with the header `| id | finding | where | severity |`.
+`navalai.gaps.import_gap_register` accepts a findings table on two conditions
+and both are case-sensitive: `cells[0] == "ID"`, and a column whose name
+contains `"Sev"`. This header matched NEITHER, so from 2026-08-07 to
+2026-08-11 T1, T2 and T3 were not in the queue, had no predicate in
+`scripts/reconcile_gaps.py`, and appeared in no count anywhere — including
+T1, a HIGH that defeats the mechanism Gate 7 depends on. The import reported
+119 findings from a register holding 122 and nothing said otherwise.
+
+The register already carries the OPPOSITE direction of this defect: a
+mis-headed table that DOUBLE-imported and grew the queue 119 -> 121, caught by
+a test. Nothing caught UNDER-import, which is the more expensive half — a row
+that is imported twice is visible twice, a row that is never imported is
+invisible once and forever. `tests/test_gaps.py::`
+`test_a_gradeable_table_the_importer_cannot_see_is_fatal` now scans this file
+for any table a human reads as a findings table (an `id` first cell in any
+case, a `sev`-ish column in any case) that the importer would skip, and is
+fed the verbatim broken header above so it demonstrably fires.
+
+The header is normalised to the register's own `| ID | Finding | Evidence |
+Sev |`; no row text was changed. The counts elsewhere in this file that were
+measured before 2026-08-11 (section S's 119-row table) are left as the dated
+measurements they are.
 
 ### T4 · The ledger was the wrong mechanism, and that is informative
 

@@ -1,7 +1,7 @@
 """Gate SG-R: the gap queue is reconciled against the CODE, not against prose.
 
 `navalai.gaps` turns `docs/GAP-REGISTER.md` into work items. It cannot turn
-them into TRUE work items: it seeded all 119 findings as `Open`, which was the
+them into TRUE work items: it seeded all 122 findings as `Open`, which was the
 register document's state on 2026-08-05 and not the repository's — roughly
 seventy of them had been closed in code by the following day and nothing
 propagated it. `scripts/reconcile_gaps.py` is the propagation, and this suite
@@ -79,8 +79,8 @@ def _queue_source_ids(tmp_path=None) -> set[str]:
         q = GapQueue(JsonlLog(tmp_path / "gaps.jsonl"))
         import_gap_register(queue=q)
     ids = {g.source_id for g in q.all() if g.source_id}
-    assert len(ids) == 119, (
-        f"{len(ids)} findings in the queue, expected the register's 119. An "
+    assert len(ids) == 122, (
+        f"{len(ids)} findings in the queue, expected the register's 122. An "
         f"under-populated queue makes every coverage assertion below vacuous.")
     return ids
 
@@ -360,10 +360,18 @@ def test_the_log_replays_to_the_same_states(tmp_path):
 # ---------------------------------------------------------------------------
 
 # The register's own header: "seven independent audits of the live checkout at
-# 5bbffb7". Every one of its 119 findings was true of that tree, so a predicate
-# that reports CLOSED there cannot tell a fix from the defect it fixed. This is
-# the same idea as `test_hypar_negative_control_fails_developability` in the
-# manufacturing suite: a metric with no negative control is not a metric.
+# 5bbffb7". Every one of its original 119 findings was true of that tree, so a
+# predicate that reports CLOSED there cannot tell a fix from the defect it
+# fixed. This is the same idea as
+# `test_hypar_negative_control_fails_developability` in the manufacturing
+# suite: a metric with no negative control is not a metric.
+#
+# The rows added AFTER that audit (section T, 2026-08-07) are held to the same
+# bar and it is not a courtesy: 5bbffb7 predates `suite_fingerprint`,
+# `bootstrap` and `scripts/make_baseline.py` entirely, so an ABSENCE test
+# (`lacks_code`) for any of the three would read CLOSED on a tree where the
+# guard does not exist at all. That is why T1-T3's predicates are written as
+# positive conjunctions.
 AUDIT_BASELINE = "5bbffb7"
 
 
@@ -469,6 +477,57 @@ def test_a6b_asks_for_the_recall_MEASUREMENT_not_merely_for_a_support_test(tmp_p
             "answering A6's question a second time")
 
 
+def test_the_section_T_predicates_can_flip_and_T1_comes_apart_from_T2(tmp_path):
+    """A predicate that cannot fail on the defect cannot verify the fix — and
+    the mirror of it: a predicate that cannot PASS on the fix is a permanent
+    OPEN wearing a clearing condition. T1-T3 all read OPEN today, so nothing
+    else in this suite exercises them in the closing direction.
+
+    It also requires T1 and T2 to COME APART, for A6b's reason: T2 is stated in
+    the register as a consequence of T1, and a predicate that merely re-asked
+    T1's question would answer T1 twice and T2 never. T2's own clearing
+    condition is that the regeneration route cannot DEADLOCK, and dropping the
+    stale mark on an explicit bootstrap achieves that with the fingerprint left
+    target-blind.
+    """
+    (tmp_path / "navalai").mkdir()
+    src = (_ROOT / "navalai" / "flywheel.py").read_text()
+    conditioned = ('    if (prior is not None and bootstrap\n'
+                   '            and prior.get("suite_fingerprint") != fp):')
+    assert conditioned in src, "the bootstrap branch moved; re-aim this control"
+
+    t1 = next(c for c in rg.CHECKS if c.source_id == "T1")
+    t2 = next(c for c in rg.CHECKS if c.source_id == "T2")
+
+    # (a) the bootstrap drop stops being conditioned on the fingerprint: T2
+    #     closes, T1 does NOT — the frozen suite's y values are still unhashed.
+    (tmp_path / "navalai" / "flywheel.py").write_text(
+        src.replace(conditioned, "    if prior is not None and bootstrap:"))
+    rg._TEXT_CACHE.clear()
+    rg._CODE_CACHE.clear()
+    with rg.at_root(tmp_path):
+        assert t2.closed(), "T2 did not close on a bootstrap that cannot deadlock"
+        assert not t1.closed(), (
+            "T1 closed without the fingerprint ever reaching the suite's "
+            "targets, i.e. it is answering T2's question")
+
+    # (b) the fingerprint covers the targets: both close, T2 through T1.
+    fixed = src.replace("def suite_fingerprint(X, labels) -> str:",
+                        "def suite_fingerprint(X, labels, y=None) -> str:")
+    fixed = fixed.replace(
+        "    h.update(np.round(A, 9).tobytes())",
+        "    h.update(np.round(A, 9).tobytes())\n"
+        "    h.update(np.round(np.asarray(y, float), 9).tobytes())")
+    assert fixed != src, "suite_fingerprint moved; re-aim this control"
+    (tmp_path / "navalai" / "flywheel.py").write_text(fixed)
+    rg._TEXT_CACHE.clear()
+    rg._CODE_CACHE.clear()
+    with rg.at_root(tmp_path):
+        assert t1.closed() and t2.closed()
+    rg._TEXT_CACHE.clear()
+    rg._CODE_CACHE.clear()
+
+
 def test_no_gap_is_closed_in_the_queue_while_the_code_says_it_is_open():
     """THE DANGEROUS DIRECTION, and the only one this asserts.
 
@@ -495,7 +554,7 @@ def test_no_gap_is_closed_in_the_queue_while_the_code_says_it_is_open():
         f"wrong or the closure was. File a NEW gap; do not edit the log.")
 
 
-def test_the_queue_is_the_119_findings_the_register_holds(tmp_path):
+def test_the_queue_is_the_122_findings_the_register_holds(tmp_path):
     """Guard against a re-import doubling the queue, which would make every
     count in the report meaningless. `GapQueue.emit` is idempotent on
     source_id; this is the assertion that it stayed that way.
@@ -504,12 +563,19 @@ def test_the_queue_is_the_119_findings_the_register_holds(tmp_path):
     unconditionally and would therefore have died with FileNotFoundError on a
     fresh clone — the very defect the tests below are about, sitting in the
     assertion that counts the queue.
+
+    119 -> 122 on 2026-08-11. This assertion is DOUBLE-ENTRY ONLY — it was
+    written against the over-import direction (a mis-headed table that grew the
+    queue 119 -> 121) and a number it verifies from below cannot notice a row
+    the importer never read. Section T's three findings hid under it for four
+    days; the direction it does not cover is now covered by
+    `tests/test_gaps.py::test_a_gradeable_table_the_importer_cannot_see_is_fatal`.
     """
     q = GapQueue(JsonlLog(tmp_path / "gaps.jsonl"))
     rep = import_gap_register(queue=q)
-    assert len(rep.imported) == 119, (
+    assert len(rep.imported) == 122, (
         f"{len(rep.imported)} findings imported from docs/GAP-REGISTER.md, "
-        f"expected 119")
+        f"expected 122")
 
     live = _ROOT / "data" / "evolution" / "gaps.jsonl"
     if not live.exists():
@@ -517,7 +583,7 @@ def test_the_queue_is_the_119_findings_the_register_holds(tmp_path):
     recs = [json.loads(line) for line in live.read_text().splitlines()
             if line.strip()]
     opened = [r for r in recs if r["kind"] == "open"]
-    assert len(opened) == 119, f"{len(opened)} findings filed, expected 119"
+    assert len(opened) == 122, f"{len(opened)} findings filed, expected 122"
     assert len({r["gap_id"] for r in recs}) == len({r["gap_id"] for r in opened})
 
 
@@ -561,7 +627,7 @@ def test_the_queue_is_reconstructible_from_committed_files_alone(tmp_path):
     q = GapQueue(JsonlLog(tmp_path / "gaps.jsonl"))
     rows = rg.reconcile()
     n, moved = rg.rebuild(q, rows)
-    assert n == 119
+    assert n == 122
     measured_closed = {r.source_id for r in rows if r.verdict == rg.CLOSED}
     assert len(moved) == len(measured_closed)
     got = {g.source_id for g in q.all() if g.state is GapState.CLOSED}

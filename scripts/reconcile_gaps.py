@@ -3,7 +3,7 @@
 
 WHY THIS EXISTS, AND WHAT IT MEASURES.
 
-`navalai.gaps.import_gap_register()` seeded 119 findings from
+`navalai.gaps.import_gap_register()` seeded 122 findings from
 `docs/GAP-REGISTER.md`, every one of them `Open`. That is the state of the
 REGISTER DOCUMENT on 2026-08-05, not the state of the repository: the
 2026-08-06 session closed a large fraction of them in code and nothing
@@ -258,6 +258,62 @@ def has_code(rel: str, pattern: str) -> bool:
 
 def lacks_code(rel: str, pattern: str) -> bool:
     return not has_code(rel, pattern)
+
+
+def func_code(rel: str, name: str) -> str:
+    """The source of ONE function, comments and docstrings blanked. "" if absent.
+
+    A file-wide `has_code` cannot tell "the fix landed inside
+    `suite_fingerprint`" from "the token appears somewhere in flywheel.py", and
+    flywheel.py is 900 lines that discuss the frozen suite's targets constantly
+    -- `frozen_suite` returns `y`, `retrain` scores against it, `_metrics`
+    consumes it. That is the same hazard `code()` exists for, one level finer:
+    the vocabulary of the gap is present, as CODE, in functions that are not the
+    one the gap is about.
+
+    `code()` BLANKS rather than deletes precisely so a slice like this lines up
+    with the AST's offsets into the original text.
+    """
+    src = text(rel)
+    if not src:
+        return ""
+    try:
+        tree = ast.parse(src)
+    except SyntaxError:
+        return ""
+    blanked = code(rel)
+    offs = [0]
+    for ln in blanked.splitlines(keepends=True):
+        offs.append(offs[-1] + len(ln))
+    for node in ast.walk(tree):
+        if (isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                and node.name == name):
+            end_line = node.end_lineno or node.lineno
+            if end_line >= len(offs):
+                continue
+            start = offs[node.lineno - 1] + node.col_offset
+            end = offs[end_line - 1] + (node.end_col_offset or 0)
+            return blanked[start:end]
+    return ""
+
+
+def _fingerprint_covers_targets() -> bool:
+    """Does the frozen suite's IDENTITY hash reach its own y values? (gap T1)
+
+    Read from `func_code`, not from the module, because `suite_fingerprint`'s
+    docstring states the target-blindness in the exact words a fix would use --
+    "Coordinates, not TARGETS, on purpose" -- and `frozen_suite` two functions
+    above it returns `(X, y, labels)` in plain code. Either would answer for a
+    guard that does not exist. B4 cost 332 unwound transitions for that mistake
+    in its comment-shaped form.
+
+    Two conjuncts because one is not the guard: the targets must be a PARAMETER
+    of the fingerprint and they must reach the hash. A signature that accepts
+    `y` and ignores it is target-blind with a longer signature.
+    """
+    fn = func_code("navalai/flywheel.py", "suite_fingerprint")
+    return bool(re.search(r"def suite_fingerprint\([^)]*\b(y|targets)\b", fn)
+                and re.search(r"h\.update\(.*\b(y|targets)\b", fn))
 
 
 def exists(rel: str) -> bool:
@@ -1075,6 +1131,71 @@ CHECKS: tuple[Check, ...] = (
           lambda: has("MACBOOK.md",
                       r'promised "93 passed, 14 GREEN gates" long after')
                   and has("MACBOOK.md", r"navalai\.gates")),
+
+    # -- T. the frozen benchmark has no guard on its own y values ------------
+    #
+    # THESE THREE WERE INVISIBLE TO THIS TABLE UNTIL 2026-08-11. Section T
+    # shipped on 2026-08-07 with the header `| id | finding | where | severity |`
+    # and `import_gap_register` accepts a findings table only on
+    # `cells[0] == "ID"` plus a `"Sev"` column, both case-sensitive. So T1, T2
+    # and T3 were never filed, never answered here, and appeared in no count --
+    # the import reported 119 findings from a register holding 122, and the
+    # coverage tests in tests/test_reconcile_gaps.py passed, because they
+    # compare this table against the QUEUE and the queue was missing the same
+    # three rows. A guard that reads its own input cannot notice input it never
+    # read. The register already carried the OVER-import direction (a mis-headed
+    # table that DOUBLE-imported, 119 -> 121, caught by a test); the UNDER-import
+    # direction is now caught by
+    # tests/test_gaps.py::test_a_gradeable_table_the_importer_cannot_see_is_fatal.
+    Check("T1", "the frozen suite's identity covers its TARGETS: "
+                "flywheel.suite_fingerprint takes the suite's y and reaches the "
+                "hash with it, so a physics change that moves the frozen y "
+                "values cannot leave the fingerprint identical -- or an "
+                "equivalent targets guard is recorded in data/baselines.json. "
+                "MEASURED at the finding: the production Michell grid went "
+                "41x14 -> 161x28, the frozen targets moved up to -4.2% "
+                "(294.99 -> 282.55 Wh/NM) and the fingerprint stayed "
+                "f37529748d22c684 either side",
+          lambda: _fingerprint_covers_targets()
+                  or has("data/baselines.json",
+                         r'"(suite_)?targets?_(fingerprint|sha256)"')),
+    # NOT `lacks_code(... "!= fp")`: at the audit baseline flywheel.py has no
+    # bootstrap branch AT ALL, so an absence test reads CLOSED on the tree the
+    # defect was measured on -- the negative control's whole point. Both arms
+    # below are positive.
+    Check("T2", "the documented regeneration route cannot deadlock. Either the "
+                "fingerprint covers the targets (T1), so a physics change makes "
+                "retrain's bootstrap branch fire and drop the stale mark, or "
+                "the drop stops being conditioned on a fingerprint mismatch at "
+                "all (`if prior is not None and bootstrap:` in "
+                "flywheel.retrain). Today it is conditioned on `!= fp`, and fp "
+                "is target-blind, so a harder-to-learn physics change would "
+                "leave all three quantities refused against the very file "
+                "make_baseline.py exists to replace",
+          lambda: _fingerprint_covers_targets()
+                  or bool(re.search(r"if prior is not None and bootstrap:",
+                                    func_code("navalai/flywheel.py", "retrain")))),
+    # T5 records that the OWNER'S DECISION between these two routes is still
+    # owed, and this predicate does not pre-empt it: it accepts either, and it
+    # reports OPEN until one of them is in the code. An owner deciding is not a
+    # thing a checkout can be in the state of; the resulting mark is.
+    Check("T3", "the deployment ratchet is applied to a ROBUST statistic: "
+                "scripts/make_baseline.py measures the mark over a SEED "
+                "ENSEMBLE (a plural seed constant it iterates), records that "
+                "statistic and its spread in data/baselines.json, and "
+                "flywheel.retrain compares against the recorded ensemble "
+                "statistic or derives its tolerance from the recorded spread -- "
+                "instead of a single-seed 60-hull retrain against a best-of-8 "
+                "120-hull minimum (measured spread 2.7x at n=60, 4.6x at n=120, "
+                "tolerance 1.25x; 3 of 8 honest seeds cleared it)",
+          lambda: has_code("scripts/make_baseline.py",
+                           r"\b(HARVEST_SEEDS|ENSEMBLE_SEEDS|SEEDS)\b")
+                  and has("data/baselines.json",
+                          r'"(ensemble_median_rel_err|median_rel_err_seeds|'
+                          r'seed_spread|seeds)"')
+                  and has_code("navalai/flywheel.py",
+                               r"ensemble_median_rel_err|median_rel_err_seeds|"
+                               r"seed_spread")),
 )
 
 
