@@ -718,6 +718,103 @@ analysis tools for expert users. None of them takes a customer sentence, none
 produces a quote, none operates the vessel afterwards, and none carries
 provenance and uncertainty on every quantity as a structural property.
 
+### 8.1 Compute Maritime / NeuralShipper — the closest competitor, and what it proves
+
+`computemaritime.com` is a London deep-tech company positioned as *"Generative
+AI for Maritime Design"*, and it is the nearest thing to a direct competitor
+this project has. It should be studied rather than dismissed.
+
+**What they have that we do not:**
+
+| | Them | Us |
+|---|---|---|
+| Generative model | **ShipHullGAN** — deep convolutional GAN trained on **52,591 physically validated real designs** (containers, tankers, bulkers, tugs, crew supply). Shapes converted to a fixed-dimension **shape-signature tensor** built from **geometric moments**, which is what lets physics-informed terms into the representation. Published in *CMAME* 411 (2023) | `generative.py`: a GMM fitted to grammar-sampled synthetic vectors, diffusion as a planned drop-in |
+| Geometry output | NURBS/CAD directly; they claim to be *"the first model to directly output a CAD model"*, arguing that *"even slight surface irregularities can significantly affect outcomes"* | analytic kernel + developable-panel unroll → DXF; STEP/IGES via CadQuery |
+| CFD | Simcenter **STAR-CCM+**, integrated with Siemens Digital Industries Software | OpenFOAM, Gate 2M RED |
+| Backing | NVIDIA AI-startup accelerator; £700k UK Clean Maritime Demonstration Competition; UK SHORE / Innovate UK; partners Siemens, HP, Rapid Fusion, BYD Naval Architects, University of Southampton | one repository and two machines |
+| Delivered | **GenDSOM**: a 32.5 m twin-hull crew transfer vessel for offshore wind, 24 technicians + 4 crew; a hydrofoil component printed on a robotic large-format AM system | the SKUs are unbuilt |
+
+That is a real lead on generative modelling, data, surface quality and
+industrial partnership, and **the 52,591-design corpus is a moat this project
+cannot close by scraping.** Say so plainly.
+
+**What their own material shows is missing, and it is the whole thesis of §2.**
+
+Their About page states the scope: *"concept development and detailed design"*,
+justified by *"80% of a product's environmental impact is determined at the
+design stage"*, with a value proposition of *"10% cheaper, 20% faster, and 50%
+more efficient."* There is **no mention of sales or quoting, no digital twin, no
+fleet data or telemetry, no in-service performance, no post-deployment
+optimisation.** By their own description they are a **BUILD-phase tool** — the
+same category as NAPA and Maxsurf, built AI-native. SELL and RUN are
+uncontested.
+
+And then the headline number. GenDSOM is reported as saving *"101,671 litres of
+fuel and 258.7 tonnes of CO2 per vessel every year"*, an *"11.1% reduction in
+annual fuel consumption and an 8.9% reduction in CO2 emissions"*, with a 106 kWh
+energy surplus against a 34 kWh deficit for the baseline. What was physically
+manufactured in that project was **a hydrofoil component**, not the vessel.
+
+**So 101,671 litres per year is a simulation output, quoted to six significant
+figures, for a boat that has not been operated.** Compare Airseas: 20% from
+modelling and land tests, **16%** from sea trials. This project's own history
+has the same shape — one Gate 2M measurement circulated as five different
+figures until only one was reproducible from any run directory (gap J1).
+
+That is not a criticism of their engineering, which is clearly strong. It is the
+observation that **the entire field, incumbents and AI-native challengers alike,
+reports design-stage predictions as achievements, and nobody is closing the loop
+with operational evidence.** §2 says NavalAI's flywheel is closed on itself; the
+competitive finding is that *everyone's is*. The difference available to this
+project is that it already has the machinery to know it — gates, a ledger,
+red-by-record, tier badges, refusals — and the others do not appear to.
+
+### 8.2 What to take from them, in our own way
+
+1. **Geometric moments as a shape representation.** Their shape-signature tensor
+   is the strongest technical idea in their published work: moments are
+   analytic, cheap, dimension-fixed, and physics-informed — which is exactly the
+   L0 tier's cost class. Stage E measured that this project's 8-D latent costs
+   **2–3× surrogate accuracy** against the full 15-parameter vector; a
+   moment-based descriptor is a credible third option and can be evaluated
+   against both on the existing benchmark. **Research item, not a decision.**
+2. **Our generative model has the §2 defect too, and it is worse than the
+   flywheel's.** `generative.py` fits a GMM to grammar-feasible vectors this
+   system generated. PLM §1 already records the related trap — the "100% raw
+   feasibility" claim was measured on a rejection sampler with `grammar.check`
+   *inside its loop*, so it was true by construction (gap D11), and Gate 4F is
+   RED on the honest number. Training on real hulls is how they escaped that.
+   A public hull corpus is worth acquiring even at a fraction of 52,591.
+3. **Surface quality is a real requirement, not vanity.** Their argument that
+   irregular surfaces corrupt downstream analysis is correct, and this project
+   has already been bitten by the geometric version of it (a mirrored-IGES mesh
+   that died on the first timestep at 73 wrongly-oriented faces). Worth a
+   fairness/continuity gate on emitted geometry.
+4. **Their positioning line is a gift, and it can be beaten honestly:** 80% of
+   impact is determined at design — **and 100% of it is measured in operation.**
+   That is the SELL sentence, and RUN is what earns the right to say it.
+
+### 8.3 The strategic conclusion
+
+**Do not compete with NeuralShipper on generative hull modelling.** They have
+52,591 designs, Siemens, NVIDIA and a government-funded consortium; that fight
+is lost before it starts and winning it would not differentiate the product
+anyway.
+
+Compete where the segment and the lifecycle differ:
+
+- **Segment.** They design 32.5 m commercial steel/composite vessels for
+  offshore-wind operators, under class and SOLAS. This project designs 4–24 m
+  plywood-native recreational craft under RCD 2013/53/EU and ISO 12217/12215,
+  sold to an owner and cut on a CNC kit-cutter. Their AM-printed hydrofoil and
+  our nested plywood DXF are at opposite ends of the cost spectrum, and
+  developable-panel manufacturability is a constraint their generative model has
+  no reason to carry.
+- **Lifecycle.** SELL and RUN, which they explicitly do not do.
+- **Evidence.** The honesty machinery, and eventually a fleet of instrumented
+  hulls — which is the one asset a competitor cannot buy, and the one that
+  answers the second-benchmark-anchor debt `ALIGNMENT.md` has been carrying.
+
 **Where NavalAI is genuinely ahead:** the honesty machinery. Typed gate statuses
 with a committed ledger; red-by-record so a miss cannot be edited away in prose;
 tier badges that cannot be promoted by comparison; an OOD-refusing surrogate; a
@@ -867,3 +964,11 @@ Regulation —
 Environmental data —
 [ERA5 hourly single levels](https://cds.climate.copernicus.eu/datasets/reanalysis-era5-single-levels?tab=overview) ·
 [Copernicus Marine Toolbox](https://toolbox-docs.marine.copernicus.eu/en/v2.0.0/usage/quickoverview.html)
+
+Competitors —
+[Compute Maritime](https://www.computemaritime.com/) ·
+[Compute Maritime — About (scope and claims)](https://www.computemaritime.com/about) ·
+[Khan, Goucher-Lambert, Kostas & Kaklis, *ShipHullGAN*, CMAME 411 (2023)](https://arxiv.org/abs/2305.00210) ·
+[Siemens Simcenter on the NeuralShipper integration](https://blogs.sw.siemens.com/simcenter/ship-design-with-generative-ai/) ·
+[Siemens / Compute Maritime partnership](https://www.ship-technology.com/news/siemens-compute-maritime-generative-ai/) ·
+[GenDSOM — the AI-designed crew transfer vessel](https://rapidfusion.co.uk/blogs/case-studies/compute-maritime-about-research-technology-careers-newsroom-contact-worlds-first-ai-designed-crew-transfer-vessel-revealed-by-compute-maritime-and-partners)
