@@ -232,9 +232,37 @@ def energy_report(total_resistance_n: float, speed: float, deck_area: float,
     solar = deck_area * spec.panel_packing * spec.panel_eff * spec.solar_yield_kwh_m2_day
     prop_day = p_el * spec.cruise_hours_day / 1000.0
     net = solar - spec.hotel_kwh_day - prop_day
+    # A NON-POSITIVE wh_nm IS REFUSED, NOT CLAMPED. `max(wh_nm, 1e-9)` turned
+    # "this design consumes nothing per mile" into a range of order 1e12 NM —
+    # an unmeasurable quantity scored as a spectacular pass, which is this
+    # repository's defect class 1 (LESSONS.md: "an unmeasurable metric is
+    # FATAL, never a default"). It could not fire while resistance was the only
+    # term, because hull resistance at a positive speed is positive.
+    #
+    # IT BECOMES REACHABLE THE MOMENT A TRACTION TERM EXISTS. The WindWing work
+    # in docs/BUILD-PLAN.md Part II §5 enters at exactly this line, as a net
+    # thrust (resistance minus kite pull), and a kite that fully overcomes
+    # resistance drives wh_nm to zero and through it. Guarded now, while the
+    # guard can be written calmly, rather than after it has printed a range.
+    # NaN AND inf ARE DELIBERATELY NOT CAUGHT HERE, and that is the whole
+    # distinction. A non-finite quantity ALREADY has an honest handler: the
+    # badge guard downgrades it to L{n}-INVALID and `tier_rank` ranks that at
+    # -1, below L0, so it can never be promoted by comparison. Two tests in
+    # test_constraints_honest.py inject NaN precisely to prove that path works,
+    # and an exception here breaks it — measured, both failed on the first
+    # attempt at this guard. `nan <= 0.0` is False, so NaN flows on untouched.
+    #
+    # Zero and negative had NO handler. That is the gap.
+    if wh_nm <= 0.0:
+        raise ValueError(
+            f"wh_per_nm is {wh_nm!r}: energy per mile must be positive. "
+            f"total_resistance_n={total_resistance_n!r}, speed={speed!r}. "
+            f"A non-positive value means the caller passed a net thrust that "
+            f"already exceeds resistance — report that as a refusal, never as "
+            f"an infinite range.")
     kwh_for_prop = max(solar - spec.hotel_kwh_day, 0.0)
-    rng_solar = kwh_for_prop * 1000.0 / max(wh_nm, 1e-9)
-    rng_batt = spec.battery_kwh * 1000.0 * 0.8 / max(wh_nm, 1e-9)   # 80% DoD
+    rng_solar = kwh_for_prop * 1000.0 / wh_nm
+    rng_batt = spec.battery_kwh * 1000.0 * 0.8 / wh_nm              # 80% DoD
 
     sigma, basis = wh_per_nm_sigma(wh_nm, total_resistance_n,
                                    resistance_sigma_n, drivetrain_sigma_frac)

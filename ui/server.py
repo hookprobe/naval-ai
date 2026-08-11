@@ -76,11 +76,30 @@ _pool: dict[str, dict] | None = None
 N_REF, N_CAND = 48, 128
 
 
-def get_pareto() -> dict:
-    """Small NSGA-II front, cached after first request (Pareto dashboard)."""
+def get_pareto(mission: MissionSpec | None = None) -> dict:
+    """Small NSGA-II front for THIS mission, cached per mission.
+
+    IT ANSWERED THE WRONG QUESTION UNTIL 2026-08-11. Both the search and the
+    re-evaluation read the module-level `_mission_default`, and the result went
+    into ONE global `_pareto_cache` — so the trade-off surface a customer was
+    shown was not their boat, and the first caller's answer was then served to
+    every later one. `/eval` and `/generate` had already been fixed for exactly
+    this (gap I9, the single-pool bug: "it was a SINGLE pool, which is why
+    `/generate` could only ever answer the default mission"). `/pareto` was
+    left behind, which is why the dashboard and the sliders could disagree
+    about the same mission.
+
+    Keyed by `mission_key`, the same helper `/generate` uses, so one cache
+    entry per mission rather than one entry full stop. `mission=None` keeps the
+    old default for callers that genuinely want it (the warm-up at serve()).
+    """
     global _pareto_cache
+    mission = mission if mission is not None else _mission_default
+    key = mission_key(mission)
     with _pareto_lock:
         if _pareto_cache is None:
+            _pareto_cache = {}
+        if key not in _pareto_cache:
             from navalai.optimize import pareto_front
             # BUDGET, not bar. pop=16/gens=6 was sized against a 6-constraint
             # ladder; "lcb" and "proportions" (gaps B8, B9) make the feasible
@@ -90,7 +109,7 @@ def get_pareto() -> dict:
             # 0.4 s on the first (cached) request. The front's members were
             # feasible at BOTH budgets; what changed is how much of it the
             # search had found.
-            res = pareto_front(_mission_default, pop=24, gens=10, seed=2)
+            res = pareto_front(mission, pop=24, gens=10, seed=2)
             pts = []
             for x, f in zip(res.X, res.F):
                 # GM IS RE-READ FROM THE LADDER, NOT DECODED FROM f[2].
@@ -102,15 +121,15 @@ def get_pareto() -> dict:
                 # reads as "this boat capsizes at the dock" and is not GM at
                 # all. An objective that changes meaning must not be decoded by
                 # a caller guessing at its sign.
-                ev = evaluate(x, _mission_default)
+                ev = evaluate(x, mission)
                 pts.append({"params": grammar.named(x),
                             "wh_per_nm": round(float(f[0]), 1),
                             "build_area_m2": round(float(f[1]), 1),
                             "gm_m": (round(float(ev.gm_m), 3)
                                      if ev.gm_m is not None else None)})
-            _pareto_cache = {"points": pts, "n_evals": res.n_evals,
-                            "tier": "L1"}
-        return _pareto_cache
+            _pareto_cache[key] = {"points": pts, "n_evals": res.n_evals,
+                                  "tier": "L1"}
+        return _pareto_cache[key]
 
 
 def get_model() -> HullGenerator:

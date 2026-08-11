@@ -13,6 +13,27 @@ import numpy as np
 
 from .geometry import G, Hull
 
+# ISA sea level, 15 C, dry. Used for the mooring/windage bluff-body load only.
+#
+# THERE ARE THREE AIR DENSITIES IN THIS REPOSITORY AND THAT IS CORRECT.
+# Audited 2026-08-11 after they were reported as one number declared three
+# times (defect class 2). They are not: they are three different conventions,
+# and forcing them to agree would break two of the three.
+#
+#   dynamics.RHO_AIR          1.225   ISA sea level      <- here
+#   extrapolate air_resistance_coefficient(rho_air=1.226, rho_water=1026.0)
+#                                     the ITTC-78 seawater PAIR at 15 C; the
+#                                     ratio is what enters C_AA, so changing
+#                                     one without the other is the error
+#   cfd/case._RHO_AIR         1.2     what is WRITTEN INTO the OpenFOAM case,
+#                                     beside _G = 9.81 "matches constant/g in
+#                                     the generated case". Changing it desyncs
+#                                     the solver from its own receipt.
+#
+# So this is the `FN_MICHELL_MAX` precedent, not the `limits.py` one: a value
+# that belongs to a MODEL lives with that model. What was actually missing was
+# any statement of basis, which is what makes a reader think they are copies.
+# Do not centralise these. State the basis instead.
 RHO_AIR = 1.225
 CD_LATERAL = 1.0        # bluff-body lateral drag, approx
 CD_CURRENT = 1.0
