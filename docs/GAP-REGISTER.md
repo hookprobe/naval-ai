@@ -1,7 +1,7 @@
 # Gap register — NavalAI audited against its own build plans
 
-**Audited 2026-08-05** against `NavalArchAI-BuildPlan.md` (Phases 0–7),
-`BuildPlan2-FullVessel.md` (V2.0–V2.6), `PLM.md` (platform law, gate registry,
+**Audited 2026-08-05** against `docs/BUILD-PLAN.md` Part V.a (Phases 0–7),
+`docs/BUILD-PLAN.md` Part V.b (V2.0–V2.6), `PLM.md` (platform law, gate registry,
 lifecycle) and the six honesty rules in `CLAUDE.md`.
 
 Method: seven independent audits of the live checkout at `5bbffb7` + uncommitted
@@ -230,7 +230,7 @@ NSGA-II enforces on all 5 × 12 values. **The defects are in what surrounds them
 
 | ID | Finding | Evidence | Sev |
 |---|---|---|---|
-| J1 | **Gate 2M has five numbers in circulation and the published one was invalidated by your own bug fix.** `a982414` wrote **9.33e-3 / −151%** into README, PLM §5, PLM §6, ALIGNMENT.md and `docs/CFD-BLOCKER-BRIEF.md`; `cf76704` then proved the force parser double-counted pressure; `b8fcd4e` fixed reading a pre-restart fragment. Only `gates.py` was updated, to −15.4% — **which `scripts/gate2m.py` cannot reproduce from any run dir in the repo.** The only settled grid (`runs/kcs`) reads **C_T 6.6719e-3, −79.8%**. | git archaeology; measured | **CRITICAL** |
+| J1 | **Gate 2M has five numbers in circulation and the published one was invalidated by your own bug fix.** `a982414` wrote **9.33e-3 / −151%** into README, PLM §5, PLM §6, ALIGNMENT.md and `docs/BUILD-PLAN.md` Part V.f; `cf76704` then proved the force parser double-counted pressure; `b8fcd4e` fixed reading a pre-restart fragment. Only `gates.py` was updated, to −15.4% — **which `scripts/gate2m.py` cannot reproduce from any run dir in the repo.** The only settled grid (`runs/kcs`) reads **C_T 6.6719e-3, −79.8%**. | git archaeology; measured | **CRITICAL** |
 | J2 | **README's gate table has no Gate 2U row at all** — a RED gate is invisible in the project's front door. README also lists only **5** honesty rules; rule 6 is absent. | `README.md:38-50` | **MED** |
 | J3 | **Gate 6R: code says GREEN, four documents say not done.** It went green in `5bbffb7` and README/PLM were not updated in the same push — a direct violation of PLM §4. | `README.md:50`; `PLM.md:74,88` | **HIGH** |
 | J4 | **`requirements.txt` is completely unpinned.** A project whose gates are numeric bars cannot tell a real regression from a scipy minor bump. | `requirements.txt` | **HIGH** |
@@ -250,7 +250,7 @@ nothing notices when it goes stale.
 
 | ID | Closed by | Mechanism |
 |---|---|---|
-| J1 | ledger + a test | `data/gate-ledger.json` is the ONLY place a Gate 2M measurement lives, with the superseded-by trail naming all five figures. `test_gate_integrity.py::test_no_document_restates_a_gate_2m_figure` fails if any of them reappears in README, PLM, MACBOOK or ALIGNMENT. `docs/CFD-BLOCKER-BRIEF.md` keeps its figure under a SUPERSEDED banner, because deleting the elimination work in it would cost machine-days to redo. |
+| J1 | ledger + a test | `data/gate-ledger.json` is the ONLY place a Gate 2M measurement lives, with the superseded-by trail naming all five figures. `test_gate_integrity.py::test_no_document_restates_a_gate_2m_figure` fails if any of them reappears in README, PLM, MACBOOK or ALIGNMENT. `docs/BUILD-PLAN.md` Part V.f keeps its figure under a SUPERSEDED banner, because deleting the elimination work in it would cost machine-days to redo. |
 | J2 | generation, not correction | README's gate table is emitted by `navalai.gates.readme_block()` with test counts from pytest's own collection; `--readme --write` regenerates it; a test fails when file and runner disagree. Honesty rule 6 added. Gate 2U now has a row — it never did. |
 | J3 | **Gate 6R flipped RED** | See the 6R block below. |
 | J5 | committed record + a gate row | `data/benchmark_geom/CHECKSUMS.json` (committed although the geometry is not) + `scripts/fetch_benchmark_geom.py`; **Gate 2G** is a row whose whole purpose is that a missing artefact prints `SKIPPED` in the gate table instead of skipping invisibly inside Gate 2. Its module-level skip is deliberate: one always-passing test in that file would make the row read `GREEN (n skipped)`, which answers "is the KCS geometry validated here?" with a yes. |

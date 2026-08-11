@@ -77,7 +77,7 @@ hardware/software this machine lacks).
 > job is verdicts.** Two counts of one state, neither derived. The fix is not to
 > edit the numbers: it is to re-verdict the 11 `GAP` rows **by predicate**, the
 > way `scripts/reconcile_gaps.py` already derives all 119 register rows from the
-> code. Scheduled as **P0-7** in `docs/ROADMAP.md` §5. Until then, treat every
+> code. Scheduled as **P0-7** in `docs/BUILD-PLAN.md` §5. Until then, treat every
 > row above as *unverified*, and take status from
 > `python scripts/reconcile_gaps.py` and `python -m navalai.gates`.
 >
@@ -140,7 +140,7 @@ hardware/software this machine lacks).
 **This section used to carry the measured table. It does not any more, and that
 is gap J1 being closed rather than information being lost.** One Gate 2M
 figure was written into README, PLM §5, PLM §6, this
-file and `docs/CFD-BLOCKER-BRIEF.md` in a single commit. Two later commits then
+file and `docs/BUILD-PLAN.md` Part V.f in a single commit. Two later commits then
 invalidated it — a pressure double-counting bug, and a force parser reading a
 pre-restart fragment — and only `gates.py` was updated. Five figures ended up in
 circulation and only one of them was reproducible from any run directory in the
@@ -169,7 +169,7 @@ own-hull GCI could not distinguish the two.
 | ~~The near-wall envelope is narrow and y+ cannot be fixed inside it~~ | **SUPERSEDED 2026-08-05, same root cause.** "(2,3) clean, (3,4) fails, (4,5) fails worse" was the aspect-ratio signature, not a wall-model limit: snap displacement scales with the LONG edge, so moving a node millimetres moved it several cell HEIGHTS and folded the cell. `_HULL_REFINE` is (4, 5) now, and all three levels mesh clean. | The old row's conclusion — "fixing it needs something outside mesh parameters" — was right for the wrong reason. It needed a different mesh *construction*, not different mesh *parameters*. |
 | Wetted-only (alpha-masked) y+ | implemented (`scripts/yplus_wetted.py`) | Read the MIN, never the patch average: the `hull` patch includes deck and topsides, which sit in air, and their y+ inverts to a first cell larger than the background cell. Dry faces dominate max and average. |
 | **Unattended meshing (plan Phase 2 bar: >=95% of 200 hulls)** | **Gate 2U, RED — watermark in `data/gate-ledger.json`** (`scripts/mesh_robustness.py`) | BuildPlan Risk #1 called this "the largest unknown"; it is a number instead of a worry. Two caveats travel with it: N=8 is a small sample, and the "converges" half of the bar has never been measured at all. |
-| **Pressure drag is 3-6x too high and grows with time** | OPEN, and it is the real blocker — see `docs/BuildPlan3-GapClosure.md` R5.5, which lists five hypotheses tested and eliminated at real compute cost. Viscous drag is now correct (1.15-1.22x ITTC-57). | Nothing downstream is trustworthy until it closes. A GCI would converge onto a wrong number more precisely, and a DSYHS or Fridsma validation would be corrupted identically. |
+| **Pressure drag is 3-6x too high and grows with time** | OPEN, and it is the real blocker — see `docs/BUILD-PLAN.md` Part V.d R5.5, which lists five hypotheses tested and eliminated at real compute cost. Viscous drag is now correct (1.15-1.22x ITTC-57). | Nothing downstream is trustworthy until it closes. A GCI would converge onto a wrong number more precisely, and a DSYHS or Fridsma validation would be corrupted identically. |
 | **Benchmark anchor set is wrong for the product line** | KCS is slender, displacement, Fn 0.26, no chines, no immersed transom, no spray. The SKUs (Solar Liveaboard, Dayboat) are chined semi-displacement craft with immersed transoms. | KCS calibrates the INSTRUMENT (free-surface capture, friction line, force integration, mesh convergence) and gives a bias floor — it does not validate small-craft physics. Per BuildPlan §1.3 (Islam & Guedes Soares 2019) V&V is case-specific. A second anchor sharing our dominant features is owed: DTMB 5415 (transom stern, already in the plan) or DSYHS / Series 62 for chined planing craft. Until then, Gate 2M's pass must NOT be read as small-craft validation. |
 
 ## Gap-closure stages

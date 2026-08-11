@@ -19,15 +19,15 @@ exist, and all four were false. **Ask the artifact that owns the question:**
 |---|---|---|
 | what is the status? | `python -m navalai.gates` · `data/gate-ledger.json` | any document |
 | what work is outstanding? | `python scripts/reconcile_gaps.py` | any document |
-| what order do we do it in, and who owns it? | **`docs/ROADMAP.md`** | the BuildPlans |
+| what order do we do it in, and who owns it? | **`docs/BUILD-PLAN.md`** | the BuildPlans |
 | what do we build, what is a product, who are the roles? | `PLM.md` §1–§4 | — |
 | what was learned the hard way? | `docs/LESSONS.md` | — |
-| what is the architecture? | `docs/HLD.md` §1–§8 | its §9–§11, retired |
+| what is the architecture? | `docs/BUILD-PLAN.md` Part III §1–§8 | its §9–§11, retired |
 | how do I work here? | **this file** | — |
 
-`docs/ROADMAP.md` is the ONE plan. `NavalArchAI-BuildPlan.md`,
-`BuildPlan2-FullVessel.md`, `BuildPlan3-MissionToOrder.md`,
-`docs/BuildPlan3-GapClosure.md` and `docs/STAGE-PLAN.md` are **retired to
+`docs/BUILD-PLAN.md` is the ONE plan. `docs/BUILD-PLAN.md` Part V.a,
+`docs/BUILD-PLAN.md` Part V.b, `docs/BUILD-PLAN.md` Part V.c,
+`docs/BUILD-PLAN.md` Part V.d and `docs/BUILD-PLAN.md` Part V.e are **retired to
 research records** — read them for their research, never for their schedule or
 their status. `ALIGNMENT.md`'s row-level verdicts are stale and flagged as such
 in the file. `MACBOOK.md` is the Mac simulation-node runbook.
@@ -543,7 +543,7 @@ predating them gets the 4.5 Lwl assumption, said out loud.
 ## ~~R5.5 REPRODUCES on the new mesh family, and it is an OSCILLATION~~
 ## SUPERSEDED 2026-08-07 — THERE IS NO OSCILLATION
 
-> **Read `docs/PRESSURE-OSCILLATION.md` §"RE-MEASURED 2026-08-07", not this
+> **Read `docs/BUILD-PLAN.md` Part IV.a §"RE-MEASURED 2026-08-07", not this
 > section.** Kept, struck through, because the *reasoning* below is instructive
 > and because PLM §3 step 7 requires a superseded item to be removed with a
 > note rather than left ambiguous.
@@ -563,7 +563,7 @@ predating them gets the 4.5 Lwl assumption, said out loud.
 > **The "next experiment" at the end of this section has been RUN and it
 > refuted the hypothesis.** Do not run it again, and do not build an absorbing
 > domain or a relaxation zone: that was the fix for a mechanism now measured not
-> to exist. The next experiment is **free sinkage and trim**. `docs/ROADMAP.md`
+> to exist. The next experiment is **free sinkage and trim**. `docs/BUILD-PLAN.md`
 > §7 carries the ordered candidate list.
 
 `runs/val_coarse5` — symmetric KCS, `_NX_BASE` 57, `--n-layers 5`, 230725 cells,
@@ -614,7 +614,7 @@ figure for one measurement; EFD Ct 3.711e-3 @ Fn 0.26, **7**-group scatter
 ~~Still open: the 75 s (5 flow-through) KCS solve ... Last recorded Ct was
 &lt;figure&gt; = &lt;figure&gt; against EFD, on the OLD 306k mesh ...~~
 
-**SUPERSEDED 2026-08-07 by `runs/kcs_s1`; see `docs/PRESSURE-OSCILLATION.md`.**
+**SUPERSEDED 2026-08-07 by `runs/kcs_s1`; see `docs/BUILD-PLAN.md` Part IV.a.**
 The two figures that stood here are on the superseded list in
 `tests/test_gate_integrity.py` and are removed rather than updated — **no Gate
 2M measurement is restated in this file.** The ledger
@@ -666,8 +666,8 @@ these was a real drift found by measurement, not a style preference:
 > **RENAMED 2026-08-11. THIS FILE NO LONGER CARRIES SESSION STATE.** A section
 > headed "where to pick up" dated six days ago is the single most reliable way
 > to confuse the next agent: it reads as current, and `runs/kcs_s1` has landed
-> since (`docs/PRESSURE-OSCILLATION.md`). What to do next is
-> **`docs/ROADMAP.md` §5**, which is ordered, owned, and derived from
+> since (`docs/BUILD-PLAN.md` Part IV.a). What to do next is
+> **`docs/BUILD-PLAN.md` §5**, which is ordered, owned, and derived from
 > `scripts/reconcile_gaps.py` rather than from a session's memory.
 >
 > The tooling and cost notes below are durable and stay. The numbered "then, in

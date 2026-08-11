@@ -29,7 +29,7 @@ rule profiles, mission presets); it may never bypass a gate or fork physics.
 | **Hull-Line v1** | any (research base) | full 15-param | ISO 12217/12215 subset | SHIPPED (gates green) |
 | **Solar Liveaboard** | 6 t, Danube/Black Sea, cat C/D | sharp-chine, 9–14 m | + ES-TRIN (todo) | reference product; demo green |
 | **Dayboat** | 1–3 t, cat D | pram/sharp-chine 4–7 m | cat D profile | latent (typology exists) |
-| **Full-Vessel Line v2** | + interior/exterior arrangement + unsinkability | + arrangement grammar | + ergonomics tier E + flotation tier F | V2.0 LANDED (`navalai/refdata/`, Gate V2.0); V2.1–V2.6 PLANNED — see `BuildPlan2-FullVessel.md` |
+| **Full-Vessel Line v2** | + interior/exterior arrangement + unsinkability | + arrangement grammar | + ergonomics tier E + flotation tier F | V2.0 LANDED (`navalai/refdata/`, Gate V2.0); V2.1–V2.6 PLANNED — see `docs/BUILD-PLAN.md` Part V.b |
 
 Adding a product = one mission preset + one grammar subspace + one rules
 profile. If it needs new physics or new grammar axes, that's a PLATFORM
@@ -39,7 +39,7 @@ change and goes through the lifecycle below.
 
 1. **Requirement** — user need or field finding, stated with a measurable bar.
 2. **Research** — deep-research sweep; claims verified; recorded in the plan
-   doc with citations (pattern: `NavalArchAI-BuildPlan.md` §1).
+   doc with citations (pattern: `docs/BUILD-PLAN.md` Part V.a §1).
 3. **Decision** — chief architect locks approach + gate definition in the
    plan; divergences from prior plans get a *measured receipt* (`ALIGNMENT.md`).
 4. **Implementation** — code + gate test in the same change; the test
@@ -76,7 +76,7 @@ REVIEW-GATED = needs qualified human. RED = ran and missed its bar, kept red.
 row's measured watermark, owner and review-by date is in
 `data/gate-ledger.json`. This paragraph replaced three numbers, and the reason
 is gap J1: one Gate 2M measurement was copied into README, PLM §5, PLM §6,
-ALIGNMENT.md and `docs/CFD-BLOCKER-BRIEF.md`, then invalidated twice by our own
+ALIGNMENT.md and `docs/BUILD-PLAN.md` Part V.f, then invalidated twice by our own
 bug fixes — after which five different figures were in circulation and only one
 of them was reproducible from any run directory. A management file that
 restates a measurement becomes a fifth source of it.
@@ -90,7 +90,7 @@ began requiring the dated editions the record admits it does not have).
 
 | Epic | Owner | State |
 |---|---|---|
-| Own-hull GCI triplet | cfd-engineer | **HELD, deliberately.** Blocked behind the open pressure-drag discrepancy (`docs/BuildPlan3-GapClosure.md` R5.5): a GCI would converge onto a wrong number more precisely. Do not spend the compute until R5.5 closes. |
+| Own-hull GCI triplet | cfd-engineer | **HELD, deliberately.** Blocked behind the open pressure-drag discrepancy (`docs/BUILD-PLAN.md` Part V.d R5.5): a GCI would converge onto a wrong number more precisely. Do not spend the compute until R5.5 closes. |
 | Gate 2M: KCS calibration vs Tokyo-2015 | cfd-engineer | **RAN, and RED — see `data/gate-ledger.json` for the measured watermark, and the register §F for what is still wrong with it.** No figure is repeated here (gap J1). It did its job regardless of the value: the own-hull C_T/C_F ~ 9.8 is now known to be OUR SETUP and not the hull, which no own-hull GCI could ever have decided. Geometry: `benchmarks/kcs.py` carries the EFD and the scatter band from the proceedings PDF; the hull regenerates via `scripts/fetch_benchmark_geom.py` against the committed `data/benchmark_geom/CHECKSUMS.json`. |
 | **Second benchmark anchor for the SKUs** (DTMB 5415 / DSYHS / Series 62) | cfd-engineer | QUEUED — KCS calibrates the instrument but shares none of the chine/transom/spray physics the product lines depend on; Gate 2M alone must not be read as small-craft validation. See `ALIGNMENT.md`. |
 | L3→co-kriging wiring (first HF points into the spine) | ml-engineer | BLOCKED on Gate 2M |

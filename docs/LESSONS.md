@@ -190,7 +190,7 @@ developable — is DEFERRED by decision: fix the simulation model first.
 domain-selected gravity wave ... The fix is **absorption** — a relaxation zone
 or momentum sink — not depth, not solver tuning, and not running longer.~~
 
-**SUPERSEDED 2026-08-07 by `runs/kcs_s1`** (`docs/PRESSURE-OSCILLATION.md`,
+**SUPERSEDED 2026-08-07 by `runs/kcs_s1`** (`docs/BUILD-PLAN.md` Part IV.a,
 commit `971f441`), and this entry is kept rather than deleted because the
 *lesson* changed shape while the paragraph above stayed put in the file every
 session is told to read first — which is defect class 5 committed by this file
