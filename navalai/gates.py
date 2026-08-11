@@ -286,6 +286,14 @@ GATES = [
     # gitignored, so five tests skipped invisibly on every machine but the one
     # that generated the file — a pytest skip is not visible in the gate table,
     # and the table is the project's front door.
+    # A GRAMMAR-VALID HULL IS NOT A CFD-MESHABLE ONE, and until 2026-08-11
+    # nothing in the ladder said so. Gate 2U's campaign measured 5 clean of 18
+    # at the derived layer count; the admissibility screen refuses the subset
+    # it can name a mechanism for (precision 1.000, recall 0.500, Fisher
+    # p=0.0498 at N=18) and is DIAGNOSTIC — it may never narrow Gate 2U-A's
+    # denominator, which is the gaming signature the split exists to expose.
+    Gate("Gate 2A", "CFD-admissibility screen: a grammar-valid hull is not a "
+         "CFD-meshable one", "tests/test_admissibility.py"),
     Gate("Gate 2G", "KCS benchmark geometry: present and accepted "
          "(scripts/fetch_benchmark_geom.py)", "tests/test_benchmark_geom.py"),
     # Gap D8. is_complete() now requires a DATED edition per standard, which

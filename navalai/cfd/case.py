@@ -173,7 +173,24 @@ _NZ_PER_NX = 14.0 / 54.0
 # reproduces exactly the 0.08-of-cell ratio that produced ZERO layers on KCS.
 # The opposite failure — a stack thicker than its host cell — is now caught by
 # the stack/hull_cell check below, so both ends are guarded.
-_MAX_LAYERS = 10
+# LOWERED 10 -> 7 on 2026-08-11 by the Gate 2U coarse campaign, which measured
+# the cap being the defect rather than the guard. At 10 the derivation asks for
+# 8-10 on EVERY grammar hull and snappy achieves 3.9-8.1 — not one hull hit its
+# request, and a PARTIAL stack is the documented cell-folding mechanism
+# (CLAUDE.md, KCS: n=3 97.7% clean, n=5 92.6% solves, n=7 81.2% DIES). The
+# campaign's own controlled pair:
+#     hull 0  n=10 -> 12 zeroVol, 92 wrongOri, skew 23.76   REFUSED
+#     hull 0  n= 7 ->  0 zeroVol,  0 wrongOri, skew  4.52   clean
+#     hull 1  n= 9 ->  0 zeroVol,  8 wrongOri, skew 25.37   REFUSED
+# and across the batch, requested-vs-achieved tracks the damage: hull 12 asked
+# 10, achieved 4.31, produced 258 wrongly-oriented faces; hull 11 asked 9, got
+# 3.91, 130 wrong. The clean hulls sit at the TOP of the achieved range
+# (7.43, 6.64, 5.99), which is what "complete stack" looks like.
+# NOT 5, and not back to 3: this file already records that capping at 5 on a
+# 52 mm hull cell reproduces the 0.08-of-cell ratio that gave ZERO layers on
+# KCS, and the 3 came from a measurement on the SUPERSEDED 38:1 anisotropic
+# background. 7 is the largest count MEASURED clean on this mesh family.
+_MAX_LAYERS = 7
 
 # Angle across which layers may continue. 170 is the Wolf Dynamics KCS
 # reference value and snappy's own DTCHull default; 60 terminated extrusion at
@@ -1102,6 +1119,54 @@ def layer_spec(lwl: float, speed: float, scale: float = 1.0) -> dict:
     n_ideal = n_layers_to_bridge(t1, hull_cell, _LAYER_EXPANSION)
     return {"n_layers": min(n_ideal, _MAX_LAYERS), "n_ideal": n_ideal,
             "first_layer_m": t1, "hull_cell_m": hull_cell, "nx": nx}
+
+
+# The floor is 3 because that is the count CLAUDE.md records as clean on KCS
+# (97.7% coverage, 0 zero-volume, 0 wrongly-oriented) and because a 2-layer
+# stack stops being a boundary layer. It is NOT "the safest count": MEASURED
+# 2026-08-11 on grammar hull 1 (lwl 10.473), n=3 gives max skewness 20.32 and
+# 2 wrongly-oriented faces and is REFUSED, while n=5 and n=7 on the same hull
+# are clean. Lower is not monotonically better, which is why the ladder stops
+# at the FIRST count that passes rather than going straight to the floor.
+_LAYER_FLOOR = 3
+_LAYER_BACKOFF_STEP = 2
+
+
+def layer_backoff_ladder(n_derived: int, floor: int = _LAYER_FLOOR,
+                         step: int = _LAYER_BACKOFF_STEP) -> list[int]:
+    """Prism-layer counts to try after `n_derived` is refused, in order.
+
+    WHY THIS EXISTS (MEASURED 2026-08-11, the Gate 2U coarse campaign).
+    `n_layers_to_bridge` derives 8, 9 or 10 layers for EVERY hull the grammar
+    samples — it optimises for bridging the stack to the local hull cell and,
+    as `scripts/make_case.py --n-layers` already says, "has no way to know what
+    snappy will do to THIS geometry". On the first two hulls of the seed-0
+    batch the derived count produces a mesh `run-case.sh` refuses:
+
+        hull  lwl     n derived  zeroVol  wrongOri  skew    verdict
+         0    15.015     10         12       92     23.76   REFUSED
+         0    15.015      7          0        0      4.52   clean
+         1    10.473      9          0        8     25.37   REFUSED
+         1    10.473      7          0        0      3.25   clean
+
+    docs/LESSONS.md records that a BUILD-TIME predictor was drafted for this
+    and killed by its own data (Wigley solves at stack/hull_cell 1.084 while
+    KCS dies at 0.952), so the count cannot be corrected before meshing. What
+    remains is to MEASURE and back off — which is exactly the manual step
+    `run-case.sh` already prints on refusal ("pass n_layers to the generator
+    -- make_case.py --n-layers N"), and automating an operator's own documented
+    response is what "unattended" means in this gate's bar.
+
+    This changes NO bar. The checkMesh gates (0 zero-volume, <=5
+    wrongly-oriented, <=20 skewness) judge every rung identically; a hull that
+    fails all of them still fails.
+    """
+    n = int(n_derived) - step
+    out = []
+    while n >= floor:
+        out.append(n)
+        n -= step
+    return out
 
 
 def benchmark_of_sha(stl_sha: str) -> str | None:

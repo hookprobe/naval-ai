@@ -10,6 +10,7 @@ post-processor COMPUTES, which is where every one of the defects lived.
 
 from __future__ import annotations
 
+import json
 import math
 from pathlib import Path
 
@@ -1015,3 +1016,317 @@ def test_a_run_under_one_flow_through_is_never_called_settled(tmp_path):
         "0.70 of a flow-through with zero drift must NOT be settled — this is "
         "exactly runs/beach, which the gate reported a C_T for")
     assert long_["settled"], "2.0 flow-throughs with zero drift must settle"
+
+
+# --------------------------------------------------------------------------
+# Gate 2U — the unattended-robustness campaign, and the two defects it hit
+# --------------------------------------------------------------------------
+
+def _mesh_robustness():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "mesh_robustness_ft", _ROOT / "scripts" / "mesh_robustness.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+# VERBATIM from /tmp/probe_lts/log.snappy.layers, the first hull of the seed-0
+# Gate 2U batch (lwl 15.015, derived n_layers 10), 2026-08-11. Both `hull`
+# tables are here because it takes both to reproduce the defect.
+_SNAPPY_TWO_TABLES = """\
+patch faces    layers avg thickness[m]
+                     near-wall overall
+----- -----    ------ --------- -------
+hull 49032    10     0.00243   0.0631  
+
+Mesh with layers : cells:596952  faces:1918597  points:732740
+
+patch faces        layers        overall thickness
+              target   mesh     [m]       [%]
+----- -----    -----    ----     ---       ---
+hull 49032    10       4.71     0.0416    66      
+"""
+
+
+def test_layer_coverage_is_read_from_the_achieved_table_not_the_requested_one(
+        tmp_path, monkeypatch):
+    """MEASURED 2026-08-11. `mesh_robustness.py` graded layer insertion with a
+    regex that captured four groups after `hull` and took group 2 as the layer
+    count. In the SPEC table (printed BEFORE extrusion) group 2 is the
+    requested count; in the ACHIEVED table it is the `target` column — the
+    requested count again. Both matches carried 10, `max()` could only return
+    10, and the harness printed `layer% 100.0` for a hull patch that achieved a
+    mean of 4.71 of 10 layers, i.e. 47.1%.
+
+    That is the REQUESTED SPEC PRINTED UNDER THE LABEL OF THE ACHIEVED RESULT
+    — docs/LESSONS.md defect class 1, and the same incident run-case.sh fixed
+    in ITSELF on 2026-08-06 (its "first 5.68 m" line, where 5.68 was the mean
+    layer count on a 7.28 m hull). The harness never got the same fix, and this
+    was the only number the campaign had for layer insertion.
+
+    The guard is fed the VERBATIM log that produced the wrong answer.
+    """
+    mr = _mesh_robustness()
+    case = tmp_path / "h000"
+    (case / "system").mkdir(parents=True)
+    (case / "log.snappy.layers").write_text(_SNAPPY_TWO_TABLES)
+    (case / "log.checkMesh").write_text(
+        "    cells:            596952\n"
+        "    Mesh non-orthogonality Max: 108.66 average: 1\n"
+        " ***Max skewness = 23.7633, 12 highly skew faces detected\n")
+    monkeypatch.setattr(mr.subprocess, "run",
+                        lambda *a, **k: _FakeProc())
+    r = mr.mesh_one(case, mesh_only=True)
+    assert r["layers_requested"] == 10
+    assert r["layers_achieved"] == pytest.approx(4.71)
+    assert r["layer_pct"] == pytest.approx(47.1, rel=1e-3), (
+        "the achieved mean layer count is 4.71 of a requested 10; anything "
+        "reporting 100.0 is reading the spec table")
+
+
+class _FakeProc:
+    returncode = 0
+    stdout = ""
+
+
+def test_an_unreadable_layer_table_is_refused_not_scored_as_full_coverage(
+        tmp_path, monkeypatch):
+    """LESSONS class 1 again, in the other direction: a coverage that could not
+    be measured must not come back as a number that passes. The sentinel is
+    -1.0, never 0.0 and never 100.0."""
+    mr = _mesh_robustness()
+    case = tmp_path / "h001"
+    (case / "system").mkdir(parents=True)
+    (case / "log.snappy.layers").write_text("no layer table here at all\n")
+    (case / "log.checkMesh").write_text("    cells:            1234\n")
+    monkeypatch.setattr(mr.subprocess, "run", lambda *a, **k: _FakeProc())
+    r = mr.mesh_one(case, mesh_only=True)
+    assert r["layer_pct"] == -1.0
+    assert r["layers_achieved"] == -1.0
+
+
+def test_the_layer_backoff_ladder_descends_by_two_and_stops_at_three():
+    """MEASURED 2026-08-11 on the seed-0 Gate 2U batch: `n_layers_to_bridge`
+    derives 8-10 layers for EVERY grammar hull, and on hulls 0 and 1 the
+    derived count produces a mesh run-case.sh refuses (12 zero-volume cells /
+    92 wrongly-oriented faces / skew 23.76 on hull 0; 8 faces / skew 25.37 on
+    hull 1), while n=7 is clean on both (0/0/4.52 and 0/0/3.25).
+
+    The ladder must not jump to the floor: on hull 1, n=3 is ALSO refused
+    (2 wrongly-oriented faces, skew 20.32) while n=5 and n=7 are clean, so
+    lower is not monotonically better and the first passing rung is the answer.
+    """
+    assert C.layer_backoff_ladder(10) == [8, 6, 4]
+    assert C.layer_backoff_ladder(9) == [7, 5, 3]
+    assert C.layer_backoff_ladder(3) == [], "the floor is a floor, not a rung"
+    assert all(n >= 3 for n in C.layer_backoff_ladder(20))
+    # And it is strictly descending, so the loop terminates.
+    lad = C.layer_backoff_ladder(20)
+    assert lad == sorted(lad, reverse=True) and len(set(lad)) == len(lad)
+
+
+def test_the_campaign_taxonomy_names_the_stage_that_refused():
+    """A percentage says how bad; the grouping says what to fix. Each verdict
+    below is fed the shape of record the campaign actually produced."""
+    mr = _mesh_robustness()
+    # run-case.sh refused the mesh, so interFoam never ran. This must NOT be
+    # reported as a solver crash: the repairs are different.
+    assert mr.classify({"cells": 596952, "zero_volume_cells": 12,
+                        "wrong_oriented": 92, "max_skewness": 23.76,
+                        "solve_attempted": False}) == "checkmesh-zero-volume"
+    assert mr.classify({"cells": 627762, "zero_volume_cells": 0,
+                        "wrong_oriented": 8, "max_skewness": 25.37,
+                        "solve_attempted": False}) == "checkmesh-wrong-oriented"
+    assert mr.classify({"cells": 100, "zero_volume_cells": 0,
+                        "wrong_oriented": 0, "max_skewness": 20.32,
+                        "solve_attempted": False}) == "checkmesh-skewness"
+    # An unmeasurable metric is a FAILURE, never a pass (LESSONS class 1).
+    assert mr.classify({"cells": 100, "zero_volume_cells": 0,
+                        "wrong_oriented": 0, "max_skewness": -1.0,
+                        "solve_attempted": False}) == "checkmesh-unparsed"
+    assert mr.classify({"cells": 100, "zero_volume_cells": 0,
+                        "wrong_oriented": 0, "max_skewness": 4.5,
+                        "solve_requested": True,
+                        "solve_attempted": True, "solves": True}) == "ok"
+    assert mr.classify({"cells": 100, "zero_volume_cells": 0,
+                        "wrong_oriented": 0, "max_skewness": 4.5,
+                        "solve_requested": True,
+                        "solve_attempted": True, "solves": False,
+                        "solve_steps": 0}) == "solver-died-on-startup"
+    # A MESH-ONLY run must not report a REFUSAL for a mesh it ACCEPTED.
+    # MEASURED 2026-08-11 on the back-off sweep: hulls 0 and 1 meshed clean
+    # (skew 4.52 and 3.25, 0 zero-volume, 0 wrongly-oriented) and every one of
+    # them was printed as `mesh-refused-unclassified` — a verdict string saying
+    # the opposite of what happened, because the classifier could not tell
+    # "no solve was asked for" from "the solver was never reached".
+    assert mr.classify({"cells": 705328, "zero_volume_cells": 0,
+                        "wrong_oriented": 0, "max_skewness": 4.52,
+                        "solve_requested": False}) == "meshed-no-solve-requested"
+    assert mr.classify({"cells": 705328, "zero_volume_cells": 0,
+                        "wrong_oriented": 0, "max_skewness": 4.52,
+                        "solve_requested": True,
+                        "solve_attempted": False}) == "runner-refused-before-solver"
+    # Campaign hull 2, verbatim shape: a mesh that passed EVERY bar, 104 LTS
+    # iterations, then an FPE. There is no "--> FOAM FATAL" in that log, so the
+    # old detector called it `fatal: false` and the verdict came out
+    # "solver-stopped-short" — a name that reads like a timeout and points the
+    # next session at the wall clock instead of at a divergence.
+    assert mr.classify({"cells": 812282, "zero_volume_cells": 0,
+                        "wrong_oriented": 0, "max_skewness": 6.95,
+                        "solve_attempted": True, "solves": False,
+                        "solve_requested": True,
+                        "solve_steps": 104, "fatal": False,
+                        "crashed": True}) == "solver-diverged"
+
+
+def test_an_fpe_divergence_is_not_reported_as_a_completed_solve(tmp_path):
+    """MEASURED 2026-08-11, campaign hull 2. interFoam died at LTS iteration
+    104 with `Foam::sigFpe::sigHandler` inside `GAMGSolver::scale` and
+    `exited on signal 4`, force coefficients at 1e200 and a continuity error of
+    1.59e94 — and NOT ONE "--> FOAM FATAL" line. `solves` was computed as
+    `reached >= end and "--> FOAM FATAL" not in text`, so the only thing
+    keeping that run from being scored as a success was that it stopped short.
+    A divergence at iteration 1999 of 2000 WOULD have scored as a pass.
+
+    Under LTS there is also no `deltaT =` line to watch collapse; the local
+    time scale is the equivalent quantity and it had fallen to 8.567e-105.
+    """
+    mr = _mesh_robustness()
+    case = tmp_path / "h002"
+    (case / "system").mkdir(parents=True)
+    (case / "system" / "controlDict").write_text(
+        "FoamFile { version 2.0; format ascii; class dictionary; "
+        "object controlDict; }\nendTime 2000;\ndeltaT 1;\n")
+    (case / "log.interFoam").write_text(
+        "Flow time scale min/max = 8.567e-105, 2.91634e-94\n"
+        "Time = 2000\n"
+        "GAMG:  Solving for p_rgh, Initial residual = 0.138236\n"
+        "time step continuity errors : sum local = 1.59401e+94\n"
+        "[7] #1  Foam::sigFpe::sigHandler(int) (in libOpenFOAM.dylib) + 32\n"
+        "prterun noticed that process rank 7 with PID 23066 on node Mac "
+        "exited on signal 4 (Illegal instruction: 4).\n")
+    r = mr.solve_one(case)
+    assert r["solve_reached"] == 2000 and r["solve_end_time"] == 2000, (
+        "the premise: this log REACHED endTime, so only the crash signature "
+        "can refuse it")
+    assert r["crashed"] is True
+    assert r["min_flow_time_scale"] == pytest.approx(8.567e-105)
+    assert r["solves"] is False, (
+        "a run that reached endTime and then took an FPE is not a converged "
+        "run; scoring it as one is how the 'converges' half of Gate 2U would "
+        "have come out too high")
+
+
+def test_the_wrongly_oriented_count_is_the_one_the_gate_bar_was_calibrated_on(
+        tmp_path, monkeypatch):
+    """MEASURED 2026-08-11 on campaign hull 0. checkMesh reports the same
+    defect twice and the two numbers disagree:
+
+        ***Error in face pyramids: 128 faces are incorrectly oriented.
+        <<Writing 92 faces with incorrect orientation to set wrongOrientedFaces
+
+    (hull 4: 55 against 38). `run-case.sh`'s fatal bar reads the SET line, and
+    the bar itself was calibrated in set counts — 5 solves, 10 dies, 73 dies.
+    This harness read the CHECK line, so the instrument measuring the pipeline
+    was grading a different quantity from the one the pipeline enforces. A hull
+    at 6-in-the-check / 5-in-the-set would be RUN by run-case.sh and recorded
+    as FAILED by the measurement of run-case.sh.
+
+    A number has one home; the other count is kept, not discarded, so the
+    discrepancy stays visible instead of being silently picked.
+    """
+    mr = _mesh_robustness()
+    case = tmp_path / "h000"
+    (case / "system").mkdir(parents=True)
+    (case / "log.checkMesh").write_text(
+        "    cells:            596952\n"
+        "  <<Writing 12 zero volume cells to set zeroVolumeCells\n"
+        " ***Error in face pyramids: 128 faces are incorrectly oriented.\n"
+        "  <<Writing 92 faces with incorrect orientation to set "
+        "wrongOrientedFaces\n"
+        " ***Max skewness = 23.7633, 12 highly skew faces detected\n")
+    monkeypatch.setattr(mr.subprocess, "run", lambda *a, **k: _FakeProc())
+    r = mr.mesh_one(case, mesh_only=True)
+    assert r["wrong_oriented"] == 92, "the bar's quantity is the SET count"
+    assert r["wrong_oriented_pyramid_check"] == 128, "and the other is kept"
+
+
+def test_the_two_mesh_verdicts_are_both_reported_because_they_disagree(
+        tmp_path, monkeypatch):
+    """The harness's `meshed` proxy demands ZERO wrongly-oriented faces;
+    `run-case.sh` refuses only above FIVE. MEASURED 2026-08-11 on back-off
+    campaign hull 8 (0 zero-volume, skew 5.89): a mesh the pipeline would
+    happily solve, recorded as FAILED by the measurement OF that pipeline.
+
+    Neither is deleted. The proxy keeps continuity with the earlier 75%
+    watermark; the runner bar is what decides whether a solve happens. Gate
+    2U's watermark is the SOLVE rate, which is the conjunction the plan's
+    clause asks for and is free of this ambiguity.
+    """
+    mr = _mesh_robustness()
+    case = tmp_path / "h008"
+    (case / "system").mkdir(parents=True)
+    (case / "log.checkMesh").write_text(
+        "    cells:            451465\n"
+        "  <<Writing 3 faces with incorrect orientation to set "
+        "wrongOrientedFaces\n"
+        " ***Max skewness = 5.89, 2 highly skew faces detected\n")
+    monkeypatch.setattr(mr.subprocess, "run", lambda *a, **k: _FakeProc())
+    r = mr.mesh_one(case, mesh_only=True)
+    assert r["meshed"] is False, "the proxy demands zero"
+    assert r["meshed_runner_bar"] is True, "the pipeline's own bar allows <=5"
+    # And the runner bar really does refuse: 6 faces, and skew over 20.
+    (case / "log.checkMesh").write_text(
+        "    cells:            451465\n"
+        "  <<Writing 6 faces with incorrect orientation to set "
+        "wrongOrientedFaces\n"
+        " ***Max skewness = 5.89, 2 highly skew faces detected\n")
+    assert mr.mesh_one(case, mesh_only=True)["meshed_runner_bar"] is False
+    (case / "log.checkMesh").write_text(
+        "    cells:            451465\n"
+        " ***Max skewness = 20.32, 2 highly skew faces detected\n")
+    assert mr.mesh_one(case, mesh_only=True)["meshed_runner_bar"] is False
+
+
+def test_reclassify_refuses_to_write_a_zero_it_could_not_measure(tmp_path,
+                                                                 capsys):
+    """MEASURED 2026-08-11, and it destroyed a finished campaign.
+
+    `--reclassify` is a READ-ONLY reparse of logs already on disk. It was not
+    `--resume`, so it fell into the branch that `shutil.rmtree`s the output
+    tree — deleting all 25 case directories it was about to read — and the
+    reparse then found nothing and wrote `{"n": 0, "rows": [], "success_pct":
+    0.0}` OVER the 19/25 record it had been invoked to correct.
+
+    Two defects, both LESSONS class 1, in one command: a read-only mode that
+    deletes its input, and a failure-to-measure written out as a measurement of
+    zero. `success_pct` over a zero-hull batch is UNDEFINED, not 0%.
+
+    This test feeds the guard the exact condition: a --reclassify against a
+    directory with no logs, and an existing record that must survive.
+    """
+    mr = _mesh_robustness()
+    out = tmp_path / "cases"
+    out.mkdir()
+    (out / "h000").mkdir()                       # a case dir with NO logs
+    record = tmp_path / "campaign.json"
+    record.write_text(json.dumps({"n": 25, "success_pct": 76.0, "rows": [
+        {"hull": 0, "meshed": True, "why": "meshed-no-solve-requested"}]}))
+    before = record.read_text()
+
+    import sys
+    argv = sys.argv
+    sys.argv = ["mesh_robustness.py", "--n", "1", "--out", str(out),
+                "--json", str(record), "--reclassify"]
+    try:
+        rc = mr.main()
+    finally:
+        sys.argv = argv
+    assert rc == 2, "an unmeasurable reparse must exit non-zero"
+    assert record.read_text() == before, (
+        "the existing record was overwritten by a reparse that measured "
+        "nothing — this is the incident, verbatim")
+    assert out.exists() and (out / "h000").exists(), (
+        "--reclassify deleted the tree it was asked to read")
+    assert "REFUSING to write" in capsys.readouterr().out
