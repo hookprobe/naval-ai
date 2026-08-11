@@ -1129,6 +1129,284 @@ triplet is **~21× the coarse grid (~68.7 h), not ~12×**. The cell ratios (2.79
 finer grid also takes √2 more steps. Using cell ratios as a time estimate
 under-budgets by 75%.
 
+### 11.6 Gate 2U: the missing admissibility layer, and how the gate must be split
+
+**THE HYPOTHESIS, from an external review, tested rather than adopted:** Gate
+2U's mesh failures are not an OpenFOAM problem — NavalAI defines "valid hull"
+as `grammar.check()` plus a finite L1 evaluation, which is not the same set as
+"CFD-meshable hull", so the grammar emits a design manifold larger than the
+STL → snappyHexMesh → prism-layer pipeline can hold. **Confirmed in outline,
+refuted in its two named mechanisms**, and the difference is where the work is.
+
+#### 11.6.1 The two geometry claims: both TRUE, neither predictive
+
+Gate 6D's panel-unrolling work independently measured two defects in
+`geometry.station_geometry`, and the review proposed them as the CFD driver
+too — one fix moving 6D and 2U together. Both were re-derived here from the
+code, analytically and numerically:
+
+- **(a) The stem tangent is unbounded.** `y_sheer = max(ys,0) * max(w,0)**0.15`
+  with `w = 1 - ((x-x_mb)/(L-x_mb))**p_bow`, so near the stem
+  `w ≈ p_bow·(L-x)/(L-x_mb)` and `y_sheer ~ (L-x)**0.15`, giving
+  `dy/dx ~ (L-x)**-0.85 → -∞`. MEASURED local exponent on the reference hull:
+  0.3265 at 100 mm from the stem, 0.1714 at 10 mm, 0.1502 at 0.1 mm, **0.1500
+  at 1 µm** — the closed form, confirmed. In CFD terms the deck is already
+  **6.2 hull cells wide (median over 200 hulls) one cell aft of the stem**: the
+  bow closes over a length no cell in the case can resolve. CONFIRMED.
+- **(b) The plan-form tangent breaks at `x_mb`.** Forward of `x_mb`,
+  `dw/dx → 0` for any `p_bow > 1`; aft of it `dw/dx = (1-r_transom)·p_stern/x_mb`.
+  The chine slope jump is therefore `0.5·B·(1-r_transom)·p_stern/(x_mb·L)`,
+  which matches the closed form to six significant figures (0.218182 predicted,
+  0.218182 measured at h = 1e-6) — a **12.308°** tangent break on the reference
+  hull, and **up to 65.9°** over the grammar's box. CONFIRMED.
+
+**And neither explains the mesh failures.** Over campaign hulls 0–17 (hull 5
+excluded, its record is self-contradictory), AUC against mesh failure:
+`bow_bluntness_cells` **0.500**, `xmb_tangent_break_deg` **0.500** — chance,
+both. Claim (a) is worse than uninformative as a discriminator: it is a
+property of the **grammar**, present in every hull it emits, so it cannot
+account for per-hull variance in a batch where a third of the hulls mesh. So
+**the "one fix moves 6D and 2U together" thesis is REFUTED on the CFD side.**
+Fixing the cusp is still owed — it is Gate 6D's residual — but it must be
+justified on 6D's numbers, not on a CFD benefit that is not measured.
+
+The full battery is on the record so it is not re-run: max STL facet turn
+(AUC 0.673, failures 24.7–40.9°, successes 24.9–42.2° — overlapping),
+`stack/hull_cell` 0.621, chine curvature ratio 0.309, panel twist 0.561, and
+per-parameter, only draft reaches `p = 0.0101` one-sided — **`p = 0.152` after
+Bonferroni over the grammar's 15 parameters, i.e. not significant.**
+
+#### 11.6.2 What DOES screen, and its honest strength
+
+`navalai/admissibility.py` is a pre-mesh screen: no snappy, no OpenFOAM, no STL
+on disk, **7.6 ms per hull** against ~80 s to mesh one. It returns a typed
+per-metric report — `SAFE / MARGINAL / DANGEROUS / UNMEASURED`, never a single
+score, because a single score is exactly what a system tunes until it goes
+green. Two bars carry the result, and **both are derived from the pipeline's
+own constants rather than fitted to the outcomes**:
+
+| bar | derivation | labelled result |
+|---|---|---|
+| `draft_over_hull_cell < fs_band/cell` (= 14.187 at scale 1) | `_FS_BOX["z"]`, `_HULL_REFINE`, `_NX_BASE` — the keel sits inside the tightest post-snappy z-refinement box | refuses hulls 0, 1, 6, 12 at 10.14/12.31/11.82/13.20 cells; **4 of 4 failed**, 0 of 6 successes refused (next failure up is 15.55, so the bar is not sitting in a gap it was placed in) |
+| `sheer_collapse_cells > 0` | `station_geometry` writes `np.maximum(ys, 0.0)`, silently substituting a zero-width deck when the grammar's own formula returns a negative half-breadth | refuses hulls 5, 11, 12 (3.04/2.13/4.36 cells of collapsed run); **3 of 3 failed**, 0 successes |
+
+**Confusion matrix over campaign hulls 0–17** (refused = DANGEROUS; positive =
+failed to mesh): **TP 6, FP 0, FN 6, TN 6 — precision 1.000, recall 0.500,
+Fisher exact one-sided p = 0.0498.** That is evidence at the edge of
+significance on 18 points, and it is reported as such. Half of Gate 2U's
+failures still have no cheap geometric explanation, and
+`test_the_screen_catches_half_the_failures_and_no_more` pins the recall as well
+as the precision so a later edit cannot quietly claim more.
+
+**Read that matrix against §11.6.2a before quoting it.** Those are rung-0
+outcomes, and every hull the screen refuses meshes once the layer ladder is
+allowed to run.
+
+**Over 200 grammar-valid hulls** (seed 1234, speed 2.57, scale 1): **68
+DANGEROUS / 79 MARGINAL / 53 SAFE**; 19.5% keel-in-band, 17.0% clipped sheer.
+The review's structural claim is therefore *quantified*: **a third of the
+manifold `grammar.check()` blesses is inadmissible to this pipeline.**
+
+Two mechanisms proposed and killed, recorded so they are not re-proposed:
+
+- The collapsed sheer does **not** open the STL. `stl_watertight_report` on
+  hulls 5, 11 and 12 at the case's own 600×120 triangulation: 0 open or
+  non-manifold edges, 0 winding conflicts, watertight, outward — identical to
+  hulls 7 and 13, which mesh. Whatever the collapsed ridge does to snappy, it
+  is not a hole.
+- The first `stack_over_min_radius` refused 16 of 18 hulls, 4 of them
+  successes, on a curvature of 28–50 — which was the **sampling artefact of the
+  `x_mb` tangent break**, where a discrete curvature is `1/h` and diverges as
+  the sampling refines. Excluding the four piecewise breakpoints drops it to
+  0.005–3.5. A metric that refuses everything is not a screen.
+
+#### 11.6.2a The finding that reframes all of the above: the refusals are RESCUABLE
+
+**MEASURED 2026-08-11 on `data/gate2u-campaign-backoff-mesh.json`** — the same
+seed-0 hulls, mesh-only, `--layer-backoff 3`:
+
+| hull | screen | rung-0 (baseline) | with ladder | layers used | attempts | skew | wrongOri |
+|---|---|---|---|---|---|---|---|
+| 0 | DANGEROUS `draft` | FAILED zero-volume | **meshes** | 8 | 2 | 4.52 | 0 |
+| 1 | DANGEROUS `draft` | FAILED wrong-oriented | **meshes** | 7 | 2 | 3.25 | 0 |
+| 5 | DANGEROUS `collapse` | record corrupt | **meshes** | 8 | 1 | 4.54 | 0 |
+| 6 | DANGEROUS `draft` | FAILED zero-volume | **meshes** | 8 | 2 | 4.65 | 0 |
+| 11 | DANGEROUS `collapse` | FAILED wrong-oriented | **meshes** | 7 | 2 | 5.13 | 0 |
+| 4 | **SAFE** | FAILED wrong-oriented | **still fails** | 3 | 4 | 10.47 | 38 |
+
+**Every hull the screen refuses meshes cleanly once the prism-layer count steps
+down by two, and the one hull the ladder cannot save is one the screen calls
+SAFE.** Over hulls 0–11 the mesh rate goes **3/12 at rung 0 → 11/12 with the
+ladder** (`success_pct` 83.3% on the 12 recorded, against the runner's own bar
+11/12).
+
+So the screen's verdict means *"expect a checkMesh refusal at the DERIVED layer
+count"*, not *"this hull cannot be meshed"* — and `navalai/admissibility.py`
+says so in its docstring rather than trading on the stronger reading. It is
+still worth 7.6 ms: knowing which hulls will need the ladder before paying
+~80 s of snappy is exactly the kind of cheap foreknowledge the plan's Phase 2
+budget needs. But the headline claim it does **not** support is that the
+grammar's manifold is geometrically outside the mesher's reach.
+
+**The explanation the data actually supports is the derived prism-layer count.**
+`n_layers_to_bridge` returns 8–10 for essentially every hull the grammar emits;
+because it barely varies between hulls it cannot *discriminate* them, which is
+precisely why it was invisible to the correlation study and is nevertheless the
+largest measured lever in the campaign by a wide margin. The geometry metrics
+above are best read as markers of *layer-insertion fragility* — a hull whose
+keel sits in the refinement band or whose deck has been silently clipped is one
+snappy struggles to extrude a full stack onto — rather than as markers of
+inadmissible geometry.
+
+#### 11.6.3 Gate 2U splits into 2U-A and 2U-B, and 2U-A is the one that counts
+
+A single admissible-domain robustness number is gameable in the most natural
+way possible: shrink the admissible domain until everything in it passes. The
+review is right about that, and the defence is not a policy but a second gate.
+
+- **Gate 2U-A — raw grammar robustness (the brutal truth).** Denominator is
+  `sample_valid(N, seed)` with **no admissibility filter and no back-off**:
+  exactly what the pipeline does today to exactly what the grammar emits.
+  Current watermark **6/18 = 33.3%** against the ≥95% bar. This number may
+  never be improved by narrowing the grammar's parameter ranges, by filtering
+  the sample, or by adding rungs — only by making the pipeline hold more of the
+  manifold, or by fixing the geometry kernel. **It is the gate that is allowed
+  to be red, and it must stay red until it is honestly green.**
+- **Gate 2U-B — admissible-domain robustness.** Denominator is the hulls
+  `admissibility.screen()` returns as not-DANGEROUS, with the deterministic
+  back-off ladder enabled. This is the number that describes what a *user* of
+  the system experiences, and it is the one permitted to drive scheduling
+  decisions. **Watermark today: 11/12 = 91.7% with the ladder on the FULL
+  seed-0 set** (§11.6.2a), i.e. the admissibility filter is not currently what
+  buys the improvement — the ladder is. Reporting 2U-B without saying that
+  would credit the screen for the ladder's work.
+
+**The anti-gaming clause, which is the load-bearing half:** 2U-B is
+uninterpretable without 2U-A, so **the two are reported as one row and the
+ledger entry for either carries both**, together with the *admissible
+fraction* — because 2U-B rising while the admissible fraction falls is the
+gaming signature, and it is only visible when the two are printed side by side.
+A change that raises 2U-B and lowers the admissible fraction has bought
+nothing. Concretely: 2U-B on an admissible fraction of 5% would be a headline
+number about almost no boats.
+
+**And the grammar's ranges are not to be narrowed to make either pass.** It
+would work, and it would delete the evidence. Where a parameter predicts
+failure the useful form is `P(failure | x)`, published so NSGA-II can carry it
+as an objective and trade it against the mission — the optimiser is allowed to
+avoid the bad region; the *grammar* is not allowed to pretend it is not there.
+Today the honest statement is that **no fitted `P(failure|x)` is warranted**:
+draft is the only parameter above chance and it does not survive Bonferroni at
+N = 17. What `screen()` already provides is the usable substitute — a
+deterministic, 7.6 ms, x-valued refusal that NSGA-II can consume as a
+constraint column today, and which will become a probability when the campaign
+has the ~200 labelled hulls the plan's own bar asks for.
+
+#### 11.6.4 The funnel, which replaces the single rate
+
+Gate 2U reports **eight** numbers, each a strict subset of the one above it.
+A single percentage cannot distinguish "the mesher refused it" from "the solver
+diverged", and those are different repairs:
+
+| stage | definition |
+|---|---|
+| generated | `sample_valid(N, seed)` — L0 + finite L1 |
+| geometry-admissible | `admissibility.screen()` not DANGEROUS |
+| mesh-success | passes `run-case.sh`'s bars at **rung 0** (0 zero-volume, ≤5 wrongly-oriented, skew ≤20) |
+| rescued-by-backoff | meshes only at a lower rung of the layer ladder |
+| solve-started | `log.interFoam` exists — the runner did not refuse between checkMesh and setFields |
+| solve-completed | reached `endTime` with no FATAL and no signal |
+| converged | force history settled: drift ≤5% over the last fifth **and** ≥1.0 flow-throughs (§11 / `CLAUDE.md`) |
+| end-to-end | converged ÷ generated |
+
+**The ≥95% bar attaches to end-to-end, and it does not move.** The intermediate
+stages exist to say *where* the 95% is lost, not to offer a softer denominator.
+`generated` is the denominator for 2U-A; `geometry-admissible` is the
+denominator for 2U-B and is **printed as a fraction of `generated` in the same
+row**, per the anti-gaming clause above.
+
+#### 11.6.5 Back-off tiers are deterministic, and the tier is part of the result
+
+`layer_backoff_ladder` is already deterministic — `n_derived - 2` down to a
+floor of 3 — and that property is a requirement, not an implementation detail:
+a ladder that depended on wall clock, on machine state, or on a retry counter
+would make Gate 2U unreproducible, and the gate's whole purpose is to be a
+regression signal.
+
+**A hull that meshes only with layers reduced has not passed the same physics
+case as one that meshes at the derived count.** `_TARGET_YPLUS` is 100 and the
+stack is sized to bridge to the local hull cell; dropping from 10 layers to 3
+changes the wall treatment, which changes the friction, which is most of the
+drag at these speeds. Reporting both under one percentage is the same defect as
+printing the *requested* layer spec under the label of the *achieved* result.
+
+So the honest report is: **`n_layers_used`, `layer_attempts` and
+`layers_achieved` are recorded per hull** (they already are, in
+`mesh_robustness.py`'s rows), the funnel splits `mesh-success` from
+`rescued-by-backoff`, and **any C_T or resistance number carries the rung it
+was produced at**. A campaign whose success rate rests on rung 3 reports "95%,
+of which 60% at a reduced wall model" — two numbers, because it is two results.
+The ledger watermark stays the **rung-0** rate, which is why
+`mesh_robustness.py --layer-backoff` defaults to 0.
+
+#### 11.6.6 Pre-registered, so the screen cannot be tuned after the fact
+
+The seed-0 campaign was still running when this was written; hulls 18–24 had no
+recorded outcome. The screen's verdicts for them are therefore recorded **in
+advance**, and `tests/test_admissibility.py` pins hull 20's:
+
+| hull | Lwl | verdict | refused by |
+|---|---|---|---|
+| 18 | 17.289 | SAFE | — |
+| 19 | 11.969 | MARGINAL | — |
+| **20** | 12.640 | **DANGEROUS** | `min_bottom_panel_width_cells`, `transom_half_beam_cells` (0.998 cells each) |
+| 21 | 15.639 | MARGINAL | — |
+| 22 | 15.733 | MARGINAL | — |
+| **23** | 18.702 | **DANGEROUS** | `draft_over_hull_cell` (13.72), `sheer_collapse_cells` (73.26) |
+| 24 | 14.618 | MARGINAL | — |
+
+Prediction, **at rung 0** (which is what the baseline campaign runs): **hulls
+20 and 23 fail to mesh; 18, 19, 21, 22 and 24 are not refused by the screen**
+(which is not a prediction that they succeed — recall is 0.500). Hull 20 is the
+first case to exercise the sub-cell bars at all. Per §11.6.2a the prediction
+does **not** extend to the ladder campaign, where 20 and 23 are expected to be
+rescued like every other refused hull; a refused hull that meshes at rung 0
+falsifies the bar, and one that meshes only after a rung does not.
+If 20 or 23 meshes cleanly at rung 0, the corresponding bar is wrong and must
+be recorded as such rather than re-fitted.
+
+#### 11.6.7 What this section does NOT establish
+
+- **The mechanism behind `draft_over_hull_cell`.** The association is measured;
+  the explanation — that the z-refinement transition wraps under a keel that
+  sits inside the band — is a *candidate*. `navalai/cfd/case.py`'s TOPO_SET
+  comment records z-refine transitions as the source of every wrongly-oriented
+  face this project had measured before the hexes-only fix (0 rounds → 0 faces
+  in 7 of 7 meshes; 3 rounds → 2–47 in 4 of 4), which is why it is the leading
+  candidate — but no re-mesh with the band moved has been run. The experiment
+  that would settle it is cheap (mesh-only, ~2 min): re-mesh hull 0 with
+  `_FS_BOX["z"]` halved and see whether the zero-volume cells move.
+- **Whether the six unexplained failures share a cause.** Seven of the twelve
+  are `checkmesh-wrong-oriented` and no metric here separates them.
+- **Hull 5's true mesh outcome.** Its campaign row is self-contradictory —
+  `mesh-build-failed` with unmeasurable mesh metrics next to `solves: true`,
+  the documented resume artefact — so it is excluded from every AUC above and
+  counted as a failure only in the confusion matrix, where the screen refuses
+  it either way.
+- **Anything about the solve.** `solver-stopped-short` (hull 2) was a
+  floating-point divergence on a mesh that passed every checkMesh bar. A
+  geometry screen has nothing to say about it, and does not pretend to.
+- **That the two campaigns are the same configuration.** The rung-0 baseline
+  ran `--solve 2 --np 10`; the ladder campaign ran mesh-only at `--np 1`. The
+  mesh build is serial and identical either way, so the comparison is believed
+  to be sound — but it has not been demonstrated by re-running one hull both
+  ways, and docs/LESSONS.md defect class 6 exists because that assumption has
+  been wrong before. The cheap check is one `MESH_ONLY=1` re-mesh of hull 7.
+- **Why hull 4 resists the ladder.** It reaches the floor at 3 layers with 38
+  wrongly-oriented faces after 4 attempts, and this screen calls it SAFE. It is
+  the single most informative hull in the batch for whatever the second
+  mechanism is, and nothing here explains it.
+
 ---
 
 ## 12 · Manufacturing
