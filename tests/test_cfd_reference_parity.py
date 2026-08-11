@@ -796,11 +796,36 @@ def test_every_committed_benchmark_geometry_can_be_IDENTIFIED():
     from navalai.cfd.case import benchmark_of_sha
     geom = _ROOT / "data" / "benchmark_geom"
     record = json.loads((geom / "CHECKSUMS.json").read_text())
-    # Every STL PRESENT must be nameable. kcs.stl is gitignored and so is
-    # absent on most machines, which is fine — it is checked where it exists.
-    # wigley.stl is committed, so this test always has at least one subject.
+    # Every STL PRESENT must be nameable.
+    #
+    # THE COMMENT THAT USED TO BE HERE WAS FALSE, AND IT FAILED CI FOR IT.
+    # It read "wigley.stl is committed, so this test always has at least one
+    # subject", and asserted `present` on the strength of that. MEASURED
+    # 2026-08-11: `.gitignore` line 15 is `data/benchmark_geom/*` and line 16
+    # un-ignores ONLY `CHECKSUMS.json`, so `git ls-files data/benchmark_geom/`
+    # returns exactly one path and it is the JSON. NO STL IS COMMITTED, and no
+    # wigley.stl exists in the directory on this machine either — only kcs.stl,
+    # kcs_full.stl and kcs_half.stl, all untracked. So on a fresh checkout the
+    # glob is empty and the assert fired: CI run 31206328934,
+    # "AssertionError: no benchmark STL found to check ... assert []".
+    #
+    # This is the repo's own defect class: a comment asserting a fact about the
+    # tree that the tree does not support, load-bearing on the line below it.
+    #
+    # SKIP, not pass. CLAUDE.md already documents the design — benchmark
+    # geometry is gitignored, `scripts/fetch_benchmark_geom.py` restores it,
+    # and "without it 5-7 tests skip and Gate 2G reports SKIPPED (loudly, by
+    # design)". This test simply never got that treatment. A skip here is not
+    # an unmeasurable scored as a pass: it is LOUD (pytest reports it), Gate 2G
+    # states the geometry is absent, and CI's `--strict` tier makes a suite
+    # that ran NOTHING a failure. The claim is still enforced everywhere the
+    # geometry exists, which is every machine that can actually run Gate 2M.
     present = sorted(geom.glob("*.stl"))
-    assert present, "no benchmark STL found to check"
+    if not present:
+        pytest.skip(
+            "no benchmark STL in data/benchmark_geom (gitignored by design); "
+            "restore with scripts/fetch_benchmark_geom.py. Gate 2G reports "
+            "the absence loudly — see tests/test_benchmark_geom.py")
     for stl in present:
         sha = hashlib.sha256(stl.read_bytes()).hexdigest()
         assert stl.name in record, (

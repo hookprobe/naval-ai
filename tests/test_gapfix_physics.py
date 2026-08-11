@@ -208,7 +208,17 @@ def test_the_direct_bie_is_chosen_and_it_is_the_better_one():
     tolerance is why nothing noticed. This test asserts the ORDERING, not the
     numbers, so a capytaine release that improves both still passes — but a
     silent return to the indirect default fails it.
+
+    GUARDED 2026-08-11. This test called capytaine and had no importorskip, so
+    it FAILED (not skipped) in CI's "regression signal (required)" job, which
+    installs requirements.txt only. MEASURED on run 31206328934:
+    `ModuleNotFoundError: No module named 'capytaine'` at seakeeping.py:259.
+    The guard is per-test and NOT module-level on purpose: test_phase2.py's own
+    comment records that its module-level importorskip makes all 18 of its
+    tests vanish, and this file's other tests do not need capytaine. A skip
+    that takes unrelated tests with it is how a suite goes quiet.
     """
+    pytest.importorskip("capytaine")
     from navalai import seakeeping
 
     assert seakeeping.BIE_METHOD == "direct"
@@ -229,7 +239,11 @@ def test_the_green_function_grid_is_pinned_not_inherited():
     names is what capytaine 2.3.1 happens to choose; a downgrade in a later
     release would re-open the trap with nothing to notice it. The solver is
     built with the grid stated, and this test reads it back off the object.
+
+    GUARDED 2026-08-11 — same CI failure as the test above; per-test, not
+    module-level.
     """
+    pytest.importorskip("capytaine")
     from navalai import seakeeping
 
     assert seakeeping.TABULATION == {"tabulation_nr": 676,
@@ -257,7 +271,13 @@ def test_the_l2_result_is_constructed_and_carries_a_measured_sigma(ref):
     levels — so no L2 number ever left the module with a convergence-derived
     band. MEASURED on the reference hull: uncertainty_rel 0.0036 over the
     (20,5) -> (28,7) pair, i.e. a real 0.36% and not a declared fraction.
+
+    GUARDED 2026-08-11 — same CI failure as the two tests above. This one
+    reached capytaine indirectly, through `revalidate(ev, m, "L2")` at
+    evaluate.py:952, which is why the traceback named evaluate rather than
+    seakeeping. Per-test, not module-level.
     """
+    pytest.importorskip("capytaine")
     from navalai import seakeeping
     from navalai.evaluate import revalidate
 
