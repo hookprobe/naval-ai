@@ -11,6 +11,7 @@ the whole subsystem has to be revisited.
 
 from __future__ import annotations
 
+import json
 import math
 import tempfile
 from pathlib import Path
@@ -19,7 +20,7 @@ import pytest
 
 from navalai import evidence, extrapolate, fidelity, planner, similitude
 from navalai.cfd.case import background_counts, write_resistance_case_from_stl
-from navalai.evidence import EvidenceGraph, Kind
+from navalai.evidence import EvidenceGraph, EvidenceTier, Kind, Origin
 from navalai.fidelity import Budget, FidelitySpec
 from navalai.planner import Belief
 from navalai.similitude import Condition, Similarity
@@ -569,13 +570,13 @@ def test_beliefs_tighten_but_never_loosen():
 
 def _graph() -> EvidenceGraph:
     g = EvidenceGraph()
-    g.add("req", Kind.REQUIREMENT, "maintain 25 kn")
-    g.add("dec", Kind.DECISION, "raise L/B to 9.5")
-    g.add("exp", Kind.EXPERIMENT, "L3 RANS @ density 1.0")
+    g.add("req", Kind.REQUIREMENT, "maintain 25 kn", tier=EvidenceTier.NA)
+    g.add("dec", Kind.DECISION, "raise L/B to 9.5", tier=EvidenceTier.NA)
+    g.add("exp", Kind.EXPERIMENT, "L3 RANS @ density 1.0", tier=EvidenceTier.L3)
     g.add("ev", Kind.EVIDENCE, "R_T = 4.1 kN", value=4100.0, sigma=620.0,
           tier="L3", confidence=0.85)
     g.add("asm", Kind.ASSUMPTION, "appendage drag is 4% of bare hull",
-          confidence=0.60)
+          tier=EvidenceTier.NA, confidence=0.60)
     g.support("req", "dec")
     g.support("exp", "ev")
     g.support("ev", "dec")
@@ -599,11 +600,12 @@ def test_diamond_confidence_is_the_true_minimum():
     SET, so the question cannot arise — but the diamond is pinned anyway.
     """
     g = EvidenceGraph()
-    g.add("req", Kind.REQUIREMENT, "r", confidence=1.0)
-    g.add("weak", Kind.ASSUMPTION, "shared weak assumption", confidence=0.30)
-    g.add("a", Kind.DECISION, "a", confidence=0.9)
-    g.add("b", Kind.DECISION, "b", confidence=0.9)
-    g.add("top", Kind.DECISION, "top", confidence=0.95)
+    g.add("req", Kind.REQUIREMENT, "r", tier=EvidenceTier.NA, confidence=1.0)
+    g.add("weak", Kind.ASSUMPTION, "shared weak assumption",
+          tier=EvidenceTier.NA, confidence=0.30)
+    g.add("a", Kind.DECISION, "a", tier=EvidenceTier.NA, confidence=0.9)
+    g.add("b", Kind.DECISION, "b", tier=EvidenceTier.NA, confidence=0.9)
+    g.add("top", Kind.DECISION, "top", tier=EvidenceTier.NA, confidence=0.95)
     for s, t in (("req", "a"), ("req", "b"), ("weak", "a"), ("weak", "b"),
                  ("a", "top"), ("b", "top")):
         g.support(s, t)
@@ -614,7 +616,8 @@ def test_diamond_confidence_is_the_true_minimum():
 def test_unsupported_decisions_are_the_agenda():
     g = _graph()
     assert g.unsupported() == []
-    g.add("dec2", Kind.DECISION, "set transom immersion to 0.4 m")
+    g.add("dec2", Kind.DECISION, "set transom immersion to 0.4 m",
+          tier=EvidenceTier.NA)
     g.support("req", "dec2")
     names = [n.id for n in g.unsupported()]
     assert names == ["dec2"], "a decision resting on nothing must surface"
@@ -622,7 +625,7 @@ def test_unsupported_decisions_are_the_agenda():
 
 def test_circular_justification_is_rejected_at_insertion():
     g = _graph()
-    g.add("d3", Kind.DECISION, "b")
+    g.add("d3", Kind.DECISION, "b", tier=EvidenceTier.NA)
     g.support("dec", "d3")
     with pytest.raises(ValueError, match="cycle"):
         g.support("d3", "dec")
@@ -630,7 +633,7 @@ def test_circular_justification_is_rejected_at_insertion():
 
 def test_illegal_support_kinds_are_rejected():
     g = _graph()
-    g.add("d4", Kind.DECISION, "x")
+    g.add("d4", Kind.DECISION, "x", tier=EvidenceTier.NA)
     with pytest.raises(ValueError, match="may not support"):
         g.support("d4", "req")           # a decision cannot justify a requirement
 
@@ -643,3 +646,206 @@ def test_graph_round_trips_through_json(tmp_path):
     assert back.confidence("dec") == pytest.approx(g.confidence("dec"))
     assert "R_T = 4.1 kN" in back.explain("dec")
     assert set(back.nodes) == set(g.nodes)
+
+
+# =============================================================================
+# The evidence tier vocabulary is CLOSED
+#
+# MEASURED 2026-08-11 (adversarial re-audit, 91c0086; docs/BUILD-PLAN.md
+# §17.1.1): `evidence.Node.tier` was a free-form `str` defaulting to `""`. The
+# ladder's honesty trick is that `evaluate.tier_rank` ranks a badge it does not
+# recognise at -1, BELOW L0, so a claim can never be promoted by comparison — and
+# a node that spells its tier anything else never reaches that check at all. A
+# real-boat observation was therefore admissible under any spelling, including a
+# typo, and the default spelled nothing.
+#
+# Every test below feeds a guard the VERBATIM input it must reject
+# (docs/LESSONS.md defect class 3: a guard never made to fire is not a guard).
+# =============================================================================
+
+def test_evidence_tiers_are_the_project_vocabulary_not_a_second_one():
+    """Defect class 2 (a number declared twice), applied to a vocabulary.
+
+    `EvidenceTier` cannot IMPORT the ladder: `evaluate` will import `evidence`
+    when the graph is populated from `evaluate()` (BUILD-PLAN §4.3), and the
+    ladder tuple must stay four members long because `tier_rank` derives
+    "unknown, therefore -1" from NOT being in it. So the agreement is policed
+    here instead, the way `tests/test_limits_single_source.py` polices limits.
+    """
+    from navalai import flywheel, weights
+    from navalai.evaluate import TIER_ORDER, tier_rank
+
+    ladder = (EvidenceTier.L0, EvidenceTier.L1, EvidenceTier.L2, EvidenceTier.L3)
+    assert [t.value for t in ladder] == list(TIER_ORDER), (
+        "the ladder members must be TIER_ORDER, in TIER_ORDER's order")
+    assert EvidenceTier.S1.value == flywheel.SURROGATE_TIER
+    for t in (EvidenceTier.L1, EvidenceTier.E, EvidenceTier.F, EvidenceTier.R):
+        assert t.value in weights._TIERS, f"{t.value} must match weights._TIERS"
+
+    # The whole mechanism: anything off the ladder ranks -1, below L0, so it can
+    # never satisfy a ladder requirement by comparison. That includes M1 — a
+    # real measurement is not weaker than L0, it is INCOMMENSURABLE with a
+    # simulated ladder, and -1 is how this codebase already says that (S1).
+    for t in EvidenceTier:
+        expected = TIER_ORDER.index(t.value) if t.value in TIER_ORDER else -1
+        assert tier_rank(t.value) == expected, t.value
+    assert tier_rank(EvidenceTier.M1.value) == -1 < tier_rank("L0")
+    assert tier_rank(EvidenceTier.L3_INVALID.value) == -1
+
+    # Exactly ONE value means "measured on a real boat" (BUILD-PLAN §17.1.1's
+    # bar). Two would be two vocabularies again.
+    observed = [t for t in EvidenceTier
+                if evidence.ORIGIN[t] is Origin.OBSERVED]
+    assert observed == [EvidenceTier.M1]
+    # and every member is classified: an unclassified tier must be a KeyError,
+    # never a default (LESSONS defect class 1).
+    assert set(evidence.ORIGIN) == set(EvidenceTier)
+
+
+@pytest.mark.parametrize("spelling", ["CFD", "l3", "sea trial", "L4", "L1H",
+                                      "T1", "measured", "0"])
+def test_an_unknown_tier_is_refused_at_construction(spelling):
+    """The verbatim spellings the free-form `str` used to accept.
+
+    `L1H` is real: `holtrop.py` emits it, and `tier_rank("L1H")` is already -1.
+    It is refused rather than blessed — a tier that ranks below L0 everywhere
+    else must not become a first-class member here.
+    """
+    g = EvidenceGraph()
+    with pytest.raises(ValueError, match="not an evidence tier"):
+        g.add("ev", Kind.EVIDENCE, "R_T = 4.1 kN", value=4100.0, sigma=620.0,
+              tier=spelling)
+
+
+def test_the_empty_tier_that_was_the_default_is_refused():
+    g = EvidenceGraph()
+    with pytest.raises(ValueError, match="not an evidence tier"):
+        g.add("ev", Kind.EVIDENCE, "R_T = 4.1 kN", tier="")
+
+
+def test_a_missing_tier_fails_construction_rather_than_defaulting():
+    """Absence of a classification is an error, not a permissive value."""
+    g = EvidenceGraph()
+    with pytest.raises(TypeError, match="tier"):
+        g.add("ev", Kind.EVIDENCE, "R_T = 4.1 kN", value=4100.0, sigma=620.0)
+    with pytest.raises(TypeError, match="tier"):
+        evidence.Node(id="ev", kind=Kind.EVIDENCE, text="R_T = 4.1 kN")
+
+
+def test_every_declared_tier_is_accepted_by_some_kind():
+    """The refusals above prove nothing if the vocabulary refuses everything."""
+    for t in EvidenceTier:
+        kinds = [k for k, allowed in evidence.ALLOWED_TIERS.items() if t in allowed]
+        assert kinds, f"{t.value} is declared but no kind may carry it"
+        g = EvidenceGraph()
+        assert g.add("n", kinds[0], "x", tier=t).tier is t
+
+
+def test_a_node_kind_may_not_wear_a_tier_that_is_not_its_own():
+    """Semantic laundering at the node, the same shape as ALLOWED_SUPPORT.
+
+    A decision is a choice; giving it `L3` lends it the authority of a solve
+    nobody ran. Evidence is a claim about a quantity; `NA` would be evidence
+    that declines to say what it is worth, which is the `""` default again.
+    """
+    g = EvidenceGraph()
+    with pytest.raises(ValueError, match="may not carry tier"):
+        g.add("dec", Kind.DECISION, "raise L/B to 9.5", tier=EvidenceTier.L3)
+    with pytest.raises(ValueError, match="may not carry tier"):
+        g.add("req", Kind.REQUIREMENT, "maintain 25 kn", tier=EvidenceTier.M1)
+    with pytest.raises(ValueError, match="may not carry tier"):
+        g.add("asm", Kind.ASSUMPTION, "appendage drag is 4%", tier=EvidenceTier.L1)
+    with pytest.raises(ValueError, match="may not carry tier"):
+        g.add("ev", Kind.EVIDENCE, "R_T = 4.1 kN", tier=EvidenceTier.NA)
+    # An `-INVALID` badge is a property of a RESULT: no solve runs "at
+    # L3-INVALID", so an EXPERIMENT may not claim one.
+    with pytest.raises(ValueError, match="may not carry tier"):
+        g.add("exp", Kind.EXPERIMENT, "L3 RANS", tier=EvidenceTier.L3_INVALID)
+    # ...but the EVIDENCE it produced may, or a downgraded result could not be
+    # recorded at all, and the only way to file it would be to relabel it valid.
+    g.add("exp", Kind.EXPERIMENT, "L3 RANS", tier=EvidenceTier.L3)
+    g.add("ev", Kind.EVIDENCE, "R_T = nan", tier=EvidenceTier.L3_INVALID)
+    g.support("exp", "ev")
+
+
+def test_the_tier_cannot_be_reassigned_out_of_the_vocabulary_after_construction():
+    """A construction-only check is not a guard on a mutable object.
+
+    `Node` is deliberately mutable — the confidence tests revise a value in
+    place — so `n.tier = "sea trial"` is the third door, next to `add()` and
+    `from_json`. All three land in `__setattr__`.
+    """
+    g = _graph()
+    n = g.nodes["ev"]
+    with pytest.raises(ValueError, match="not an evidence tier"):
+        n.tier = "sea trial"
+    with pytest.raises(ValueError, match="may not carry tier"):
+        n.tier = EvidenceTier.NA           # evidence that declines to say
+    with pytest.raises(ValueError, match="may not carry tier"):
+        g.nodes["dec"].tier = EvidenceTier.L3
+    assert n.tier is EvidenceTier.L3, "a refused assignment must not stick"
+    n.tier = "L3-INVALID"                  # a legal revision still works
+    assert n.tier is EvidenceTier.L3_INVALID
+
+
+def test_a_simulation_may_not_produce_a_real_observation_or_the_reverse():
+    """The laundering the graph exists to prevent, in both directions.
+
+    `EXPERIMENT -> EVIDENCE` is the only edge on which a number acquires its
+    provenance (ALLOWED_SUPPORT), so it is the only place this can happen
+    without anyone writing a false sentence. Written BEFORE any observation row
+    exists — once telemetry lands, the vocabulary is being fixed under a
+    deadline by whoever is ingesting it (BUILD-PLAN §17.1.1).
+    """
+    g = EvidenceGraph()
+    g.add("rans", Kind.EXPERIMENT, "L3 RANS @ density 1.0", tier=EvidenceTier.L3)
+    g.add("trial", Kind.EXPERIMENT, "sea trial, hull 004", tier=EvidenceTier.M1)
+    g.add("ev_obs", Kind.EVIDENCE, "R_T = 4.10 kN measured", value=4100.0,
+          sigma=310.0, tier=EvidenceTier.M1)
+    g.add("ev_sim", Kind.EVIDENCE, "R_T = 4.10 kN computed", value=4100.0,
+          sigma=620.0, tier=EvidenceTier.L3)
+    with pytest.raises(ValueError, match="may not produce"):
+        g.support("rans", "ev_obs")        # a solve wearing a measurement
+    with pytest.raises(ValueError, match="may not produce"):
+        g.support("trial", "ev_sim")       # a measurement wearing a solve
+    g.support("rans", "ev_sim")            # and the honest pairings still work
+    g.support("trial", "ev_obs")
+    assert g.nodes["ev_obs"].origin is Origin.OBSERVED
+    assert g.nodes["ev_sim"].origin is Origin.COMPUTED
+
+
+def test_the_tier_survives_serialization_and_an_unknown_one_is_refused_on_the_way_in(
+        tmp_path):
+    """A file is an untrusted boundary.
+
+    A constructor-side fix alone would have been bypassed here: `from_json`
+    rebuilds nodes with `Node(**d)` straight from whatever is on disk, so the
+    guard has to sit where BOTH doors pass through it.
+    """
+    g = _graph()
+    p = tmp_path / "deg.json"
+    g.save(p)
+
+    # written as the badge the rest of the project greps for, not "EvidenceTier.L3"
+    raw = json.loads(p.read_text())
+    assert raw["ev"]["tier"] == "L3" and raw["req"]["tier"] == "NA"
+    assert "EvidenceTier" not in p.read_text()
+
+    back = EvidenceGraph.load(p)
+    assert back.nodes["ev"].tier is EvidenceTier.L3
+    assert back.nodes["req"].tier is EvidenceTier.NA
+    assert ", L3]" in back.explain("dec")
+
+    for tampered, exc, match in (
+        ("sea trial", ValueError, "not an evidence tier"),
+        ("", ValueError, "not an evidence tier"),
+        ("L3 ", ValueError, "not an evidence tier"),
+    ):
+        raw["ev"]["tier"] = tampered
+        with pytest.raises(exc, match=match):
+            EvidenceGraph.from_json(json.dumps(raw))
+
+    # a node written by an older build, with no tier field at all
+    raw["ev"].pop("tier")
+    with pytest.raises(TypeError, match="tier"):
+        EvidenceGraph.from_json(json.dumps(raw))

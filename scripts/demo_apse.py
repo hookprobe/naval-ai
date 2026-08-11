@@ -12,7 +12,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from navalai import extrapolate, fidelity, planner, similitude
-from navalai.evidence import EvidenceGraph, Kind
+from navalai.evidence import EvidenceGraph, EvidenceTier, Kind
 from navalai.fidelity import Budget, FidelitySpec
 from navalai.planner import Belief
 from navalai.similitude import Condition
@@ -79,13 +79,20 @@ for q, priors in [
 
 rule("6. Design Evidence Graph")
 g = EvidenceGraph()
-g.add("req", Kind.REQUIREMENT, "hold 25 kn at 6 t displacement")
-g.add("dec", Kind.DECISION, "raise L/B to 9.5")
-g.add("exp", Kind.EXPERIMENT, "L3 RANS @ density 1.0, 3.2 h")
+# Every node declares its tier — there is no default. A requirement and a
+# decision are choices, not measurements, so NA is the honest answer and the
+# only one the kind admits; the experiment declares the fidelity it was run at
+# and the evidence declares what the number is worth.
+g.add("req", Kind.REQUIREMENT, "hold 25 kn at 6 t displacement",
+      tier=EvidenceTier.NA)
+g.add("dec", Kind.DECISION, "raise L/B to 9.5", tier=EvidenceTier.NA)
+g.add("exp", Kind.EXPERIMENT, "L3 RANS @ density 1.0, 3.2 h",
+      tier=EvidenceTier.L3)
 g.add("ev", Kind.EVIDENCE, "R_T = 4.10 kN", value=4100.0, sigma=620.0,
-      tier="L3", confidence=0.85)
-g.add("asm", Kind.ASSUMPTION, "appendage drag is 4% of bare hull", confidence=0.60)
-g.add("dec2", Kind.DECISION, "transom immersion 0.40 m")
+      tier=EvidenceTier.L3, confidence=0.85)
+g.add("asm", Kind.ASSUMPTION, "appendage drag is 4% of bare hull",
+      tier=EvidenceTier.NA, confidence=0.60)
+g.add("dec2", Kind.DECISION, "transom immersion 0.40 m", tier=EvidenceTier.NA)
 for s, t in (("req", "dec"), ("exp", "ev"), ("ev", "dec"), ("asm", "dec"),
              ("req", "dec2")):
     g.support(s, t)
@@ -93,3 +100,22 @@ print(g.explain("dec"))
 print("\n  decisions resting on no evidence:")
 for n in g.unsupported():
     print(f"    - {n.text}")
+
+print("\n  the vocabulary is closed, and it separates computed from observed:")
+for bad, why in (
+    (dict(node_id="ev_typo", kind=Kind.EVIDENCE, text="R_T from the tank",
+          tier="CFD"), "a tier nobody defined"),
+    (dict(node_id="dec_launder", kind=Kind.DECISION, text="raise L/B to 9.5",
+          tier=EvidenceTier.L3), "a decision wearing a solve's authority"),
+):
+    try:
+        g.add(**bad)
+    except ValueError as e:
+        print(f"    REFUSED ({why}): {e}")
+try:
+    g.add("trial", Kind.EXPERIMENT, "sea trial, hull 004", tier=EvidenceTier.M1)
+    g.add("ev_sim", Kind.EVIDENCE, "R_T = 4.10 kN as measured", value=4100.0,
+          sigma=310.0, tier=EvidenceTier.L3)
+    g.support("trial", "ev_sim")
+except ValueError as e:
+    print(f"    REFUSED (an observation relabelled as a solve): {e}")
