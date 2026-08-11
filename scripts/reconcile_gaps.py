@@ -427,22 +427,76 @@ class Check:
     the words a reader would need to go and look at it themselves. It is what
     lands in the gap's Verified note, so a closure in `gaps.jsonl` always says
     WHAT was measured -- `GapQueue.advance` refuses a Verified without one.
+
+    `gate` is the row in `navalai.gates.GATES` this finding is about, and it
+    exists because the link was PROSE ONLY. RE-COUNTED 2026-08-11 by walking
+    this file's AST (docs/BUILD-PLAN.md section 15.2 item 3): of 120 rows, 14
+    named a gate somewhere inside `evidence` and only 7 were machine-linked --
+    five through `ledger_has()`, plus E1 and J5 grepping `navalai/gates.py` for
+    a `Gate("Gate X"` literal. EIGHT named a gate that nothing verified, and
+    there was no field on `Check`, no field on `Gate`, no mapping table and no
+    test, so the question "which gap blocks which gate" could not be asked.
+
+    A NAME IS NOT A LINK, which is why the field ships with two assertions in
+    `tests/test_reconcile_gaps.py` rather than one: every value here must
+    resolve to a real row in `GATES` (a renamed gate then breaks the register
+    instead of silently orphaning it), and every row whose `evidence` names a
+    gate must SET `gate`, to one of the gates it names -- so the prose and the
+    field cannot drift apart, which is the defect this field was added to end.
+    The second is one-directional on purpose: D9's evidence names TWO gates
+    ("Gate 6R's threshold parity could become Gate 6's VERDICT parity") and
+    the gate the row is ABOUT is Gate 6.
+
+    It is deliberately NOT a claim about the gate's colour. Gate 6D is RED and
+    Gate 0G is GREEN and both are legitimate values; the field says "this row
+    is about that gate", nothing more. `status_of` and `data/gate-ledger.json`
+    own the colour, and `ledger_has()` remains the only predicate that reads a
+    gate's STATE.
     """
     source_id: str
     evidence: str
     closed: Callable[[], bool]
+    gate: str | None = None
 
 
 # Rows for which NO predicate is honest. Recorded with the reason, never
 # guessed.
 #
-# This dict is currently EMPTY, and that is a result rather than an oversight:
-# its three occupants were each resolved on 2026-08-07 (two RETIRED below, one
-# re-filed with a predicate). It stays because "no predicate can honestly be
-# written" is a legitimate answer that the next finding may need, and deleting
-# the category would make the next reconciler guess instead. A row here is
-# reported NEEDS-HUMAN and is never closed by `--apply`.
-NEEDS_HUMAN: dict[str, str] = {}
+# It was EMPTY from 2026-08-07 (its three occupants were resolved that day: two
+# RETIRED below, one re-filed with a predicate) until N6 was filed on
+# 2026-08-11. The category was kept through that empty period precisely because
+# "no predicate can honestly be written" is a legitimate answer the next finding
+# might need, and deleting it would make the next reconciler guess instead. A
+# row here is reported NEEDS-HUMAN and is never closed by `--apply`.
+NEEDS_HUMAN: dict[str, str] = {
+    "N6": "THE PREDICATE WOULD HAVE TO READ PROSE SEMANTICS. N6 is 'a "
+          "document quotes a number from a run directory that "
+          "clean-runs.sh --purge has since deleted, and the sentence is not "
+          "deleted with it'. The half that is mechanisable IS mechanised and "
+          "is asserted: a watermark lives only in data/gate-ledger.json, and "
+          "tests/test_gate_integrity.py::"
+          "test_the_gate2m_ledger_entry_points_at_something_real refuses an "
+          "entry that cites a directory which is not there -- which is why "
+          "Gate 2M's watermark is the string 'NONE' rather than a sixth "
+          "circulating figure. What is left is the question a regex cannot "
+          "ask: is THIS sentence vouching for evidence it has not checked? "
+          "It is NOT retirable, and that distinction is the whole of this "
+          "category: J9 and J10 are propositions about a MOMENT (a sliding "
+          "window of git log, one working tree at one instant), whereas 'this "
+          "committed sentence presents a measurement as current' is a "
+          "property of the committed text, i.e. of a checkout. It is not "
+          "gateable either: runs/ is a gitignored build artifact, so a gate "
+          "asking 'does every cited run directory exist?' is GREEN on the Mac "
+          "simulation node and RED on every fresh clone -- an environment "
+          "fact wearing a project fact's colour, which is gap D3's shape. "
+          "CLEARING CONDITION (recorded so this is not a permanent shrug, and "
+          "it is a decision for a human, not an agent): either documents must "
+          "state per cited run directory whether it still exists -- then this "
+          "becomes a text predicate and gets one -- or the ledger's guard is "
+          "ruled to be the whole mechanism, and the sentence in CLAUDE.md "
+          "saying 'this file has no such enforcement, so it is on the writer' "
+          "is corrected by its owner. See docs/GAP-REGISTER.md section N.",
+}
 
 
 # Rows RETIRED under PLM.md section 3 step 7 ("dead parameters, superseded
@@ -494,7 +548,8 @@ CHECKS: tuple[Check, ...] = (
           lambda: defines("navalai/evaluate.py", "revalidate")
                   and has_code("navalai/evaluate.py", "TierRequiresOperator")
                   and defines("tests/test_ladder.py",
-                              "test_revalidate_promotes_to_l2_and_records_it")),
+                              "test_revalidate_promotes_to_l2_and_records_it"),
+          gate="Gate R3"),
     Check("A2", "navalai/evaluate.py imports navalai.rules (report, "
                 "iso12215.assess, iso12217.assess) and 'rules' is a member of "
                 "CONSTRAINT_NAMES, so a hull failing ISO 12215-5 is infeasible",
@@ -512,9 +567,17 @@ CHECKS: tuple[Check, ...] = (
                       r'tier_rank\(ev\.tier\) >= tier_rank\("L1"\)')
                   and has_code("tests/test_optimize.py",
                           r'revalidate\(kept, m, "L2"\)')),
+    # `has_code`, not `has`: A4 asks whether the PRODUCT escalates, which is a
+    # question about behaviour, and `navalai/surrogate.py`'s module docstring
+    # opens by NAMING this gap -- "is_ood() had TWO call sites in the whole
+    # repository and both were in tests". Every file in the tuple below is one
+    # a fix would land in AND one whose comments discuss the defect. MEASURED
+    # 2026-08-11 before the conversion, both forms on all five files: only
+    # flywheel.py matches and it matches in both, so no verdict moved. The
+    # conversion buys that it cannot move by an edit to a comment.
     Check("A4", "a NON-TEST caller of GP.predict_or_escalate / is_ood, i.e. "
                 "something in the product that actually escalates",
-          lambda: any(has(rel, r"predict_or_escalate|is_ood\(")
+          lambda: any(has_code(rel, r"predict_or_escalate|is_ood\(")
                       for rel in ("navalai/evaluate.py", "navalai/optimize.py",
                                   "navalai/agents.py", "ui/server.py",
                                   "navalai/flywheel.py"))),
@@ -672,7 +735,8 @@ CHECKS: tuple[Check, ...] = (
           lambda: defines("navalai/gates.py", "Verdict")
                   and has_code("navalai/gates.py", r"is not a Verdict")
                   and defines("tests/test_gate_integrity.py",
-                              "test_a_status_cannot_be_renamed_into_passing")),
+                              "test_a_status_cannot_be_renamed_into_passing"),
+          gate="Gate 0G"),
     Check("D2", "status_of() treats xfail/xpass as failures, and a test pins it",
           lambda: has_code("navalai/gates.py", r"xfailed")
                   and defines("tests/test_gate_integrity.py",
@@ -710,11 +774,13 @@ CHECKS: tuple[Check, ...] = (
     Check("D9", "reference designs + hand calculations exist, so Gate 6R's "
                 "threshold parity could become Gate 6's VERDICT parity",
           lambda: has_code("navalai/rules/review.py",
-                      r"REFERENCE_DESIGNS|hand_calculation")),
+                      r"REFERENCE_DESIGNS|hand_calculation"),
+          gate="Gate 6"),
     Check("D10", "Gate 3's error bar is measured across seeds rather than on "
                  "its one chosen seed (991)",
           lambda: has_code("tests/test_phase3.py",
-                      r"parametrize\(\s*\"seed\"|for seed in range\(\d+\).*rel")),
+                      r"parametrize\(\s*\"seed\"|for seed in range\(\d+\).*rel"),
+          gate="Gate 3"),
     # BOTH HALVES, deliberately. A ledger entry alone is a record no gate reads;
     # a RED row alone fails CI with no owner, no watermark and no expiry. The
     # clause is only recorded WHERE A GATE CAN FAIL ON IT when the two exist
@@ -727,7 +793,8 @@ CHECKS: tuple[Check, ...] = (
                  "Gate 4's prose scope; tests/test_red_by_record.py is the fence",
           lambda: ledger_has("Gate 4F")
                   and has_code("navalai/gates.py", r'Gate\("Gate 4F"')
-                  and exists("tests/test_red_by_record.py")),
+                  and exists("tests/test_red_by_record.py"),
+          gate="Gate 4F"),
     Check("D12", "generative._conditioned draws DISJOINT candidate batches "
                  "against a reference cut, and the Gate 4 suite has a control",
           lambda: defines("navalai/generative.py", "_conditioned")
@@ -736,7 +803,8 @@ CHECKS: tuple[Check, ...] = (
                   and defines(
                       "tests/test_phase4.py",
                       "test_percentile_is_a_strictness_knob_and_the_docstring_"
-                      "now_says_so")),
+                      "now_says_so"),
+          gate="Gate 4"),
     Check("D13", "counts() anchors on the pytest TIMING clause as well as the "
                  "count, so stdout cannot spoof a summary line",
           lambda: has_code("navalai/gates.py", r"_SUMMARY_TAIL")
@@ -770,14 +838,35 @@ CHECKS: tuple[Check, ...] = (
                 "and Gate 1H owns tests/test_holtrop.py",
           lambda: exists("navalai/holtrop.py")
                   and exists("benchmarks/holtrop_cases.py")
-                  and has_code("navalai/gates.py", r'Gate\("Gate 1H"')),
+                  and has_code("navalai/gates.py", r'Gate\("Gate 1H"'),
+          gate="Gate 1H"),
     Check("E1b", "Holtrop-Mennen is wired into evaluate() (or an explicit "
                  "envelope guard routes small craft away from it there)",
           lambda: imports("navalai/evaluate.py", "holtrop")),
     Check("E2", "benchmarks/wigley.py carries an INDEPENDENT reference curve, "
                 "not a frozen copy of our own output labelled as a regression "
                 "anchor",
-          lambda: has("benchmarks/wigley.py", r"REFERENCE_CW")
+          # THE TWO CLAUSES ARE DIFFERENT KINDS AND ARE READ DIFFERENTLY.
+          #
+          # Clause 1 is about a SYMBOL, so it reads `has_code`. It is the
+          # sharpest of the three P0-4 conversions: `REFERENCE_CW` also occurs
+          # in a COMMENT at benchmarks/wigley.py:197 -- inside the sentence
+          # that DIAGNOSES the disease it had -- so on `has` this clause would
+          # survive the constant itself being deleted. MEASURED 2026-08-11:
+          # both forms are True today (the constant is at :239), so the
+          # conversion moved no verdict; it removed a way for the row to stop
+          # being able to fail.
+          #
+          # Clause 2 is deliberately LEFT ON `lacks` (docs/BUILD-PLAN.md
+          # section 15.2 item 4). It asks whether the file CONFESSES "not an
+          # independent validation" -- a claim about PROSE, like F19's
+          # attribution and J7's supersession markers. An absence predicate
+          # read through `code()` is blind to the very comment it is looking
+          # for: write that confession into a docstring and `lacks_code` still
+          # answers True, i.e. the gap would read CLOSED on a file that admits
+          # in its own words that it is open. `code()`'s docstring states the
+          # law -- the choice is made per row, not by pattern.
+          lambda: has_code("benchmarks/wigley.py", r"REFERENCE_CW")
                   and lacks("benchmarks/wigley.py",
                             r"not an independent validation")),
     Check("E3", "evaluate() declares the unaccounted mass as a positioned "
@@ -862,9 +951,14 @@ CHECKS: tuple[Check, ...] = (
     Check("F3", "the Green-function grid is PINNED rather than correct only "
                 "because the library defaults to it",
           lambda: has_code("navalai/seakeeping.py", r"676|Delhommeau\(\s*\w")),
+    # `has_code`, not `has`: "is CONSTRUCTED somewhere" is a behaviour claim,
+    # and a docstring saying "SeakeepingResult() is never called" would close
+    # it -- gap B4's exact shape, where the word sat in the comment ON the
+    # defect. MEASURED 2026-08-11, both forms on all four files: seakeeping.py
+    # matches in both, the other three in neither. No verdict moved.
     Check("F4", "SeakeepingResult is actually constructed somewhere, so the "
                 "only L2 type carrying uncertainty_rel is not decoration",
-          lambda: any(has(rel, r"SeakeepingResult\(")
+          lambda: any(has_code(rel, r"SeakeepingResult\(")
                       for rel in ("navalai/seakeeping.py", "navalai/evaluate.py",
                                   "ui/server.py", "navalai/agents.py"))),
     Check("F5", "waves.heave_response transforms to ENCOUNTER frequency at "
@@ -932,11 +1026,13 @@ CHECKS: tuple[Check, ...] = (
     # True"). The ledger must EXIST and not carry the row.
     Check("F16", "Gate 2M is no longer carried as expected-red in an existing "
                  "ledger, i.e. a SETTLED triplet exists and its GCI is computed",
-          lambda: exists("data/gate-ledger.json") and not ledger_has("Gate 2M")),
+          lambda: exists("data/gate-ledger.json") and not ledger_has("Gate 2M"),
+          gate="Gate 2M"),
     Check("F17", "Gate 2U is no longer carried as expected-red in an existing "
                  "ledger, i.e. the 'converges' half has a number "
                  "(mesh_robustness.py --solve)",
-          lambda: exists("data/gate-ledger.json") and not ledger_has("Gate 2U")),
+          lambda: exists("data/gate-ledger.json") and not ledger_has("Gate 2U"),
+          gate="Gate 2U"),
     Check("F18", "benchmarks/kcs.py records the re-measured -0.267% "
                  "displacement error, not the superseded -0.09%",
           lambda: has_code("benchmarks/kcs.py", r'"displacement_error_pct": -0\.267')),
@@ -946,6 +1042,16 @@ CHECKS: tuple[Check, ...] = (
     # correction, which PLM section 3 step 7 requires it to do. The predicate
     # asks for the corrected attribution and for the band to be DERIVED from
     # the rows, which is what makes seven the number that can change.
+    #
+    # BOTH CLAUSES STAY ON `has`, AND THIS IS NOT AN OVERSIGHT. P0-4 converts
+    # A4, F4 and E2's first clause to `has_code`; applying the same sweep here
+    # would be wrong, because F19 is a claim about an ATTRIBUTION -- what the
+    # file SAYS the band is derived from -- and both strings live in comments
+    # at benchmarks/kcs.py:136-141 ON PURPOSE. MEASURED 2026-08-11, both forms:
+    # `has` True / `has_code` False on each clause, so converting would flip a
+    # correctly-closed row to OPEN forever and punish the file for carrying its
+    # own correction. A blanket has()->has_code() pass breaks exactly the rows
+    # that document this project's retractions.
     Check("F19", "the scatter band is attributed to the SEVEN rows actually "
                  "transcribed in SUBMITTED_CT_FINEST and derived from them",
           lambda: has("benchmarks/kcs.py", r"SEVEN groups")
@@ -973,7 +1079,13 @@ CHECKS: tuple[Check, ...] = (
     Check("G4", "unroll.refold maps 2-D back to 3-D and refold_deviation_mm "
                 "measures the error the plan's clause is about",
           lambda: defines("navalai/unroll.py", "refold")
-                  and defines("navalai/unroll.py", "refold_deviation_mm")),
+                  and defines("navalai/unroll.py", "refold_deviation_mm"),
+          # G4's evidence names no gate, and until 2026-08-11 there was none to
+          # name. Commit eacb9ce created Gate 6D and its ledger entry opens
+          # "GAP G4", so the link is the ledger's own statement rather than a
+          # guess -- and it is exactly the linkage this field exists to make
+          # queryable: G4 is now the row that says which gate is red.
+          gate="Gate 6D"),
     Check("G5", "developability is judged by the RULING twist test with a "
                 "hyperbolic-paraboloid negative control, not by a chord "
                 "residual that any smooth surface passes",
@@ -1064,7 +1176,8 @@ CHECKS: tuple[Check, ...] = (
                  "mission -> validated hull and wall clock is gated against a "
                  "monotone best",
           lambda: defines("navalai/flywheel.py", "cycle_time")
-                  and has_code("navalai/flywheel.py", r"best_wall_clock_s")),
+                  and has_code("navalai/flywheel.py", r"best_wall_clock_s"),
+          gate="Gate 7"),
     Check("I11", "the frozen benchmark is built from benchmarks/ plus a "
                  "held-out design-space wedge, not sample_valid(25, seed=4242)",
           lambda: has_code("navalai/flywheel.py", r"from benchmarks\.")
@@ -1075,7 +1188,8 @@ CHECKS: tuple[Check, ...] = (
                   and defines("navalai/flywheel.py", "Transform")),
     Check("I13", "Gate 4 clause 3 has an artifact: a recorded non-expert "
                  "session producing a hull that passes the full ladder",
-          lambda: has_code("tests/test_phase4.py", r"non-expert|unassisted")),
+          lambda: has_code("tests/test_phase4.py", r"non-expert|unassisted"),
+          gate="Gate 4"),
     Check("I14", "the surrogate spine has a CONSUMER: ui/server imports "
                  "surrogate or flywheel",
           lambda: imports("ui/server.py", "surrogate")
@@ -1087,7 +1201,8 @@ CHECKS: tuple[Check, ...] = (
                 "test_no_document_restates_a_gate_2m_figure",
           lambda: exists("data/gate-ledger.json")
                   and defines("tests/test_gate_integrity.py",
-                              "test_no_document_restates_a_gate_2m_figure")),
+                              "test_no_document_restates_a_gate_2m_figure"),
+          gate="Gate 2M"),
     Check("J2", "README's gate table is GENERATED by gates.readme_block() and "
                 "a test fails when file and runner disagree; all six honesty "
                 "rules are present",
@@ -1102,7 +1217,8 @@ CHECKS: tuple[Check, ...] = (
                       r'Gate\("Gate 6R", .*\n?\s*status=Verdict\.RED')
                   and ledger_has("Gate 6R")
                   and defines("tests/test_gate_integrity.py",
-                              "test_the_readme_gate_table_agrees_with_the_runner")),
+                              "test_the_readme_gate_table_agrees_with_the_runner"),
+          gate="Gate 6R"),
     Check("J4", "requirements.txt is PINNED with lower and upper bounds, so a "
                 "numeric bar can tell a regression from a minor bump",
           lambda: all(re.search(r">=.*,<", line)
@@ -1114,7 +1230,8 @@ CHECKS: tuple[Check, ...] = (
                 "LOUD",
           lambda: exists("data/benchmark_geom/CHECKSUMS.json")
                   and exists("scripts/fetch_benchmark_geom.py")
-                  and has_code("navalai/gates.py", r'Gate\("Gate 2G"')),
+                  and has_code("navalai/gates.py", r'Gate\("Gate 2G"'),
+          gate="Gate 2G"),
     Check("J6", "renders/ and data/exports/ are gitignored build artifacts, "
                 "not tracked files re-modified by every test run",
           lambda: has(".gitignore", r"^renders/")

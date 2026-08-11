@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import collections
 import hashlib
+import json
 import re
 from pathlib import Path
 
@@ -184,7 +185,7 @@ def test_a_shortened_queue_is_refused(queue):
 # ---------------------------------------------------------------------------
 
 def test_the_register_imports_as_work_items_not_prose(queue):
-    """122 findings become a queue. MEASURED counts, so a silent drop shows up.
+    """123 findings become a queue. MEASURED counts, so a silent drop shows up.
 
     The register's own severity definitions are the priorities; the count per
     level is asserted because a parser that quietly loses rows is the incident
@@ -194,12 +195,20 @@ def test_the_register_imports_as_work_items_not_prose(queue):
     2026-08-07 with the header `| id | finding | where | severity |` and was
     invisible to this importer for four days. See
     `test_a_gradeable_table_the_importer_cannot_see_is_fatal` below.
+
+    122 -> 123, same day: section N files `N6` (MED). It is the gap id that
+    `docs/BUILD-PLAN.md` §15.2 item 1 recorded as existing "only in CLAUDE.md"
+    — no register row, no predicate, no gate, no count. It is answered
+    NEEDS-HUMAN rather than closed, and section N argues why it is neither
+    gateable (`runs/` is gitignored, so the verdict would be a property of one
+    machine) nor retirable (unlike J9/J10 it IS a property of the committed
+    text).
     """
     report = import_gap_register(queue=queue)
     by_sev = collections.Counter(g.severity for g in report.imported)
-    assert len(report.imported) == 122
+    assert len(report.imported) == 123
     assert by_sev == {Severity.CRITICAL: 20, Severity.HIGH: 56,
-                      Severity.MED: 35, Severity.LOW: 11}
+                      Severity.MED: 36, Severity.LOW: 11}
     a1 = queue.by_source("A1")
     assert a1 is not None
     assert a1.severity is Severity.CRITICAL
@@ -241,7 +250,7 @@ def test_a_row_the_importer_cannot_grade_is_named_never_guessed(queue):
     for row, why in skipped.items():
         assert "names no level" in why
         assert queue.by_source(row) is None
-    assert report.n_rows_seen == 124
+    assert report.n_rows_seen == 125
 
 
 def test_the_closure_table_is_not_imported_as_open_work(queue):
@@ -393,3 +402,173 @@ def test_the_register_still_exists_and_is_still_the_audit_record():
     assert REGISTER_PATH.exists()
     text = REGISTER_PATH.read_text()
     assert "Audited 2026-08-05" in text
+
+
+# ---------------------------------------------------------------------------
+# gap J1, applied to DOCUMENTS: a watermark has one home
+# ---------------------------------------------------------------------------
+#
+# THE MEASURED INCIDENT, 2026-08-11. Commit `eacb9ce` created Gate 6D and wrote
+# its watermark into `data/gate-ledger.json`. `ALIGNMENT.md`'s STEP/IGES/DXF row
+# went on stating the same deviation in prose AND went on saying "no ledger row
+# owns the clause" — a sentence that stopped being true the moment the ledger
+# row was written. The same file also quoted Gate 4F's watermark. Two ledger
+# numbers, in a document, with no owner and no expiry.
+#
+# The fence that would have caught it did not exist. `tests/test_red_by_record.py
+# ::test_no_scope_or_detail_carries_a_measurement_the_ledger_owns` protects GATE
+# ROWS in `navalai/gates.py` — in both directions, including "a watermark must
+# not have been copied out of the ledger into the registry". NOTHING protected
+# DOCUMENTS. `tests/test_gate_integrity.py::test_no_document_restates_a_gate_2m
+# _figure` is the closest thing, and it is a hand-maintained list of SUPERSEDED
+# Gate 2M strings: it can only ever name figures somebody already noticed.
+#
+# This is the general form: for every LIVE ledger watermark, the same five
+# documents must not restate it.
+
+_LEDGER_PATH = _ROOT / "data" / "gate-ledger.json"
+
+# The same five files `test_no_document_restates_a_gate_2m_figure` scans, for
+# the same reason. `docs/` is deliberately NOT scanned: `docs/GAP-REGISTER.md`
+# is an immutable audit record and `docs/BUILD-PLAN.md` quotes measurements IN
+# ORDER TO ARGUE ABOUT THEM, which is doing their job.
+_WATERMARK_DOCS = ("ALIGNMENT.md", "PLM.md", "README.md", "MACBOOK.md",
+                   "CLAUDE.md")
+
+# Watermarks whose decimal form cannot be searched for as a bare number, with
+# the reason. An entry here is NOT an exemption from the rule — it is a record
+# that the rule cannot be MEASURED for that row, which `docs/LESSONS.md` defect
+# class 1 says must be stated rather than defaulted to a pass. The assertions
+# below require every key to still be a real, still-unsearchable ledger row, so
+# a new non-distinctive watermark FAILS this test rather than quietly going
+# uncovered.
+_UNSEARCHABLE_WATERMARKS: dict[str, str] = {
+    "Gate 6R": "the watermark is 0 — 'editions recorded, of 2 required'. A "
+               "one-digit literal cannot be told apart from a line number, a "
+               "count, a version or a decimal fragment anywhere in 40 KB of "
+               "house rules, so a search for it would fire on everything and "
+               "the fence would be turned off. Gate 6R's clearing condition "
+               "costs no compute (a reviewer writes two dated editions into "
+               "REVIEW['editions']), so this is expected to be short-lived.",
+}
+
+
+def _searchable_watermarks() -> dict[str, tuple[str, re.Pattern[str]]]:
+    """{gate: (literal, pattern)} for every watermark a document could restate.
+
+    Scope is the ledger's OWN watermark values and nothing else, because the
+    false-positive direction is what kills a fence like this. Two deliberate
+    narrowings, both measured:
+
+    * STRING watermarks are skipped. Gate 2M's is the sentence "NONE — no
+      reproducible measurement exists", and a document repeating THAT is
+      pointing at the ledger, which is the behaviour this test wants.
+    * The exact decimal literal only — no percent-suffixed short form.
+      MEASURED 2026-08-11: extending the search to `75%` (Gate 2U's 75.0)
+      fires on `CLAUDE.md:754`, "the GCI triplet budget in it is wrong by 75%",
+      which has nothing to do with Gate 2U. The cost of the narrowing is
+      stated rather than hidden: a document that writes Gate 2U's watermark as
+      "75%" is NOT caught by this test.
+    """
+    out: dict[str, tuple[str, re.Pattern[str]]] = {}
+    for gate, entry in json.loads(_LEDGER_PATH.read_text()).items():
+        if gate.startswith("_"):
+            continue
+        wm = entry.get("watermark")
+        if isinstance(wm, bool) or not isinstance(wm, (int, float)):
+            continue
+        lit = repr(wm)
+        if sum(c.isdigit() for c in lit) < 3:      # see _UNSEARCHABLE_WATERMARKS
+            continue
+        # Bounded on both sides so 1225.7, 225.75 and 225.7e-3 do not match a
+        # watermark of 225.7. This is the whole difference between a fence and
+        # a nuisance.
+        out[gate] = (lit, re.compile(r"(?<![\d.])" + re.escape(lit) + r"(?![\d])"))
+    return out
+
+
+def _documents_restating_a_watermark(text: str) -> list[str]:
+    return [f"{gate} watermark {lit}"
+            for gate, (lit, pat) in _searchable_watermarks().items()
+            if pat.search(text)]
+
+
+# ALIGNMENT.md, VERBATIM, as it stood at commit `eacb9ce` — the state this test
+# was written to reject. Both offending sentences are here: the STEP/IGES/DXF
+# row's restatement of Gate 6D's watermark (and its now-false claim that no
+# ledger row owns the clause), and the red-gate roster's restatement of Gate
+# 4F's. A guard that was never made to fire is not a guard (docs/LESSONS.md
+# defect class 3), so the fixture is the real text and not a paraphrase.
+PRE_FIX_ALIGNMENT_TEXT = (
+    "**ONE SUB-CLAUSE IS STILL OPEN and is not softened here:** the panels are "
+    "exportable but not yet refoldable to the hull — MEASURED max "
+    "\\|refold − hull\\| 141.0 mm (bottom) and 225.7 mm (topside) against a "
+    "5 mm bar, and it does not refine away (143.8 / 206.1 mm at 161 stations). "
+    "... but Gate 6M is GREEN and no ledger row owns the clause, which is "
+    "Gate 4F's shape before it was split out.\n"
+    "  **2M, 2U, 6R and 4F** — Gate 4F (raw generative feasibility, watermark "
+    "79.33%\n  against a ≥99% bar, measured 2026-08-07) was missing from this "
+    "roster.\n")
+
+
+def test_the_watermark_fence_fires_on_the_verbatim_text_that_motivated_it():
+    """The guard, run against the input it exists to reject."""
+    offenders = _documents_restating_a_watermark(PRE_FIX_ALIGNMENT_TEXT)
+    assert sorted(offenders) == ["Gate 4F watermark 79.33",
+                                 "Gate 6D watermark 225.7"], offenders
+
+    # ...and it does NOT fire on the pointer that replaced them, which is the
+    # other half of a usable fence: the fix must be expressible.
+    fixed = ("the clause is now **Gate 6D**, whose watermark, bar, owner and "
+             "review_by live in `data/gate-ledger.json`; Gate 4F likewise. "
+             "141 panels, 5 mm of glue and 79 frames are not watermarks.")
+    assert _documents_restating_a_watermark(fixed) == []
+
+
+def test_no_document_restates_a_ledger_watermark():
+    """Gap J1's rule, generalised from Gate 2M to every ledger row.
+
+    A measurement in a document has no owner, no `review_by` and nothing that
+    fails when it goes stale — which is how five Gate 2M figures came to be in
+    circulation. The ledger has all three. So the ledger states the number and
+    the document points at the ledger.
+    """
+    for name in _WATERMARK_DOCS:
+        offenders = _documents_restating_a_watermark(
+            (_ROOT / name).read_text(encoding="utf-8"))
+        assert not offenders, (
+            f"{name} restates {offenders}. One number, one home: put it in "
+            f"data/gate-ledger.json and point at the gate row. The ledger "
+            f"carries the units, the bar, the owner and the review_by; a "
+            f"sentence carries none of them and cannot fail.")
+
+
+def test_a_watermark_this_fence_cannot_search_for_is_named_not_ignored():
+    """An unmeasurable metric is FATAL, never a default (LESSONS class 1).
+
+    `_searchable_watermarks` drops any watermark with fewer than three digits,
+    because a bare `0` matches everything. Dropping it SILENTLY would be the
+    `${_MQ_SKEW:-0}` defect: failure to measure scored as a pass. So every
+    dropped row must be named with a reason, and every named row must still be
+    a real, still-unsearchable ledger entry — an exemption that outlives its
+    cause is a hole nobody can see.
+    """
+    ledger = {k: v for k, v in json.loads(_LEDGER_PATH.read_text()).items()
+              if not k.startswith("_")}
+    searchable = _searchable_watermarks()
+
+    dropped = {g for g, e in ledger.items()
+               if isinstance(e.get("watermark"), (int, float))
+               and not isinstance(e.get("watermark"), bool)
+               and g not in searchable}
+    assert dropped == set(_UNSEARCHABLE_WATERMARKS), (
+        f"numeric watermarks this fence cannot search for: {sorted(dropped)}; "
+        f"named as such: {sorted(_UNSEARCHABLE_WATERMARKS)}. Name the new one "
+        f"with its reason, or the rule silently stops covering it.")
+    for gate, why in _UNSEARCHABLE_WATERMARKS.items():
+        assert gate in ledger, f"{gate} left the ledger; drop this exemption"
+        assert len(why) > 60, f"{gate}: an exemption with no reason is a shrug"
+
+    # And the rule is actually covering something: this is not a table of
+    # exemptions with an empty fence behind it.
+    assert len(searchable) >= 3, sorted(searchable)

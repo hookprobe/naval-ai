@@ -62,7 +62,7 @@ closure with no gate is a sentence, not a state.
 |---|---|---|
 | Zig/C low-overhead runtimes for handoffs | **DIVERGED (measured, Stage F)** | research position: physics wall-time dominates, handoff overhead is noise. **The profile was taken, so the divergence is measured and not asserted**: **Gate F** `test_agent_handoff_overhead_is_noise` runs 200 `asyncio.Queue` round-trips and requires the per-handoff cost to be **<1%** of one L1 `evaluate()` call. The rewrite the original plan proposed would optimise noise. |
 | Interactive dashboard w/ Pareto front | **CLOSED (Stage F)** | `ui/server.py::get_pareto` / `pareto_payload` run NSGA-II (`optimize.pareto_front`, pop 24 × 10 gens) and return points carrying `params` (15), `wh_per_nm`, `build_area_m2`, `gm_m`, behind a mission-keyed FIFO cache under a lock; `POST /pareto {mission}` is the wire, because `GET /pareto` takes no body and so the dashboard could only ever draw the DEFAULT mission's front. `ui/index.html` draws it on `<canvas id="pareto">` and clicking a point loads that design into the slider surface. Held by **Gate F**: `test_pareto_endpoint_serves_designs` (≥3 points, exact key set, `tier == "L1"`, second call <10 ms) and `test_dashboard_html_has_pareto_ui`. |
-| STEP / IGES / DXF manufacturing export | **CLOSED (Stage C/F)** | all three exist and all three are gated. DXF: `unroll.develop` (isometric, edge lengths preserved) → `split_panel` → `nest` → `export_dxf`, which writes millimetres and DECLARES them (`$INSUNITS 4`) — it previously wrote metres with no header, so a shop importing the file cut a 10 mm part instead of a 10 m one — and the round-trip is asserted over the split, rotated, PLACED pieces, because the whole panels measure 10.05 × 1.62 m against a 1.22 × 2.44 m sheet and used to be drawn whole. STEP/IGES: `export.export_step` / `export_iges` (CadQuery row above). The export boundary now refuses: `export.refuse_unvalidated(ev, what)` raises unless the design passed the ladder — before it, a hull failing L0 exported an 8,487-byte DXF and a 174,406-byte STEP without a murmur, and honesty rule 2 had no implementation anywhere in the package. Held by **Gate F** (`test_dxf_roundtrip`) and **Gate 6M** (nesting, BOM reconciliation, export receipt, `test_export_refuses_a_design_that_failed_the_ladder`). **ONE SUB-CLAUSE IS STILL OPEN and is not softened here:** the panels are exportable but not yet refoldable to the hull — MEASURED max \|refold − hull\| 141.0 mm (bottom) and 225.7 mm (topside) against a 5 mm bar, and it does not refine away (143.8 / 206.1 mm at 161 stations). The aft half of the bottom panel refolds to 0.008 mm, so the error is the bow warp and the fix is slanted rulings (developable-surface FITTING), not a wider tolerance. `tests/test_manufacturing.py::test_gate6_refold_clause_is_red_on_the_hull` asserts the shortfall so it cannot be forgotten — but Gate 6M is GREEN and no ledger row owns the clause, which is Gate 4F's shape before it was split out (see `tests/test_red_by_record.py`). Register row G4. |
+| STEP / IGES / DXF manufacturing export | **CLOSED (Stage C/F)** | all three exist and all three are gated. DXF: `unroll.develop` (isometric, edge lengths preserved) → `split_panel` → `nest` → `export_dxf`, which writes millimetres and DECLARES them (`$INSUNITS 4`) — it previously wrote metres with no header, so a shop importing the file cut a 10 mm part instead of a 10 m one — and the round-trip is asserted over the split, rotated, PLACED pieces, because the whole panels measure 10.05 × 1.62 m against a 1.22 × 2.44 m sheet and used to be drawn whole. STEP/IGES: `export.export_step` / `export_iges` (CadQuery row above). The export boundary now refuses: `export.refuse_unvalidated(ev, what)` raises unless the design passed the ladder — before it, a hull failing L0 exported an 8,487-byte DXF and a 174,406-byte STEP without a murmur, and honesty rule 2 had no implementation anywhere in the package. Held by **Gate F** (`test_dxf_roundtrip`) and **Gate 6M** (nesting, BOM reconciliation, export receipt, `test_export_refuses_a_design_that_failed_the_ladder`). **ONE SUB-CLAUSE IS STILL OPEN and is not softened here:** the panels are exportable but not yet refoldable to the hull. **That clause is now `Gate 6D`** — a typed RED row in `navalai/gates.py` whose watermark, units, per-panel breakdown, bar, owner and `review_by` live in `data/gate-ledger.json`, with `tests/test_manufacturing.py::test_gate6_refold_clause_is_red_on_the_hull` asserting the shortfall and `REFOLD_BAR_MM` (same file) the bar's one home. **No figure is restated here, and that is the edit.** Until 2026-08-11 this row carried the deviation in prose AND stated that "no ledger row owns the clause"; commit `eacb9ce` created Gate 6D, so the second half became false and the first half became gap J1's shape — one measurement in two documents, the one with no owner and no expiry being this one. Register row G4. |
 
 ## Scorecard
 
@@ -112,9 +112,13 @@ is the point of stating the arithmetic.**
 > unwritten is the same defect as an unmeasured metric scored as a pass.
 >
 > Row-level verdicts here are still WEAKER than `scripts/reconcile_gaps.py`,
-> which derives 122 register rows from the code by predicate and re-runs on
+> which derives every register row from the code by predicate and re-runs on
 > demand; this table is re-derived by hand and therefore goes stale between
-> audits. **For live status ask `python -m navalai.gates` and
+> audits. The ROW COUNT is deliberately not restated here — it is the
+> reconciler's own output and it moves whenever a row is filed (119 → 122 on
+> 2026-08-11, 122 → 123 the same day when `N6` was filed), which is the same
+> reason `docs/GAP-REGISTER.md`'s J8 row forbids `MACBOOK.md` a test count of
+> its own. **For live status ask `python -m navalai.gates` and
 > `python scripts/reconcile_gaps.py`, never this file.**
 - **UPDATED 2026-08-06 — the BLOCKED row is retired.** It read "OpenFOAM
   execution — templates, runner and GCI post-processor all ready and tested on
@@ -129,11 +133,17 @@ is the point of stating the arithmetic.**
   measurement exists" are three different claims, and leaving the first in place
   understated the state of the work.
   The clause "all gates green" is also removed: it was written before the red
-  gates existed. There are **four**, not the three this line used to name:
-  **2M, 2U, 6R and 4F** — Gate 4F (raw generative feasibility, watermark 79.33%
-  against a ≥99% bar, measured 2026-08-07) was missing from this roster.
-  `python -m navalai.gates` is the status, and `data/gate-ledger.json` is the
-  only home of each watermark.
+  gates existed. **The roster of red rows is not restated here either, and it
+  is not a style choice.** This line named three, was corrected to four on
+  2026-08-11 when Gate 4F was found missing from it, and was stale again the
+  same day when `Gate 6D` was created by commit `eacb9ce` — three values for
+  one count inside 24 hours, in a document that cannot fail. `python -m
+  navalai.gates` lists the red rows and `data/gate-ledger.json` is the only
+  home of each watermark, its bar and its `review_by`; ask them.
+  (Gate 4F's watermark used to be quoted here against its ≥99% bar. It was a
+  second home for a ledger number — gap J1's shape — and
+  `tests/test_gaps.py::test_no_document_restates_a_ledger_watermark` now fails
+  on it.)
 - Measured findings produced by the closure campaign:
   1. the 8-D genome costs ~2–3× surrogate accuracy vs the full 15-param
      vector (Stage E) — the original plan's 8-D assumption now has a price tag;

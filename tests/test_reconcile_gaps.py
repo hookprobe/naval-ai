@@ -1,7 +1,7 @@
 """Gate SG-R: the gap queue is reconciled against the CODE, not against prose.
 
 `navalai.gaps` turns `docs/GAP-REGISTER.md` into work items. It cannot turn
-them into TRUE work items: it seeded all 122 findings as `Open`, which was the
+them into TRUE work items: it seeded every finding as `Open`, which was the
 register document's state on 2026-08-05 and not the repository's — roughly
 seventy of them had been closed in code by the following day and nothing
 propagated it. `scripts/reconcile_gaps.py` is the propagation, and this suite
@@ -21,6 +21,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import pathlib
+import re
 import sys
 
 import pytest
@@ -31,6 +32,7 @@ if str(_ROOT) not in sys.path:
 
 from navalai.gaps import (GapQueue, GapState, Severity,   # noqa: E402
                           import_gap_register)
+from navalai.gates import GATES                          # noqa: E402
 from navalai.pipeline import JsonlLog                   # noqa: E402
 
 
@@ -79,8 +81,8 @@ def _queue_source_ids(tmp_path=None) -> set[str]:
         q = GapQueue(JsonlLog(tmp_path / "gaps.jsonl"))
         import_gap_register(queue=q)
     ids = {g.source_id for g in q.all() if g.source_id}
-    assert len(ids) == 122, (
-        f"{len(ids)} findings in the queue, expected the register's 122. An "
+    assert len(ids) == 123, (
+        f"{len(ids)} findings in the queue, expected the register's 123. An "
         f"under-populated queue makes every coverage assertion below vacuous.")
     return ids
 
@@ -124,6 +126,151 @@ def test_every_check_carries_evidence_that_could_be_a_verified_note():
 def test_needs_human_rows_say_WHY_no_predicate_exists():
     for sid, why in rg.NEEDS_HUMAN.items():
         assert len(why) > 60, f"{sid}: 'needs human' with no reason is a shrug"
+
+
+def test_n6_is_needs_human_and_says_why_it_is_neither_gateable_nor_retirable():
+    """N6 was the second gap-id namespace `docs/BUILD-PLAN.md` §15.2 item 1
+    recorded as existing "only in CLAUDE.md" — no register row, no predicate,
+    no gate, no count. Section N of the register files it.
+
+    NEEDS-HUMAN is a JUDGEMENT and this pins the two halves of it, because the
+    dangerous move would have been to pick one of the other two dispositions
+    for tidiness:
+
+    * not RETIRED — that verdict is reserved for a proposition about a MOMENT
+      (J9's sliding git window, J10's one working tree), and "this committed
+      sentence presents a measurement as current" is a property of the
+      committed text, i.e. of a checkout. Retiring a live finding is the
+      expensive direction: it stops anyone looking.
+    * not a GATE — `runs/` is gitignored, so "does every cited run directory
+      exist?" is GREEN on the Mac simulation node and RED on every fresh
+      clone. That is gap D3's shape (an environment fact scored as a project
+      fact), which is exactly what N6 is about.
+    """
+    assert "N6" in rg.NEEDS_HUMAN
+    why = rg.NEEDS_HUMAN["N6"]
+    assert "NOT retirable" in why and "not gateable either" in why.lower()
+    assert "CLEARING CONDITION" in why, (
+        "a NEEDS-HUMAN with no clearing condition is a permanent shrug")
+    assert "N6" not in rg.RETIRED, "a live finding was filed as a retirement"
+    rows = {r.source_id: r for r in rg.reconcile()}
+    assert rows["N6"].verdict == rg.NEEDS
+    assert rows["N6"].verdict != rg.CLOSED
+
+
+def test_apply_never_closes_the_needs_human_row(tmp_path):
+    """`--apply` writes into an append-only log with no reopen edge, and
+    NEEDS-HUMAN means "no predicate can honestly answer this". Closing one
+    would record a verdict nothing measured — B4's incident, which cost 332
+    unwound transitions, in its most deliberate form."""
+    q, gid = _queue_with(tmp_path, source_id="N6")
+    rg.apply([rg.Row("N6", rg.NEEDS, rg.NEEDS_HUMAN["N6"])], q)
+    assert q.get(gid).state is GapState.OPEN
+
+
+# ---------------------------------------------------------------------------
+# gap <-> gate linkage: a NAME is not a LINK
+# ---------------------------------------------------------------------------
+#
+# MEASURED 2026-08-11 by walking this script's AST (docs/BUILD-PLAN.md §15.2
+# item 3, P0-3): of 120 `Check` rows, 14 named a gate somewhere inside their
+# evidence string and only 7 were machine-linked — five through `ledger_has()`,
+# plus E1 and J5 grepping `navalai/gates.py` for a `Gate("Gate X"` literal.
+# EIGHT named a gate that nothing verified. `Check` had exactly three fields,
+# `Gate` had none pointing back, there was no mapping table and no test, so
+# "which gap blocks which gate" was a question the repository could not answer.
+
+_GATE_IN_PROSE = re.compile(r"\bGate [\w.-]+")
+
+
+def _gates_named_in(evidence: str) -> set[str]:
+    """Gate names a READER would take out of an evidence string.
+
+    Trailing punctuation is stripped because the strings are English: "(Gate
+    R3) exercises it", "Gate 6R's state", "Gate 2G makes the skip LOUD".
+    """
+    return {m.group(0).rstrip(".,;:-") for m in _GATE_IN_PROSE.finditer(evidence)}
+
+
+def test_every_gate_a_check_names_exists_in_the_gate_registry():
+    """P0-3's bar. A `gate` value that does not resolve is worse than none:
+    it looks like a link and answers nothing, which is this repository's oldest
+    defect class wearing a new hat (an absence rendered as a result).
+
+    It runs in BOTH directions against `navalai/gates.py` — the field must name
+    a real row, and a gate named in prose must be a real row too — so renaming
+    a gate breaks the register loudly instead of orphaning the rows that point
+    at it.
+    """
+    known = {g.name for g in GATES}
+    assert len(known) == len(GATES), "duplicate gate names in GATES"
+
+    for c in rg.CHECKS:
+        if c.gate is not None:
+            assert c.gate in known, (
+                f"{c.source_id}.gate = {c.gate!r} is not a row in "
+                f"navalai.gates.GATES. Known: {sorted(known)}")
+        for named in _gates_named_in(c.evidence):
+            assert named in known, (
+                f"{c.source_id}'s evidence names {named!r}, which is not a row "
+                f"in navalai.gates.GATES — a citation nothing can follow")
+
+
+def test_a_check_that_names_a_gate_in_prose_also_carries_it_as_a_field():
+    """The drift guard, and the reason the field is not just documentation.
+
+    Prose and field must not come apart: a row that names a gate in its
+    evidence and leaves `gate` unset is back to the pre-P0-3 state for that
+    row, invisibly. The direction is one-way on purpose — D9 names two gates
+    ("Gate 6R's threshold parity could become Gate 6's VERDICT parity") and the
+    gate the row is ABOUT is Gate 6 — so the requirement is that `gate` is SET
+    and is one of the gates the evidence names.
+    """
+    unlinked = []
+    for c in rg.CHECKS:
+        named = _gates_named_in(c.evidence)
+        if not named:
+            continue
+        if c.gate is None or c.gate not in named:
+            unlinked.append(f"{c.source_id}: names {sorted(named)}, gate={c.gate!r}")
+    assert not unlinked, (
+        "these rows name a gate in prose that the `gate` field does not carry, "
+        "so nothing can follow the link:\n  " + "\n  ".join(unlinked))
+
+    # THE GUARD, FIRED. A test that only shows the current table is clean says
+    # nothing about detection (docs/LESSONS.md defect class 3), and the state
+    # it must detect is the one every one of these rows was in this morning:
+    # a gate named in prose, no field, nothing linking them.
+    stray = rg.Check("X1", "closed when Gate 0G pins the GATES list, and when "
+                           "Gate 9Z (which does not exist) is green",
+                     lambda: True)
+    assert stray.gate is None, "the field must default to unlinked, not to a guess"
+    assert _gates_named_in(stray.evidence) == {"Gate 0G", "Gate 9Z"}
+    assert "Gate 9Z" not in {g.name for g in GATES}, (
+        "the unresolvable name in this control became real; pick another")
+
+
+def test_the_linkage_covers_the_fourteen_rows_the_audit_counted():
+    """The census the field was added for, pinned so it cannot regress to prose.
+
+    G4 is the fifteenth and it names no gate in its evidence — until 2026-08-11
+    there was none to name. `eacb9ce` created Gate 6D and its ledger entry
+    opens "GAP G4", so the link is the ledger's own statement rather than an
+    inference, and it is the one this whole field exists to make queryable: G4
+    is now the register row that says which gate is red.
+    """
+    linked = {c.source_id: c.gate for c in rg.CHECKS if c.gate is not None}
+    assert linked == {
+        "A1": "Gate R3", "D1": "Gate 0G", "D9": "Gate 6", "D10": "Gate 3",
+        "D11": "Gate 4F", "D12": "Gate 4", "E1": "Gate 1H", "F16": "Gate 2M",
+        "F17": "Gate 2U", "G4": "Gate 6D", "I10": "Gate 7", "I13": "Gate 4",
+        "J1": "Gate 2M", "J3": "Gate 6R", "J5": "Gate 2G"}
+
+    # The map is many-to-one and that is information, not a defect: two rows
+    # are about Gate 4 and two about Gate 2M.
+    from collections import Counter
+    assert Counter(linked.values())["Gate 4"] == 2
+    assert Counter(linked.values())["Gate 2M"] == 2
 
 
 # ---------------------------------------------------------------------------
@@ -554,7 +701,7 @@ def test_no_gap_is_closed_in_the_queue_while_the_code_says_it_is_open():
         f"wrong or the closure was. File a NEW gap; do not edit the log.")
 
 
-def test_the_queue_is_the_122_findings_the_register_holds(tmp_path):
+def test_the_queue_is_the_123_findings_the_register_holds(tmp_path):
     """Guard against a re-import doubling the queue, which would make every
     count in the report meaningless. `GapQueue.emit` is idempotent on
     source_id; this is the assertion that it stayed that way.
@@ -564,7 +711,8 @@ def test_the_queue_is_the_122_findings_the_register_holds(tmp_path):
     fresh clone — the very defect the tests below are about, sitting in the
     assertion that counts the queue.
 
-    119 -> 122 on 2026-08-11. This assertion is DOUBLE-ENTRY ONLY — it was
+    119 -> 122 on 2026-08-11, then 122 -> 123 the same day when section N filed
+    `N6`. This assertion is DOUBLE-ENTRY ONLY — it was
     written against the over-import direction (a mis-headed table that grew the
     queue 119 -> 121) and a number it verifies from below cannot notice a row
     the importer never read. Section T's three findings hid under it for four
@@ -573,9 +721,9 @@ def test_the_queue_is_the_122_findings_the_register_holds(tmp_path):
     """
     q = GapQueue(JsonlLog(tmp_path / "gaps.jsonl"))
     rep = import_gap_register(queue=q)
-    assert len(rep.imported) == 122, (
+    assert len(rep.imported) == 123, (
         f"{len(rep.imported)} findings imported from docs/GAP-REGISTER.md, "
-        f"expected 122")
+        f"expected 123")
 
     live = _ROOT / "data" / "evolution" / "gaps.jsonl"
     if not live.exists():
@@ -583,7 +731,7 @@ def test_the_queue_is_the_122_findings_the_register_holds(tmp_path):
     recs = [json.loads(line) for line in live.read_text().splitlines()
             if line.strip()]
     opened = [r for r in recs if r["kind"] == "open"]
-    assert len(opened) == 122, f"{len(opened)} findings filed, expected 122"
+    assert len(opened) == 123, f"{len(opened)} findings filed, expected 123"
     assert len({r["gap_id"] for r in recs}) == len({r["gap_id"] for r in opened})
 
 
@@ -627,7 +775,7 @@ def test_the_queue_is_reconstructible_from_committed_files_alone(tmp_path):
     q = GapQueue(JsonlLog(tmp_path / "gaps.jsonl"))
     rows = rg.reconcile()
     n, moved = rg.rebuild(q, rows)
-    assert n == 122
+    assert n == 123
     measured_closed = {r.source_id for r in rows if r.verdict == rg.CLOSED}
     assert len(moved) == len(measured_closed)
     got = {g.source_id for g in q.all() if g.state is GapState.CLOSED}

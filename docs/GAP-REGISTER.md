@@ -803,3 +803,62 @@ asserts, which is why neither was done unilaterally.
 Until then Gate 7 is RED by its suite and `honesty rule 4` is **still enforced
 where it matters**: the label-shuffled model scores 0.6325 and is refused by
 the ABSOLUTE FLOOR (0.35), a path that never consulted the baseline at all.
+
+---
+
+## N · A gap id that lived in one document and in no register (2026-08-11)
+
+Filed to discharge `docs/BUILD-PLAN.md` §15.2 item 1: *"`N6` exists only in
+`CLAUDE.md` … Neither is a register row. Every R-number must become a register
+row, a gate, or a retirement notice."* This section is the register row. (The
+other half of that item, `R5.5`, already has its disposition recorded — the
+plan's Appendix A retirement table carries "R5.5's headline framing, superseded
+by the 2026-08-07 re-measurement", and `docs/LESSONS.md` keeps the superseded
+paragraph struck through beside the measurement that replaced it.)
+
+| ID | Finding | Evidence | Sev |
+|---|---|---|---|
+| **N6** | **Prose outlives the evidence it cites.** `scripts/clean-runs.sh --purge` deletes a run directory; the sentence quoting a number FROM that directory is not deleted with it. MEASURED when the id was coined: `CLAUDE.md` cited five run directories that no longer existed, one of them in the PRESENT TENSE ("**Running now:** `runs/kcs_sym`") while nothing was running, and cited a deleted directory as the EVIDENCE that the VOF interface was sound. **The ledger half is closed and gated** — `data/gate-ledger.json`'s Gate 2M watermark is deliberately the string "NONE", its `verify_note` records that the run it used to name does not exist on this machine either, and `tests/test_gate_integrity.py::test_the_gate2m_ledger_entry_points_at_something_real` refuses a watermark citing a deleted directory. **The document half has no mechanism, and `CLAUDE.md` says so in its own words: "this file has no such enforcement, so it is on the writer."** The id has existed in that one file since 2026-08-06 with no register row, no predicate, no gate and no count — a second gap-id namespace that nothing checks. | `CLAUDE.md` ("This is gap N6"); `docs/BUILD-PLAN.md` §15.2 item 1 | **MED** |
+
+### N6 is filed NEEDS-HUMAN, and the choice is argued rather than assumed
+
+§15.2 offers three dispositions. Two were considered and rejected, and the
+reasoning is recorded because "we could not write a predicate" and "no predicate
+can exist" are different claims that this register keeps apart on purpose
+(`S4` · Retired under PLM §3 step 7).
+
+**Not a GATE.** A gate would have to answer "does every `runs/<name>` this
+repository cites still exist?" — and `runs/` is a gitignored build artifact.
+The same commit is green on the Mac simulation node and red on fortress001, and
+red on every fresh clone, because none of the directories is in the tree at all.
+A bar whose colour is a property of one machine's scratch space is not a bar;
+it is the `data/baselines.json` failure (gap `D3`) rebuilt as CI theatre.
+
+**Not RETIRED.** `J9` and `J10` were retired because their propositions are
+about a MOMENT — a sliding window of git history, one working tree at one
+instant — so no predicate over a checkout can answer them stably in either
+direction. N6 is not that: "this committed sentence presents a measurement as
+current while naming a directory whose survival it does not vouch for" is a
+property of the COMMITTED TEXT, which is exactly what a checkout is. Retiring it
+would file a live finding under "not a property of the checkout" and stop anyone
+looking, which is the expensive direction (`apply()`'s own rule: a wrongly-closed
+gap is worse than a wrongly-open one).
+
+**So: NEEDS-HUMAN**, in `scripts/reconcile_gaps.py`'s `NEEDS_HUMAN` map, which
+reports the row on every run, is never moved by `--apply`, and requires the
+reason to be written down. The honest statement of what is missing is that the
+remaining half is a judgement about PROSE SEMANTICS — is this sentence vouching
+for evidence it has not checked? — and no regex over a document answers it. The
+mechanised half already exists and is asserted in the direction that matters:
+the ledger, which is the one place a watermark may live, cannot cite a run
+directory that is not there.
+
+**Clearing condition, so this is not a permanent shrug.** N6 leaves NEEDS-HUMAN
+when a human decides one of two things: that documents must state, per cited run
+directory, whether it still exists — at which point the check becomes a text
+predicate and the row gets one — or that the ledger's guard is the whole of the
+mechanism the project wants, at which point N6 is closed by decision and the
+sentence in `CLAUDE.md` admitting there is no enforcement is corrected by its
+owner. Neither is a change an agent may make on its own say-so: the first adds a
+writing rule to files this register does not own, and the second retires a
+finding the file itself still states.
