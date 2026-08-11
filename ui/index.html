@@ -172,6 +172,15 @@ document.getElementById("apply").addEventListener("click", async () => {
   const text = document.getElementById("mission").value;
   mission = await (await fetch("/mission", { method: "POST",
     body: JSON.stringify({ text }) })).json();
+  // A front drawn under the PREVIOUS mission is now the wrong surface. It is
+  // dropped rather than left on screen next to freshly-evaluated sliders —
+  // that stale picture is the same wrong answer the GET-only endpoint gave.
+  if (paretoPts.length) {
+    paretoPts = [];
+    drawPareto();
+    document.getElementById("paretoInfo").textContent =
+      "mission changed — recompute the front";
+  }
   evalNow();
 });
 document.getElementById("suggest").addEventListener("click", async () => {
@@ -196,9 +205,22 @@ let paretoPts = [];
 document.getElementById("loadPareto").addEventListener("click", async () => {
   const info = document.getElementById("paretoInfo");
   info.textContent = "running NSGA-II…";
-  const d = await (await fetch("/pareto")).json();
+  // The mission goes with the request, exactly as it does for /generate. The
+  // page used to GET /pareto, which carries no body, so this dashboard drew
+  // the SERVER's default trade-off surface next to sliders evaluating the
+  // user's mission — two panels answering different boats.
+  const d = await (await fetch("/pareto", { method: "POST",
+    body: JSON.stringify({ mission }) })).json();
+  if (d.error) { info.textContent = "error: " + d.error; return; }
   paretoPts = d.points;
-  info.textContent = `${d.points.length} designs · ${d.n_evals} L1 evals · tier ${d.tier}`;
+  // Gate 4's bar is 100 ms and a new mission misses it. Say so rather than
+  // letting a 1.2 s search read as a fast widget.
+  const cost = d.live
+    ? `searched live in ${d.elapsed_ms.toFixed(0)} ms (new mission — over the 100 ms bar)`
+    : `cached ${d.elapsed_ms.toFixed(2)} ms`;
+  info.textContent = `${d.points.length} designs · ${d.n_evals} L1 evals · `
+    + `tier ${d.tier} · ${d.mission.displacement_target_kg} kg @ `
+    + `${d.mission.cruise_speed_kn} kn cat ${d.mission.design_category} · ${cost}`;
   drawPareto();
 });
 function drawPareto() {

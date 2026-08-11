@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 
 from navalai.geometry import Hull
+from navalai.mission import MissionSpec, parse_mission
 from navalai.unroll import develop, export_dxf, hull_panels, parse_dxf_polylines
 from tests.test_phase0 import mid_params
 
@@ -117,6 +118,166 @@ def test_pareto_endpoint_serves_designs():
 def test_dashboard_html_has_pareto_ui():
     html = open("ui/index.html").read()
     assert 'id="pareto"' in html and "/pareto" in html
+
+
+def _panel_default_mission_text() -> str:
+    """The brief the SHIPPED page opens with, read out of the page itself.
+
+    Retyping it here would make the test pass while the page drifted — the
+    number-declared-twice defect wearing a string."""
+    html = open("ui/index.html").read()
+    return html.split('id="mission" rows="2">')[1].split("</textarea>")[0]
+
+
+def test_pareto_serves_the_mission_it_was_asked_about():
+    """`/pareto` WAS THE LAST ENDPOINT ANSWERING THE DEFAULT MISSION'S QUESTION.
+
+    `get_pareto(mission)` and its per-mission cache landed on 2026-08-11, but
+    the HTTP surface did not: `do_GET` served `/pareto` with no mission and
+    there was no POST route, so no caller could reach a second cache entry. The
+    dashboard drew one boat's trade-off surface beside sliders evaluating
+    another. Gap I9's shape ("it was a SINGLE pool, which is why `/generate`
+    could only ever answer the default mission"), one endpoint later.
+
+    THE VERBATIM BROKEN CASE IS THE PAGE'S OWN OPENING BRIEF — no exotic input
+    was needed. `MissionSpec()` has `lwl_hint_m=None` while the textarea's
+    "6 tonne ... 10 m ... 5 knots" parses to 10.0 m, so a user who pressed
+    "Apply mission" without editing a character already had sliders on one
+    mission and a front on another.
+
+    MEASURED 2026-08-11 on this Mac, at HEAD 140f7e4 WITH `navalai/evaluate.py`
+    being edited concurrently by another agent — which is why the counts below
+    are dated and the assertions are not written against them:
+
+        the panel's opening brief    24 members, Wh/NM  376.6 - 2093.0
+        "3 tonne dayboat ... 9 kn"   13 members, Wh/NM 2175.1 - 4080.7
+
+    Two runs an hour apart returned 16/12 and then 24/24 members for the same
+    two missions, because the constraint set moved underneath them. A test that
+    asserted the counts would have been measuring the other agent's work; what
+    is asserted is the STRUCTURAL claim — different missions, different fronts,
+    and no cross-serving — which is what the fix is about.
+
+    Defect class 3: a guard fed the input it must reject. Under the old code the
+    two fronts are the SAME LIST, and `POST /pareto` is a 404.
+    """
+    import ui.server as S
+
+    panel = json.loads(parse_mission(_panel_default_mission_text()).to_json())
+    other = json.loads(parse_mission(
+        "3 tonne dayboat, 8 m, coastal, cruise 9 knots, 2 crew").to_json())
+    assert panel["lwl_hint_m"] == 10.0 and other["cruise_speed_kn"] == 9.0
+    # the page's own opening brief was never the server's default mission
+    assert S.mission_key(S._mission_from(panel)) != \
+           S.mission_key(MissionSpec())
+
+    a = S.pareto_payload(panel)
+    b = S.pareto_payload(other)
+    assert a["points"] != b["points"], (
+        "two different missions returned the same front — the mission is not "
+        "reaching the search")
+    assert [p["wh_per_nm"] for p in a["points"]] != \
+           [p["wh_per_nm"] for p in b["points"]]
+    assert a["mission"]["cruise_speed_kn"] == 5.0
+    assert b["mission"]["cruise_speed_kn"] == 9.0
+    assert b["mission"]["displacement_target_kg"] == 3000.0
+
+    # ...and one mission's cached answer is never served for another. This is
+    # the half that a single global `_pareto_cache` got wrong even when the
+    # search was right: the FIRST caller's front was served to every later one.
+    again = S.pareto_payload(panel)
+    assert again["points"] == a["points"] and again["live"] is False
+    assert again["points"] != b["points"]
+    # ...including the server's OWN default, which is the front the GET-only
+    # endpoint handed to every caller regardless of what they had typed.
+    assert S.get_pareto(MissionSpec())["points"] != b["points"], (
+        "the server's own default front is being served for a typed mission")
+
+
+def test_pareto_declares_the_cold_search_instead_of_hiding_it():
+    """GATE 4'S BAR IS 100 ms AND A NEW MISSION MISSES IT. Not softened.
+
+    MEASURED 2026-08-11 over seven briefs on this Mac: cold 1.88-2.30 s
+    (NSGA-II at pop=24/gens=10), warm 0.023-0.032 ms — a 19-23x miss. The
+    payload declares `live` and `elapsed_ms`, the same two keys `/generate`
+    uses, so the miss is visible in the answer rather than averaged away by the
+    cached calls around it.
+
+    The receipt is checked against the CALLER'S OWN wall clock. An
+    `elapsed_ms` nobody compares to a real duration is decoration, and this
+    repo's most expensive defect class is a metric that is not actually
+    measured (LESSONS class 1)."""
+    import ui.server as S
+
+    mis = json.loads(parse_mission(
+        "9 tonne canal barge, 15 m, river, cruise 4 knots, 3 crew").to_json())
+    t0 = time.perf_counter()
+    cold = S.pareto_payload(mis)
+    wall_ms = (time.perf_counter() - t0) * 1e3
+    assert cold["live"] is True
+    assert cold["elapsed_ms"] == pytest.approx(wall_ms, rel=0.25)
+    assert cold["elapsed_ms"] > 100.0, (
+        "a live NSGA-II search came in under Gate 4's bar — re-measure the "
+        "budget before believing it")
+
+    t0 = time.perf_counter()
+    warm = S.pareto_payload(mis)
+    assert (time.perf_counter() - t0) * 1e3 < 100.0      # Gate 4, cached path
+    assert warm["live"] is False and warm["points"] == cold["points"]
+
+    # the cache is BOUNDED — it is keyed on user input now that POST reaches it
+    for kn in range(1, 4 + S.MAX_POOLS):
+        S.pareto_payload({"cruise_speed_kn": float(kn)})
+    assert len(S._pareto_cache) <= S.MAX_POOLS
+
+
+def test_pareto_over_http_takes_a_mission():
+    """The wire, not the function. `get_pareto` already took a mission; what
+    was missing was any way for the dashboard to pass one — GET carries no
+    body and there was no POST route, so this request used to 404."""
+    from http.server import ThreadingHTTPServer
+    import threading
+    import urllib.request
+
+    from ui.server import Handler
+
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    port = srv.server_address[1]
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/pareto",
+                                    timeout=120) as r:
+            default = json.loads(r.read())          # GET still works
+        body = json.dumps({"mission": json.loads(parse_mission(
+            "3 tonne dayboat, 8 m, coastal, cruise 9 knots, 2 crew").to_json())
+        }).encode()
+        req = urllib.request.Request(f"http://127.0.0.1:{port}/pareto",
+                                     data=body)
+        with urllib.request.urlopen(req, timeout=120) as r:
+            typed = json.loads(r.read())
+    finally:
+        srv.shutdown()
+
+    assert default["tier"] == "L1" and len(default["points"]) >= 3
+    assert typed["mission"]["cruise_speed_kn"] == 9.0
+    assert typed["points"] != default["points"], (
+        "POST /pareto returned the default mission's front")
+    for d in (default, typed):
+        assert set(d) >= {"points", "n_evals", "tier", "mission", "live",
+                          "elapsed_ms"}
+
+
+def test_dashboard_sends_its_mission_to_pareto():
+    """The page held a mission all along (`/eval` and `/generate` both send it)
+    and the Pareto button was the one fetch that did not, so the dashboard
+    could only ever draw the server's default. Checked in the page source
+    because there is no browser in this suite to click the button."""
+    html = open("ui/index.html").read()
+    call = html.split('getElementById("loadPareto")')[1].split("\n});")[0]
+    assert 'fetch("/pareto"' in call and 'method: "POST"' in call
+    assert "mission" in call.split('fetch("/pareto"')[1][:200]
+    # and the cold cost is shown, not swallowed
+    assert "d.live" in call and "elapsed_ms" in call
 
 
 # ---------------- handoff-latency receipt ----------------

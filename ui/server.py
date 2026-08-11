@@ -2,9 +2,11 @@
 
 Stdlib-only HTTP server (edge-friendly, zero deps beyond numpy stack):
   GET  /            -> the slider UI
+  GET  /pareto      -> the DEFAULT mission's front (warm-up / no-mission caller)
   POST /eval        -> {params:{name:value}, mission:{...}} -> full L1 report
   POST /mission     -> {text: "..."} -> parsed MissionSpec (rule-based floor)
   POST /generate    -> {percentile: 0..1, n, mission:{...}} -> conditioned hulls
+  POST /pareto      -> {mission:{...}} -> THAT mission's trade-off surface
 
 Every quantity in the response carries {value, tier, sigma} — the fidelity
 badge is not optional (BuildPlan honesty rule 1).
@@ -39,6 +41,19 @@ first request for an unseen mission MISSES Gate 4's 100 ms bar at ~1.5 s. That
 is recorded, declared in the payload (`live`, `elapsed_ms`), and not softened:
 scoring 176 hulls through L1 costs what it costs, and the default mission is
 still prefit at `serve()` so the panel's first click is not the one that pays.
+
+AND `/pareto` WAS THE LAST ENDPOINT ANSWERING THE WRONG QUESTION. `get_pareto`
+was given a mission and a per-mission cache, but the HTTP surface was not: the
+only route was `GET /pareto`, which takes no body, so the dashboard drew the
+DEFAULT mission's trade-off surface beside sliders showing the user's. A
+per-mission cache no caller can reach a second mission through is not a fix.
+`POST /pareto {mission}` is the wire, mirroring `/generate`; GET stays for the
+warm-up and for a caller that genuinely wants the default. Same honesty
+accounting: an unseen mission runs NSGA-II live, MEASURED 2026-08-11 over seven
+briefs on this Mac at 1.88-2.30 s against Gate 4's 100 ms bar — a 19-23x miss —
+where the repeat is 0.023-0.032 ms. The payload says `live: true` and the
+`elapsed_ms` it cost, rather than letting a two-second search read as a fast
+widget.
 """
 
 from __future__ import annotations
@@ -92,6 +107,13 @@ def get_pareto(mission: MissionSpec | None = None) -> dict:
     Keyed by `mission_key`, the same helper `/generate` uses, so one cache
     entry per mission rather than one entry full stop. `mission=None` keeps the
     old default for callers that genuinely want it (the warm-up at serve()).
+
+    BOUNDED BY `MAX_POOLS`, for the same reason `get_pool` is. While the only
+    route in was `GET /pareto` this map could hold at most one entry, so the
+    bound was not needed; `POST /pareto` makes the key user input, and a cache
+    keyed on user input with no ceiling is a memory leak with a request behind
+    it. Same FIFO, same constant — a second ceiling declared here would be the
+    number-declared-twice defect.
     """
     global _pareto_cache
     mission = mission if mission is not None else _mission_default
@@ -127,6 +149,8 @@ def get_pareto(mission: MissionSpec | None = None) -> dict:
                             "build_area_m2": round(float(f[1]), 1),
                             "gm_m": (round(float(ev.gm_m), 3)
                                      if ev.gm_m is not None else None)})
+            if len(_pareto_cache) >= MAX_POOLS:
+                _pareto_cache.pop(next(iter(_pareto_cache)))   # FIFO, as pools
             _pareto_cache[key] = {"points": pts, "n_evals": res.n_evals,
                                   "tier": "L1"}
         return _pareto_cache[key]
@@ -215,6 +239,74 @@ def get_pool(mission: MissionSpec | None = None) -> dict:
         return hit
 
 
+def _mission_from(mission_d: dict | None) -> MissionSpec:
+    """ONE decoder from the wire dict to a MissionSpec.
+
+    `eval_payload` and `generate_payload` each carried a verbatim copy of this
+    comprehension, and `/pareto` would have been a third. The recurring defect
+    in this codebase is a thing declared twice (CLAUDE.md, design-side
+    invariants); three copies of the field filter is how two endpoints end up
+    accepting different missions from the same JSON.
+
+    `energy` is dropped because it arrives as a nested dict and `MissionSpec`
+    wants an `EnergySpec` — passing it through would build a spec whose
+    `energy` is a dict, and `mission_key` reads attributes off it. An absent
+    key falls back to the default spec, which is what every caller did before.
+    """
+    if not mission_d:
+        return _mission_default
+    return MissionSpec(**{k: v for k, v in mission_d.items()
+                          if k in MissionSpec.__dataclass_fields__
+                          and k != "energy"})
+
+
+def _mission_receipt(mission: MissionSpec) -> dict:
+    """What an answer says about the condition it was computed under. A
+    conditioned result that does not name its condition is not auditable."""
+    return {"displacement_target_kg": mission.displacement_target_kg,
+            "cruise_speed_kn": mission.cruise_speed_kn,
+            "design_category": mission.design_category}
+
+
+def pareto_payload(mission_d: dict | None = None) -> dict:
+    """`get_pareto` for THIS mission, with the cost declared, not hidden.
+
+    THE FRONT WAS RIGHT AND THE WIRE WAS NOT. `get_pareto(mission)` and its
+    per-mission cache landed earlier the same day, but `do_GET` still served
+    `/pareto` with no mission and there was no POST route at all, so the only
+    front any caller could obtain was the default mission's — the dashboard
+    drew one boat's trade-off surface while the sliders beside it evaluated
+    another. Exactly gap I9's shape, one endpoint later.
+
+    HONESTY RULE 6, AND GATE 4'S BAR IS NOT SOFTENED. An unseen mission is a
+    cache MISS and runs NSGA-II at pop=24/gens=10 — MEASURED 2026-08-11 over
+    seven briefs on this Mac at 1.88-2.30 s cold against a 100 ms bar, a 19-23x
+    miss, where the repeat is 0.023-0.032 ms. The `1.2 s` quoted for this
+    budget in `get_pareto` is older than the constraint set the search now runs
+    against; re-measure before quoting either. The payload therefore reports
+    `live` (this request paid for the search) and
+    `elapsed_ms` (what it cost), the same two keys `/generate` declares, so the
+    miss is visible in the answer instead of being averaged away by the cached
+    calls around it. The default mission is still searched at `serve()` by
+    `prefit()`, so the panel's first click is not the one that pays.
+
+    The cached front is COPIED into the response. Merging the receipt keys into
+    the cached dict would mutate the cache, and the next caller would then read
+    another mission's `live`/`mission` receipt off their own front.
+    """
+    mission = _mission_from(mission_d)
+    t0 = time.perf_counter()
+    key = mission_key(mission)
+    with _pareto_lock:
+        cached = _pareto_cache is not None and key in _pareto_cache
+    front = get_pareto(mission)
+    return {**front,
+            "mission": _mission_receipt(mission),
+            "mission_notes": mission.notes,
+            "live": not cached,
+            "elapsed_ms": round((time.perf_counter() - t0) * 1e3, 3)}
+
+
 def prefit() -> dict:
     """Do every blocking startup cost BEFORE the first click, not on it.
 
@@ -276,11 +368,7 @@ def generate_payload(n: int = 3, percentile: float = 0.5,
     if not 0.0 <= percentile <= 1.0:
         raise ValueError(f"percentile must be in [0, 1], got {percentile}")
     n = max(int(n), 0)
-    mission = _mission_default
-    if mission_d:
-        mission = MissionSpec(**{k: v for k, v in mission_d.items()
-                                 if k in MissionSpec.__dataclass_fields__
-                                 and k != "energy"})
+    mission = _mission_from(mission_d)
     t0 = time.perf_counter()
     key = mission_key(mission)
     with _pool_lock:
@@ -301,9 +389,7 @@ def generate_payload(n: int = 3, percentile: float = 0.5,
         # Which mission this answer is about, and whether the caller paid for
         # it. A conditioned result that does not name its condition is not an
         # auditable answer.
-        "mission": {"displacement_target_kg": mission.displacement_target_kg,
-                    "cruise_speed_kn": mission.cruise_speed_kn,
-                    "design_category": mission.design_category},
+        "mission": _mission_receipt(mission),
         "mission_notes": mission.notes,
         "live": not cached,
         "pool_build_s": round(float(pool["build_s"]), 3),
@@ -314,10 +400,7 @@ def generate_payload(n: int = 3, percentile: float = 0.5,
 def eval_payload(params: dict, mission_d: dict | None) -> dict:
     x = grammar.vector({**grammar.named(grammar.LOW * 0 + (grammar.LOW + grammar.HIGH) / 2),
                         **{k: float(v) for k, v in params.items()}})
-    mission = _mission_default
-    if mission_d:
-        mission = MissionSpec(**{k: v for k, v in mission_d.items()
-                                 if k in MissionSpec.__dataclass_fields__ and k != "energy"})
+    mission = _mission_from(mission_d)
     ev = evaluate(x, mission)
     out: dict = {
         "ok": ev.ok,
@@ -402,7 +485,12 @@ class Handler(BaseHTTPRequestHandler):
             html = (Path(__file__).parent / "index.html").read_bytes()
             self._send(200, html, "text/html; charset=utf-8")
         elif self.path == "/pareto":
-            self._send(200, json.dumps(get_pareto()).encode())
+            # GET carries no body, so this is the DEFAULT mission's front and
+            # nothing else. It is kept for the warm-up path and for a caller
+            # that genuinely wants the default; the dashboard POSTs the mission
+            # it is displaying. When GET was the ONLY route, "the default" was
+            # the only answer the endpoint could give.
+            self._send(200, json.dumps(pareto_payload()).encode())
         elif self.path == "/bounds":
             spec = [{"name": n, "unit": u, "low": lo, "high": hi, "desc": d}
                     for (n, u, lo, hi, d) in grammar.PARAMS]
@@ -425,6 +513,13 @@ class Handler(BaseHTTPRequestHandler):
                 out = generate_payload(int(body.get("n", 3)),
                                        float(body.get("percentile", 0.5)),
                                        body.get("mission"))
+            elif self.path == "/pareto":
+                # The last endpoint that could only answer the default mission.
+                # `get_pareto` took a mission and cached per mission; the HTTP
+                # surface did not, so no caller could reach a second entry and
+                # the dashboard showed a trade-off surface for a boat nobody
+                # had asked about.
+                out = pareto_payload(body.get("mission"))
             else:
                 self._send(404, b"{}")
                 return
