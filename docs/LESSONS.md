@@ -186,14 +186,39 @@ or spray physics with the SKUs, so a second anchor (Fridsma or DSYHS) is owed.
 Topside design — windows, standing headroom, hard-chine topsides that are not
 developable — is DEFERRED by decision: fix the simulation model first.
 
-**Scale the tank to the wave, not the hull.** The dominant oscillation is a
-domain-selected gravity wave, Doppler-shifted by the stream: λ ≈ 11.5 m fixed by
-the tank across a 2× change in speed, T = λ/(c−U) matching to 0.3%. The
-still-water seiche formula 2L/√(gh) predicts 7.75 s and matches neither speed.
-Fn 0.26 is the worst case because the mode the tank selects is also the one whose
-group velocity holds station and cannot drain. The fix is **absorption** — a
-relaxation zone or momentum sink — not depth, not solver tuning, and not running
-longer. (`verticalDamping` is OpenFOAM.org; ESI v2606 does not have it.)
+~~**Scale the tank to the wave, not the hull.** The dominant oscillation is a
+domain-selected gravity wave ... The fix is **absorption** — a relaxation zone
+or momentum sink — not depth, not solver tuning, and not running longer.~~
+
+**SUPERSEDED 2026-08-07 by `runs/kcs_s1`** (`docs/PRESSURE-OSCILLATION.md`,
+commit `971f441`), and this entry is kept rather than deleted because the
+*lesson* changed shape while the paragraph above stayed put in the file every
+session is told to read first — which is defect class 5 committed by this file
+against itself.
+
+At 3.40 flow-throughs on the current mesh family: **there is no oscillation.**
+`scripts/tank_resonance.py` over 2041 samples finds the best single sinusoid
+explains **0.4%** of the detrended signal against a 50% bar — NO RESULT. Every
+candidate mechanism (seiche n=1..3, Doppler tank modes n=1..8, blocking minimum,
+ship transverse wave) had enough cycles in the record to have been seen. The
+earlier reading came from a different mesh family at 1.33 flow-throughs, where a
+rising quarter-cycle of anything looks like a trend.
+
+Drift collapsed to **0.31%** and C_T flattened, so **the error is not a settling
+problem and more wall-clock will not remove it.** Viscous is **1.161×** ITTC-57
+(inside the form-factor band, batch error 1.7%); pressure is **2.32×** with a
+**36%** batch error — broadband noise, not a mode.
+
+**The transferable lesson, which is the opposite of the one above:** a period
+claimed from too few cycles is a period invented by the window. Two runs on one
+domain could not separate λ/3 from the domain half-width because they are the
+same number in that domain — and the conclusion drawn from them survived into
+three documents and would have bought a relaxation zone against a mechanism that
+does not exist. `tests/test_tank_resonance.py` now refuses a period claimed from
+too few cycles. State the cycle count, or state NO RESULT.
+
+(`verticalDamping` is OpenFOAM.org; ESI v2606 does not have it — still true, and
+still the reason absorption would have been expensive rather than a config flag.)
 
 ---
 

@@ -57,6 +57,43 @@ hardware/software this machine lacks).
 - Before gap-closure: ALIGNED 4 · DIVERGED (research-grounded) 6 · GAP 11 · BLOCKED 1
 - **After gap-closure (stages B–F): ALIGNED/CLOSED 15 ·
   DIVERGED-with-receipts 6 · BLOCKED 0.**
+
+> **THE SCORECARD AND THE TABLE ABOVE IT DISAGREE, AND THE TABLE IS THE STALE
+> ONE. MEASURED 2026-08-11.** The scorecard claims 15 ALIGNED/CLOSED; the rows
+> above show **7** (3 `ALIGNED` + 1 `ALIGNED, with a corrected count` +
+> 3 `CLOSED`) with **11 still carrying the literal string `GAP`**. Spot-checks
+> against the tree say the scorecard is nearer the truth: `hull_ast.py`,
+> `agents.py`, `engineer.py`, `dynamics.py`, `pipeline.py` and `export.py` all
+> exist, and the "Pareto-front view missing" row is contradicted by a shipped
+> `Gate F` whose scope names the Pareto dash. **But presence of a name is not
+> evidence of behaviour** (`docs/LESSONS.md` §8), so no row is re-verdicted here
+> on inspection alone.
+>
+> The "before" line does not reconcile either: 4+6+11+1 = 22 tokens over 21 rows
+> with 2 dual-verdict rows, where 23 is expected. It is a frozen historical
+> snapshot written in the present tense.
+>
+> **This is defect class 4 — prose standing in for a verdict — in the file whose
+> job is verdicts.** Two counts of one state, neither derived. The fix is not to
+> edit the numbers: it is to re-verdict the 11 `GAP` rows **by predicate**, the
+> way `scripts/reconcile_gaps.py` already derives all 119 register rows from the
+> code. Scheduled as **P0-7** in `docs/ROADMAP.md` §5. Until then, treat every
+> row above as *unverified*, and take status from
+> `python scripts/reconcile_gaps.py` and `python -m navalai.gates`.
+>
+> Two further corrections, measured the same day:
+> - The header says "Audited 2026-07-30" while the body carries updates dated
+>   2026-08-05, -06 and -07. A reader taking the header at face value under-dates
+>   the file by a week.
+> - The Gate 2M row states the gate is "RED on a MEASURED number rather than
+>   blocked on hardware". `data/gate-ledger.json` says the opposite —
+>   `watermark: "NONE — no reproducible measurement exists"`,
+>   `measured_on: "NOTHING. runs/kcs ... was DELETED"`. This file claims a
+>   measurement the ledger explicitly refuses to state: defect class 5,
+>   reproduced inside the document that records class 5.
+> - The red-gate roster below names 2M, 2U and 6R. There are **four**;
+>   **Gate 4F** (79.33% against a ≥99% bar) was measured 2026-08-07, the same day
+>   this file was last touched, and is missing.
   **UPDATED 2026-08-06 — the BLOCKED row is retired.** It read "OpenFOAM
   execution — templates, runner and GCI post-processor all ready and tested on
   synthetic data", which stopped being true when the Mac simulation node came

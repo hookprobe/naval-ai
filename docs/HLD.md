@@ -1,9 +1,20 @@
 # NavalAI — High-Level Design
 
-> The architecture as it **is**, measured 2026-08-07, not as the build plans
-> promise it. Every count in this document came from running the code on
-> `worktree-gap-closure` (the most advanced line), not from reading a plan.
-> Where the plans and the code disagree, this file records the code and says so.
+> **The architecture as DESIGNED.** §1–§8 are the load-bearing content and are
+> unique to this file — §3's TIER-vs-STAGE distinction, §5's data contracts,
+> §7's enforcement mesh and §8's seams are stated nowhere else.
+>
+> **This file states no status.** It used to: §9 carried a measured table, §10 a
+> "what is not built" list and §11 a repository-topology risk. All three were
+> second copies of state the runners own, and all three went stale within days —
+> §10 denied two modules that ship with gates. §9 and §11 are retired in place
+> with their corrections; status lives in `python -m navalai.gates`,
+> `scripts/reconcile_gaps.py` and `docs/ROADMAP.md`.
+>
+> The original provenance line said every count came from running the code on
+> `worktree-gap-closure`. **That branch no longer exists**, so those counts were
+> unreproducible by the time anyone read them. Design content re-verified
+> 2026-08-11 at `b5002be`.
 
 ---
 
@@ -75,7 +86,7 @@ the right column — this is where the plan and the code diverge most.
         ▼
    MISSION INTELLIGENCE   feasibility verdict + owed unknowns      NOT BUILT
         ▼
-   GOVERNANCE             legal envelope · design DNA              NOT BUILT
+   GOVERNANCE             legal envelope · design DNA              BUILT (Gate V3.0)
      compiles to ↓ (never runs beside)
      ├─ parameter-space box  (bounds the search)
      └─ constraint rows      (into evaluate.g)
@@ -91,6 +102,8 @@ the right column — this is where the plan and the code diverge most.
    DIGITAL TWIN → FLEET LEARNING                                   NOT BUILT
         ▼
    EVIDENCE GRAPH  (db.py content-addressed, append-only)          BUILT
+                   (evidence.EvidenceGraph itself: BUILT, UNPOPULATED —
+                    no caller constructs one from a computed Evaluation)
 ```
 
 **The engine is the finished part.** Everything the last two build plans added
@@ -169,59 +182,88 @@ and each is one-directional.
 - **Human seam** — REVIEW-GATED work (Gate 6R clause parity). Rules output is
   an assessment aid; a qualified human, not the platform, certifies.
 
-## 9 · Measured state, 2026-08-07
+## 9 · Measured state — SUPERSEDED, do not read numbers from here
 
-| Signal | Value |
-|---|---|
-| Test suite (`worktree-gap-closure`) | **645 passed, 6 failed** (651 total) |
-| Gate rows RED **and** in the ledger | 4F (79.33% vs ≥99%), 2M (watermark `NONE`), 2U (75% vs ≥95%), 6R (0 dated editions) |
-| Gate rows RED and **NOT** in the ledger | **Gate 7** (flywheel committed baseline) — by the ledger's own rules this is a new break |
-| Gap register | **119 rows: 94 closed, 23 open, 2 retired** |
-| Open gaps by severity | 2 CRITICAL · 10 HIGH · 7 MED · 4 LOW |
-| Queue-vs-code drift | **13 rows** where the code says CLOSED and the queue still says Open |
+**This table is retired 2026-08-11.** It was a second copy of a state the
+runners already own, taken on a branch (`worktree-gap-closure`) that no longer
+exists — so the provenance of every number in it points at nothing. Three of its
+six rows had gone stale within four days.
 
-The two CRITICAL open gaps:
-- **E2** — `benchmarks/wigley.py` must carry an **independent** reference
-  curve, not a frozen copy of our own output labelled as a regression anchor.
-  *An anchor made of your own output measures nothing.*
-- **F1** — no added-resistance-in-waves routine exists in `seakeeping.py`
-  (drift force, heading sweep, Tokyo-2015 Case 2.10 data).
+**Status now comes from the commands, not from this file:**
+
+```
+python -m navalai.gates            # gates + the ledger
+python scripts/reconcile_gaps.py   # the 119-row register, derived from code
+python -m pytest tests/ -q         # the suite
+```
+
+`docs/ROADMAP.md` §2 carries a dated baseline with the command beside each
+number, and §3 the ordered open-work list. What the retired table got wrong,
+recorded so the correction is reviewable in a diff rather than silently
+overwritten:
+
+- **Gate 7 "RED and NOT in the ledger — a new break"** — superseded by
+  `56e8c1d`, which **withdrew** the Gate 7 entry deliberately and recorded why:
+  the ledger holds *declared* RED rows, not suite-failing ones. A gate failing
+  its own suite is already loud. The ledger's four keys (2M, 2U, 4F, 6R) are
+  correct and are enforced in both directions by
+  `test_every_red_gate_has_a_ledger_entry_and_vice_versa`.
+- **"94 closed, 23 open"** — measured 2026-08-11: **97 closed, 20 open,
+  0 needs-human, 2 retired**.
+- **"13 rows of queue-vs-code drift"** — not a defect. `data/evolution/gaps.jsonl`
+  is a gitignored cache holding all rows `Open`; gap state is *derived* by
+  `reconcile_gaps.py`, never read from the log.
+- **E2 is CLOSED** (`d342b8b`) — `benchmarks/wigley.py` now carries
+  `rw_analytic`, a closed-form Michell solution, so the anchor is no longer made
+  of our own output. **F1 remains genuinely open and is the one CRITICAL row**:
+  no added-resistance-in-waves routine exists in `seakeeping.py`, and there is
+  no gate row for it.
 
 ## 10 · What is not built
 
 Stated plainly so no reader infers otherwise from the plans:
 
-- **BuildPlan 2:** V2.0 refdata spine is **done** (Gate V2.0 GREEN). V2.2 tier E
-  and V2.4 tier F are **partial** — `rules/ergonomics.assess` covers deck/seat
-  only, and `refdata/flotation` exposes `submerged_factor` but no flotation
-  solver. **V2.1 arrangement grammar, V2.3 generator, V2.5, V2.6 do not exist**
-  (`navalai/arrangement.py` is absent).
-- **BuildPlan 3:** **nothing.** No `policy/`, `component/`, `bom/`,
-  `procurement/`, or `twin/` module exists. Governance, mission intelligence,
-  component models, BOM closure, digital twin and fleet learning are plan only.
+- **BuildPlan 2:** V2.0 refdata spine is **done** (Gate V2.0). V2.2 tier E and
+  V2.4 tier F are **partial** — `rules/ergonomics.assess` covers deck/seat only,
+  and `refdata/flotation` exposes `submerged_factor` but no flotation solver.
+  ~~V2.1 arrangement grammar ... do not exist (`navalai/arrangement.py` is
+  absent).~~ **CORRECTED 2026-08-11:** `navalai/arrangement.py` is **1484 lines**
+  and `Gate V2.1` is registered against `tests/test_arrangement.py` (landed
+  `87719cf`). V2.3, V2.5 and V2.6 have no code **and no gate row** — their bars
+  live only in prose; see `docs/ROADMAP.md` §4.6.
+- **BuildPlan 3:** ~~**nothing.** No `policy/` ... module exists.~~
+  **CORRECTED 2026-08-11:** `navalai/policy/` is five files and `Gate V3.0` is
+  registered against `tests/test_policy.py` (landed `ded4dbf`, `487ec52`). It is
+  consumed in production by `optimize.py` (parameter box + constraint rows) and
+  `evaluate.py` (`extra_names`). `component/`, `bom/`, `procurement/` and
+  `twin/` remain plan only.
+
+  These two rows were false in the same direction, and the identical claim also
+  stood in `README.md`, `docs/STAGE-PLAN.md` and `PLM.md` — four copies of one
+  state, none regenerated. README contradicted itself inside one file, because
+  its gate table is GENERATED and its prose is not. That is the whole argument
+  for `docs/ROADMAP.md`.
 - **The ladder's top:** Gate 2M has **no reproducible measurement at all** —
   its watermark is the string `NONE` because the run directory that carried the
   old figure was deleted. L3 is read from recorded evidence and never solved
   in-process, which is correct, but there is currently no evidence to read.
 
-## 11 · Repository topology — and why it is currently the top risk
+## 11 · Repository topology — RESOLVED, section removed
 
-The design above is real. **The repository holding it is not in one piece.**
+This section described a four-branch split and a mid-merge with 40 unresolved
+conflicts, **in the present tense**, as "currently the top risk". It was resolved
+on 2026-08-07 by Stage 0 of `docs/STAGE-PLAN.md`, whose closure note is the
+correct home for the history.
 
-| Line | Commits | Tests | State |
-|---|---|---|---|
-| `master` (published) | 64 | 16 files | clean, and **missing the enforcement mesh**: no `pipeline.py`, `gaps.py`, `holtrop.py`, `refdata/`, `gate-ledger.json`, `LESSONS.md`, or 18 test files |
-| `worktree-gap-closure` | 96 | 34 files | the real work — **tip is `WIP: two agents stopped mid-edit — UNVERIFIED, do not trust`** |
-| `worktree-gap-closure-audit` | 60 | — | **35 of 36** commits duplicate master's subjects |
-| `worktree-apse` | 67 | — | locked; adds a `commit-msg` hook enforcing the attribution rule |
+**Measured 2026-08-11 at `b5002be`:** `git branch` shows `master` only. No
+`.git/MERGE_HEAD`. One worktree.
 
-The shared checkout is **mid-merge with 40 unresolved conflicts**. The merge-base
-is the old commit `ce849eb`, and a later history rewrite on `master` changed
-every SHA — so git sees content-identical work as two independent lines. **Most
-of those conflicts are an artifact of that rewrite, not genuine divergence.**
+Removed rather than updated because a design document should not carry a
+schedule item at all — that belongs to `docs/ROADMAP.md`. Kept as this stub
+rather than deleted outright because PLM §3 step 7 requires a superseded item to
+be removed **with a note, never left ambiguous**, and because a reader who
+remembers the old §11 needs to find out here that it ended.
 
-Consequence to state plainly: **the branch published as `master` is the weaker
-one.** Its only unique content is `BuildPlan3-MissionToOrder.md` plus build
-artifacts (`renders/`, `data/exports/`) that gap J6 already ruled should be
-gitignored. Reconciliation is therefore *take `gap-closure`, add one document* —
-not *resolve forty conflicts*. That is Stage 0 of `docs/STAGE-PLAN.md`.
+Two remote refs, `origin/apse` and `origin/worktree-apse`, still appear in
+`git branch -r`. Whether they are live upstream or stale tracking refs needs
+`git fetch --prune`, which has not been run.

@@ -141,7 +141,23 @@ carried a second copy of five of them.
 - a SECOND benchmark anchor. KCS is a 230 m containership with no chine, no
   immersed transom and no spray; the SKUs are 4–14 m chined craft. A green
   Gate 2M is **not** small-craft validation (`docs/BuildPlan3-GapClosure.md` R4b).
-- ES-TRIN checks; licensed-text ISO parity — **Gate 6R is RED**, because the
-  review record cannot name the dated editions it checked.
-- BuildPlan 2 beyond V2.0: the refdata spine exists (`navalai/refdata/`),
-  arrangement grammar, tiers E and F do not.
+- licensed-text ISO parity — **Gate 6R is RED**, because the review record
+  cannot name the dated editions it checked. (ES-TRIN itself is no longer
+  absent: `navalai/rules/estrin.py` ships and `Gate 6P` proves its scope guard.)
+- BuildPlan 2 beyond V2.1: **V2.3, V2.5 and V2.6.** V2.0 (refdata spine) and
+  V2.1 (arrangement grammar) both ship with gates; V2.2 tier E and V2.4 tier F
+  are partial. **V2.3/V2.5/V2.6 have no gate row at all**, so their bars — ≥95%
+  of layouts passing Tier E, the USCG worked examples including the −0.81
+  plywood case — exist only in prose. `docs/ROADMAP.md` §4.6.
+- BuildPlan 3 beyond V3.0: governance ships (`navalai/policy/`, `Gate V3.0`).
+  Mission intelligence, component models, BOM closure, procurement, the order
+  package, the twin and fleet learning do not.
+- **RUN, entirely.** No telemetry, no sensor ingestion, no in-service data — and
+  the gap register does not know it, because the audit that produced the register
+  was scoped by four documents that contain no RUN phase. `docs/ROADMAP.md` §4.8.
+
+  This list previously read "arrangement grammar, tiers E and F do not [exist]"
+  while the GENERATED gate table above carried `Gate V2.1` and `Gate V3.0` — the
+  file contradicted itself, because the table is regenerated and the prose is
+  not. Corrected 2026-08-11; the durable fix is to stop keeping a second copy
+  (`docs/ROADMAP.md` §0).
