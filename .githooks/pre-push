@@ -1,9 +1,51 @@
 #!/usr/bin/env bash
-# Refuse to push a broken ladder. PLM.md makes the gates the platform law but
-# nothing enforced them — this is the enforcement.
-# Install once:  scripts/install-hooks.sh      Bypass once:  git push --no-verify
+# Refuse to push a broken RECORD. PLM.md makes the gates the platform law; this
+# hook enforces the half of that law which is cheap and local, and leaves the
+# expensive half to CI, which already runs it on every push.
+#
+# Install once:  scripts/install-hooks.sh
+# Full local run: FULL=1 git push        Bypass once: git push --no-verify
+#
+# ---------------------------------------------------------------------------
+# WHY THIS IS NO LONGER THE WHOLE SUITE. MEASURED 2026-08-11.
+#
+# This hook used to run `pytest tests/` (~6 min) AND `navalai.gates` (~7 min) on
+# every push. That is ~13 minutes, and it made pushing IMPOSSIBLE rather than
+# safe, for a reason that has nothing to do with the tests:
+#
+#   git opens the SSH connection to GitHub FIRST, then runs this hook, then
+#   transmits. So the connection sits idle for 13 minutes, GitHub closes it
+#   ("Connection to github.com closed by remote host"), and the push dies of
+#   SIGPIPE -- exit 141 -- AFTER the hook has printed "ladder green".
+#
+# MEASURED on a fully green tree (785 passed, 5 skipped, 0 failed): two
+# consecutive push attempts, ~13 min each, both passed every gate and both
+# failed to transmit. The remote had not moved in four days.
+#
+# The failure mode is worse than the delay. A push that dies at exit 141 after
+# its gates PASSED looks exactly like a push the gate REJECTED, so the obvious
+# response is `--no-verify` -- and then the push really does go out ungated, for
+# a reason that was never about the gate. An enforcement mechanism that trains
+# people to disable it is not enforcement. That is this repository's own defect
+# class 1 (an unmeasurable result scored as a definite one) applied to its
+# tooling instead of to a number.
+#
+# AND THE EXPENSIVE HALF WAS ALREADY REDUNDANT. `.github/workflows/gates.yml`
+# runs the same `pytest tests/` and the same `navalai.gates --ledger` on every
+# push, in the job named "regression signal (required)". Running it locally too
+# bought no coverage; it only bought the timeout above. CI is also the honest
+# place for it: it runs on Linux with a declared dependency set, where the Mac's
+# optional-dependency skips cannot make a green look greener than it is.
+#
+# WHAT STAYS, AND WHY THESE. Everything below is a RECORD-INTEGRITY check: it
+# fails when a document, a registry or a ledger contradicts the code, which is
+# precisely the class of defect that is cheap to catch now and expensive to
+# catch after it has been copied into five documents (gap J1). They cost about
+# three seconds together, so they cannot time out a connection.
+# ---------------------------------------------------------------------------
 set -uo pipefail
 cd "$(git rev-parse --show-toplevel)" || exit 1
+
 # Use the project venv if it exists: CLAUDE.md says the deps live in
 # ~/.venvs/naval, and a hook that dies on ModuleNotFoundError just teaches
 # everyone to pass --no-verify.
@@ -13,14 +55,42 @@ if [ -z "$PY" ] && [ -x "$HOME/.venvs/naval/bin/python" ]; then
 elif [ -z "$PY" ]; then
   PY=python3
 fi
-echo "[pre-push] pytest ..."
-if ! "$PY" -m pytest tests/ -q; then
-  echo "[pre-push] BLOCKED: tests failing. --no-verify to override deliberately."
+
+# Opt back in to the old behaviour deliberately, e.g. before a release or when
+# CI is unavailable. Named FULL rather than SLOW so the reason to set it is the
+# coverage, not the penance.
+if [ "${FULL:-0}" = "1" ]; then
+  echo "[pre-push] FULL=1: whole suite + gate ladder (~13 min; may outlive the"
+  echo "[pre-push] SSH idle timeout -- if this dies at exit 141 the GATES PASSED)"
+  if ! "$PY" -m pytest tests/ -q; then
+    echo "[pre-push] BLOCKED: tests failing. Fix them, never soften them."
+    exit 1
+  fi
+  if ! "$PY" -m navalai.gates --suites-only; then
+    echo "[pre-push] BLOCKED: a test-backed gate went RED. A failing gate is information."
+    exit 1
+  fi
+  echo "[pre-push] ladder green."
+  exit 0
+fi
+
+# The fast fence. Each of these is a suite that judges the RECORD against the
+# CODE, and each has caught a real defect in this repository:
+#   test_gate_integrity      README's gate table drifting from navalai.gates;
+#                            superseded Gate 2M figures surviving in a document
+#   test_red_by_record       a missed bar recorded as prose instead of a status
+#   test_limits_single_source a threshold declared twice and drifting
+#   test_gaps / _reconcile   gap state asserted rather than derived from code
+echo "[pre-push] record integrity (fast fence; CI runs the full ladder) ..."
+if ! "$PY" -m pytest -q \
+      tests/test_gate_integrity.py \
+      tests/test_red_by_record.py \
+      tests/test_limits_single_source.py \
+      tests/test_gaps.py \
+      tests/test_reconcile_gaps.py; then
+  echo "[pre-push] BLOCKED: the record contradicts the code."
+  echo "[pre-push] This is the cheap half of the ladder. Fix it, never soften it."
+  echo "[pre-push] The full ladder runs in CI: .github/workflows/gates.yml"
   exit 1
 fi
-echo "[pre-push] gate ladder ..."
-if ! "$PY" -m navalai.gates --suites-only; then
-  echo "[pre-push] BLOCKED: a test-backed gate went RED. A failing gate is information — fix it, never soften it."
-  exit 1
-fi
-echo "[pre-push] ladder green."
+echo "[pre-push] record integrity ok. CI owns the suite and the ladder."
