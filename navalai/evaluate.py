@@ -36,8 +36,8 @@ from pathlib import Path
 import numpy as np
 
 from . import db, grammar
-from .energy import (EnergyReport, WeightBudget, energy_report, weight_budget,
-                     weight_items)
+from .energy import (EnergyReport, WeightBudget, energy_report, shell_area_m2,
+                     weight_budget, weight_items)
 from .geometry import RHO_WATER, Hull
 from .hydrostatics import (HydroState, gm, gm_long, solve,
                            solve_to_displacement)
@@ -403,7 +403,24 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
     # ISO's mLDC is the loaded displacement, and using the budget would make the
     # thickness depend on the mass it is about to change.
     t_ply = select_stock_thickness_m(mission.displacement_target_kg)
-    shell = hull.wetted_surface(0.0) * 1.6      # computed once, not twice
+    # THE SHELL IS INTEGRATED TO THE SHEER, NOT A FACTOR TIMES THE WATERLINE
+    # AREA (gap C9). This line read `hull.wetted_surface(0.0) * 1.6`, where the
+    # bare literal stood in for "and the topsides above the design waterline" —
+    # but a boat is planked to the sheer and `wetted_surface` takes the
+    # waterline as an argument, so the quantity the factor approximated was one
+    # call away and `engineer.assess` was already making it. Two modules,
+    # two shell areas, one hull: the module that counts plywood and the module
+    # that weighs it were planking different boats.
+    #
+    # MEASURED on the reference hull: wetted(0.0) = 30.579 m^2 -> 48.927 m^2 at
+    # x1.6 against a true 51.616 m^2, so the true ratio is 1.6879 and the
+    # factor understated the shell by 5.2%. That is the small part. Over 200
+    # grammar-feasible hulls (seed 3) the ratio runs 1.251 to 6.702, mean
+    # 2.062 — the one literal was wrong by up to 76% of the true area and by
+    # -15.4% on average, and it was wrong in a way that varied systematically
+    # with exactly the parameters NSGA-II is free to move. The optimiser was
+    # scoring structure mass over that error.
+    shell = shell_area_m2(hull)                 # computed once, not twice
     deck = hull.deck_area()
     wb = weight_budget(p["LWL"], p["D"], shell, deck, mission.energy, t_ply)
     items = weight_items(p["LWL"], p["D"], shell, deck, mission.energy,

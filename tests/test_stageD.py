@@ -9,7 +9,8 @@ from pathlib import Path
 from navalai.cfd.post import gci, mean_resistance, parse_forces
 from navalai.dynamics import (inertia, lifting, mooring,
                               pendulum_period_analytic)
-from navalai.energy import EnergySpec, weight_budget, weight_items
+from navalai.energy import (EnergySpec, shell_area_m2, weight_budget,
+                            weight_items)
 from navalai.evaluate import evaluate
 from navalai.geometry import Hull
 from navalai.mission import MissionSpec
@@ -79,10 +80,15 @@ def test_heave_response_black_sea_vs_danube(rao_curve):
 def wb():
     h = Hull(mid_params())
     t_design = -float(h.z_keel.min())
-    budget = weight_budget(10.0, 1.55, h.wetted_surface(0) * 1.6,
-                           h.deck_area(), EnergySpec())
-    items = weight_items(10.0, 1.55, h.wetted_surface(0) * 1.6,
-                         h.deck_area(), EnergySpec(), t_design)
+    # Gap C9: this fixture used to hand the weight model
+    # `h.wetted_surface(0) * 1.6` — the same literal the L1 ladder carried, so
+    # the inertia and mooring bars below were measured on a boat 48.927 m^2 in
+    # the shell against the 51.616 m^2 `evaluate()` now plates (-5.2%). The
+    # fixture follows the product path: shell integrated to the sheer, once.
+    shell = shell_area_m2(h)
+    budget = weight_budget(10.0, 1.55, shell, h.deck_area(), EnergySpec())
+    items = weight_items(10.0, 1.55, shell, h.deck_area(), EnergySpec(),
+                         t_design)
     return h, budget, items
 
 

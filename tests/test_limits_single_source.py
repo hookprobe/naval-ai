@@ -142,3 +142,66 @@ def test_the_ladder_reports_the_sheet_it_actually_built_with():
     assert ev.ply_thickness_m == select_stock_thickness_m(
         m.displacement_target_kg)
     assert ev.ply_thickness_m > 0.0
+
+
+def test_the_ladder_and_the_engineer_plank_the_same_boat():
+    """Gap C9 — the same defect class as the GM floor, in an AREA.
+
+    `engineer.assess` integrated the shell to the sheer via
+    `energy.shell_area_m2`; the L1 weight path in `evaluate()` reached the same
+    quantity through a bare `hull.wetted_surface(0.0) * 1.6`. So the module
+    that counts plywood and the module that weighs it described two different
+    boats, and nothing in the ladder could see the disagreement — a number
+    declared twice, with the second copy rounded.
+
+    MEASURED on the reference hull (2026-08-11): wetted(0.0) = 30.579 m^2, so
+    the literal gave 48.927 m^2 against a true 51.616 m^2 — ratio **1.6879**,
+    the factor short by 5.2%, structure mass 1415.03 kg instead of 1464.58 kg
+    (-3.38%). The reference hull is the FLATTERING case: over 200
+    grammar-feasible hulls (seed 3) the true ratio runs 1.251-6.702, mean
+    2.062, so the literal was wrong by up to 76% of the true area and by
+    -15.4% on average, across exactly the box NSGA-II searches.
+
+    The shell area is read back OUT of the shipped weight budget by inverting
+    `weight_budget`'s structure term, not re-derived beside it: a test that
+    called `shell_area_m2` and compared it to itself would pass on the broken
+    ladder. It also asserts the OLD literal is refused (defect class 3 in
+    docs/LESSONS.md — a guard that was never made to fire is not a guard).
+    """
+    import numpy as np
+
+    from navalai import engineer, geometry, grammar
+    from navalai.energy import PLY_DENSITY, shell_area_m2
+    from navalai.evaluate import evaluate
+    from navalai.mission import MissionSpec
+    from tests.test_phase0 import mid_params
+
+    mldc_kg = 6000.0
+    x = mid_params()
+    hull = geometry.Hull(x)
+    deck = hull.deck_area()
+    ev = evaluate(x, MissionSpec(displacement_target_kg=mldc_kg))
+
+    # invert structure = (shell + deck) * t * PLY_DENSITY * 1.35
+    shell_in_budget = (ev.weights.structure_kg
+                       / (PLY_DENSITY * 1.35 * ev.ply_thickness_m)) - deck
+    assert shell_in_budget == pytest.approx(shell_area_m2(hull), rel=1e-9)
+
+    # and it is the SAME boat the engineer planks: panel area = shell + deck
+    rep = engineer.assess(hull, mldc_kg=mldc_kg)
+    assert rep.panel_area_m2 == pytest.approx(round(shell_in_budget + deck, 1))
+
+    # the defect itself, verbatim: 1.6 * the waterline area is refused
+    old = hull.wetted_surface(0.0) * 1.6
+    assert old == pytest.approx(48.927, abs=0.01)
+    assert shell_in_budget == pytest.approx(51.616, abs=0.01)
+    assert abs(shell_in_budget - old) / old > 0.05, (
+        "the ladder is back on the 1.6 factor (or the hull moved) — "
+        f"budget shell {shell_in_budget:.3f} m^2 vs literal {old:.3f} m^2")
+
+    # ...and the ratio the literal stood in for is a SHAPE, not a constant.
+    X = grammar.sample(200, np.random.default_rng(3))
+    ratios = [shell_area_m2(geometry.Hull(r)) / geometry.Hull(r).wetted_surface(0.0)
+              for r in X]
+    assert min(ratios) < 1.35 and max(ratios) > 3.0, (
+        f"ratio spread {min(ratios):.3f}-{max(ratios):.3f}")

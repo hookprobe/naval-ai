@@ -195,14 +195,17 @@ def test_weight_items_reproduce_the_scalar_budget_exactly():
     five-bucket budget ever disagree on total or KG, one of them is wrong and
     'one weight model, one truth' is already broken.
     """
-    from navalai.energy import EnergySpec, weight_budget, weight_items
+    from navalai.energy import (EnergySpec, shell_area_m2, weight_budget,
+                                weight_items)
     from navalai.geometry import Hull
     from navalai.weights import aggregate
     from tests.test_phase0 import mid_params
 
     h = Hull(mid_params())
     lwl, depth, t_design = float(h.x[-1]), 1.55, -float(h.z_keel.min())
-    surf, deck, spec = h.wetted_surface(0.0) * 1.6, h.deck_area(), EnergySpec()
+    # gap C9: `h.wetted_surface(0.0) * 1.6` here too, the L1 ladder's old
+    # literal copied into the fixture that checks the L1 ladder.
+    surf, deck, spec = shell_area_m2(h), h.deck_area(), EnergySpec()
 
     wb = weight_budget(lwl, depth, surf, deck, spec)
     agg = aggregate(weight_items(lwl, depth, surf, deck, spec, t_design))
