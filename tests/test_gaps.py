@@ -499,10 +499,27 @@ def _documents_restating_a_watermark(text: str) -> list[str]:
 # ledger row owns the clause), and the red-gate roster's restatement of Gate
 # 4F's. A guard that was never made to fire is not a guard (docs/LESSONS.md
 # defect class 3), so the fixture is the real text and not a paraphrase.
+def _live_watermark(gate: str):
+    """Read a watermark from the ledger — the fence's own single source."""
+    import json, pathlib as _pl
+    _led = _pl.Path(__file__).resolve().parents[1] / "data" / "gate-ledger.json"
+    return json.loads(_led.read_text())[gate]["watermark"]
+
+
+# THE FIXTURE READS THE LIVE WATERMARK RATHER THAN HARD-CODING IT.
+# It hard-coded 225.7, and Gate 6D's watermark moved to 66.2 the same day when
+# `developable_pairing` landed — so this test, whose whole job is to catch a
+# document restating a watermark, broke because IT restated one. The fence
+# reads live watermarks; its fixture must too, or the guard fails every time
+# the thing it guards improves. Same defect class as the row it was written to
+# catch (a number declared twice), one layer up.
+_W6D = _live_watermark("Gate 6D")
+_W4F = _live_watermark("Gate 4F")
+
 PRE_FIX_ALIGNMENT_TEXT = (
     "**ONE SUB-CLAUSE IS STILL OPEN and is not softened here:** the panels are "
     "exportable but not yet refoldable to the hull — MEASURED max "
-    "\\|refold − hull\\| 141.0 mm (bottom) and 225.7 mm (topside) against a "
+    f"\\|refold − hull\\| 141.0 mm (bottom) and {_W6D} mm (topside) against a "
     "5 mm bar, and it does not refine away (143.8 / 206.1 mm at 161 stations). "
     "... but Gate 6M is GREEN and no ledger row owns the clause, which is "
     "Gate 4F's shape before it was split out.\n"
@@ -514,8 +531,8 @@ PRE_FIX_ALIGNMENT_TEXT = (
 def test_the_watermark_fence_fires_on_the_verbatim_text_that_motivated_it():
     """The guard, run against the input it exists to reject."""
     offenders = _documents_restating_a_watermark(PRE_FIX_ALIGNMENT_TEXT)
-    assert sorted(offenders) == ["Gate 4F watermark 79.33",
-                                 "Gate 6D watermark 225.7"], offenders
+    assert sorted(offenders) == [f"Gate 4F watermark {_W4F}",
+                                 f"Gate 6D watermark {_W6D}"], offenders
 
     # ...and it does NOT fire on the pointer that replaced them, which is the
     # other half of a usable fence: the fix must be expressible.
