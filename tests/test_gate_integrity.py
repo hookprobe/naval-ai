@@ -209,7 +209,20 @@ def test_no_document_restates_a_gate_2m_figure():
     """
     superseded = ("9.33e-3", "-151%", "−151%", "4.283e-3", "-15.4%", "−15.4%",
                   "3.8958e-3", "7.3706e-3")
-    for name in ("README.md", "PLM.md", "MACBOOK.md", "ALIGNMENT.md"):
+    # CLAUDE.md ADDED 2026-08-11, and it was carrying two of them. MEASURED:
+    # `4.283e-3` and `-15.4%` sat in its Gate 2M section, purged from every
+    # other document when J1 closed and surviving here for five days because
+    # this list did not name the file. That is the fence with a hole in it, in
+    # the ONE document every agent session is told to read as the authority —
+    # the worst possible place for a superseded measurement to persist.
+    #
+    # docs/ IS DELIBERATELY NOT SCANNED. docs/GAP-REGISTER.md and
+    # docs/CFD-BLOCKER-BRIEF.md both quote `9.33e-3`, correctly: the register is
+    # an immutable audit record and the brief is explicitly marked SUPERSEDED.
+    # A record that quotes a retired figure IN ORDER TO RETIRE IT is doing its
+    # job; banning it there would delete the history this rule exists to keep.
+    for name in ("README.md", "PLM.md", "MACBOOK.md", "ALIGNMENT.md",
+                 "CLAUDE.md"):
         text = (_ROOT / name).read_text()
         hits = [s for s in superseded if s in text]
         assert not hits, (

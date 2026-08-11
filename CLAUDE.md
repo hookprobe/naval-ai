@@ -1,14 +1,41 @@
 # NavalAI — project guide for any coding-agent session
 
 Autonomous naval-architecture validation AI: mission in natural language →
-grammar-constrained hull generation → slider surface with live physics →
+governance kernel (`navalai/policy/`, Gate V3.0 — compiles the legal envelope
+and design DNA to a parameter box that BOUNDS the search, plus constraint rows)
+→ grammar-constrained hull generation → slider surface with live physics →
 tiered validation ladder (L0 algebraic → L1 Michell/hydrostatics → L2
-Capytaine BEM → L3 OpenFOAM RANS → R ISO rules) → manufacturing export.
-Canonical docs: `PLM.md` (product-line management: platform law, roles,
-lifecycle, roadmap board — READ THIS FIRST), `NavalArchAI-BuildPlan.md`
-(research-grounded plan),
-`ALIGNMENT.md` (audit vs the original agentic-PLM plan), `README.md`
-(gate-status table), `MACBOOK.md` (Mac simulation-node runbook).
+Capytaine BEM → L3 OpenFOAM RANS → R ISO rules) → arrangement (`arrangement.py`,
+Gate V2.1) → manufacturing export.
+
+## ONE SOURCE PER QUESTION — ask the right artifact, never a second copy
+
+The recurring defect here is A THING DECLARED TWICE. It applies to plans and
+documents exactly as it applies to numbers: on 2026-08-11 four documents each
+carried the claim that the governance kernel and the arrangement grammar did not
+exist, and all four were false. **Ask the artifact that owns the question:**
+
+| Question | Ask | NOT |
+|---|---|---|
+| what is the status? | `python -m navalai.gates` · `data/gate-ledger.json` | any document |
+| what work is outstanding? | `python scripts/reconcile_gaps.py` | any document |
+| what order do we do it in, and who owns it? | **`docs/ROADMAP.md`** | the BuildPlans |
+| what do we build, what is a product, who are the roles? | `PLM.md` §1–§4 | — |
+| what was learned the hard way? | `docs/LESSONS.md` | — |
+| what is the architecture? | `docs/HLD.md` §1–§8 | its §9–§11, retired |
+| how do I work here? | **this file** | — |
+
+`docs/ROADMAP.md` is the ONE plan. `NavalArchAI-BuildPlan.md`,
+`BuildPlan2-FullVessel.md`, `BuildPlan3-MissionToOrder.md`,
+`docs/BuildPlan3-GapClosure.md` and `docs/STAGE-PLAN.md` are **retired to
+research records** — read them for their research, never for their schedule or
+their status. `ALIGNMENT.md`'s row-level verdicts are stale and flagged as such
+in the file. `MACBOOK.md` is the Mac simulation-node runbook.
+
+**THIS FILE CARRIES NO STATUS AND NO MEASUREMENT IT IS NOT THE ONLY HOME OF.**
+It carried two superseded Gate 2M figures until 2026-08-11 — purged from every
+other document by gap J1 and surviving here only because the fence in
+`tests/test_gate_integrity.py` did not scan this file. It does now.
 
 **`docs/LESSONS.md` — READ IT BEFORE YOU START.** It holds what is NOT
 recoverable from the code, the tests or `git log`: the defect classes this repo
@@ -513,7 +540,31 @@ anything settled under 5.0 is printed as `UNDER-RUN`. `case.info` now records
 `domain_length_m`, `flow_through_s` and `end_time_flow_throughs`; a case
 predating them gets the 4.5 Lwl assumption, said out loud.
 
-## R5.5 REPRODUCES on the new mesh family, and it is an OSCILLATION
+## ~~R5.5 REPRODUCES on the new mesh family, and it is an OSCILLATION~~
+## SUPERSEDED 2026-08-07 — THERE IS NO OSCILLATION
+
+> **Read `docs/PRESSURE-OSCILLATION.md` §"RE-MEASURED 2026-08-07", not this
+> section.** Kept, struck through, because the *reasoning* below is instructive
+> and because PLM §3 step 7 requires a superseded item to be removed with a
+> note rather than left ambiguous.
+>
+> Re-measured on `runs/kcs_s1` at **3.40 flow-throughs** (this section's run
+> reached 1.33): `scripts/tank_resonance.py` over 2041 samples finds the best
+> single sinusoid explains **0.4%** of the detrended signal against a 50% bar —
+> **NO RESULT, there is no coherent oscillation to name.** Every candidate
+> (seiche n=1..3, Doppler tank modes n=1..8, blocking minimum, ship transverse
+> wave) had enough cycles in the record to have been seen.
+>
+> Drift collapsed to **0.31%**; viscous is **1.161x** ITTC-57 with a 1.7% batch
+> error; pressure is **2.32x** with a **36%** batch error — broadband noise, not
+> a mode. So the "period near 5 s" below was a period invented by a window too
+> short to contain it, on a different mesh family (`_NX_BASE` 54).
+>
+> **The "next experiment" at the end of this section has been RUN and it
+> refuted the hypothesis.** Do not run it again, and do not build an absorbing
+> domain or a relaxation zone: that was the fix for a mechanism now measured not
+> to exist. The next experiment is **free sinkage and trim**. `docs/ROADMAP.md`
+> §7 carries the ordered candidate list.
 
 `runs/val_coarse5` — symmetric KCS, `_NX_BASE` 57, `--n-layers 5`, 230725 cells,
 transient, 19.81 s of a 20 s run = **1.33 flow-throughs**, ~2.5 h on 10 ranks.
@@ -560,15 +611,29 @@ figure for one measurement; EFD Ct 3.711e-3 @ Fn 0.26, **7**-group scatter
 3.620-3.733e-3 — the band is min/max over the seven rows transcribed in
 `SUBMITTED_CT_FINEST`, not the 13 the docstring used to claim).
 
-Still open: the 75 s (5 flow-through) KCS solve on the fixed mesh, ~16 h at
-637k cells on 10 ranks. Run it resumably:
+~~Still open: the 75 s (5 flow-through) KCS solve ... Last recorded Ct was
+&lt;figure&gt; = &lt;figure&gt; against EFD, on the OLD 306k mesh ...~~
 
-    openfoam scripts/run_campaign.sh <case-dir> 10
+**SUPERSEDED 2026-08-07 by `runs/kcs_s1`; see `docs/PRESSURE-OSCILLATION.md`.**
+The two figures that stood here are on the superseded list in
+`tests/test_gate_integrity.py` and are removed rather than updated — **no Gate
+2M measurement is restated in this file.** The ledger
+(`data/gate-ledger.json`) is the only home; it records the watermark as the
+string `NONE`, because the run that carried the old figure was deleted and the
+number is unreproducible. That the fence did not scan CLAUDE.md until
+2026-08-11 is why they survived here after being purged everywhere else — gap
+J1 with a hole in its own fence, in the file every session reads first.
 
-Last recorded Ct was 4.283e-3 = **-15.4%** against EFD, on the OLD 306k mesh
-with y+ median 2475 and 32% layer coverage. The new mesh addresses all three
-contributors, so this number should be re-measured before it is reasoned about.
-Then the GCI triplet (scale 1, sqrt2, 2) and `data/baselines.json`.
+**The run-length blocker is CLOSED, and this is the operationally important
+part.** At 3.40 flow-throughs drift collapsed to 0.31% and C_T flattened, so
+**more wall-clock will not close Gate 2M.** Do not spend another 16 h on a
+longer solve expecting the number to move.
+
+The next experiment is **free sinkage and trim** (`rigidBodyMotion`): KCS Case
+2.1 is towed FREE and we solve FIXED, it is code rather than compute, and the
+viscous half being right (1.161x ITTC-57) localises the remaining error to
+exactly what sinkage and trim move. Then free-surface resolution
+(`cells_per_wavelength` 21.5 against a >=20 bar), then the grid.
 
 Geometry notes that remain true: sewing is MANDATORY (`--deflection 0.001
 --sew-tol 1e-3`), run `surfaceCheck -checkSelfIntersection` (plain surfaceCheck
@@ -596,7 +661,19 @@ these was a real drift found by measurement, not a style preference:
 - **`hydrostatics` owns both metacentres.** `bm_l` uses the parallel axis
   through LCF, not midships.
 
-## WHERE TO PICK UP (end of 2026-08-05 Mac session)
+## CFD operating notes (was "WHERE TO PICK UP", end of 2026-08-05 Mac session)
+
+> **RENAMED 2026-08-11. THIS FILE NO LONGER CARRIES SESSION STATE.** A section
+> headed "where to pick up" dated six days ago is the single most reliable way
+> to confuse the next agent: it reads as current, and `runs/kcs_s1` has landed
+> since (`docs/PRESSURE-OSCILLATION.md`). What to do next is
+> **`docs/ROADMAP.md` §5**, which is ordered, owned, and derived from
+> `scripts/reconcile_gaps.py` rather than from a session's memory.
+>
+> The tooling and cost notes below are durable and stay. The numbered "then, in
+> order" list at the end of this section is superseded by ROADMAP §5 — in
+> particular its item 1 ("re-run a single symmetric KCS grid") is DONE and its
+> premise that run length is the blocker is refuted.
 
 **Gate 2M is now MACHINE-CHECKED, not prose.** `scripts/gate2m.py <case-or-root>`
 computes C_T, compares it to the KRISO EFD 3.711e-3 and the Tokyo-2015 scatter
