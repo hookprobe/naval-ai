@@ -413,7 +413,15 @@ def test_hull_length_is_modelled_from_the_declared_lwl_not_the_floated_one():
     x = _hulls(1)[0].copy()
     x[grammar.NAMES.index("LWL")] = 12.4
     ev = evaluate(x, MISSION, policy=cp)
-    assert ev.hydro.lwl_eff < ev.hull_lwl_m         # the two are not the same
+    # `<=`, NOT `<`, SINCE 2026-08-12. The strict inequality was measuring a
+    # DEFECT: `lwl_eff` was the span of wet stations, so it came out ~1 station
+    # short of the declared LWL on every hull and the two could never be equal.
+    # With the waterline ends interpolated, lwl_eff == LWL exactly at the design
+    # waterline on all 25 batch hulls -- which is what LWL MEANS. The ordering
+    # LH >= LWL >= lwl_eff still holds; it is now tight at the design draft, and
+    # the point of this test is the line below: the route reads the DECLARED
+    # length, never the floated one.
+    assert ev.hydro.lwl_eff <= ev.hull_lwl_m + 1e-9
     assert ev.policy["route"]["hull_length_m"] == pytest.approx(12.4)
     assert ev.policy["route"]["mode"] == policy.NOTIFIED_BODY_REQUIRED
 

@@ -119,10 +119,12 @@ def test_revalidate_promotes_to_l2_and_records_it(tmp_path):
     # FALSE — recorded, not softened (honesty rule 6). Gap B8 added an LCB
     # constraint (`limits.LCB_BAND_PCT_LWL`, +-3 %LWL) and the hand-picked
     # reference hull floats with LCB 4.35 m on a 9.50 m waterline, i.e.
-    # -4.19 %LWL from midships. It is out of band and it always was; nothing in
-    # the ladder had ever looked. LCB is its ONLY violation, which is why it is
-    # asserted exactly rather than loosened to "not ok" — if the hull starts
-    # failing something else too, that is a regression and this must catch it.
+    # -5.36 %LWL from midships (-4.19 until 2026-08-12, when the wet-station
+    # truncation in `lwl_eff` was corrected — the old figure flattered the hull;
+    # see hydrostatics._waterline_ends). It is out of band and it always was;
+    # nothing in the ladder had ever looked. LCB is its ONLY violation, which is
+    # why it is asserted exactly rather than loosened to "not ok" — if the hull
+    # starts failing something else too, that is a regression and this catches it.
     #
     # What this test is FOR is escalation, and escalation does not require
     # feasibility: an infeasible design that a user asks to re-validate must
@@ -131,7 +133,7 @@ def test_revalidate_promotes_to_l2_and_records_it(tmp_path):
     # promotion unchanged (`ev2.ok == ev1.ok` below).
     assert ev1.tier == "L1"
     assert len(ev1.violations) == 1 and "LCB" in ev1.violations[0], ev1.violations
-    assert ev1.hydro.lcb_pct_lwl == pytest.approx(-4.19, abs=0.05)
+    assert ev1.hydro.lcb_pct_lwl == pytest.approx(-5.36, abs=0.05)
     ev2 = revalidate(ev1, m, "L2", provenance=prov)
 
     assert tier_rank(ev2.tier) > tier_rank(ev1.tier)

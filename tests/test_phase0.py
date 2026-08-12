@@ -219,7 +219,7 @@ def test_wh_per_nm_sigma_is_propagated_and_says_so():
     with the default EnergySpec:
 
         U 2.5 m/s, Fn 0.2525, VALID:  Rt 608.1 N, sigma_R 103.6 N (0.1703)
-                                      Wh/NM 618.2, sigma 105.3  (0.30x said 185.5)
+                                      Wh/NM 618.2, sigma 103.34 (0.30x said 185.5)
         U 4.6 m/s, Fn 0.4645, INVALID: total_resistance widens sigma to Rt
                                       Wh/NM 6773.4, sigma 6773.4 (0.30x said 2032.0)
 
@@ -244,7 +244,13 @@ def test_wh_per_nm_sigma_is_propagated_and_says_so():
     assert en.sigma_basis == SIGMA_PROPAGATED_LOWER_BOUND
     assert en.sigma_wh_per_nm == pytest.approx(
         en.wh_per_nm * res.uncertainty / res.total, rel=1e-12)
-    assert en.sigma_wh_per_nm == pytest.approx(105.3, abs=0.5)
+    # 105.3 UNTIL 2026-08-12. sigma rides on `res.uncertainty / res.total`, and
+    # `total_resistance` takes `cb` -- which divides by `lwl_eff`, truncated to
+    # the last WET STATION and so biased 2.4% high. Correcting the waterline
+    # ends moves cb and with it the friction form factor. The RATIO assertion
+    # two lines up is the invariant; this line is the measured magnitude and it
+    # is re-derived, not loosened. See hydrostatics._waterline_ends.
+    assert en.sigma_wh_per_nm == pytest.approx(103.34, abs=0.5)
     # it is NOT the old decoration, and it is not equal to it by accident
     assert abs(en.sigma_wh_per_nm - 0.30 * en.wh_per_nm) > 0.10 * en.wh_per_nm
 

@@ -55,6 +55,71 @@ class HydroState:
         return 100.0 * (self.lcb - mid) / max(self.lwl_eff, 1e-9)
 
 
+def _waterline_ends(x, a, wet) -> tuple[float, float]:
+    """(x_wl_aft, lwl_eff), with the ends INTERPOLATED, not snapped to a station.
+
+    THE BUG THIS REPLACES. `lwl_eff` was the span of WET STATIONS:
+
+        x_wl_aft = float(x[wet].min())
+        lwl_eff  = float(x[wet].max() - x[wet].min())
+
+    The waterline does not end at a station; it ends between the last wet one
+    and the first dry one. Snapping to the last wet station therefore truncates
+    by up to one spacing, and -- this is what makes it a defect rather than
+    noise -- it can only ever be too SHORT. The error never averages out over a
+    population, so every hull in the batch is biased the same way.
+
+    MEASURED 2026-08-12 on the seed-0 batch, hull 0 at x_mb = 0.5123 (chosen to
+    fall BETWEEN stations at the shipped n_stations = 41), against a converged
+    reference at n_stations = 2561:
+
+        n_stations     lwl_eff        cb         cp
+                41   14.639769  0.370325   0.708813
+                81   14.827458  0.365835   0.700272
+               161   14.921303  0.363595   0.695983
+               641   14.991687  0.361914   0.692767
+              1281   15.003417  0.361634   0.692230
+
+    True LWL is 15.0151 m and the station spacing is 0.375379 m, so the shipped
+    grid was short by 0.363648 m = 0.969 of ONE station -- an off-by-one-cell
+    truncation, converging at observed order p = 1.00. It propagates straight
+    into the two coefficients that divide by it: `cb` and `cp` were both
+    inflated 2.4% (Richardson-extrapolated cp 0.691693 against 0.708813).
+
+    Volume was never the problem -- it converges to 0.087% over the same range,
+    and `awp` to 0.12%. Nor was it the max-beam station: `Am` is CONSTANT at
+    0.603408 across 41..1281, which refutes the first explanation offered for
+    this (that the coarse grid was missing the true midship section). The error
+    is entirely in the LENGTH.
+
+    Found while sweeping x_mb for station-period aliasing. That aliasing is real
+    -- a sawtooth of period 1/40 in x_mb that collapses ~60x per station
+    doubling -- but it is small (264 ppm on wetted area at n=41) and reaches
+    `wh_per_nm` at only ~0.01% above the noise floor. The bias found alongside
+    it is 200x larger and has nothing to do with x_mb.
+    """
+    if not wet.any():
+        return 0.0, 1e-9
+    idx = np.flatnonzero(wet)
+    i0, i1 = int(idx[0]), int(idx[-1])
+    # Forward end: a falls from a[i1] to a[i1+1] <= 1e-6. Linear in the section
+    # area, so the estimate is exact for a wedge and second-order otherwise.
+    x_fwd = float(x[i1])
+    if i1 + 1 < len(x):
+        da = float(a[i1] - a[i1 + 1])
+        if da > 0.0:
+            x_fwd += float(x[i1 + 1] - x[i1]) * float(a[i1]) / da
+    # Aft end: usually the transom, which is wet AT x[0] -- there is no dry
+    # station behind it and the waterline genuinely ends there. Only a hull that
+    # runs dry aft of its first station gets an interpolated aft end.
+    x_aft = float(x[i0])
+    if i0 - 1 >= 0:
+        da = float(a[i0] - a[i0 - 1])
+        if da > 0.0:
+            x_aft -= float(x[i0] - x[i0 - 1]) * float(a[i0]) / da
+    return x_aft, max(x_fwd - x_aft, 1e-9)
+
+
 def solve(hull: Hull, rho: float = RHO_WATER, wl: float = 0.0) -> HydroState:
     """Hydrostatics at a given waterline height wl (0 = design WL)."""
     a, b, zc = hull.hydro_arrays(wl)
@@ -80,8 +145,7 @@ def solve(hull: Hull, rho: float = RHO_WATER, wl: float = 0.0) -> HydroState:
     bm_l = i_l / vol
     bmax = 2.0 * float(b.max())
     wet = a > 1e-6
-    x_wl_aft = float(x[wet].min()) if wet.any() else 0.0
-    lwl_eff = float(x[wet].max() - x[wet].min()) if wet.any() else 1e-9
+    x_wl_aft, lwl_eff = _waterline_ends(x, a, wet)
     # Immersion is measured from the KEEL (z = -t_design) up to the waterline
     # plane (z = wl), so it is wl + t_design. The sign was inverted, which is
     # exact only at wl = 0 — which is why every test passed. MEASURED on the

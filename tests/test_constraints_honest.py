@@ -291,15 +291,24 @@ def test_the_optimizer_reads_the_columns_the_ladder_writes():
 def test_lcb_is_constrained_and_the_reference_hull_fails_it(ref):
     """B8. LCB was computed, used for trim, and never judged. RECORDED, NOT
     SOFTENED (honesty rule 6): the hand-picked reference hull floats at
-    -4.19 %LWL from midships against a +-3% band and is INFEASIBLE. It always
+    -5.36 %LWL from midships against a +-3% band and is INFEASIBLE. It always
     was; nothing had ever looked.
 
     The percentage is taken about the midpoint of the FLOATED waterline
     (`HydroState.lcb_pct_lwl`), not about half the LWL parameter — the transom
-    lifts clear under rocker, so those are different stations."""
+    lifts clear under rocker, so those are different stations.
+
+    -4.19 UNTIL 2026-08-12, AND THE OLD FIGURE WAS THE BUG, NOT THE BASELINE.
+    `lcb_pct_lwl` divides by `lwl_eff` and measures from `x_wl_aft + lwl_eff/2`,
+    and `lwl_eff` was the span of WET STATIONS — truncated by 0.969 of one
+    station spacing and biased short on every hull. The midpoint it measured
+    from was therefore the wrong station. Correcting the waterline ends moves
+    this to -5.36, i.e. the reference hull is FURTHER out of band than recorded,
+    not less: the defect was flattering it. See `hydrostatics._waterline_ends`
+    for the convergence table."""
     assert "lcb" in CONSTRAINT_NAMES
     hs = ref.hydro
-    assert hs.lcb_pct_lwl == pytest.approx(-4.19, abs=0.05)
+    assert hs.lcb_pct_lwl == pytest.approx(-5.36, abs=0.05)
     assert ref.g["lcb"] == pytest.approx(abs(hs.lcb_pct_lwl) - LCB_BAND_PCT_LWL,
                                          abs=1e-9)
     assert ref.g["lcb"] > 0.0 and not ref.ok
