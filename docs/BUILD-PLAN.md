@@ -1118,10 +1118,28 @@ Three consequences, and they change what is worth buying:
 3. **A relaxation zone would have been weeks of work against a mechanism
    subsequently measured not to exist.**
 
-So the next experiment is **free sinkage and trim** (`rigidBodyMotion` — code,
-not compute), then free-surface resolution, then the grid. And the batch error
+So the next experiment is **free sinkage and trim**, then free-surface
+resolution, then the grid. And the batch error
 must be understood before a triplet means anything: three noisy numbers do not
 make a Richardson extrapolation.
+
+**"code, not compute" was TRUE when it was written and is STALE — corrected
+2026-08-12.** This sentence used to read *"free sinkage and trim (`rigidBodyMotion`
+— code, not compute)"*, and commit `7b8f628` measured that the code has existed
+for some time: `navalai/cfd/case.py` carries `DYNAMIC_MESH`
+(`sixDoFRigidBodyMotion`, heave + pitch constraints, dampers),
+`POINT_DISPLACEMENT`, `sixdof_properties` and `motion_from_geometry`;
+`scripts/make_case.py` has `--free-motion` and `--kg`; and three suites exercise
+`free_motion`. **The blocker was one number, not a solver.** KCS's published
+`KG = 0.2303 m` above keel lived only inside a comment in `case.py`; with it
+absent, `motion_from_geometry` falls back to VCB and gives 0.187 m — **19 % low**
+— so a free run would have converged to a plausible attitude for a
+differently-ballasted ship. `7b8f628` moved the constant into `benchmarks/kcs.py`
+beside the acceptance data (EFD sinkage −1.394e-2 m, EFD trim −0.169°). The
+experiment is now runnable, and it is COMPUTE. `CLAUDE.md` still carries the
+stale phrasing in two places (its "next experiment" paragraph and its numbered
+CFD list); it is flagged here rather than edited, because that file is read first
+by every session and a correction to it belongs to its owner.
 
 **A correction owed to `CLAUDE.md`, measured and never merged back:** the GCI
 triplet is **~21× the coarse grid (~68.7 h), not ~12×**. The cell ratios (2.79×,
@@ -2016,56 +2034,198 @@ the line read as already fixed, which is why it survived. **The register is an
 immutable audit record, so the re-grade is recorded here for its owner rather
 than done — and the work is scheduled at P0 regardless of its filed severity.**
 
-### P1 — SELL becomes a product (weeks)
+### The 2026-08-12 production audit, and what it re-ordered
 
-`B4` (payload flat regardless of crew), `B5` (nothing costs length), `E1b`
-(Holtrop implemented and anchored but not wired into `evaluate()`), plus §3:
-freeze and hash the mission contract; `PriceValue` with a tier and an expiry;
-BOM pricing and cost closure; feasibility negotiation over `Evaluation.g`;
-render the delivery route `policy/legal.py` already computes and shows nobody.
-**New gates M1, Q1, Q2, N1.**
+`docs/research/PRODUCTION.md` audited the owner's vessel-as-a-system architecture
+against the code. It changed this table in four ways, and each is a measurement
+rather than a preference:
 
-### P2 — BUILD earns its guarantees
+- **Two proposed phases are REFUTED and are NOT scheduled.** An authoritative
+  NURBS hull (both existing paths already emit the same piecewise-linear surface
+  and agree to **9.67e-07 m**; smoothing moves points up to **19.07 mm** off the
+  analytic hull and takes the chine from 72.0° to 37.8°) and a Blender spatial
+  execution engine (voxel remesh takes the chine to **0.0°**;
+  `bpy.ops.export_mesh` is an **empty namespace** in Blender 5.2.0). See
+  PRODUCTION.md §3. A refuted item gets a retirement notice, not a slot.
+- **The mission speed distribution is promoted to P1.** MEASURED: the same
+  reference hull is solar-**positive** at 4 kn (`net +0.97 kWh/day`, solar/demand
+  1.077) and solar-**negative** at the shipped default of 5 kn (`−20.89 kWh/day`,
+  0.393), with daily solar range falling **5.8×** between 3 and 5 kn. The platform
+  evaluates one speed, and the default one is the first that fails.
+- **The CFD ladder is re-scoped, not cancelled.** MEASURED over 68 feasible hulls
+  at a pinned `LWL` and a common Fn 0.2381: a ±50 % common-mode bias on the wave
+  term leaves the winner **unchanged** (Spearman ρ ≥ 0.9969), and at the model's
+  own declared 25 % hull-specific uncertainty the perturbed winner is in the true
+  top 10 in **100.0 %** of 1000 trials. L1 ranks. What L1 cannot do is give an
+  absolute number — range varies **2.7×** across a 0.75–2.0 resistance bias — or
+  touch three of the four wave problems.
+- **The solar roof is filed as new work with a new gate.** It is the largest
+  single gap found: the coachroof is a declared 4-number box the geometry kernel
+  has never heard of, and its roof contributes **zero m²** to a solar model whose
+  binding constraint is PV area.
+
+**What the audit found ALREADY BUILT, and which nothing below re-proposes:**
+compliance as a constraint engine (`navalai/policy/compile_policy` — a parameter
+box plus appended constraint rows, with a compile-time ratchet law), the
+positioned mass spine (`weights.MassItem`/`aggregate`, LCG/TCG/VCG required,
+quadrature sigma), `wh_per_nm` as NSGA-II objective 1, the arrangement grammar and
+its 12-rule L0-A at a measured 0.44 ms median, Blender's non-authority stated in
+its own package contract, and the whole manufacturing chain down to DXF and
+nesting. The recurring defect here is a thing declared twice; a roadmap that
+re-proposes them would be that defect at plan scale.
+
+### P1 — The mission becomes a profile, and SELL becomes a product (weeks)
+
+Ordered first because everything downstream is evaluated *at* whatever the
+mission says, and today the mission says one number.
+
+| # | Item | Gate | Done when |
+|---|---|---|---|
+| P1-1 | **`MissionSpec` carries a weighted speed profile** — `speed_profile: tuple[(kn, weight), ...]`, clamped through the existing `FIELD_RANGES` mechanism, defaulting to a single point equal to `cruise_speed_kn` so every existing caller is bit-identical | **new Gate M2** | a mission with a profile produces an `E_mission` that equals the single-point answer when the profile has one point, proven by a test that feeds it both |
+| P1-2 | **`EnergyReport` gains `e_mission_kwh_day` as a weighted integral** over `R(V)` — the loop wraps the existing `total_resistance` + `energy_report` calls; the sigma combines per-point sigmas, it is not re-declared | **Gate M2** | the 4 kn / 5 kn reversal recorded in PRODUCTION.md §2.1 is reproduced by a test, and a profile weighted to 4 kn and one weighted to 5 kn return different feasibility |
+| P1-3 | **`optimize.py` objective 1 becomes the integral**, not the point. `ParetoResult.F`'s stale `# (wh_per_nm, build_area, -gm)` comment is corrected in the same change — it still names a `-gm` objective that the GM-band change replaced | **Gate 1b** (NSGA-II Pareto front) | the objective names are a tuple in code rather than a comment, so the comment can no longer disagree with `F`, proven by a test that reads the tuple |
+| P1-4 | `B4` (payload flat regardless of crew), `B5` (nothing costs length), `E1b` (Holtrop implemented and anchored but **not wired into `evaluate()`** — and our own small craft fall outside its envelope, so wiring it must carry the `L1H-INVALID` badge rather than silently substituting) | gaps; predicates in `reconcile_gaps.py` | the predicates close |
+| P1-5 | §3: freeze and hash the mission contract; `PriceValue` with a tier and an expiry; BOM pricing and cost closure; feasibility negotiation over `Evaluation.g`; render the delivery route `policy/legal.py` already computes and shows nobody | **new gates M1, Q1, Q2, N1** | as specified in §3 |
+
+### P2 — The solar roof becomes an object (weeks)
+
+The binding constraint of the product line is PV area, and PV area is currently
+`Hull.deck_area() × 0.55`, which excludes the coachroof entirely. This is ahead
+of loading conditions and ahead of the interior solver because it changes
+displacement, VCG, windage **and** the objective at once.
+
+| # | Item | Gate | Done when |
+|---|---|---|---|
+| P2-1 | **The coachroof enters the geometry kernel.** `arrangement.Trunk`'s four hand-authored numbers (`_TRUNK_X0 = 0.13`, `_TRUNK_X1 = 0.70`, `_SIDE_DECK_M = 0.25`, height from `HEADROOM_PREFERRED_MM`) become genome parameters or a declared sub-spec that `geometry.Hull` can render | **new Gate 8R** | `Hull` exposes a roof surface, and `arrangement.Trunk`'s docstring stops being the only place the vessel's standing headroom is described |
+| P2-2 | **PV area is computed from that surface**, not from the sheer plan-form. Roof area, tilt and packing feed `energy.solar_kwh_day`; the existing `panel_packing` stays but stops standing in for geometry | **Gate 8R** | a hull with a coachroof reports more PV area than the same hull without one, and the delta is the roof's projected area |
+| P2-3 | **PV mass and roof structure are positioned.** `PANEL_KG_PER_M2 = 12.0` already exists and `VCG_FRACTION["panels"] = 1.02` already places it high; the roof structure itself is not in the budget at all | **Gate 8R** + `weights` regression | GM moves when the roof does, and a roof heavy enough to breach `gm_floor` is refused by the existing `Evaluation.g` row rather than by a new one |
+| P2-4 | **Say what is NOT modelled, in code.** Shading, temperature derate, azimuth and wind load on the array are absent; they get `refdata.absent()` entries with an unblocking action, in the pattern `refdata/ergonomics.NOT_SOURCED` already uses | **Gate 8R** | `absent()` names them, so a future reader cannot mistake their absence for a decision |
+| P2-5 | **Gate 6D's geometry repair — `C1` continuity at `x_mb`, and bounded `dy/dx` at the stem.** Scheduled HERE, in the same pass, because it is a change to the same file (`geometry.station_geometry`) and the geometry kernel should be opened once, not twice | **Gate 6D** | the refold watermark in `data/gate-ledger.json` improves against its 5 mm bar, measured by the same `unroll.refold_surface_deviation_mm` at the same reference hull and station count. **The bar is NOT softened and the metric is NOT changed** — the two-sided metric replaced the edge-only one precisely because a pairing scored 0.07 mm on the old one while missing the chine by 97.5 mm |
+
+**P2-5 is filed because the audit found Gate 6D had no scheduling home at all.**
+It is the fifth and most recently measured RED ledger row, with an owner
+(`chief-architect`) and a `review_by`, and it appeared in no phase of the
+pre-audit P0–P6. A RED gate with a ledger entry and no plan slot is a work item
+existing only in the ledger, which is the §0 law read from the other side. The
+two mechanisms are measured in `navalai/unroll.py:84-108`: the sheer envelope
+`y_sheer = ys · w**0.15` puts the sheer polyline **65.6 mm off the analytic curve
+at 41 stations before developability is asked about** (81.0 / 65.6 / 47.3 /
+29.9 mm at 21/41/81/161 — it converges at ~O(h^0.5), so refinement is not the
+answer), and the chine/sheer slope discontinuity at `x = x_mb·L` puts a
+**6.02–6.16 mm step** into the topside refold, larger than the whole bar by
+itself. **Both refold families get WORSE with refinement**, which is why this is
+a kernel change and not a tolerance.
+
+**Bar for Gate 8R:** the roof is a first-class surface — it has an area, a mass, a
+centroid, and a refusal path — and `solar_kwh_day` is derived from it. It is
+explicitly **not** a bar on aerodynamic or structural validation of the roof;
+those need the load model P9 is blocked on, and pretending otherwise would be a
+bar that cannot fail.
+
+### P3 — Loading conditions, and the constraint row that cannot move (weeks)
+
+| # | Item | Gate | Done when |
+|---|---|---|---|
+| P3-1 | **`evaluate()` imports `arrangement`.** `Space.mass_item()` / `DeckZone.mass_item()` / `Arrangement.mass_items()` already emit tier-`E` positioned items with a real `y_m`, and the ladder has exactly one importer today: its own test | **Gate V2.1** (extended) | `agg.tcg_m` is non-zero on an asymmetric layout, so the `list` row in `Evaluation.g` stops reading exactly −2.000 on every hull |
+| P3-2 | **A loading condition becomes a `(name, items, target)` tuple** and the ladder loops over five: light ship, design, full payload, uneven, extreme CG. `solve_to_displacement` is already a function of a target and a mass list | **new Gate 9L** | each condition reports displacement, draft, trim, heel, GM and freeboard, and a design is feasible only if **all five** are — a design that passes at design condition and fails at full payload is REFUSED, proven by a test that feeds it one |
+| P3-3 | **Centre uncertainty propagates.** `MassAggregate` carries `sigma_kg` but no sigma on LCG/TCG/VCG, so the GM badge propagates mass uncertainty and not position uncertainty | **Gate 9L** | the GM badge's sigma moves when an item's position uncertainty moves |
+
+**Bar for Gate 9L:** five conditions, each fully evaluated, worst-case governing.
+The expensive part is not the loop — it is that four of the five need mass items
+the five-bucket model in `energy.LCG_FRACTION`/`VCG_FRACTION` does not
+distinguish. P3-1 is what supplies them, which is why it is ordered first.
+
+### P4 — BUILD earns its guarantees
+
+Unchanged in content from the pre-audit table, unchanged in position: it is
+about making built machinery honest, and the audit found nothing that reorders it.
 
 Wire `agents.py` onto `pipeline.py` (§4.2) — the spine has zero production
-callers and its gate is green on unused code. (Re-measured 2026-08-11 at
-`e5942d7`: `Stage.` appears nowhere in `navalai/`, `scripts/` or `ui/` outside
-`pipeline.py` itself.) Populate `EvidenceGraph` from `evaluate()` +
-`db.Provenance` (§6), **and close the tier vocabulary while doing it** — the
-reason is argued in §17.1.1 and it is the one thing here that is cheaper before
-RUN than after. Resolve the badge-coverage question (§4.3).
-Close the demonstration gap (§4.4). Also `E5` (public-CAD hull round-trip), `E9`
-(`hull_id` collision), `E14`, `E17`, `E18`, `A6c` (ARD lengthscales saturating
-at the optimiser bound), `I5` (calibration beyond one coverage assertion).
+callers and its gate is green on unused code. Populate `EvidenceGraph` from
+`evaluate()` + `db.Provenance` (§6), **and close the tier vocabulary while doing
+it** — the reason is argued in §17.1.1 and it is the one thing here that is
+cheaper before RUN than after. Resolve the badge-coverage question (§4.3). Close
+the demonstration gap (§4.4). Also `E5` (public-CAD hull round-trip), `E9`
+(`hull_id` collision), `E14`, `E17`, `E18`, `A6c` (ARD lengthscales saturating at
+the optimiser bound), `I5` (calibration beyond one coverage assertion).
 
-### P3 — The number we owe
+### P5 — The physics debts, RE-ORDERED by what the measurement says
 
-`F16` (no settled GCI triplet), `F17` (unattended meshing measured at N=8, and
-the "converges" half never run), `F1` (added resistance in waves: no drift
-force, no heading sweep, no acceptance data, no gate row — the one CRITICAL
-row). **The next CFD experiment is free sinkage and trim, not a longer run**
-(§11.5). Then the triplet, then the robustness sweep with `--solve`.
+The pre-audit order was: settled GCI triplet, then unattended meshing, then added
+resistance in waves. **That order is inverted below, and the inversion is
+measured.** `docs/research/APSE.md` §4 prices a triplet at **68.7 h ≈ 2.9
+machine-days** and proves the stated budget and the ≥20 cells-per-wavelength bar
+unsatisfiable together; `docs/research/CFD.md` §2 measures the residual at 3.40
+flow-throughs with drift collapsed to 0.31 %, i.e. **not a discretisation
+problem** — so a discretisation study has a measured expectation of returning
+nothing. Meanwhile the L1 uncertainty every design decision rests on is
+`SIGMA_DECLARED`, and both modules say in their own comments that it is declared
+and not sourced.
 
-### P4 — The rules moat
+| # | Item | Gate | Done when |
+|---|---|---|---|
+| P5-1 | **A small-craft resistance anchor** — Fridsma hard-chine, DSYHS, or DTMB 5415 — transcribed with its scatter, and `resistance.py`'s `0.25·rw` / `FORM_FACTOR_SIGMA_DECLARED` and `holtrop.SIGMA_DECLARED = 0.10` replaced by a **measured** spread against it | **new Gate 1S** | the L1 band is a measurement with a citation, and `holtrop.py`'s "Replace it the day a measured spread against tank data exists" comment is discharged. **No OpenFOAM is required for this item.** |
+| P5-2 | **`F1` — added resistance in waves.** The one CRITICAL register row: no drift force, no heading sweep, no acceptance data, no gate row, no test. This is **Capytaine at L2**, not interFoam at L3 | **Gate 2**, added-resistance clause | a drift force over a heading sweep, compared to acceptance data, with a bar |
+| P5-3 | **`F17` — unattended meshing.** Finish the running 74-hull campaign; then the **`--solve` half**, which is what the bar "meshes AND converges" actually asks for and which has never been measured | **Gate 2U** | the watermark is a meshes-AND-converges rate at the shipped configuration, with N and the configuration in the units string. §11.7 carries the per-hull layer search and its **92 % ceiling on the observed batch** — the search is what makes the residual visible, not the close-out |
+| P5-4 | **ONE absolute point on a delivered SKU hull**, to bound the sizing error: range varies **2.7×** across a 0.75–2.0 resistance bias, and that is the number a customer is quoted. One grid, not a triplet; the honest output is a sigma, not a validated C_T | **Gate 2M** (scope note) | an absolute L3 number exists for a hull in the product family, with its flow-through count and its uncertainty |
+| P5-5 | **`F16` — the settled GCI triplet. DEFERRED, and deliberately.** It is 2.9 machine-days to bound a discretisation error on a benchmark whose remaining error is measured not to be discretisation, at the cheapest Froude number in the product's band, on a container ship | **Gate 2M** | it is scheduled again only after P5-1 and P5-4, or when a measurement contradicts the paragraph above |
 
-`D9` — verdict parity on ≥ 3 reference designs, the bar the original plan set
-and nothing implements — plus `I13` (a recorded non-expert session), the
-purchase queue in priority order (`docs/research/COMPLIANCE.md` §9), and
-ES-TRIN's remaining scope work.
+**Free sinkage and trim** (§11.5) stays the next CFD *experiment* if any CFD is
+run — the viscous half being right localises the error to exactly what sinkage
+and trim move. **It is now COMPUTE, not code:** `sixDoFRigidBodyMotion` has been
+wired for some time and the real blocker was KCS's `KG`, which `7b8f628` sourced
+into `benchmarks/kcs.py`. §11.5 carries the correction and names the two places
+`CLAUDE.md` still states it the old way.
 
-### P5 — RUN, and the loop closes
+### P6 — The interior solver, and subdivision
+
+| # | Item | Gate | Done when |
+|---|---|---|---|
+| P6-1 | **The space graph becomes a graph.** `Adjacency` is carried and, by an explicit test, never checked; nothing validates that an adjacency target id even exists (the reference layout points `berth.aft` at `"cockpit"`, a `DeckZone`) | **Gate V2.2** | adjacency ids resolve, and a dangling reference is refused |
+| P6-2 | **Egress.** Zero hits for `escape\|egress\|corridor` in `arrangement.py` or `rules/`. Blocked on `refdata`'s own `circulation_passage_width_mm`, recorded as NOT_SOURCED and called "the single most load-bearing number in an interior arrangement" | **Gate V2.2** | either the number is purchased and the rule is written, or the absence stays logged and the gate says so — it must not be invented |
+| P6-3 | **The inner optimiser.** `Arrangement.to_vector()` / `from_vector()` / `bounds()` and `n_slots == 64` already exist as the socket; `optimize.py` references `arrangement` nowhere | **Gate V2.3** | a layout is searched inside a hull the outer optimiser proposed, and the two exchange constraints through `Evaluation.g` rather than through a new vector |
+| P6-4 | **Watertight subdivision as a second graph** — `Compartment`, `Bulkhead`, permeability, a damage case, ΔGM. Genuinely absent: in this tree "bulkhead" means a sheet of plywood in a BOM | **new Gate 10F** | a flooded compartment recomputes GM, and a design whose ΔGM breaches the floor is refused |
+| P6-5 | **ISO 7250 and ISO 15537 enter `refdata`** — as data if purchased, and **as `absent()` entries either way.** They are the one hole in this repository's otherwise complete absence-logging discipline: unlike Panero & Zelnik and ABYC H-41, they appear in neither `NOT_SOURCED` nor `PURCHASE_QUEUE` | **Gate 6R** (purchase queue) | the queue names them |
+
+### P7 — The rules moat
+
+`D9` — verdict parity on ≥ 3 reference designs, the bar the original plan set and
+nothing implements — plus `I13` (a recorded non-expert session), the purchase
+queue in priority order (`docs/research/COMPLIANCE.md` §9), and ES-TRIN's
+remaining scope work. **And the six rule ids that appear in neither `confirmed`
+nor `unconfirmed`** (`R-SCP`, `E-DECK`, and the four ES-TRIN ids) get a decision
+either way — `rules/review.py`'s own law is that "a rule missing from both sets is
+an oversight; a rule here is a decision."
+
+### P8 — RUN, and the loop closes
 
 `I1` (co-kriging has never seen a real high-fidelity number) and `I14` (the
 surrogate spine has no consumer) widened into a real high-fidelity arm:
-observation rows in `db.py`, a generic delta engine, a `flywheel` data source
-that is not `evaluate()`. **This is the phase that makes the learning loop stop
-being closed on itself.** File the RUN gaps before writing the code.
+observation rows in `db.py`, a generic delta engine, a `flywheel` data source that
+is not `evaluate()`. **This is the phase that makes the learning loop stop being
+closed on itself.** File the RUN gaps before writing the code.
 
-### P6 — WindWing
+**P5-1 is this phase's cheap rehearsal.** A tank anchor is the same shape of
+thing as a delivered hull — an observation NavalAI did not generate — and it is
+available now, in a book, for the cost of a transcription.
+
+### P9 — WindWing
 
 Blocked behind P1 (environmental state on the mission) and the preconditions in
 §10.2 — no 6-DOF model, no roll RAO, no centre of lateral resistance. **The LOAD
 gate comes first**, not the power model. W2 stays recorded as blocked.
+
+### Retirement notices from the 2026-08-12 audit (PLM §3 step 7)
+
+Recorded here rather than silently dropped, because a plan that quietly deletes a
+proposal teaches nothing and invites its re-filing — the same reason P0-1 above
+is kept struck through.
+
+| Proposal | Why it is not scheduled |
+|---|---|
+| ~~An authoritative NURBS hull replacing the "crude STL-first geometry"~~ | **REFUTED.** `export_step` already emits 200 B-spline faces and **every one is degree 1×1 with a 2×2 pole net** — a bilinear quad in NURBS clothing — because `makeLoft(ruled=True)` is what makes a plywood panel developable. Blender reproduces `closed_mesh` to **9.67e-07 m**, so there is no second geometry with a different answer. One Catmull-Clark level moves points **up to 19.07 mm** off the analytic hull and drops the chine 72.0° → 37.8°; with creases it is at best *equal*, for 4× the triangles. PRODUCTION.md §3.1. **What the kernel does owe is `C1` at `x_mb` and bounded `dy/dx` at the stem** — two properties of the existing analytic hull, and the measured cause of Gate 6D's refold residual. That is a grammar repair, filed against Gate 6D, not a new kernel |
+| ~~Blender as the spatial execution engine~~ | **REFUTED.** Voxel remesh at 0.05 m takes the chine dihedral to **0.0°** on all three hulls tested ("not a rounded chine, it is no chine") and self-intersections from 3–237 to 1479–1866. `bpy.ops.export_mesh` is an **empty namespace** in Blender 5.2.0 — there is no Paper Model add-on and no DXF exporter — and unfolding a 289 000-triangle mesh yields confetti, not boat panels. `navalai/unroll.py` already unrolls ruled panels and exports DXF in millimetres. Blender stays what its own package contract says it is: rendering and independent measurement. PRODUCTION.md §3.2 |
+| ~~"CFD calibration is over-invested, so stop CFD"~~ | **Half right, and the half matters.** L1 ranks (ρ ≥ 0.9969 under ±50 % common-mode bias; winner in the true top 10 in 100.0 % of trials at 25 % hull-specific error), and the design loop has never consumed CFD — `optimize.py` imports nothing from `navalai.cfd`. But at the default cruise point **59 % of `R_T` is the Michell wave term**, its sigma is *declared and not sourced*, and there is no tank anchor anywhere in the repository. The spend moves to P5-1 and P5-2; it does not stop. PRODUCTION.md §4 |
 
 ---
 
@@ -2076,25 +2236,41 @@ gate comes first**, not the power model. W2 stays recorded as blocked.
 ```
 P0 stop the machinery lying     ← BLOCKING. Nothing below is trustworthy until done.
      │
-     ├──────────────┬────────────────────────────┐
-P1 SELL          P2 BUILD guarantees        P3 the number  ← compute-bound, start early
-     │               │                            │
-     │               └──────────┬─────────────────┘
-     │                          │
-     │                     P5 RUN + delta engine   ← genuinely blocked: the
-     │                          │                    high-fidelity arm needs P3's rows
-P4 rules moat  (parallel with P2)
+P1 mission becomes a profile    ← everything downstream is evaluated AT the mission
      │
-P6 WindWing   ← blocked on P1 (environmental state) and on §10.2's P1/P2/P3/P5
+     ├──────────────┬───────────────┬──────────────────────┐
+P2 solar roof   P4 BUILD        P5 physics debts       P7 rules moat
+     │           guarantees      (P5-1 needs no          (parallel with P4)
+     │               │            compute; P5-3 is
+P3 loading           │            compute-bound)
+   conditions        │                  │
+     │               └────────┬─────────┘
+P6 interior solver            │
+   + subdivision         P8 RUN + delta engine  ← genuinely blocked: the
+                              │                   high-fidelity arm needs P5's rows
+                         P9 WindWing  ← blocked on P1 (environmental state)
+                                        and on §10.2's own P1/P2/P3/P5
 ```
 
 - **P0 is blocking** for the same reason it always was: while a check can be
   edited to green, every subsequent claim of progress is unverifiable.
-- **P1 and P4 are independent of each other** and can run in parallel across two
+- **P1 is newly blocking for the physics phases**, and that is the 2026-08-12
+  audit's structural change. `E_mission` is an integral over a speed
+  distribution; until the mission carries one, every objective, every energy
+  number and every solar-fraction verdict is a sample of one point — and
+  MEASURED, the shipped default point is the first one that fails.
+- **P2 precedes P3** because the roof moves displacement, VCG and windage, so
+  loading conditions computed without it would be computed for a different boat.
+- **P4 and P7 are independent of each other** and can run in parallel across two
   owners.
-- **P3 is compute-bound, not effort-bound.** Start it during P2 and let it run.
-- **Only P5 is truly blocked by physics.** A surrogate starved of high-fidelity
+- **Within P5, P5-1 is effort-bound and P5-3 is compute-bound.** P5-1 (a
+  small-craft tank anchor) needs **no OpenFOAM at all** and unblocks every sigma
+  in the ladder; start it first and let P5-3's campaigns run beside it.
+- **Only P8 is truly blocked by physics.** A surrogate starved of high-fidelity
   data cannot be fixed by effort.
+- **§10.2's P1–P6 are a different namespace** — they are WindWing's preconditions,
+  not this graph's phases. The collision is unfortunate and is called out here
+  rather than renamed, because §10.2's labels are cited from `docs/GAP-REGISTER.md`.
 
 ### 17.1.1 "Land the evidence graph before RUN" — argued, and the reorder refused
 
@@ -2106,11 +2282,11 @@ down, because the second half is only true by construction and could be undone
 by a well-meaning edit.
 
 **The order is already this.** Populating `EvidenceGraph` from `evaluate()` +
-`db.Provenance` is a **P2** item (§16); RUN and the delta engine are **P5**; and
-§17.1's graph already has P5 downstream of P2. Nothing needs to move. The
+`db.Provenance` is a **P4** item (§16); RUN and the delta engine are **P8**; and
+§17.1's graph already has P8 downstream of P4. Nothing needs to move. The
 reorder would be a no-op that looked like a decision.
 
-**But the mechanism named is the wrong one, and that does change what P2 owes.**
+**But the mechanism named is the wrong one, and that does change what P4 owes.**
 `EvidenceGraph` is a design-RATIONALE DAG — Requirement → Decision → Assumption
 → Experiment → Evidence, confidence as the minimum over the ancestor set. It is
 not an ingestion path and it is not where a telemetry row lands. Telemetry lands
@@ -2144,7 +2320,7 @@ the ladder's vocabulary. A real-boat observation is therefore admissible today
 may not outrank its evidence; `S1` is −1 so a surrogate can never satisfy a
 ladder requirement) is bypassed by a node that simply says something else.
 
-So, as a **bar on the P2 item rather than a reorder**: the evidence graph is
+So, as a **bar on the P4 item rather than a reorder**: the evidence graph is
 populated from computed results first, and **before any observation row exists,
 the tier vocabulary is CLOSED** — one enumeration, shared by `db.py`,
 `Evaluation.badges` and `evidence.Node`, containing exactly one value that means
@@ -2168,11 +2344,14 @@ and rank itself.
 ### 17.3 Honest reading of effort
 
 P0 is days and is the highest value per unit effort in the plan — it is what
-makes every other number believable. P3 is measured in **days of wall-clock
-compute** on a machine that thermally sleeps. The two genuine research risks are
-the arrangement generator (no industry-adopted solver exists) and WindWing W2
-(which is blocked on physics that does not exist yet); everything else is
-engineering.
+makes every other number believable. **P1 is the next-highest and it is also
+days**: the loop over a speed profile wraps two calls that already exist and
+already carry a sigma, and it changes what the optimiser optimises. P5-3 and
+P5-4 are measured in **days of wall-clock compute** on a machine that thermally
+sleeps; P5-1 is days of *reading* and needs no compute at all. The two genuine
+research risks are the arrangement generator (no industry-adopted solver exists)
+and WindWing W2 (which is blocked on physics that does not exist yet);
+everything else is engineering.
 
 The system is roughly **one plan behind where its documents used to read**: the
 engine is real and well-policed, the enforcement mesh is stronger than most
