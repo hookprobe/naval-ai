@@ -861,10 +861,15 @@ def refold_deviation_mm(panel: FlatPanel) -> np.ndarray:
 
         panel                          n=41      n=161
         true cylinder               0.0000 mm    --      exact, as it must be
-        bottom-stbd,  constant-x     141.0 mm   143.8 mm  x=9.0 m, forefoot warp
+        bottom-stbd,  constant-x     141.0 mm   (see below) x=9.0 m, forefoot warp
         topside-stbd, constant-x     225.7 mm   206.1 mm  at the stem
         bottom-stbd,  developable     29.2 mm    64.2 mm
         topside-stbd, developable     66.2 mm   102.9 mm
+
+    143.8 mm stood here until 2026-08-12 and IS NOT A COMPUTABLE NUMBER. `_trilaterate` takes sqrt(max(r1^2 - x^2 - y^2, 0)) and that radicand is zero exactly when the quad is PLANAR, which the aft bottom panel is to machine precision (this file already records it refolding to 0.008 mm and flipping sign 63 times). The sphere intersection is tangential, so d(sqrt a)/da amplifies ~650x per step and `refold` feeds each reconstructed point into the next. MEASURED, 6 one-ULP perturbations of the 3-D datum edges, max over the panel:
+        n= 41  140.996 .. 140.997   spread 1.000x   computable
+        n=161   24.537 .. 143.799   spread 5.861x   NOT computable
+    The same computation in `decimal` at 20..2000 digits returns one of the two values and flips non-monotonically: ILL-POSED, not precision-limited. ONLY THIS CELL is affected -- constant-x topside at 161 (206.074) and BOTH developable panels at 41 and 161 all measure spread 1.000x, so the conclusion the table is here to support survives on the developable family, which is the one the Gate 6D watermark uses.
 
     The constant-x figures do not shrink with refinement, so they are geometry
     and not discretisation. The aft half of the constant-x BOTTOM panel refolds
