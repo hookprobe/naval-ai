@@ -610,6 +610,30 @@ def domain_errors(p: Particulars, speed: float,
     return tuple(out)
 
 
+def particulars_from_floated(lwl: float, b: float, draught: float,
+                             volume: float, cb: float, cp: float,
+                             awp: float, lcb_pct: float) -> Particulars:
+    """`Particulars` from a FLOATED hydrostatic state, in one place (gap E1b).
+
+    The ladder holds `HydroState`, which carries `cb`, `cp`, `awp`, `b_wl_max`
+    and `lwl_eff` but not the two coefficients Holtrop names: `cm` and `cwp`.
+    Both are derivable — `cm = cb / cp` by definition, and
+    `cwp = A_wp / (L_wl B_wl)` — and deriving them at the call site is how a
+    number gets declared twice. This module owns the mapping because it owns
+    what the symbols mean.
+
+    Takes floats, not a `HydroState`: `navalai.holtrop` must not import the
+    ladder it is a candidate model FOR. Even-keel is assumed (`tf = ta`), and
+    appendages, bulb and immersed transom are zero for the small craft this
+    grammar produces — stated here rather than left as defaults nobody read.
+    """
+    return Particulars(
+        lwl=float(lwl), b=float(b), tf=float(draught), ta=float(draught),
+        volume=float(volume), cm=float(cb) / max(float(cp), 1e-9),
+        cwp=float(awp) / max(float(lwl) * float(b), 1e-9),
+        lcb=float(lcb_pct))
+
+
 def envelope_violations(p: Particulars, fn: float, cp: float) -> tuple[str, ...]:
     """Which clauses of the method's stated applicability this case breaks.
 

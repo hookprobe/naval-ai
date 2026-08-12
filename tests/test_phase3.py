@@ -147,6 +147,106 @@ def test_the_l1_error_bar_is_measured_across_seeds_and_it_misses_the_bar(l1_gp):
         f"above is the thing that is now wrong")
 
 
+def test_calibration_is_measured_as_a_curve_with_sharpness_beside_it(l1_gp):
+    """Gap I5: the whole calibration evidence for this module was ONE
+    assertion, `within >= 0.75`, on a 2-sigma band whose nominal level is
+    0.9545.
+
+    One point on the coverage curve cannot separate "the band is too wide in
+    the middle" from "the tails are wrong", and coverage alone is GAMEABLE:
+    any model hits any coverage target by inflating sigma. This repository has
+    already shipped one bar a degenerate answer passed (`gci <= 5.0` is true of
+    -27%), so sharpness is measured beside coverage, always.
+
+    MEASURED 2026-08-12 on the Gate 3 GP, held-out draw seed 991, 27 in-support
+    hulls, in log(Wh/NM) space:
+
+        nominal   0.500   0.800   0.900   0.9545   0.990
+        empirical 0.667   0.815   0.926   0.963    1.000
+
+        calibration_error 0.0452   sharpness 0.2462   PIT KS 0.2268
+        PIT mean 0.4048
+
+    The model is UNDER-confident at the middle of the curve (0.667 against a
+    nominal 0.50) — which the single 2-sigma assertion could not have shown,
+    because at 2 sigma it reads 0.963 and passes anything above 0.75.
+
+    NO BAR IS ASSERTED on these numbers, and that is deliberate. A threshold
+    interpolated from the 0.75 that is already known to be the wrong statistic
+    would be a guess wearing a number (LESSONS defect class 3); the bar comes
+    after someone has looked at what this measures. What IS asserted is that
+    the diagnostics can tell a calibrated model from a miscalibrated one, in
+    BOTH directions, which is the property a bar would later rest on.
+    """
+    from navalai.evaluate import sample_valid
+    from navalai.surrogate import (COVERAGE_LEVELS, calibration,
+                                   coverage_curve, pit_values, sharpness,
+                                   _z_for)
+
+    # The z table is DERIVED from the levels, not typed beside them.
+    assert _z_for(0.9545) == pytest.approx(2.0, abs=1e-3)
+    assert _z_for(0.6827) == pytest.approx(1.0, abs=1e-3)
+
+    gp, m = l1_gp
+    Xt, yt = sample_valid(35, m, seed=991)
+    keep = ~gp.is_ood(Xt, 0.5)
+    Xk, yk = Xt[keep], np.log(yt[keep])
+    assert keep.sum() == 27, "the measured table above is for 27 in-support hulls"
+
+    rep = calibration(gp, Xk, yk)
+    assert rep["n"] == 27 and rep["levels"] == COVERAGE_LEVELS
+    curve = rep["coverage_curve"]
+    for lv, want in ((0.50, 0.667), (0.80, 0.815), (0.90, 0.926),
+                     (0.9545, 0.963), (0.99, 1.000)):
+        assert curve[lv] == pytest.approx(want, abs=0.02), (
+            f"coverage at nominal {lv} moved to {curve[lv]:.3f}; re-measure "
+            f"the table above rather than widening this")
+    assert rep["calibration_error"] == pytest.approx(0.0452, abs=0.005)
+    assert rep["sharpness"] == pytest.approx(0.2462, rel=0.02)
+    assert rep["pit_ks"] == pytest.approx(0.2268, abs=0.02)
+
+    # The curve and the standalone helpers cannot disagree about what the
+    # model said — they are one computation, not two.
+    assert coverage_curve(gp, Xk, yk) == curve
+    assert sharpness(gp, Xk) == pytest.approx(rep["sharpness"], rel=1e-12)
+    assert np.mean(pit_values(gp, Xk, yk)) == pytest.approx(rep["pit_mean"])
+
+    # THE DIAGNOSTIC IS MADE TO FIRE, BOTH WAYS, on the same data. Neither
+    # control is reachable by the old single 2-sigma assertion alone: the
+    # inflated model reads 1.000 at 2 sigma and passes `within >= 0.75`
+    # comfortably while being four times too vague.
+    class _Scaled:
+        def __init__(self, inner, f):
+            self.inner, self.f = inner, f
+
+        def predict(self, X):
+            mu, sg = self.inner.predict(X)
+            return mu, sg * self.f
+
+    tight = calibration(_Scaled(gp, 0.25), Xk, yk)
+    assert tight["calibration_error"] > 8 * rep["calibration_error"]
+    assert tight["coverage_curve"][0.9545] == pytest.approx(0.481, abs=0.02)
+    assert tight["sharpness"] < 0.3 * rep["sharpness"]
+
+    vague = calibration(_Scaled(gp, 4.0), Xk, yk)
+    assert vague["calibration_error"] > 3 * rep["calibration_error"]
+    assert vague["coverage_curve"][0.9545] == pytest.approx(1.0)
+    assert vague["sharpness"] > 3 * rep["sharpness"], (
+        "sharpness is what stops a coverage target being bought by widening "
+        "the band, and it did not move")
+
+    # AN UNMEASURABLE CALIBRATION POINT IS REFUSED, never scored as 0.5.
+    class _NoBand:
+        def predict(self, X):
+            mu, sg = gp.predict(X)
+            sg = np.asarray(sg, float).copy()
+            sg[0] = 0.0
+            return mu, sg
+
+    with pytest.raises(ValueError, match="non-positive or non-finite"):
+        calibration(_NoBand(), Xk, yk)
+
+
 def test_ood_escalation_flag():
     X = grammar.sample(40, np.random.default_rng(3))
     y = X[:, 0] * 2.0 + X[:, 1]

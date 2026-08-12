@@ -840,9 +840,20 @@ CHECKS: tuple[Check, ...] = (
                   and exists("benchmarks/holtrop_cases.py")
                   and has_code("navalai/gates.py", r'Gate\("Gate 1H"'),
           gate="Gate 1H"),
+    # `imports(..., "holtrop")` ALONE CANNOT TELL THE TWO ARMS APART, and they
+    # are opposite fixes: one calls the method, the other measures that it does
+    # not apply. It also closed on a bare import line, which is defect class 8
+    # aimed at a module name instead of a comment. Tightened 2026-08-12 in the
+    # commit that landed the guard arm, and run against the pre-fix tree where
+    # evaluate.py imports no holtrop symbol at all, so it still reads OPEN
+    # there. Both arms are accepted; each requires a CALL, not a name.
     Check("E1b", "Holtrop-Mennen is wired into evaluate() (or an explicit "
                  "envelope guard routes small craft away from it there)",
-          lambda: imports("navalai/evaluate.py", "holtrop")),
+          lambda: imports("navalai/evaluate.py", "holtrop")
+                  and (has_code("navalai/evaluate.py",
+                                r"holtrop_envelope_violations\(")
+                       or has_code("navalai/evaluate.py",
+                                   r"holtrop\.total\(|holtrop_total\("))),
     Check("E2", "benchmarks/wigley.py carries an INDEPENDENT reference curve, "
                 "not a frozen copy of our own output labelled as a regression "
                 "anchor",

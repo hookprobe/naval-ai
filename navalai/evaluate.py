@@ -39,6 +39,8 @@ from . import db, grammar
 from .energy import (EnergyReport, WeightBudget, energy_report, shell_area_m2,
                      weight_budget, weight_items)
 from .geometry import RHO_WATER, Hull
+from .holtrop import envelope_violations as holtrop_envelope_violations
+from .holtrop import particulars_from_floated
 from .hydrostatics import (HydroState, gm, gm_long, solve,
                            solve_to_displacement)
 from .limits import (FREEBOARD_FLOOR_M, LCB_BAND_PCT_LWL, LIST_LIMIT_DEG,
@@ -245,6 +247,15 @@ class Evaluation:
     params: np.ndarray | None = field(default=None, repr=False, compare=False)
     eval_ms: float = 0.0
     badges: dict = field(default_factory=dict)   # quantity -> (tier, sigma)
+    # WHICH resistance model answered, and why the other one did not (gap E1b).
+    # A METHOD RECEIPT, not a quantity: it gets its own field rather than a
+    # `badges` entry, because a badge is `(tier, sigma, basis)` about a NUMBER
+    # and this has no number of its own — putting prose in a `basis` slot is how
+    # a receipt starts being read as an uncertainty. Empty tuple means
+    # Holtrop-Mennen is INSIDE its envelope on this hull and was still not used;
+    # a non-empty tuple is the method's own words for why it does not apply.
+    resistance_method: str = ""
+    holtrop_envelope_violations: tuple[str, ...] = ()
     g: dict = field(default_factory=dict)        # constraint -> value, <=0 feasible
     # The COLUMNS of `g`, in order. CONSTRAINT_NAMES when no constitution was
     # compiled — which is the default and is byte-identical to the tuple every
@@ -508,6 +519,34 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
     # time and evaluate() then threw even that away for its own inline
     # `wh_per_nm * 0.30` in the badge dict below. Two copies of 0.30, and the
     # one that reached the badge was the one nothing could narrow.
+    # WHY HOLTROP-MENNEN IS NOT THE MODEL HERE, IN THE METHOD'S OWN WORDS
+    # (gap E1b). The row offers two arms — wire H-M into evaluate(), or route
+    # small craft away from it with an explicit guard — and the MEASUREMENT
+    # picks the second. Over 300 grammar samples (seed 3) floated to the 6 t
+    # default mission, 299 float and only **15 of 299 = 5.0%** satisfy all
+    # three of the method's stated applicability clauses:
+    #
+    #     L/B   min 1.97   med 4.32   max  9.66    band 3.9 - 9.5
+    #     B/T   min 0.84   med 6.96   max 43.73    band 2.1 - 4.0
+    #     Cp    min 0.39   med 0.66   max  0.88    band 0.55 - 0.85
+    #
+    # B/T is the killer: shallow-draft river craft sit at 2-10x the
+    # beam-to-draught of the 1982 merchant/trawler population the regression
+    # was fitted to. Calling it on every dayboat would spend the compute to
+    # produce an `L1H-INVALID` badge on 95% of the search box, and it would put
+    # a ship method within one edit of answering for a boat — the failure this
+    # row is named after. So the envelope is EVALUATED and REPORTED, and the
+    # resistance stays Michell + ITTC-57.
+    #
+    # A BADGE AND NOT A CONSTRAINT ROW, deliberately: an always-satisfied row
+    # occupying an NSGA-II dimension is a defect this repository has already
+    # shipped once (gap E4 deleted four of them). `envelope_violations` does
+    # not raise — `domain_errors`/`total()` do, and neither is called here.
+    _hm_p = particulars_from_floated(
+        lwl=hs.lwl_eff, b=hs.b_wl_max, draught=hs.draft, volume=hs.volume,
+        cb=hs.cb, cp=hs.cp, awp=hs.awp, lcb_pct=hs.lcb_pct_lwl)
+    holtrop_env = holtrop_envelope_violations(_hm_p, res.fn, hs.cp)
+
     en = energy_report(res.total, u, hull.deck_area(), mission.energy,
                        resistance_sigma_n=res.uncertainty)
 
@@ -636,6 +675,11 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
         # can never again be served under a badge that does not say so.
         "wh_per_nm": ("L1", en.sigma_wh_per_nm, en.sigma_basis),
     }
+    # WHICH resistance method answered, and why the other one did not (gap
+    # E1b). Not in `values` below: it is a method receipt, not a quantity, and
+    # it carries the resistance sigma so a reader cannot mistake it for a
+    # second, differently-badged resistance.
+
     # THE SAME DEFECT ON THE OTHER SIDE OF THE BADGE (gap E10). A constraint
     # cannot go nan on its own — it goes nan because the quantity it was
     # computed from did, and that quantity is what gets recorded and served.
@@ -664,6 +708,8 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
         ply_thickness_m=t_ply, unaccounted_frac=unaccounted_frac,
         hull_lwl_m=float(p["LWL"]), rules=rules_rep, params=np.asarray(params),
         eval_ms=(time.perf_counter() - t0) * 1e3, badges=badges,
+        resistance_method="michell+ittc57",
+        holtrop_envelope_violations=holtrop_env,
     )
 
     # GOVERNANCE, LAST AND ADDITIVE. Every physics number above is final before

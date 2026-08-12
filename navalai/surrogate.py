@@ -18,6 +18,7 @@ Honesty rules implemented here:
 
 from __future__ import annotations
 
+import math
 import warnings
 from dataclasses import dataclass, field
 
@@ -803,6 +804,151 @@ def batch_infill(gp, candidates: np.ndarray, y_best: float, k: int,
             f"returned silently is a compute plan that quietly shrinks.",
             out, k)
     return out
+
+
+# ---------------------------------------------------------------------------
+# CALIBRATION (gap I5)
+#
+# Until 2026-08-12 the entire calibration evidence for this module was ONE
+# assertion, `within >= 0.75`, on a 2-sigma band whose nominal coverage is
+# 0.9545. A single point on the coverage curve cannot tell "the band is too
+# wide in the middle" from "the tails are wrong", and it is trivially GAMEABLE:
+# any model reaches any coverage target by inflating sigma. That is why
+# `sharpness` is here and why `calibration` returns it beside the error --
+# this codebase has already shipped one bar a degenerate answer passed
+# (`gci <= 5.0` being true of -27%), and a coverage figure with no sharpness
+# beside it is the same offer.
+#
+# These are DIAGNOSTICS, deliberately not gates. No bar is asserted here, and
+# no bar derived from them is added to `flywheel`'s ratchet in this change: a
+# threshold interpolated from the 0.75 that is already known to be the wrong
+# statistic would be a guess wearing a number (LESSONS defect class 3). They
+# measure; the bars come after someone has looked at what they measure.
+# ---------------------------------------------------------------------------
+
+# Nominal central-interval levels the coverage curve is reported at. Declared
+# once because the curve, its summary error and every test read the same list;
+# 0.9545 is included because it is the 2-sigma level the old single assertion
+# was really asking about, and having it in the curve is what makes the old
+# number comparable to the new one.
+COVERAGE_LEVELS = (0.50, 0.80, 0.90, 0.9545, 0.99)
+
+# Standard-normal quantiles for COVERAGE_LEVELS, i.e. z such that
+# P(|Z| <= z) = level. Derived, not typed: a table of z-values beside a table
+# of levels is a number declared twice and they drift.
+_SQRT2 = math.sqrt(2.0)
+
+
+def _z_for(level: float) -> float:
+    """z with P(|Z| <= level) — the inverse of erf, by bisection.
+
+    scipy.stats is not imported anywhere else in this module and this is two
+    lines; `math.erf` is in the standard library and monotone, so bisection is
+    exact to float precision in ~60 steps.
+    """
+    lo, hi = 0.0, 40.0
+    for _ in range(200):
+        mid = 0.5 * (lo + hi)
+        if math.erf(mid / _SQRT2) < level:
+            lo = mid
+        else:
+            hi = mid
+    return 0.5 * (lo + hi)
+
+
+def _mean_sigma(model, X: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    mean, sig = model.predict(np.atleast_2d(np.asarray(X, float)))
+    return np.asarray(mean, float).ravel(), np.asarray(sig, float).ravel()
+
+
+def pit_values(model, X: np.ndarray, y: np.ndarray) -> np.ndarray:
+    """Probability-integral transform of the observations under the posterior.
+
+    `PIT_i = Phi((y_i - mean_i) / sigma_i)`. If the predictive distribution is
+    right, these are Uniform(0, 1); a U-shape means the bands are too NARROW, a
+    peak in the middle means too WIDE, and a shifted mass means BIAS. It is the
+    only one of these diagnostics that sees dispersion and bias at once, which
+    is why it is first.
+
+    `y` is in the model's OWN target space. The L1 surrogate is fitted on
+    log(Wh/NM), so a caller holding raw Wh/NM must pass `np.log(y)` -- the same
+    space `_metrics` and the coverage assertions use. Mixing the two produces a
+    PIT that is uniformly wrong and looks like a calibration failure.
+    """
+    mean, sig = _mean_sigma(model, X)
+    yv = np.asarray(y, float).ravel()
+    if yv.shape != mean.shape:
+        raise ValueError(
+            f"pit_values: {yv.size} targets against {mean.size} predictions")
+    bad = ~np.isfinite(sig) | (sig <= 0.0)
+    if bad.any():
+        # An unmeasurable calibration point is REFUSED, not scored as 0.5.
+        raise ValueError(
+            f"pit_values: {int(bad.sum())} of {sig.size} predictive sigmas are "
+            f"non-positive or non-finite, so the PIT is undefined there. A "
+            f"model that cannot state its own band cannot be calibrated.")
+    z = (yv - mean) / sig
+    return 0.5 * (1.0 + np.array([math.erf(v / _SQRT2) for v in z]))
+
+
+def coverage_curve(model, X: np.ndarray, y: np.ndarray,
+                   levels=COVERAGE_LEVELS) -> dict[float, float]:
+    """Empirical coverage of the central interval at each NOMINAL level.
+
+    `{0.50: 0.44, 0.80: 0.72, ...}`. A perfectly calibrated model returns the
+    identity. Computed from the PIT so the curve and `pit_values` cannot
+    disagree about what the model said.
+    """
+    p = pit_values(model, X, y)
+    out: dict[float, float] = {}
+    for lv in levels:
+        lo, hi = 0.5 * (1.0 - lv), 0.5 * (1.0 + lv)
+        out[float(lv)] = float(np.mean((p >= lo) & (p <= hi)))
+    return out
+
+
+def sharpness(model, X: np.ndarray) -> float:
+    """Mean predictive sigma over X, in the model's target space.
+
+    Reported WITH coverage, never instead of it and never after it. Coverage
+    alone is satisfiable by any model that widens its band far enough, so a
+    coverage number quoted on its own says nothing about whether the model is
+    useful -- only that it is not overconfident.
+    """
+    _mean, sig = _mean_sigma(model, X)
+    return float(np.mean(sig))
+
+
+def calibration(model, X: np.ndarray, y: np.ndarray,
+                levels=COVERAGE_LEVELS) -> dict:
+    """The whole calibration receipt: curve, scalar error, sharpness, PIT.
+
+    `calibration_error` is the mean |empirical - nominal| over `levels` -- one
+    number a report can carry, with the curve beside it so nobody has to trust
+    the summary. `pit_ks` is the Kolmogorov-Smirnov distance of the PIT from
+    Uniform(0, 1), which catches a mis-shaped predictive distribution that
+    happens to have the right coverage at the levels sampled.
+    """
+    p = pit_values(model, X, y)
+    curve = {}
+    for lv in levels:
+        lo, hi = 0.5 * (1.0 - lv), 0.5 * (1.0 + lv)
+        curve[float(lv)] = float(np.mean((p >= lo) & (p <= hi)))
+    n = p.size
+    srt = np.sort(p)
+    ecdf_hi = np.arange(1, n + 1) / n
+    ecdf_lo = np.arange(0, n) / n
+    ks = float(max(np.max(np.abs(ecdf_hi - srt)), np.max(np.abs(srt - ecdf_lo))))
+    return {
+        "n": int(n),
+        "levels": tuple(float(lv) for lv in levels),
+        "coverage_curve": curve,
+        "calibration_error": float(
+            np.mean([abs(curve[float(lv)] - float(lv)) for lv in levels])),
+        "sharpness": sharpness(model, X),
+        "pit_mean": float(np.mean(p)),
+        "pit_ks": ks,
+    }
 
 
 # ---- the standard multi-fidelity test problem (Forrester et al. 2007) -------

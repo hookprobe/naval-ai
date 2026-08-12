@@ -36,6 +36,7 @@ import math
 import sys
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -476,3 +477,87 @@ def test_the_bracket_is_tested_as_an_expression_not_as_a_b_over_t_limit():
     assert src.count("0.003467 * b / t") == 1, (
         "the B/T term is evaluated in exactly one place, so the guard and the "
         "formula can never disagree about where the bracket turns")
+
+
+def test_the_ladder_names_its_resistance_method_and_why_holtrop_is_not_it():
+    """Gap E1b, and the MEASUREMENT chooses which arm of the row is honest.
+
+    The row offers two: wire Holtrop-Mennen into `evaluate()`, or put an
+    explicit envelope guard there that routes small craft away from it. Over
+    300 `grammar.sample` vectors (seed 3) floated to the 6 t default mission,
+    299 float and only 15 of them — 5.0% — satisfy all three of the method's
+    stated applicability clauses:
+
+        L/B   min 1.97   med 4.32   max  9.66    band 3.9 - 9.5
+        B/T   min 0.84   med 6.96   max 43.73    band 2.1 - 4.0
+        Cp    min 0.39   med 0.66   max  0.88    band 0.55 - 0.85
+
+    B/T is the killer: shallow-draft river craft sit at 2-10x the
+    beam-to-draught of the 1982 merchant/trawler population. Wiring H-M in
+    would spend the compute to produce an `L1H-INVALID` badge on 95% of the
+    search box and would leave a ship method one edit from answering for a
+    boat. So the envelope is EVALUATED and REPORTED and the resistance stays
+    Michell + ITTC-57.
+
+    THE GUARD IS FED THE VERBATIM CASE IT EXISTS TO REJECT — the reference
+    hull, which is outside on two clauses — and the words it produces are the
+    method's own, with the numbers in them.
+    """
+    import math
+
+    from navalai import geometry, grammar
+    from navalai.evaluate import evaluate
+    from navalai.holtrop import (envelope_violations, particulars_from_floated)
+    from navalai.hydrostatics import solve_to_displacement
+    from navalai.mission import MissionSpec
+    from tests.test_phase0 import mid_params
+
+    ev = evaluate(mid_params(), MissionSpec())
+    assert ev.resistance_method == "michell+ittc57"
+    viol = ev.holtrop_envelope_violations
+    assert viol, "the reference hull is measured to be OUTSIDE the envelope"
+    joined = "; ".join(viol)
+    assert "L/B 3.00 outside [3.9, 9.5]" in joined
+    assert "B/T 8.70 outside [2.1, 4.0]" in joined
+    # each clause names its measured value, or "outside the envelope" is not
+    # actionable
+    for v in viol:
+        assert any(ch.isdigit() for ch in v)
+
+    # THE MAPPING IS DERIVED, NOT RETYPED. cm = cb/cp and cwp = Awp/(L B) are
+    # definitions; computing them at the call site is how a number gets
+    # declared twice.
+    hs = ev.hydro
+    p = particulars_from_floated(hs.lwl_eff, hs.b_wl_max, hs.draft, hs.volume,
+                                 hs.cb, hs.cp, hs.awp, hs.lcb_pct_lwl)
+    assert p.cm == pytest.approx(hs.cb / hs.cp)
+    assert p.cwp == pytest.approx(hs.awp / (hs.lwl_eff * hs.b_wl_max))
+    assert p.tf == p.ta == hs.draft            # even keel, stated not assumed
+    assert p.abt == p.at == p.s_app == 0.0
+
+    # THE NEGATIVE CONTROL: a hull INSIDE the envelope reports no violations,
+    # so the guard is a measurement and not a constant.
+    inside = 0
+    total = 0
+    rng = np.random.default_rng(3)
+    m = MissionSpec()
+    for x in grammar.sample(300, rng):
+        try:
+            st, _wl = solve_to_displacement(geometry.Hull(x),
+                                            m.displacement_target_kg)
+        except ValueError:
+            continue
+        total += 1
+        pp = particulars_from_floated(st.lwl_eff, st.b_wl_max, st.draft,
+                                      st.volume, st.cb, st.cp, st.awp,
+                                      st.lcb_pct_lwl)
+        fn = 2.5 / math.sqrt(9.80665 * st.lwl_eff)
+        if not envelope_violations(pp, fn, st.cp):
+            inside += 1
+    assert total == 299, f"{total} of 300 floated; the table above is measured"
+    assert inside == 15, (
+        f"{inside}/{total} hulls are inside the Holtrop envelope, not 15/299 — "
+        f"re-measure the table above rather than loosening this")
+    assert 0.0 < inside / total < 0.10, (
+        "the envelope now admits a real share of the box; if it ever reaches a "
+        "majority, WIRING Holtrop in becomes the honest arm of gap E1b")
