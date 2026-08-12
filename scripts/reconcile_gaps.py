@@ -964,10 +964,42 @@ CHECKS: tuple[Check, ...] = (
                  "assert that python -O strips",
           lambda: defines("navalai/evaluate.py", "constraint_vector")
                   and defines("navalai/evaluate.py", "ConstraintOrderError")),
-    Check("E17", "NU_WATER is re-derived from rho, wetted_surface accounts for "
-                 "longitudinal slope, and offsets_grid includes z = wl",
-          lambda: lacks_code("navalai/geometry.py",
-                        r"np\.linspace\(1\.0, 0\.0, nz, endpoint=False\)")),
+    # E17 WAS THREE CLAUSES BEHIND A ONE-CLAUSE PREDICATE, AND THE CLAUSE IT
+    # TESTED IS THE ONE THAT IS WRONG. Re-verdicted 2026-08-12:
+    #
+    #   1. "NU_WATER is re-derived from rho" -- DONE, and the register text is
+    #      stale. `resistance.nu_water(rho)` interpolates between the two
+    #      ITTC-1957 15 C anchors (NU_FRESH_15C and holtrop.NU_SEA_15C, which
+    #      is imported rather than retyped) and `ittc57_cf` calls it.
+    #   2. "wetted_surface accounts for longitudinal slope" -- LIVE. It sums
+    #      TRANSVERSE girth x dx and no dz/dx term, so the surface is treated
+    #      as if every station's girth extruded straight along x. MEASURED on
+    #      mid_params() against a ruled-panel quad sum: -0.6216% and CONVERGED
+    #      (-0.6175% at 41 stations, -0.6216% at 161 and at 401), i.e. a model
+    #      error, not a discretisation one. R_f is linear in S so it is
+    #      understated by the same fraction.
+    #   3. "offsets_grid includes z = wl" -- REFUTED. It was tried and
+    #      measured: including the endpoint makes R_w worse by +237% at the
+    #      function's default nz and +6.7% at PRODUCTION_GRID, and the excluded
+    #      grid is already converged at every nz. The mechanism is in
+    #      geometry.offsets_grid's docstring. A predicate that demands this is
+    #      a predicate demanding a defect.
+    #
+    # So the predicate now asks clause 2 ALONE, which is the one thing still
+    # outstanding, and E17 correctly stays OPEN rather than closing on a
+    # keyword change that would make the physics worse. The clearing condition
+    # is `wetted_surface` computing a ruled-panel area rather than a girth
+    # integral -- `tests/test_gapfix_physics.py::
+    # test_the_michell_z_grid_must_not_include_the_waterline` pins the
+    # refutation so clause 3 cannot be re-attempted by a reader of the register.
+    Check("E17", "wetted_surface accounts for longitudinal slope (the one live "
+                 "clause of three: NU_WATER is already re-derived from rho, "
+                 "and 'offsets_grid includes z = wl' is REFUTED -- see "
+                 "geometry.offsets_grid)",
+          lambda: defines("navalai/geometry.py", "wetted_surface")
+                  and bool(re.search(
+                      r"np\.cross|ruled|_panel_area|dzdx|dz_dx",
+                      func_code("navalai/geometry.py", "wetted_surface")))),
     Check("E18", "no AST node validator is dead (none returns [] "
                  "unconditionally)",
           lambda: text("navalai/hull_ast.py").count("        return []") == 0),

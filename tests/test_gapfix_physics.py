@@ -378,3 +378,70 @@ def test_the_friction_band_propagates_the_form_factor(ref):
     # the entire point of measuring it.
     assert (form_factor(0.60, 10.0, 3.0, 0.60).sigma_k
             > form_factor(0.55, 10.0, 1.5, 0.60).sigma_k)
+
+
+def test_the_michell_z_grid_must_not_include_the_waterline():
+    """Gap E17 clause 3, REFUTED — and pinned so it is not re-attempted.
+
+    The register asks that `geometry.offsets_grid` include `z = wl`, on the
+    reasoning that the Michell kernel `exp(k0 sec^2(theta) z)` is largest at
+    the surface so stopping short of it throws away the dominant slab. It is
+    superficially right and it is wrong. MEASURED 2026-08-12 on
+    `tests/test_phase0.mid_params` at U = 2.5 m/s, identical grids either side
+    of the keyword, R_w in newtons:
+
+        n_stations   nz    excluded   included    included is
+               161   12     244.03     822.80      +237%
+               161   24     244.09     274.51       +12.5%
+               161   28     243.75     260.10        +6.7%   <- PRODUCTION_GRID
+               161   48     243.95     246.30        +1.0%
+               161   96     244.11     244.38        +0.1%
+
+    The EXCLUDED column is already converged at every nz; the included one
+    walks down to meet it and only arrives near nz = 96. `michell_rw` sweeps
+    theta to 0.998 * pi/2, so `sec` reaches ~318 and `k0 sec^2` ~1.6e5: the
+    kernel's decay scale at the last theta node is SIX MICRONS. A trapezoid
+    whose top interval is 4.5 mm wide, integrand 1 at z = 0 and ~0 at the node
+    below, invents half of 4.5 mm x 1 for an integral 6 um wide.
+
+    This test is the fence. It asserts the grid EXCLUDES the waterline and that
+    including it is measurably worse — so a future reader of the register
+    cannot land the clause and see nothing fail.
+    """
+    import numpy as np
+
+    from navalai import geometry
+    from navalai.resistance import PRODUCTION_GRID, michell_rw
+    from tests.test_phase0 import mid_params
+
+    nstat, nz = PRODUCTION_GRID["n_stations"], PRODUCTION_GRID["nz"]
+    h = geometry.Hull(mid_params(), n_stations=nstat)
+    _x, zs, _Y = h.offsets_grid(nz, 0.0)
+    assert zs[-1] < 0.0, "the shallowest node must sit BELOW the waterline"
+    assert zs[-1] == pytest.approx(-7.015e-4, rel=1e-3)
+
+    def _rw(endpoint: bool) -> float:
+        z0 = min(float(h.z_keel.min()), -1e-6)
+        s = np.linspace(1.0, 0.0, nz, endpoint=endpoint)
+        grid = np.sort((z0 - 0.0) * s ** 2)
+        Y = np.array([[geometry._halfbreadth_at(h.section(i), z) for z in grid]
+                      for i in range(h.n_stations)])
+        return michell_rw(h.x, grid, Y, 2.5)
+
+    excluded, included = _rw(False), _rw(True)
+    assert excluded == pytest.approx(243.75, rel=2e-3)
+    assert included == pytest.approx(260.10, rel=2e-3)
+    assert included > 1.05 * excluded, (
+        "including z = wl is no longer measurably worse at PRODUCTION_GRID; "
+        "re-measure the table above before changing offsets_grid")
+    # ...and the excluded grid is the CONVERGED one, which is the whole
+    # argument: it is not a truncation, it is the usable quadrature.
+    fine = 96
+    z0 = min(float(h.z_keel.min()), -1e-6)
+    s = np.linspace(1.0, 0.0, fine, endpoint=False)
+    grid = np.sort((z0 - 0.0) * s ** 2)
+    Y = np.array([[geometry._halfbreadth_at(h.section(i), z) for z in grid]
+                  for i in range(h.n_stations)])
+    converged = michell_rw(h.x, grid, Y, 2.5)
+    assert abs(excluded - converged) / converged < 0.01
+    assert abs(included - converged) / converged > 0.05

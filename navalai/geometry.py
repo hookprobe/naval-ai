@@ -202,6 +202,44 @@ class Hull:
 
         z points cluster quadratically toward the waterline (the Michell
         kernel decays fastest there — see benchmarks/wigley.py convergence).
+
+        z = wl IS DELIBERATELY EXCLUDED, AND GAP E17's THIRD CLAUSE ASKING FOR
+        IT IS REFUTED BY MEASUREMENT (2026-08-12). The clause reads "offsets_
+        grid includes z = wl" and the reasoning is superficially right: the
+        Michell kernel `exp(k0 sec^2(theta) z)` is largest at the surface, so
+        stopping the interval short of it looks like throwing away the
+        dominant slab. It was tried, measured, and it makes the answer WORSE by
+        a factor of three.
+
+        MEASURED on `tests/test_phase0.mid_params` at U = 2.5 m/s, identical
+        grids either side of the keyword, R_w in newtons:
+
+            n_stations   nz    excluded   included    included is
+                   161   12     244.03     822.80      +237%
+                   161   24     244.09     274.51       +12.5%
+                   161   28     243.75     260.10        +6.7%   <- PRODUCTION
+                   161   48     243.95     246.30        +1.0%
+                   161   96     244.11     244.38        +0.1%
+                    41   12     227.95     776.31      +241%
+                    41   28     233.29     251.14        +7.6%
+
+        THE EXCLUDED COLUMN IS ALREADY CONVERGED at every nz; the included one
+        walks down to meet it and only arrives near nz = 96. The mechanism is
+        the theta sweep: `sec` reaches ~318 at the last theta node, so
+        `k0 sec^2` is ~1.6e5 and the kernel's decay scale there is SIX MICRONS.
+        A trapezoid whose top interval is 4.5 mm wide, with the integrand equal
+        to 1 at z = 0 and ~0 at the node below it, invents half of
+        4.5 mm x 1 of contribution for an integral whose true width is 6 um.
+        Excluding the endpoint puts the first node just under the surface,
+        where the true value is already small, and the quadratic clustering
+        (`s**2`) then resolves the low-theta contributions that actually have
+        a z-scale of 1/k0 = 0.64 m.
+
+        So this is not a truncated interval; it is the mitigation that makes a
+        clustered trapezoid usable against a kernel whose width varies by five
+        orders of magnitude across the theta sweep. The honest fix for the
+        remaining 0.1% would be an analytic treatment of the near-surface
+        layer, not a grid node at z = 0.
         """
         z0 = min(float(self.z_keel.min()), -1e-6)
         s = np.linspace(1.0, 0.0, nz, endpoint=False)
