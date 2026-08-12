@@ -474,6 +474,32 @@ triangulation with no decimation** — top, side, front, isometric, then true-sc
 zooms on the last and first 7% of the length coloured by `log10(edge / hull
 cell)`. `stl_forensics.render_facets` produced them.
 
+**THE PNGs ARE ARM A, AND THEY ARE NO LONGER IN THE REPOSITORY.** They were
+rendered at 14:53 on 2026-08-12 and committed at 15:41, but `bbf1a47` — the
+chine row — landed at 15:22 BETWEEN those two times. So the images show the
+SUPERSEDED surface while sitting in a document whose primary arm is now the
+other one, and nothing in the file said so.
+
+They were also 2.7 MB of reproducible binary in git, which is gap J6 exactly:
+`.gitignore` already records that `renders/` "held 9 committed PNGs (~2.3 MB)
+of CFD output that is reproducible" and gitignores it. `docs/research/` was
+simply not covered by that rule. It is now. Regenerate any of them with:
+
+```python
+from navalai.admissibility import _pipeline_scales
+from navalai.evaluate import sample_valid
+from navalai.geometry import Hull
+from navalai.mission import MissionSpec
+from navalai.stl_forensics import render_facets
+X, _ = sample_valid(25, MissionSpec(), seed=0)
+h = Hull(X[4])
+render_facets(h, "docs/research/stl-hull04.png", nx=600, nz=120,
+              cell=_pipeline_scales(float(h.x[-1]))["cell"], title="hull 4")
+```
+
+which renders the CURRENT surface — so a regenerated image can never silently
+be a picture of a geometry the code no longer produces.
+
 What they show, and it is worth more than the metric table:
 
 - **The two transom panels are the picture of §2.5.** The deck lid and the
@@ -535,7 +561,10 @@ and after the run and were **unchanged across it**
 (`geometry.py` = `9d4349362ae1`, which is `bbf1a47`'s), so the second arm is a
 measurement of one tree, not of a moving one.
 
-What the change does to the surface (arm A = committed, arm B = chine row):
+What the change does to the surface (arm A = PRE-bbf1a47, arm B = the chine
+row, which IS the committed surface — the parenthetical here read
+"arm A = committed" until 2026-08-12 and contradicted the sentence three lines
+above it, which records the second arm hashing to `bbf1a47`'s `geometry.py`):
 
 | | arm A | arm B |
 |---|---|---|

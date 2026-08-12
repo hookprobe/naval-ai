@@ -65,3 +65,19 @@ data/evolution/
 # docs/research/BLENDER.md. Tracking them would dirty the tree on every run,
 # which data/exports/* already taught this repository once.
 data/blender/
+
+# Gap J6, SECOND OCCURRENCE. `docs/research/*.png` held 2.7 MB of hull-facet
+# renders that are reproducible from `stl_forensics.render_facets` — the same
+# defect the `renders/` rule above already records, in a directory that rule
+# did not cover.
+#
+# MEASURED 2026-08-12, and it is why this is not merely about repository size:
+# stl-hull04/08/14.png were rendered at 14:53 and committed at 15:41, while
+# `bbf1a47` (the chine row) landed at 15:22 BETWEEN them. The committed images
+# were therefore pictures of a surface the code had already stopped producing,
+# in a document that cites them as evidence. A binary artifact cannot carry a
+# diff, so nothing could have shown that it had gone stale.
+#
+# docs/research/STL.md carries the command that regenerates them from the
+# CURRENT geometry.
+docs/research/*.png
