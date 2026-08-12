@@ -87,7 +87,13 @@ def test_a_hull_in_scope_is_assessed_exactly_as_before():
                                             displacement_target_kg=5000))
     findings = stability(ev, "D", crew=2, beam_m=3.0)
     assert [f.rule_id for f in findings] == ["R-CAT", "R-DFH", "R-GM", "R-OLH"]
-    assert report(findings)["unreviewed_bases"] == []
+    # R-GM is basis='approx' since 2026-08-12: ISO 12217-1:2015 contains NO
+    # absolute metacentric requirement (a regex sweep of all 86 pages returns
+    # zero hits), so the GM floor is ours. It stays as an L1 feasibility bar
+    # but must be DECLARED unreviewed — a report claiming no unreviewed bases
+    # while carrying it would imply ISO backing for a number ISO does not have,
+    # which is the exact defect this test was written to prevent.
+    assert report(findings)["unreviewed_bases"] == ["R-GM"]
 
 
 def test_an_unreadable_length_refuses_instead_of_assessing():

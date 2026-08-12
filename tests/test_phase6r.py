@@ -35,8 +35,16 @@ from navalai.rules.review import (NOT_FROM_STANDARD, REVIEW, basis_for,
 
 def test_every_implemented_rule_has_a_review_verdict():
     implemented = {"R-CAT", "R-DFH", "R-GM", "R-OLH", "R-PBM", "R-TBM"}
-    missing = implemented - set(REVIEW["confirmed"])
+    # A verdict is EITHER confirmed OR an explicit reason for not being. A rule
+    # in neither set is an oversight; a rule in `unconfirmed` is a decision,
+    # and three moved there on 2026-08-12 when the 2015 text was first read.
+    verdicts = set(REVIEW["confirmed"]) | set(REVIEW["unconfirmed"])
+    missing = implemented - verdicts
     assert not missing, f"no review verdict recorded for {sorted(missing)}"
+    assert not (set(REVIEW["confirmed"]) & set(REVIEW["unconfirmed"])), (
+        "a rule cannot be both confirmed and unconfirmed")
+    for rule, why in REVIEW["unconfirmed"].items():
+        assert len(why) > 80, f"{rule}: 'not confirmed' without a reason"
 
 
 def test_the_record_names_a_reviewer_and_a_date():
@@ -58,8 +66,14 @@ def test_the_record_cannot_yet_name_the_editions_it_checked():
                      "navalai/gates.py, delete its data/gate-ledger.json entry, "
                      "and invert this test")
     assert not is_complete()
-    for standard in ("ISO 12217-1", "ISO 12215-5"):
-        assert any(d.startswith(standard) for d in defects)
+    # HALF CLOSED 2026-08-12. ISO 12217-1:2015 (Third edition, 2015-10-15) was
+    # obtained and read, and R-OLH and R-DFH were corrected against it — so
+    # 12217-1 no longer has an edition defect. 12215-5 still does: no citable
+    # copy is held, and its thresholds are measured to be the wrong SHAPE, not
+    # merely uncalibrated (see REVIEW["unconfirmed"]).
+    assert not any(d.startswith("ISO 12217-1") for d in defects), (
+        "ISO 12217-1's edition is recorded; this half is closed")
+    assert any(d.startswith("ISO 12215-5") for d in defects)
 
 
 def test_a_properly_filled_record_does_complete():
@@ -79,7 +93,10 @@ def test_an_undated_edition_is_not_an_edition():
 
 
 def test_basis_comes_from_the_record_not_the_source():
-    assert basis_for("R-GM") == "standard"
+    assert basis_for("R-OLH") == "standard"       # confirmed vs the 2015 text
+    assert basis_for("R-GM") == "approx", (
+        "R-GM has no basis in ISO 12217-1:2015 at all — zero hits for an "
+        "absolute metacentric requirement across 86 pages")
     assert basis_for("R-NOT-A-RULE") == "approx", (
         "an unreviewed rule must never report basis='standard'")
 

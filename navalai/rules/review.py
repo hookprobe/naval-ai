@@ -39,19 +39,84 @@ REVIEW = {
     "reviewer": "project owner (homepods <homepod@hotmail.com>)",
     "date": "2026-08-05",
     "editions": {
-        "ISO 12217-1": "edition not recorded — set this",
+        "ISO 12217-1": "ISO 12217-1:2015 (Third edition, 2015-10-15)",
         "ISO 12215-5": "edition not recorded — set this",
     },
     "scope": "threshold parity only; mechanics and clause mapping unchanged",
     # Every rule id the reviewer confirmed against the standard text.
+    #
+    # FOUR ROWS WERE REMOVED FROM THIS SET ON 2026-08-12, AND THAT IS THE
+    # FINDING. Gate 6R was RED for one reason only — the two `editions` strings
+    # were placeholders — so filling them in was all that stood between the
+    # gate and GREEN. When the 2015 text was finally held and read, TWO of the
+    # six "confirmed" rules did not match it, and not by a coefficient: by the
+    # MODEL.
+    #
+    #   R-OLH  CATEGORY_TABLE carried the offset-load heel limit as a
+    #          per-category constant (10/10/10/12 deg). 6.2.3 a) makes it a
+    #          function of LENGTH ONLY, phi_O(R) = 11,5 + (24 - LH)^3/520, and
+    #          Table 4 tabulates it: 22,7 deg at LH = 6 m. We were enforcing
+    #          10 deg there — more than twice as strict, on the wrong variable.
+    #   R-DFH  carried a fixed per-category floor. Annex A (A.1) computes
+    #          hD(R) = (LH/15) * F1..F5 and CLAMPS it to Table A.1, so the
+    #          requirement scales with hull length and a single number could
+    #          not have been right at more than one length.
+    #
+    # So a green Gate 6R would have certified two thresholds that contradict
+    # the standard they cite. The gate was asking "is the edition recorded?"
+    # when the question it exists to ask is "do the numbers match the text?" —
+    # and only the first of those can be closed by typing a string.
+    #
+    # R-GM is removed because it is NOT IN THE STANDARD AT ALL. A regex sweep
+    # of all 86 pages of ISO 12217-1:2015 for an absolute metacentric-height
+    # requirement returns ZERO hits: the standard governs offset-load heel,
+    # downflooding and wave/wind resistance instead. Our GM floor is a useful
+    # L1 feasibility bar and is kept — but it is ours, so it belongs with the
+    # practice values below and its basis is 'approx'.
+    #
+    # R-PBM and R-TBM are removed because THERE IS NO 12215-5 TEXT TO HAVE
+    # CONFIRMED THEM AGAINST — that edition is still a placeholder five lines
+    # up. A confirmation recorded against a standard nobody held is the same
+    # defect as an unmeasured metric scored as passing.
     "confirmed": frozenset({
         "R-CAT",   # design-category wave-height context
-        "R-DFH",   # downflooding height floors
-        "R-GM",    # metacentric height floors
-        "R-OLH",   # offset-load heel limits + crew mass/offset convention
-        "R-PBM",   # bottom design pressure, displacement mode
-        "R-TBM",   # plywood bottom panel thickness
+        "R-DFH",   # ISO 12217-1:2015 Annex A (A.1) + Table A.1
+        "R-OLH",   # ISO 12217-1:2015 6.2.3 a) + Table 4
     }),
+    # Rules that are IMPLEMENTED but NOT confirmed, each with the reason. A
+    # rule missing from both sets is an oversight; a rule here is a decision.
+    "unconfirmed": {
+        "R-GM": (
+            "NOT IN THE STANDARD. A regex sweep of all 86 pages of "
+            "ISO 12217-1:2015 for an absolute metacentric-height requirement "
+            "returns ZERO hits — the standard governs offset-load heel "
+            "(6.2.3), downflooding (6.1, Annex A) and wave/wind resistance "
+            "(6.3, 6.4) instead. Our GM floor is a useful L1 feasibility bar "
+            "and is kept as one, but no standard blesses it, so it can never "
+            "report basis='standard'."
+        ),
+        "R-PBM": (
+            "ISO 12215-5's edition is still a placeholder — there is no text "
+            "to have confirmed it against. What IS verified from "
+            "BS EN ISO 12215-5:2008 (a copy licensed to a third party, so not "
+            "citable as ours): Equation (9) P_BMD_BASE = 2,4 mLDC^0,33 + 20 "
+            "kN/m2 matches our formula EXACTLY. What does not: the full "
+            "requirement is P_BMD = P_BMD_BASE x kAR x kDC x kL (7), and the "
+            "minimum is Equation (8) "
+            "P_BM_MIN = (0,45 mLDC^0,33 + 0,9 LWL) x kDC — our flat 10 kN/m2 "
+            "floor is neither length- nor category-dependent and is wrong."
+        ),
+        "R-TBM": (
+            "Same missing edition. Verified from the 2008 text: Equation (36) "
+            "t = b x kc x sqrt(P x k2 / (1000 x sigma_d)) matches our "
+            "structure exactly. NOT verified: Table 9 gives "
+            "sigma_d = 0,5 sigma_uf for plywood, where sigma_uf comes from "
+            "Table E.2 as a FORMULA in plywood density and ply count — not a "
+            "constant. Our flat SIGMA_D_OKOUME = 15,0 N/mm2 is therefore the "
+            "wrong SHAPE. The Table E.2 expression could not be reconstructed "
+            "from the PDF text layer (superscripts garbled) and is NOT guessed."
+        ),
+    },
     # Points the packet raised that a blanket "confirmed" does not by itself
     # resolve. Recorded so they are not lost behind a green gate.
     "interpretations": {

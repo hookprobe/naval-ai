@@ -194,8 +194,15 @@ def test_the_rules_tier_alone_can_refuse_a_design():
         ev_a.violations
     assert ev_a.hydro.freeboard_min == pytest.approx(0.597, abs=0.01)
 
-    # NEGATIVE CONTROL: same hull, category C, downflooding floor 0.35 m.
-    ev_c = evaluate(x, MissionSpec(design_category="C"))
+    # NEGATIVE CONTROL: same hull, category D. WAS category C until
+    # 2026-08-12, and the change is the point: ISO 12217-1:2015 Annex A makes
+    # the required downflooding height hD(R) = (LH/15) x F1..F5 clamped to
+    # Table A.1, so it SCALES WITH LENGTH. This hull is 13.45 m, giving 0.897 m
+    # for A and B and 0.750 m (the Table A.1 ceiling) for C — against 0.597 m
+    # of freeboard, so C now fails too. The old fixed floors (0.65/0.50/0.35 m)
+    # were length-blind and let a 13 m hull through category C on a number
+    # sized for a 6 m one. D clamps to 0.400 m and still passes.
+    ev_c = evaluate(x, MissionSpec(design_category="D"))
     assert ev_c.ok and ev_c.violations == () and ev_c.g["rules"] < 0.0
 
 
@@ -211,7 +218,7 @@ def test_the_rules_constraint_is_a_margin_the_optimizer_can_descend():
     for ev in (fail, ok):
         assert "rules" in ev.g and np.isfinite(ev.g["rules"])
     # the shortfall is 0.65 - 0.597 = 53 mm on a 0.65 m bar, i.e. ~8%
-    assert fail.g["rules"] == pytest.approx(0.081, abs=0.01)
+    assert fail.g["rules"] == pytest.approx(0.334, abs=0.01)
     assert ok.g["rules"] < 0.0
 
 

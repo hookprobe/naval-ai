@@ -37,7 +37,13 @@ def test_reference_hull_assessed_category_d():
     from navalai.rules.review import basis_for
     for f in rep["findings"]:
         assert f["basis"] == basis_for(f["rule_id"]), f
-    assert rep["unreviewed_bases"] == []
+    # R-GM CARRIES basis='approx' AND MUST SHOW UP HERE. Changed 2026-08-12:
+    # a sweep of all 86 pages of ISO 12217-1:2015 finds NO absolute metacentric
+    # requirement, so the GM floor is ours, not ISO. It stays as an L1
+    # feasibility bar but it can never report 'standard', and a report that
+    # listed no unreviewed bases while carrying it would be claiming ISO
+    # backing for a number ISO does not contain.
+    assert rep["unreviewed_bases"] == ["R-GM"], rep["unreviewed_bases"]
     assert "NOT CERTIFICATION" in rep["disclaimer"]
 
 
@@ -60,8 +66,20 @@ def test_crowded_rail_flips_offset_load():
     by_ok = {f.rule_id: f for f in ok}
     by_cr = {f.rule_id: f for f in crowded}
     assert by_cr["R-OLH"].measured > by_ok["R-OLH"].measured
-    # 12 people on the rail of a 3.2 m boat should at least approach the limit
-    assert by_cr["R-OLH"].measured > 0.5 * by_cr["R-OLH"].required
+    # THE "approach the limit" HEURISTIC WAS CALIBRATED AGAINST A BAR THAT WAS
+    # TWICE TOO STRICT. Until 2026-08-12 the limit was a per-category constant
+    # (12 deg for category D); ISO 12217-1:2015 6.2.3 a) makes it a function of
+    # LENGTH only, phi_O(R) = 11,5 + (24 - LH)^3/520, which for this hull is
+    # 16.78 deg. 12 crew on a 3.2 m beam heel it 6.81 deg — comfortably inside
+    # the real limit, which is the correct answer, not a regression. What is
+    # actually invariant is that crowding MOVES the heel and that the bar is
+    # the ISO one, so that is what is asserted.
+    import math
+    from navalai.rules.iso12217 import offset_load_heel_limit_deg
+    lh = 10.0
+    assert by_cr["R-OLH"].required == pytest.approx(
+        offset_load_heel_limit_deg(lh), abs=0.5), by_cr["R-OLH"].required
+    assert by_cr["R-OLH"].passed, "6.8 deg is well inside the 16.8 deg ISO bar"
 
 
 def test_unfloatable_hull_fails_closed():

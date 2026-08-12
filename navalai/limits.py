@@ -21,11 +21,40 @@ from __future__ import annotations
 # Values carry basis='approx' where they are practice figures rather than
 # licensed standard text — see rules/ for the per-finding provenance and the
 # PURCHASE queue that upgrades them.
+# Column 2 (downflooding) and column 4 (offset-load heel) are the ISO 12217-1
+# LIMITS, not the requirement itself: both requirements are FORMULAS in the
+# standard and are computed in `rules/iso12217.py`.
+#
+# CORRECTED 2026-08-12 against ISO 12217-1:2015 (Third edition, 2015-10-15),
+# Annex A Table A.1 and Table 4. The previous values were engineering-practice
+# stand-ins with the WRONG MODEL, not merely the wrong numbers:
+#
+#   downflooding was a fixed per-category floor (0.65 / 0.50 / 0.35 / 0.25 m).
+#   The standard computes hD(R) = (LH/15) * F1*F2*F3*F4*F5 (A.1) and then
+#   CLAMPS it to Table A.1. So the requirement scales with hull length and the
+#   old column could not have been right at more than one length.
+#
+#   offset-load heel was a per-CATEGORY constant (10/10/10/12 deg). The
+#   standard makes it a function of LENGTH ONLY (6.2.3 a):
+#   phi_O(R) = 11.5 + (24 - LH)^3 / 520. A 6 m boat is allowed 22.7 deg, not
+#   10 -- the old bar was more than twice as strict at the small end and the
+#   category played no part in it at all.
+#
+# Column 3 (GM floor) is OURS. Nothing in 12217-1:2015 sets an absolute
+# metacentric floor -- it governs offset-load heel, downflooding and
+# wave/wind resistance instead -- so R-GM is listed in review.NOT_FROM_STANDARD
+# and its basis is 'approx'. It is kept because a GM floor is a useful L1
+# feasibility bar, not because a standard demands it.
+#
+# Table A.1 columns are (min, max) per category, taking the option-1 column for
+# A, options 1+3 for B, and options 2/4/5 for C and D -- we do not model the
+# six assessment options, so the more common column is used and said out loud.
+# D under options 2/4/5 has max 0.4 m; D under option 6 has no upper limit.
 CATEGORY_TABLE: dict[str, tuple[float, float, float, float]] = {
-    "A": (4.0, 0.65, 0.60, 10.0),
-    "B": (4.0, 0.50, 0.50, 10.0),
-    "C": (2.0, 0.35, 0.45, 10.0),
-    "D": (0.3, 0.25, 0.35, 12.0),
+    "A": (4.0, 0.50, 0.60, 1.41),
+    "B": (4.0, 0.40, 0.50, 1.41),
+    "C": (2.0, 0.30, 0.45, 0.75),
+    "D": (0.3, 0.20, 0.35, 0.40),
 }
 
 # Minimum freeboard [m] used as an L1 feasibility floor and an optimizer

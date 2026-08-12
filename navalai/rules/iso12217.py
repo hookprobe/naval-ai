@@ -59,6 +59,56 @@ SUB_SCOPE_STANDARD = "ISO 12217-3"
 OFFSET_FRACTION = 0.40  # crew CG offset as fraction of beam (approx)
 
 
+def offset_load_heel_limit_deg(lh_m: float) -> float:
+    """Maximum permitted offset-load heel angle [deg], ISO 12217-1:2015 6.2.3 a).
+
+        phi_O(R) = 11,5 + (24 - LH)^3 / 520
+
+    VERIFIED against the standard's own Table 4 ("Maximum permitted heel angle
+    for offset-load test for different lengths of hull"):
+
+        LH (m)      6.0    7.0    8.0    9.0   10.0   12.0   15.0  18.0  21.0  24.0
+        Table 4    22.7   20.9   19.4   18.0   16.8   14.8   12.9  11.9  11.6  11.5
+        formula    22.72  20.95  19.38  17.99  16.78  14.82  12.90 11.92 11.55 11.50
+
+    Every column agrees to the rounding the table is printed at.
+
+    THE LIMIT DOES NOT DEPEND ON DESIGN CATEGORY. `CATEGORY_TABLE` carried it
+    as a per-category constant (10/10/10/12 deg) until 2026-08-12, which is the
+    wrong MODEL and not just the wrong number: at LH = 6 m the standard allows
+    22.7 deg against the 10 deg we were enforcing, so the old bar was more than
+    twice as strict at the small end and category-dependent where the standard
+    is not.
+    """
+    return 11.5 + (24.0 - float(lh_m)) ** 3 / 520.0
+
+
+def downflooding_height_required_m(lh_m: float, category: str,
+                                   f1: float = 1.0, f2: float = 1.0,
+                                   f3: float = 1.0, f4: float = 1.0,
+                                   f5: float = 1.0) -> float:
+    """Required downflooding height [m], ISO 12217-1:2015 Annex A (normative).
+
+        hD(R) = H1 * F1 * F2 * F3 * F4 * F5,   H1 = LH/15        (A.1)
+
+    then CLAMPED to Table A.1, whose limits are per design category (and per
+    assessment option, which we do not model -- see limits.CATEGORY_TABLE).
+
+    The five factors need per-boat opening geometry the ladder does not carry:
+    F1 the opening POSITION factor (0,5..1,0), F2 the opening SIZE factor
+    (0,6..1,0), F3 the recess factor, F4 displacement, F5 flotation option. All
+    default to 1,0, which is the MOST DEMANDING value of each -- so the number
+    returned is a conservative bound and a boat that passes it passes with any
+    real opening layout. Declaring real openings can only lower it.
+    """
+    from ..limits import CATEGORY_TABLE
+    if category not in CATEGORY_TABLE:
+        raise ValueError(f"unknown design category {category!r}")
+    _hs, lo, _gm, hi = CATEGORY_TABLE[category]
+    h = (float(lh_m) / 15.0) * f1 * f2 * f3 * f4 * f5
+    return float(min(max(h, lo), hi))
+
+
 def hull_length_m(ev: "Evaluation") -> float | None:
     """The length the scope test is decided on, or None if there isn't one.
 
@@ -84,7 +134,7 @@ def assess(ev: "Evaluation", category: str, crew: int,
            beam_m: float, length_m: float | None = None) -> list[RuleFinding]:
     if category not in CATEGORY_TABLE:
         raise ValueError(f"unknown design category {category!r}")
-    hs, dfh_req, gm_req, heel_max = CATEGORY_TABLE[category]
+    hs, _dfh_lo, gm_req, _dfh_hi = CATEGORY_TABLE[category]
     out: list[RuleFinding] = []
 
     # ---- R-SCP: does this standard govern this hull? (gap G8) --------------
@@ -127,10 +177,14 @@ def assess(ev: "Evaluation", category: str, crew: int,
 
     dfh = ev.hydro.freeboard_min   # lowest opening assumed at sheer (conservative
     # only if no lower openings exist — recorded in the note)
+    dfh_req = downflooding_height_required_m(lh, category)
     out.append(RuleFinding(
-        "R-DFH", "ISO 12217-1 §6.2 (downflooding height)", basis_for("R-DFH"),
+        "R-DFH", "ISO 12217-1:2015 Annex A (A.1) + Table A.1 (downflooding "
+        "height)", basis_for("R-DFH"),
         dfh >= dfh_req, dfh, dfh_req, "m",
-        "lowest opening assumed at sheer line; declare real openings to tighten"))
+        f"hD(R) = LH/15 clamped to Table A.1 for category {category}; all five "
+        f"correction factors at their most demanding 1.0 (no openings "
+        f"declared); lowest opening assumed at the sheer line"))
 
     out.append(RuleFinding(
         "R-GM", "ISO 12217-1 annex (metacentric floor, practice value)",
@@ -141,8 +195,12 @@ def assess(ev: "Evaluation", category: str, crew: int,
     b = OFFSET_FRACTION * beam_m
     sin_phi = min(m_crew * b / max(ev.hydro.disp_kg * ev.gm_m, 1e-9), 1.0)
     phi = math.degrees(math.asin(sin_phi))
+    heel_max = offset_load_heel_limit_deg(lh)
     out.append(RuleFinding(
-        "R-OLH", "ISO 12217-1 §6.3 (offset load test)", basis_for("R-OLH"),
+        "R-OLH", "ISO 12217-1:2015 6.2.3 a) + Table 4 (offset-load test)",
+        basis_for("R-OLH"),
         phi <= heel_max, phi, heel_max, "deg",
-        f"{crew} crew x {CREW_MASS_KG:.0f} kg at {b:.2f} m offset"))
+        f"{crew} crew x {CREW_MASS_KG:.0f} kg at {b:.2f} m offset; "
+        f"phi_O(R) = 11.5 + (24 - {lh:.2f})^3/520 = {heel_max:.2f} deg, "
+        f"a function of LENGTH only — not of design category"))
     return out
