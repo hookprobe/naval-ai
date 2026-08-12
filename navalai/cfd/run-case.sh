@@ -120,6 +120,84 @@ else
 fi
 rm -rf constant/polyMesh constant/extendedFeatureEdgeMesh processor*
 
+# THE SURFACE IS CHECKED BEFORE ANYTHING SNAPS TO IT. Until 2026-08-12 this
+# pipeline ran `surfaceCheck` NOWHERE — the string appears in the Blender
+# comparison scripts and in CLAUDE.md's advice, and in no code that meshes a
+# hull. So every case this project has generated snapped to an unverified
+# surface, and the two checks that CLAUDE.md names as mandatory
+# ("run surfaceCheck -checkSelfIntersection; plain surfaceCheck calls a broken
+# surface fine") had never run on our own hulls at all.
+#
+# SELF-INTERSECTIONS ARE FATAL, and the flag matters: plain `surfaceCheck`
+# reports a self-intersecting surface as clean, which is why the long form is
+# spelled out here rather than left to a default.
+#
+# Cost is ~1 s against a mesh measured in minutes, so this is not a trade.
+# It is EXPECTED to pass on our own hulls — trimesh, PyMeshLab and Open3D each
+# find zero self-intersections across all 25 (commit 749801c) — and that is the
+# point: a guard whose first run is the day it fires is a guard nobody trusts.
+if command -v surfaceCheck >/dev/null 2>&1; then
+  say "surfaceCheck -checkSelfIntersection ..."
+  surfaceCheck -checkSelfIntersection constant/triSurface/hull.stl \
+      > log.surfaceCheck 2>&1 || true
+  # THE PATTERN IS OPENFOAM'S ACTUAL WORDING, and `|| true` is load-bearing.
+  # MEASURED 2026-08-12, by breaking the campaign with the first draft of this
+  # block: the pattern was "Found N self-intersection", v2606 writes
+  # "Surface is self-intersecting at N locations.", so grep matched nothing,
+  # exited 1, and under `set -euo pipefail` a failing command substitution in
+  # an assignment KILLS THE SCRIPT. Campaign hulls 63 and 64 died at 1.2 s with
+  # no log.blockMesh and were recorded `mesh-build-failed` — a guard that
+  # refused two hulls for a defect in its own grep.
+  _SI=$(grep -oE "self-intersecting at [0-9]+ location" log.surfaceCheck 2>/dev/null \
+        | grep -oE "[0-9]+" | head -1) || true
+  # A RECEIPT, NOT A REFUSAL, AND THE DATA SAYS WHY. The first draft made a
+  # non-zero count FATAL. MEASURED 2026-08-12 across the seed-0 batch, with
+  # self-intersection count against wrongly-oriented faces in the finished
+  # mesh:
+  #
+  #     hull   self-intersections   wrongly-oriented faces
+  #     h008          237                    0
+  #     h000           42                    0
+  #     h063           35                    (never meshed)
+  #     h059            9                    2
+  #     h039            8                    2
+  #     h004            3                    0
+  #
+  # The hull with the MOST self-intersections meshes perfectly and the two with
+  # the fewest are the two misses. The relationship is absent, if anything
+  # inverted — so a fatal bar here would have refused hulls that mesh clean,
+  # which is a bar calibrated against nothing. Same shape as the STL forensics
+  # result (commit 749801c): STL metrics do not separate mesh outcomes.
+  #
+  # OpenFOAM counts contacts the segment-based Python checks skip (coplanar and
+  # shared-edge touches at the deck lid, transom and stem caps), which is the
+  # likely reason trimesh/PyMeshLab/Open3D each report ZERO on these same
+  # hulls. That disagreement is worth recording and is NOT worth refusing on.
+  #
+  # `stl_watertight_report` in write_resistance_case stays FATAL, because an
+  # open shell is a different simulation (water inside the hull), not a
+  # quality metric.
+  if grep -q "Checking self-intersection" log.surfaceCheck 2>/dev/null; then
+    _SI="${_SI:-0}"
+  else
+    # The check did not run. UNMEASURED, never assumed zero — the ${VAR:-0}
+    # lesson that this file already learned the expensive way.
+    _SI="UNMEASURED"
+    say "NOTE: surfaceCheck did not reach the self-intersection check"
+  fi
+  say "surface: self-intersections $_SI (RECORDED, not a bar — see comment)"
+  _CLOSED=$(grep -c "Surface is closed" log.surfaceCheck 2>/dev/null) || true
+  if [ "${_CLOSED:-0}" -eq 0 ]; then
+    say "FATAL: surfaceCheck does not report hull.stl as closed."
+    say "       An open shell floods the interior and yields a complete,"
+    say "       plausible, meaningless force history."
+    [ "$FORCE" = "1" ] || exit 1
+  fi
+  printf 'stl_self_intersections=%s\nstl_closed=yes\n' "$_SI" >> case.info
+else
+  say "NOTE: surfaceCheck not on PATH — surface NOT verified before meshing"
+fi
+
 say "blockMesh ..."
 blockMesh > log.blockMesh 2>&1
 say "surfaceFeatureExtract ..."

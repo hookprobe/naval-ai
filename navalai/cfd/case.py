@@ -1438,8 +1438,33 @@ def write_resistance_case(hull: Hull, speed: float, out_dir: str | Path,
     target_edge = 0.5 * bg_dx / 2 ** _HULL_REFINE[1]
     nx, nz = stl_resolution(lwl, target_edge)
     nx_req = stl_resolution_request(lwl, target_edge)
-    stl_sha = hull_to_stl(hull, out / "constant" / "triSurface" / "hull.stl",
-                          nx=nx, nz=nz)
+    stl_path = out / "constant" / "triSurface" / "hull.stl"
+    stl_sha = hull_to_stl(hull, stl_path, nx=nx, nz=nz)
+
+    # THE GUARD EXISTED AND NOTHING ON THIS PATH CALLED IT (defect class 3, a
+    # guard never made to fire). MEASURED 2026-08-12: `stl_watertight_report`
+    # was reachable from `pipeline.py` (a REPORTING surface), from three
+    # standalone scripts and from the tests — but not from `write_resistance_case`
+    # and not from `run-case.sh`, i.e. not from anything on the path that
+    # actually hands a surface to snappyHexMesh. Every CFD case this project
+    # has ever generated was meshed from an UNVALIDATED STL.
+    #
+    # CLAUDE.md's first hard-won CFD rule is "Hull STL must be a CLOSED
+    # manifold; `stl_watertight_report` gates it. Open shells flood the
+    # interior." It said "gates it" and nothing did.
+    #
+    # This is FATAL rather than a warning. An open shell does not produce a
+    # worse mesh, it produces a DIFFERENT SIMULATION -- water inside the hull
+    # -- and a complete, plausible, meaningless force history, which is the
+    # same failure mode as the `setFields` guard three hundred lines down.
+    rep = stl_watertight_report(stl_path)
+    if not rep.get("watertight", False):
+        raise ValueError(
+            f"hull.stl is not a closed manifold and will not be meshed: "
+            f"{rep}. An open shell floods the interior and yields a complete, "
+            f"plausible, meaningless run — see CLAUDE.md 'Hard-won CFD "
+            f"gotchas'. Fix the geometry; do not mesh this.")
+
     info = _write_case_dicts(out, stl_sha, lwl, speed,
                              end_time, scale, np_procs, symmetric,
                              free_motion, lts, n_layers)

@@ -548,6 +548,7 @@ def main() -> int:
                 rung0 or spec["n_layers"],
                 ceiling=spec.get("n_ideal") or spec["n_layers"],
             )[:args.layer_backoff]
+            best = None          # (quality_key, row) — the best rung seen
             for attempt, n_lay in enumerate(rungs):
                 # WIPE THE PREVIOUS RUNG'S LOGS. run-case.sh truncates the
                 # ones it writes, but a rung that dies EARLIER than the last
@@ -590,9 +591,45 @@ def main() -> int:
                 # and then failed in the SOLVER is a different defect and
                 # re-meshing it with fewer layers would be answering a question
                 # nobody asked — and would hide it behind a retry.
-                if (r["zero_volume_cells"] == 0 and r["wrong_oriented"] <= 5
-                        and 0 <= r["max_skewness"] <= 20.0 and r["cells"] > 0):
+                #
+                # THE TRIGGER IS THE STRICT PROXY, NOT THE RUNNER BAR, SINCE
+                # 2026-08-12 — and campaign hull 39 is why. It meshed with 2
+                # wrongly-oriented faces: inside run-case.sh's bar of 5, so the
+                # ladder never fired, and outside the `meshed` proxy's zero, so
+                # it was recorded FAILED without a single retry. MEASURED, same
+                # hull, mesh-only:
+                #
+                #     n=7 (derived)   2 wrongly-oriented   skew 4.857   FAILED
+                #     n=6             0 wrongly-oriented   skew 2.333   Mesh OK
+                #
+                # The rescue was ONE RUNG AWAY and nothing reached for it,
+                # because the retry condition and the reporting condition were
+                # different bars. A hull recorded as a failure that the
+                # pipeline never retried is not a measurement of the pipeline.
+                #
+                # The KEEP rule below is what stops this trading one defect for
+                # a worse one: a rung is only adopted if it is strictly better
+                # on (zero-volume, wrongly-oriented, skew), so a hull that
+                # cannot reach zero keeps the best mesh it found rather than
+                # whatever the last rung happened to produce.
+                _key = (r["zero_volume_cells"], r["wrong_oriented"],
+                        r["max_skewness"] if r["max_skewness"] >= 0 else 1e9)
+                if best is None or _key < best[0]:
+                    best = (_key, dict(r))
+                runner_ok = (r["zero_volume_cells"] == 0
+                             and r["wrong_oriented"] <= 5
+                             and 0 <= r["max_skewness"] <= 20.0
+                             and r["cells"] > 0)
+                if runner_ok and r["wrong_oriented"] == 0:
                     break
+            # Adopt the BEST rung, not the last one tried. Without this a hull
+            # that cannot reach zero reports whatever the final rung produced,
+            # which may be worse than a rung already discarded — turning a
+            # rescue attempt into a regression.
+            if best is not None and best[1] is not r:
+                _attempts = attempt + 1
+                r = best[1]
+                r["layer_attempts"] = _attempts
             r["layer_pass_failed"] = (case / "log.snappy.layers").exists() and \
                 not (case / "log.checkMesh").exists()
             if args.solve:
