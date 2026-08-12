@@ -66,3 +66,49 @@ def test_a_clean_mesh_with_no_boundary_layer_is_not_a_pass():
         f"hulls {empty} pass the checkMesh bars on an EMPTY prism stack — "
         f"clean because there is no boundary layer to fold. That is the cap-3 "
         f"failure mode and it must never be counted as a pass.")
+
+
+# ---------------------------------------------------------------- the ladder
+
+def test_the_ladder_searches_BOTH_directions_and_reaches_the_counts_hulls_need():
+    """THE OLD LADDER COULD NOT REACH THE ANSWER, measured on the 25-hull
+    seed-0 matrix. It started at n_derived - step and only descended, so from
+    rung 0 = _MAX_LAYERS = 7 with step 2 the reachable set was {5, 3}. But:
+
+        hull 10 meshes ONLY at n=8      hull 12 meshes ONLY at n=6
+        hull 18 meshes CLEAN at n=10 (skew 6.19) and FAILS at 7 (skew 70.98)
+
+    None of those is in {5, 3}. The step of 2 also skipped every even count
+    from an odd start, so hull 12's 6 was unreachable even below rung 0.
+
+    Fed the verbatim counts that motivated it.
+    """
+    from navalai.cfd.case import layer_backoff_ladder
+    rungs = layer_backoff_ladder(7, ceiling=10)
+    for hull, need in ((10, 8), (12, 6), (18, 10)):
+        assert need in rungs, (
+            f"hull {hull} meshes only at n={need}; the ladder from 7 offers "
+            f"{rungs} and cannot reach it")
+    assert 3 in rungs, "the floor must still be reachable"
+
+
+def test_the_ladder_is_ordered_outward_so_the_nearest_rung_is_tried_first():
+    """The derived count is still the best single guess -- it is right on 19 of
+    25 hulls -- so a hull that needs a rung usually needs a NEAR one. Ordering
+    outward keeps the measured mean at ~1.9 rungs per hull; ordering by
+    magnitude would pay the full ladder on every rescue."""
+    from navalai.cfd.case import layer_backoff_ladder
+    rungs = layer_backoff_ladder(7, ceiling=10)
+    assert [abs(n - 7) for n in rungs] == sorted(abs(n - 7) for n in rungs), (
+        f"rungs {rungs} are not ordered by distance from the derived count")
+
+
+def test_the_search_never_leaves_the_measured_envelope():
+    """Below `floor` the stack is empty (cap 3 gave 0.31-2.85 achieved layers,
+    passing checkMesh with no boundary layer). Above `ceiling` the near-wall
+    cell cannot support the stack. Both ends are bounds, not preferences."""
+    from navalai.cfd.case import layer_backoff_ladder, _LAYER_FLOOR
+    for n0, ceil in ((7, 10), (10, 10), (4, 8), (3, 3)):
+        for n in layer_backoff_ladder(n0, ceiling=ceil):
+            assert _LAYER_FLOOR <= n <= ceil, f"rung {n} outside [{_LAYER_FLOOR}, {ceil}]"
+            assert n != n0, "rung 0 must not repeat inside the ladder"

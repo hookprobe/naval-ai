@@ -1129,11 +1129,12 @@ def layer_spec(lwl: float, speed: float, scale: float = 1.0) -> dict:
 # are clean. Lower is not monotonically better, which is why the ladder stops
 # at the FIRST count that passes rather than going straight to the floor.
 _LAYER_FLOOR = 3
-_LAYER_BACKOFF_STEP = 2
+_LAYER_SEARCH_STEP = 1   # was 2 and DESCENDING-only; see layer_backoff_ladder
 
 
 def layer_backoff_ladder(n_derived: int, floor: int = _LAYER_FLOOR,
-                         step: int = _LAYER_BACKOFF_STEP) -> list[int]:
+                         step: int = _LAYER_SEARCH_STEP,
+                         ceiling: int | None = None) -> list[int]:
     """Prism-layer counts to try after `n_derived` is refused, in order.
 
     WHY THIS EXISTS (MEASURED 2026-08-11, the Gate 2U coarse campaign).
@@ -1160,12 +1161,50 @@ def layer_backoff_ladder(n_derived: int, floor: int = _LAYER_FLOOR,
     This changes NO bar. The checkMesh gates (0 zero-volume, <=5
     wrongly-oriented, <=20 skewness) judge every rung identically; a hull that
     fails all of them still fails.
+
+    THE ONE-DIRECTIONAL WALK WAS STRUCTURALLY BROKEN, and it is fixed here.
+    It started at `n_derived - step` and only ever went DOWN, so with rung 0 at
+    _MAX_LAYERS=7 and step 2 the reachable set was {5, 3}. MEASURED over the
+    25-hull seed-0 matrix, that cannot reach the count several hulls need:
+
+        hull 10 meshes ONLY at n=8      hull 12 meshes ONLY at n=6
+        hull 18 meshes CLEAN at n=10 (skew 6.19) and FAILS at 7 (skew 70.98)
+
+    A ladder that can only descend cannot find any of those. Worse, the step of
+    2 skipped the even counts entirely from an odd start, so hull 12's 6 was
+    unreachable even within the descending range.
+
+    AND THE TARGET IS NOT A THRESHOLD, IT IS A SET WITH HOLES. For a fixed hull
+    the outcome is not monotone in n and not even unimodal — three of the twelve
+    hulls run at three or more counts have a FAILURE STRICTLY BETWEEN TWO
+    PASSES:
+
+        hull 5:  n=3 ok   n=5 ok   n=7 FAIL (182 wrongOri, skew 56.80)  n=8 ok
+        hull 8:  n=4 ok   n=6 FAIL         n=7 ok (0 wrongOri, skew 2.87)
+        hull 3:  n=3 ok   n=5 FAIL         n=7 ok
+
+    So no rule emitting ONE integer per hull can express an admissible set of
+    {3, 5, 8}, and no early-exit on the first failure is safe: the count above a
+    failure may pass. This is a SEARCH, not a prediction, and that is why it
+    survives the standing counter-example — docs/LESSONS.md records that a
+    build-time predictor was drafted and killed by its own data (Wigley solves
+    at stack/hull_cell 1.084 while KCS dies at 0.952). A search predicts
+    nothing, so it cannot be wrong about those two.
+
+    ORDERED OUTWARD FROM THE DERIVED COUNT, step 1, both directions, bounded
+    below by `floor` and above by `ceiling` (default `n_ideal`, the unclamped
+    bridging count — going above it buys a stack the near-wall cell cannot
+    support). Outward order because the derived count is still the best single
+    guess: it is right on 19 of 25 hulls, so a hull that needs a rung usually
+    needs a near one, and 1.9 rungs per hull is the measured mean.
     """
-    n = int(n_derived) - step
-    out = []
-    while n >= floor:
-        out.append(n)
-        n -= step
+    n0, lo = int(n_derived), int(floor)
+    hi = int(ceiling) if ceiling is not None else max(n0, lo)
+    out: list[int] = []
+    for d in range(1, max(n0 - lo, hi - n0) + 1):
+        for cand in (n0 - d, n0 + d):        # down first: cheaper to mesh
+            if lo <= cand <= hi and cand != n0 and cand not in out:
+                out.append(cand)
     return out
 
 

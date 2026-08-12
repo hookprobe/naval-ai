@@ -459,8 +459,15 @@ def main() -> int:
             # the real thing rather than a re-derivation of it.
             rung0 = (min(spec["n_layers"], args.cap_layers)
                      if args.cap_layers else None)
+            # CEILING = the UNCLAMPED bridging count. The ladder searches
+            # BOTH directions now (it descended only, and could not reach the
+            # n=8 / n=6 / n=10 that hulls 10, 12 and 18 respectively need), so
+            # it needs an upper bound as well as the floor. n_ideal is that
+            # bound: above it the near-wall cell cannot support the stack.
             rungs = [rung0] + layer_backoff_ladder(
-                rung0 or spec["n_layers"])[:args.layer_backoff]
+                rung0 or spec["n_layers"],
+                ceiling=spec.get("n_ideal") or spec["n_layers"],
+            )[:args.layer_backoff]
             for attempt, n_lay in enumerate(rungs):
                 # WIPE THE PREVIOUS RUNG'S LOGS. run-case.sh truncates the
                 # ones it writes, but a rung that dies EARLIER than the last
