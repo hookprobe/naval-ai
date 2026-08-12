@@ -646,7 +646,7 @@ part.** At 3.40 flow-throughs drift collapsed to 0.31% and C_T flattened, so
 longer solve expecting the number to move.
 
 The next experiment is **free sinkage and trim** (`rigidBodyMotion`): KCS Case
-2.1 is towed FREE and we solve FIXED, it is code rather than compute, and the
+2.1 is towed FREE and we solve FIXED, and the
 viscous half being right (1.161x ITTC-57) localises the remaining error to
 exactly what sinkage and trim move. Then free-surface resolution
 (`cells_per_wavelength` 21.5 against a >=20 bar), then the grid.
@@ -760,7 +760,18 @@ Then, in order:
    convergence study of an unresolved wave field. Anchor coarse and build up.
 3. **Free sinkage and trim.** KCS Case 2.1 is towed FREE to sink and trim; we
    solve FIXED. We are comparing against a different condition, and it is a
-   known part of the error. Needs `rigidBodyMotion` — code, not compute.
+   known part of the error. **`rigidBodyMotion` IS ALREADY WIRED** — this line
+   said "code, not compute" until 2026-08-12 and was wrong: `case.py` has
+   DYNAMIC_MESH (sixDoFRigidBodyMotion, heave + pitch constraints, dampers),
+   POINT_DISPLACEMENT, `sixdof_properties` and `motion_from_geometry`, and
+   `make_case.py` exposes `--free-motion` and `--kg` on the `--stl` path.
+   The blocker was ONE NUMBER: KCS's published KG, 0.2303 m above keel, which
+   existed only in a comment. With no KG the fallback is VCB, measured 19% low
+   (0.187 m), and KG is the lever that sets trim under tow — so a free run on
+   the fallback converges to a plausible attitude for a differently-ballasted
+   ship. It is now `benchmarks.kcs.KG_ABOVE_KEEL_M` (commit 7b8f628), beside
+   the EFD acceptance data it is judged against: sinkage -1.394e-2 m, trim
+   -0.169 deg. What remains is the RUN.
 4. Gate 2U against the bar it actually claims (`mesh_robustness.py --solve`),
    not the clean-checkMesh proxy, which MEASURED as not predictive in either
    direction: KCS solves with 5 wrongly-oriented faces, and an own-hull mesh
