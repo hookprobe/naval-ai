@@ -1407,6 +1407,121 @@ be recorded as such rather than re-fitted.
   the single most informative hull in the batch for whatever the second
   mechanism is, and nothing here explains it.
 
+**§11.7 supersedes this section's framing of the layer count.** Everything above
+is written at `_MAX_LAYERS` = 10, where "rung 0" meant the derived count of
+8–10. Rung 0 now means 7, and the confusion matrix in §11.6.2 does not transfer
+to it — measured, restated, and its consequences scheduled in §11.7.
+
+### 11.7 The prism-layer count is a per-hull MEASUREMENT, not a per-hull formula
+
+**The evidence is `docs/research/LAYERS.md` (2026-08-12), which is its one
+home.** This section carries only the plan: what changes, in what order, who
+owns it, and what bar each step must meet. It restates no measurement that file
+owns beyond the four numbers the ordering itself depends on.
+
+#### 11.7.1 The question, and what the data answered
+
+The layer cap has been 3, then 10, now 7. The standing question is whether one
+number can serve 25 hulls that differ in size and shape, and if not whether the
+count should be **derived per hull from its geometry**.
+
+- **One number cannot serve them.** Within the counts actually run, hull 10
+  meshes only at n=8 and hull 12 only at n=6; their admissible sets are
+  disjoint, so no common count exists inside the tested grid.
+- **Deriving it from geometry cannot work either, and this is the part that
+  reshapes the plan.** For a FIXED hull the mesh outcome is not monotone in n
+  and not even unimodal — three of the twelve hulls run at three or more counts
+  have a *failure strictly between two passes*. A rule emitting one integer per
+  hull cannot express an admissible set of `{4, 7}` or `{3, 5, 8}`.
+- **Nothing separates the failures.** Twenty-nine geometric quantities were
+  scored, reusing `admissibility.screen()` rather than re-deriving it. The best
+  reaches AUC 0.842 and does not survive correction for the family
+  (family-wise permutation p = 0.21). The five candidates an external reading
+  would reach for first — curvature vs stack height, feature-angle density,
+  `last_layer_over_hull_cell`, minimum panel width, medial-axis proximity — are
+  each argued down from the data in `LAYERS.md` §4; two of them are *inverted*.
+
+So the count is per-hull and it must be **measured** per hull. The plan item is
+a search, not a formula, and a search is the one instrument this repository's
+standing counter-example cannot refute: **Wigley solves at `stack/hull_cell`
+1.084 while KCS dies at 0.952**, so no build-time predictor is admissible, and a
+procedure that meshes and reads checkMesh makes no prediction to be wrong about.
+
+#### 11.7.2 The change, in order, with its bar
+
+Owner: whoever owns `navalai/cfd/case.py`. Files: `navalai/cfd/case.py`,
+`scripts/mesh_robustness.py`, `scripts/make_case.py`, `tests/test_layer_cap.py`,
+`navalai/admissibility.py`, `data/gate-ledger.json`. **These are disjoint from
+this document, and none of them is to be edited on this document's say-so
+without the measurement in `LAYERS.md` §8 in hand.**
+
+| # | Item | Done when |
+|---|---|---|
+| 11.7-a | **Run the dense sweep** (`LAYERS.md` §8): the same 25 seed-0 hulls × n = 3…10, mesh-only, one rung per cell. 129 of the 200 cells are unmeasured; at the measured 96.2 s/hull that is **~3.4 h unattended**. Run the three hole cells (hull 5 at n=7, hull 8 at n=6, hull 3 at n=5, ~5 min) FIRST — they are what the specification rests on | the matrix is complete and committed as `data/gate2u-layer-grid.json`, and the three holes either reproduce or are withdrawn |
+| 11.7-b | **Replace the one-sided step-2 ladder with a dense two-sided search** over `[3, n_ideal]`, step 1, ordered outward from the highest-yield rung, stopping at the first pass, deterministic in `(n_ideal, floor, n_start)` alone | a hull whose only good rung is ABOVE the shipped one (hull 10 at 8, hull 18 at 10) is reachable, proven by a test that feeds the search that hull's genome |
+| 11.7-c | **`_MAX_LAYERS` stops being a quality lever.** It becomes a compute/fit bound beside the existing `stack_ratio > 1.2` refusal; `n_ideal` becomes the search's ceiling | `tests/test_layer_cap.py`'s cap assertion is REPLACED (not deleted) by one pinning the search's bounds and ordering to the sweep — its motivating incident, "the cap moved on an argument instead of a measurement", is unchanged and still governs |
+| 11.7-d | **Receipts.** `case.info` records `n_layers_ideal`, `n_layers_ladder`, `n_layers_rung` and `layer_search=on\|off`; and its unconditional *"first-layer thickness AND layer count are held constant across the GCI triplet"* NOTE becomes conditional on the caller having pinned the count | a reader can tell a first-rung mesh from a sixth-rung one, and no case asserts a triplet property it does not have |
+| 11.7-e | **Re-state the admissibility screen's confusion matrix at the shipped configuration**, in `admissibility.py`'s docstring and in §11.6.2, carrying both | the published precision describes what ships |
+| 11.7-f | **Correct the Gate 2U ledger `units` string**, which describes `_MAX_LAYERS` = 10 | the watermark's configuration is the one that exists |
+
+**The bar on 11.7-b is 92%, not 95%, and saying so is the point.** Across all
+five recorded arms, 23 of the 25 hulls have at least one count that meshes
+clean, against 19 at the best fixed count. A perfect search therefore reaches
+**92%** on this batch and Gate 2U-A's ≥95% bar is still not met — hulls 4 and 14
+pass at no count tried. **The search is not the close-out of Gate 2U-A; it is
+what makes the residual visible.** Anyone reporting the improvement must report
+that two hulls remain unexplained, or they have restated a 76% → 92% step as if
+it were the gate.
+
+**Cost, stated before it is spent:** the search averages ~1.9 rungs/hull on the
+observed matrix, so a 25-hull campaign goes from ~40 min to ~77 min mesh-only —
+**1.9× for +16 percentage points.**
+
+#### 11.7.3 What it breaks, and the one that is expensive
+
+- **Not the GCI triplet, directly.** The wall model must be frozen across the
+  GRIDS of one family, and per-hull is a different axis: search once, pin, run
+  the family. **But the search must run at the FINEST scale of the intended
+  family** — `stack/hull_cell` doubles from coarse to fine, and `LAYERS.md` §6.1
+  measures **six of 25 hulls whose n=7 fine grid is already refused at build
+  time by the existing 1.2 fit check**. That is true of the shipped fixed cap
+  today; the search does not create it, but it makes fixing it mandatory.
+- **Cross-hull physics comparability, and this one is expensive.** The
+  known-good rungs span 3 to 10, i.e. a **7.1× spread in prism-stack height** at
+  a near-constant first layer. §11.6.5 already states that a hull meshed at a
+  reduced count has not passed the same physics case; under per-hull search that
+  becomes the norm rather than the exception, and there is no common count to
+  re-mesh them at. **Consequence for §8.1 and for the surrogate flywheel: CFD
+  labels from a searched batch are not mutually comparable and must not be
+  pooled into one training set or one ranking** until either a common count is
+  found (the sweep tests for one) or the wall-model difference is measured
+  against the effect being ranked. Nothing does this pooling today. That is the
+  window in which to write the rule down.
+- **The admissibility screen's published strength.** Re-scored unchanged against
+  the shipped rung 0, its precision falls from **1.000 to 0.250** and its recall
+  from 0.500 to 0.333 — because the bars were validated at a rung 0 that no
+  longer exists. **Both bars are `Basis.DERIVED` and must NOT be re-fitted**;
+  re-fitting a derived bar to a new outcome set is exactly the tuning the module
+  was built to prevent. Re-state the matrix (11.7-e). Correspondingly, §11.6.6's
+  pre-registration for hulls 20 and 23 is **neither confirmed nor falsified**:
+  the campaign it named stopped at hull 19, so those hulls were never run in the
+  configuration the prediction was about (docs/LESSONS.md defect class 6).
+- **`derived_n_layers` in the screen is now a constant** (7.0 on all 25) while
+  its note describes a range of 8–10. It should report the uncapped `n_ideal`,
+  or say which of the two it is.
+
+#### 11.7.4 What this section refuses to do
+
+- **No narrowing of the grammar.** §11.6.3's anti-gaming clause is unchanged and
+  nothing here weakens it.
+- **No `P(failure | transom width)`.** It is the best single metric measured and
+  it does not survive correction for the family it was found in. It has also
+  never been tested against KCS or Wigley — `screen()` takes a genome, not an
+  STL — which is on its own sufficient reason not to ship it.
+- **No claim that the search is a derivation.** It is a measurement with a
+  starting hint, the hint is allowed to be wrong, and being wrong costs one
+  96-second mesh.
+
 ---
 
 ## 12 · Manufacturing
