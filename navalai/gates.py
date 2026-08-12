@@ -134,8 +134,12 @@ GATES = [
     # warnings, and the batched-EI diversity filter measured in the CANDIDATE
     # box. A scope line that names half a suite is a registry that under-reports
     # what would be lost if the suite stopped running.
+    # The held-out ERROR BAR is NOT here. It is Gate 3E, below, for Gate 4F's
+    # reason exactly: this suite passes everything it asserts while the clause
+    # the row is named for is missed on four of five honest query draws.
     Gate("Gate 3", "surrogate spine: GP + co-kriging rho, OOD refusal, "
-         "batched-EI infill", "tests/test_phase3.py"),
+         "batched-EI infill (held-out error bar: Gate 3E)",
+         "tests/test_phase3.py"),
     # The feasibility clause is NOT here. It is Gate 4F, below, because a
     # shortfall stated in this row's `scope` was prose — see that row.
     Gate("Gate 4", "generative + slider p95<100ms (raw feasibility: Gate 4F)",
@@ -397,6 +401,18 @@ GATES = [
     # detail string starts carrying a measurement again.
     Gate("Gate 4F", "raw generative feasibility: UNFILTERED model draws vs the "
          ">=99% bar (BuildPlan Phase 4)",
+         status=Verdict.RED,
+         detail="see data/gate-ledger.json for the measured watermark"),
+    # GAP D10, AND IT IS GATE 4F'S SHAPE FOR THE THIRD TIME. Gate 3's L1 error
+    # bar was asserted on ONE query draw (seed 991), and that draw is the
+    # MINIMUM of five: the suite passed, GREEN, while the model misses the bar
+    # on the other four. A statistic measured on one sample is not the model's
+    # error bar, it is that sample's. THE BAR IS NOT SOFTENED — 0.15 stands,
+    # and the shortfall is now measured across seeds and carried here. THE
+    # NUMBERS ARE NOT REPEATED IN THIS FILE: watermark, seeds, spread and owner
+    # are in data/gate-ledger.json (gap J1).
+    Gate("Gate 3E", "the L1 surrogate's held-out error bar, measured ACROSS "
+         "query seeds rather than on one chosen draw",
          status=Verdict.RED,
          detail="see data/gate-ledger.json for the measured watermark"),
     Gate("Gate 2M", "KCS/JBC OpenFOAM calibration w/ per-case GCI",

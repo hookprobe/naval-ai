@@ -1,6 +1,7 @@
 """Gate 3: co-kriging beats single-fidelity on Forrester; GP honest on our L1
 physics; OOD queries escalate; batched EI infill works."""
 
+import statistics
 import warnings
 
 import numpy as np
@@ -40,26 +41,110 @@ def test_gp_interpolates_and_uncertainty_grows_off_data():
     assert s_off[0] > 10 * max(s_on.max(), 1e-6)  # honesty: sigma explodes off-data
 
 
-def test_surrogate_on_l1_physics():
-    """GP on log(Wh/NM) over 250 L1-valid hulls: median rel error < 15% on
-    held-out in-support hulls, and the sigma band must be calibrated.
+# THE ERROR BAR'S QUERY DRAWS (gap D10). Five seeds, none of them 7: seed 7 is
+# the TRAINING draw below, so `sample_valid(35, m, seed=7)` returns the first
+# 35 training points and the median relative error is exactly 0.0000 — a
+# self-test dressed as a held-out measurement.
+L1_QUERY_SEEDS = (991, 992, 993, 994, 995)
 
-    (Measured baseline: n=250 -> median 10.3%, 2-sigma coverage 91%, and ARD
-    lengthscales rank LWL/BWL/T as dominant — matching physics. The published
-    <=1-2% bars are for LOCAL low-D deformation spaces near an optimum, not a
-    global 15-D grammar; this gate states the honest global number.)"""
+
+@pytest.fixture(scope="module")
+def l1_gp():
+    """The Gate 3 production GP, fit ONCE.
+
+    MEASURED: the fit is 6.12 s of the 6.89 s the old single-seed test took
+    (sample_valid(250) 2.81 s + GP.fit 3.31 s) and each additional query draw
+    is 0.39 s. Naively parametrizing the whole test over five seeds would cost
+    34 s; behind this fixture it is 8.1 s.
+    """
     from navalai.evaluate import sample_valid
     m = MissionSpec()
     X, y = sample_valid(250, m, seed=7)
-    gp = GP.fit(X, np.log(y), seed=1)
-    Xt, yt = sample_valid(35, m, seed=991)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return GP.fit(X, np.log(y), seed=1), m
+
+
+def _l1_draw(gp, m, seed: int):
+    """(median relative error, 2-sigma coverage, n_kept) on one query draw."""
+    from navalai.evaluate import sample_valid
+    Xt, yt = sample_valid(35, m, seed=seed)
     keep = ~gp.is_ood(Xt, 0.5)
-    assert keep.sum() >= 15, "OOD filter rejected almost everything"
     pred, sigma = gp.predict(Xt[keep])
     rel = np.abs(np.exp(pred) - yt[keep]) / yt[keep]
-    assert np.median(rel) < 0.15, f"median rel err {np.median(rel):.3f}"
     within = (np.abs(pred - np.log(yt[keep])) <= 2 * sigma).mean()
-    assert within >= 0.75, f"only {within:.0%} within 2 sigma"
+    return float(np.median(rel)), float(within), int(keep.sum())
+
+
+@pytest.mark.parametrize("seed", L1_QUERY_SEEDS)
+def test_surrogate_on_l1_physics(l1_gp, seed):
+    """GP on log(Wh/NM) over 250 L1-valid hulls, on FIVE held-out draws.
+
+    The clauses that hold on every seed are asserted per seed here; the error
+    bar itself is an across-seed statistic and lives in the test below, because
+    it is a property of the model and not of one draw.
+    """
+    gp, m = l1_gp
+    med, within, kept = _l1_draw(gp, m, seed)
+    assert kept >= 15, "OOD filter rejected almost everything"
+    # The COVERAGE bar survives the seed change — MEASURED 0.818-0.968 across
+    # the five, against 0.75 — so it stays a per-seed assertion.
+    assert within >= 0.75, f"seed {seed}: only {within:.0%} within 2 sigma"
+    # An absolute sanity floor that no honest seed comes near (worst 0.234), so
+    # this cannot silently become the error bar.
+    assert med < 0.35, f"seed {seed}: median rel err {med:.3f}"
+
+
+def test_the_l1_error_bar_is_measured_across_seeds_and_it_misses_the_bar(l1_gp):
+    """Gap D10: Gate 3's error bar sat on ONE query seed, and that seed was the
+    only one of five that cleared it.
+
+    MEASURED 2026-08-12 — same training draw (seed 7, n=250), same fit
+    (GP.fit(seed=1)), five held-out draws of 35:
+
+        query seed   kept    median rel err   within 2-sigma
+              991    27/35        0.1056           0.963
+              992    33/35        0.1830           0.879
+              993    31/35        0.2222           0.968
+              994    34/35        0.1798           0.824
+              995    33/35        0.2340           0.818
+
+        across-seed median   0.1830     spread 2.22x (0.1056 - 0.2340)
+
+    991 is the seed the test pinned and it is the MINIMUM. Every other honest
+    draw lands 0.18-0.23 against a <=0.15 bar, so the gate was reading a
+    favourable draw as a property of the model.
+
+    THE BAR IS NOT MOVED. 0.15 is what Gate 3 claims and it stands; what
+    changes is that the shortfall is now MEASURED, asserted honestly here, and
+    carried as `Gate 3E` — a typed RED row with a watermark, an owner and a
+    review_by in data/gate-ledger.json. That is the Gate 4F treatment applied
+    to the same shape: a suite that passes everything it asserts while the
+    clause it is named for is missed. The watermark is NOT restated in this
+    file; the ledger is its one home.
+    """
+    gp, m = l1_gp
+    meds = [_l1_draw(gp, m, s)[0] for s in L1_QUERY_SEEDS]
+    across = float(statistics.median(meds))
+
+    # The honest assertion of a MISSED bar, in the shape test_phase4.py uses
+    # for raw feasibility: it asserts the shortfall EXISTS, so the day the
+    # model improves this test fails and the ledger row must be retired.
+    assert across > 0.15, (
+        f"the across-seed median error bar is {across:.4f}, i.e. Gate 3's "
+        f"0.15 bar is now MET across seeds. Delete the Gate 3E row and its "
+        f"ledger entry — a GREEN gate still listed in the ledger is a failure.")
+    # ...and it must not have got worse than the recorded watermark, which the
+    # ledger owns. This is the local sanity band, not the watermark.
+    assert 0.15 < across < 0.25, f"across-seed median {across:.4f}"
+
+    # THE POINT OF THE ROW: the pinned seed disagrees with the model.
+    assert min(meds) < 0.15 < across, (
+        "the single-seed reading no longer differs from the across-seed one, "
+        "so D10's finding has changed shape — re-measure the table above")
+    assert max(meds) / min(meds) > 2.0, (
+        f"seed spread collapsed to {max(meds) / min(meds):.2f}x; the table "
+        f"above is the thing that is now wrong")
 
 
 def test_ood_escalation_flag():

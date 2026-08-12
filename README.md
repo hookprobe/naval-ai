@@ -68,7 +68,7 @@ different Gate 2M numbers came to circulate at once (gap J1).
 | Gate 1b | NSGA-II Pareto front | `tests/test_optimize.py` (8 tests) |
 | Gate 2 | Capytaine BEM (Hulme anchor) | `tests/test_phase2.py` (18 tests) |
 | Gate 2R | CFD reference parity + GCI honesty | `tests/test_cfd_reference_parity.py` (97 tests) |
-| Gate 3 | surrogate spine: GP + co-kriging rho, OOD refusal, batched-EI infill | `tests/test_phase3.py` (18 tests) |
+| Gate 3 | surrogate spine: GP + co-kriging rho, OOD refusal, batched-EI infill (held-out error bar: Gate 3E) | `tests/test_phase3.py` (23 tests) |
 | Gate 4 | generative + slider p95<100ms (raw feasibility: Gate 4F) | `tests/test_phase4.py` (27 tests) |
 | Gate 5 | mission translation + LLM seam | `tests/test_phase5.py` (11 tests) |
 | Gate 6 | rules-as-code mechanics | `tests/test_phase6.py` (6 tests) |
@@ -102,6 +102,7 @@ different Gate 2M numbers came to circulate at once (gap J1).
 | Gate 2G | KCS benchmark geometry: present and accepted (scripts/fetch_benchmark_geom.py) | `tests/test_benchmark_geom.py` (4 tests) |
 | Gate 6R-mech | review-record mechanics + basis routing | `tests/test_phase6r.py` (10 tests) |
 | Gate 4F | raw generative feasibility: UNFILTERED model draws vs the >=99% bar (BuildPlan Phase 4) | **RED** — `data/gate-ledger.json` |
+| Gate 3E | the L1 surrogate's held-out error bar, measured ACROSS query seeds rather than on one chosen draw | **RED** — `data/gate-ledger.json` |
 | Gate 2M | KCS/JBC OpenFOAM calibration w/ per-case GCI | **RED** — `data/gate-ledger.json` |
 | Gate 2U | unattended meshing (plan: >=95% of a 200-hull batch) | **RED** — `data/gate-ledger.json` |
 | Gate 6R | ISO threshold parity vs licensed standard text | **RED** — `data/gate-ledger.json` |
