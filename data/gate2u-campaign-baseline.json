@@ -10,12 +10,12 @@
   "solve_pct": 30.0,
   "bar_pct": 95.0,
   "taxonomy": {
-    "checkmesh-zero-volume": 3,
     "checkmesh-wrong-oriented": 8,
-    "solver-stopped-short": 1,
-    "mesh-build-failed": 1,
     "ok": 5,
+    "checkmesh-zero-volume": 3,
     "checkmesh-skewness": 1,
+    "checkmesh-unparsed": 1,
+    "solver-stopped-short": 1,
     "timeout": 1
   },
   "rows": [
@@ -45,7 +45,8 @@
       "solves": false,
       "hull": 0,
       "lwl": 15.015,
-      "why": "checkmesh-zero-volume"
+      "why": "checkmesh-zero-volume",
+      "solve_requested": true
     },
     {
       "cells": 627762,
@@ -73,7 +74,8 @@
       "solves": false,
       "hull": 1,
       "lwl": 10.473,
-      "why": "checkmesh-wrong-oriented"
+      "why": "checkmesh-wrong-oriented",
+      "solve_requested": true
     },
     {
       "cells": 812282,
@@ -101,7 +103,8 @@
       "solves": false,
       "hull": 2,
       "lwl": 10.804,
-      "why": "solver-stopped-short"
+      "why": "solver-stopped-short",
+      "solve_requested": true
     },
     {
       "cells": 638792,
@@ -129,7 +132,8 @@
       "solves": false,
       "hull": 3,
       "lwl": 9.509,
-      "why": "checkmesh-wrong-oriented"
+      "why": "checkmesh-wrong-oriented",
+      "solve_requested": true
     },
     {
       "cells": 935297,
@@ -157,7 +161,8 @@
       "solves": false,
       "hull": 4,
       "lwl": 8.942,
-      "why": "checkmesh-wrong-oriented"
+      "why": "checkmesh-wrong-oriented",
+      "solve_requested": true
     },
     {
       "cells": -1,
@@ -188,7 +193,8 @@
       "solves": true,
       "hull": 5,
       "lwl": 6.836,
-      "why": "mesh-build-failed"
+      "why": "checkmesh-unparsed",
+      "solve_requested": true
     },
     {
       "cells": 625792,
@@ -219,7 +225,8 @@
       "solves": false,
       "hull": 6,
       "lwl": 14.145,
-      "why": "checkmesh-zero-volume"
+      "why": "checkmesh-zero-volume",
+      "solve_requested": true
     },
     {
       "cells": 615856,
@@ -250,7 +257,8 @@
       "solves": true,
       "hull": 7,
       "lwl": 15.225,
-      "why": "ok"
+      "why": "ok",
+      "solve_requested": true
     },
     {
       "cells": 459287,
@@ -281,7 +289,8 @@
       "solves": false,
       "hull": 8,
       "lwl": 12.32,
-      "why": "checkmesh-wrong-oriented"
+      "why": "checkmesh-wrong-oriented",
+      "solve_requested": true
     },
     {
       "cells": 647367,
@@ -312,7 +321,8 @@
       "solves": true,
       "hull": 9,
       "lwl": 9.776,
-      "why": "ok"
+      "why": "ok",
+      "solve_requested": true
     },
     {
       "cells": 566239,
@@ -343,7 +353,8 @@
       "solves": false,
       "hull": 10,
       "lwl": 16.195,
-      "why": "checkmesh-skewness"
+      "why": "checkmesh-skewness",
+      "solve_requested": true
     },
     {
       "cells": 588542,
@@ -374,7 +385,8 @@
       "solves": false,
       "hull": 11,
       "lwl": 9.994,
-      "why": "checkmesh-wrong-oriented"
+      "why": "checkmesh-wrong-oriented",
+      "solve_requested": true
     },
     {
       "cells": 507792,
@@ -405,7 +417,8 @@
       "solves": false,
       "hull": 12,
       "lwl": 13.627,
-      "why": "checkmesh-zero-volume"
+      "why": "checkmesh-zero-volume",
+      "solve_requested": true
     },
     {
       "cells": 606526,
@@ -436,7 +449,8 @@
       "solves": true,
       "hull": 13,
       "lwl": 9.956,
-      "why": "ok"
+      "why": "ok",
+      "solve_requested": true
     },
     {
       "cells": 647945,
@@ -467,7 +481,8 @@
       "solves": false,
       "hull": 14,
       "lwl": 11.67,
-      "why": "checkmesh-wrong-oriented"
+      "why": "checkmesh-wrong-oriented",
+      "solve_requested": true
     },
     {
       "cells": 590933,
@@ -498,7 +513,8 @@
       "solves": true,
       "hull": 15,
       "lwl": 13.078,
-      "why": "ok"
+      "why": "ok",
+      "solve_requested": true
     },
     {
       "cells": 873571,
@@ -529,7 +545,8 @@
       "solves": false,
       "hull": 16,
       "lwl": 12.175,
-      "why": "checkmesh-wrong-oriented"
+      "why": "checkmesh-wrong-oriented",
+      "solve_requested": true
     },
     {
       "cells": 774837,
@@ -560,7 +577,8 @@
       "solves": true,
       "hull": 17,
       "lwl": 13.603,
-      "why": "ok"
+      "why": "ok",
+      "solve_requested": true
     },
     {
       "cells": 667281,
@@ -591,7 +609,8 @@
       "solves": false,
       "hull": 18,
       "lwl": 17.289,
-      "why": "timeout"
+      "why": "timeout",
+      "solve_requested": true
     },
     {
       "cells": 855475,
@@ -622,7 +641,8 @@
       "solves": false,
       "hull": 19,
       "lwl": 11.969,
-      "why": "checkmesh-wrong-oriented"
+      "why": "checkmesh-wrong-oriented",
+      "solve_requested": true
     }
   ]
 }

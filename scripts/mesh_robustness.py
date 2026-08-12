@@ -264,8 +264,31 @@ def classify(r: dict) -> str:
     if r.get("timed_out"):
         return "timeout"
     if r.get("cells", -1) <= 0:
+        if r.get("layer_pass_failed"):
+            return "layer-pass-failed"
+        # MEASURED 2026-08-12, campaign hull 5: `why: mesh-build-failed` with
+        # `cells: -1`, `max_skewness: -1.0` -- yet `runner_exit: 0`,
+        # `solve_attempted: true`, `solve_reached: 2000.0` of a 2000-iteration
+        # LTS run in 1108.6 s, `crashed: false`, `fatal: false` and a healthy
+        # `min_flow_time_scale` of 1.05e-05. A mesh that failed to BUILD cannot
+        # then be solved on for 2000 iterations.
+        #
+        # run-case.sh's checkMesh bar is FATAL, so interFoam starting at all is
+        # proof the mesh was built AND cleared that bar. What failed here is the
+        # PARSE of the checkMesh receipt, not the mesh -- and blaming the mesh
+        # sends the next session to snappy for a problem in a grep.
+        #
+        # This does NOT promote hull 5 to `ok`: `meshed` still requires
+        # `cells > 0`, so the rate is unchanged and the mesh stays unverified.
+        # Note `zero_volume_cells` and `wrong_oriented` read 0 on this row while
+        # `cells`/`non_ortho_max`/`max_skewness` read -1: some fields default to
+        # a PASSING zero when unparsed, which is defect class 1 and is why the
+        # honest label here is "unparsed" rather than either verdict.
+        if (r.get("runner_exit") == 0 and r.get("solve_attempted")
+                and r.get("solve_steps", 0) > 0):
+            return "checkmesh-unparsed"
         # checkMesh never ran: snappy or the layer pass died first.
-        return "layer-pass-failed" if r.get("layer_pass_failed") else "mesh-build-failed"
+        return "mesh-build-failed"
     if r.get("zero_volume_cells", 0) > 0:
         return "checkmesh-zero-volume"
     if r.get("wrong_oriented", 0) > 5:
@@ -297,6 +320,30 @@ def classify(r: dict) -> str:
         return "solver-diverged"
     if 0 <= r.get("min_deltaT", -1.0) < 1e-12:
         return "solver-deltaT-collapse"     # pathological cell, per CLAUDE.md
+    # LTS HAS NO deltaT, SO THE GUARD ABOVE COULD NEVER FIRE ON AN LTS RUN.
+    # MEASURED 2026-08-11: hull 19 was labelled `solver-stopped-short` -- which
+    # reads like a timeout -- while it had DIVERGED. Its force history is
+    # unambiguous: steady at ~2.7e3 N through iteration 410, then 5.0e7 ->
+    # 3.4e16 -> 8.9e20 -> 4.3e28, ending at 3.7e71 N with cumulative continuity
+    # error -5.9e26. The blow-up began ~560 iterations before the process was
+    # signalled, so the SIGTERM did not cause it.
+    #
+    # Under LTS `parse_forces` records min_flow_time_scale and NOTHING READ IT.
+    # `min_deltaT` is -1.0 on every LTS run, and -1.0 fails the `0 <=` test, so
+    # the deltaT guard is dead code there. That is this repo's defect class 1 --
+    # an unmeasurable value scored as a benign one -- and it mislabelled TWO
+    # divergences (campaign hull 2 and hull 19) as short runs.
+    #
+    # The local flow time scale IS the LTS analogue of deltaT: a pathological
+    # cell degrades its own local step instead of killing the run. MEASURED
+    # across four solves it is monotone in mesh skewness over 35 orders of
+    # magnitude -- skew 2.87 -> 2.12e-05, 14.26 -> 2.11e-12, 17.57 -> 2.48e-40 --
+    # and the two that solved sit at 1e-05 while the divergence sits at 1e-40.
+    # The bar is 1e-20: far below any solved run, far above the diverged one,
+    # and NOT interpolated between them.
+    fts = r.get("min_flow_time_scale", -1.0)
+    if 0 <= fts < 1e-20:
+        return "solver-lts-time-scale-collapse"
     return "solver-stopped-short"
 
 

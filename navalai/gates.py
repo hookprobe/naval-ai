@@ -300,6 +300,31 @@ GATES = [
     # trap (clean because the stack is empty).
     Gate("Gate 2L", "the prism-layer cap is a measured value, and a clean mesh "
          "with no boundary layer is not a pass", "tests/test_layer_cap.py"),
+    # Registered on the suite's behalf (file ownership put navalai/gates.py with
+    # a different agent), and it exists because "the STLs are bad" was the third
+    # mechanism proposed for Gate 2U's failures and the third to be REFUTED by
+    # its own data: best-of-37 metrics under a 20000-draw family-wise
+    # permutation scored fw p 0.207 / 0.279 / 0.437 across three labellings,
+    # against 0.21 on 29 geometry metrics and 0.24 on 48 third-party ones.
+    # Two things the study measured that were being ASSUMED, which is why the
+    # suite is worth keeping after a negative result: `stl_watertight_report`
+    # cannot see a self-intersection BY CONSTRUCTION (two overlapping tetrahedra
+    # in one solid pass it), and the surface handed to snappy is 600x120 =
+    # 288956 triangles, not the 5244 the 80x16 default suggests.
+    Gate("Gate 2F", "STL forensics: watertight is not valid, and the surface "
+         "handed to snappy is measured rather than assumed",
+         "tests/test_stl_forensics.py"),
+    # Gate 2U is an EXPECTED RED with no suite, so nothing tested the campaign
+    # runner that produces its number — and `classify()` mislabelled the
+    # mechanism twice, in opposite directions, on rows the ledger then quoted.
+    # MEASURED: two LTS DIVERGENCES (hulls 2 and 19) read `solver-stopped-short`
+    # because the `min_deltaT` guard is dead code under LTS, and hull 5 read
+    # `mesh-build-failed` while its solver ran 2000 iterations to completion.
+    # The rate is one number; the TAXONOMY is what sends the next session to
+    # snappy or to the solver, and it was sending them to the wrong one.
+    Gate("Gate 2C", "the campaign classifier names the mechanism that actually "
+         "failed, and refuses one it cannot measure",
+         "tests/test_campaign_classifier.py"),
     Gate("Gate 2G", "KCS benchmark geometry: present and accepted "
          "(scripts/fetch_benchmark_geom.py)", "tests/test_benchmark_geom.py"),
     # Gap D8. is_complete() now requires a DATED edition per standard, which
