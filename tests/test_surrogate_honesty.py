@@ -23,6 +23,7 @@ realistic input as well as on an absent or garbled metric.
 import json
 import pathlib
 import shutil
+import statistics
 import tempfile
 from unittest import mock
 
@@ -253,9 +254,16 @@ def test_the_committed_baseline_is_reproducible_and_says_which_suite_it_is():
     """D3. The file exists and is tracked; this asserts it is REPRODUCIBLE and
     SELF-DESCRIBING, which is what makes it a baseline rather than a magic
     number. Every metric in it was computed by the deployment gate itself
-    (`scripts/make_baseline.py` runs the real path); re-running that script on
-    this machine reproduced `median_rel_err` for all three quantities to the
-    last digit — 0.10446180024836133 for wh_per_nm.
+    (`scripts/make_baseline.py` runs the real path).
+
+    THE REPRODUCIBILITY SENTENCE THAT USED TO SIT HERE WAS ITSELF A THIRD COPY
+    of a number (removed 2026-08-12). It claimed the script reproduced
+    `median_rel_err` "to the last digit — 0.10446180024836133 for wh_per_nm"
+    while the committed file held 0.15130937054355117 and a re-run on this
+    machine measured 0.1434: three values for one quantity, in a docstring
+    nothing asserted. Reproducibility is now asserted rather than narrated —
+    against the file, by the keys below — and the marks themselves live in
+    `data/baselines.json` alone.
 
     The fingerprint is the field D4 needs: a mark is only comparable to a
     metric measured on the SAME benchmark, and `"suite": "frozen_suite"` is a
@@ -274,6 +282,280 @@ def test_the_committed_baseline_is_reproducible_and_says_which_suite_it_is():
             f"suite than this code produces — regenerate it with "
             f"scripts/make_baseline.py")
         assert row["n_frozen"] == len(labels)
+
+
+def test_the_frozen_suites_identity_covers_its_targets_not_only_its_points():
+    """Gap T1: `suite_fingerprint` hashes the probe COORDINATES, by design, and
+    nothing hashed what those probes were WORTH.
+
+    The frozen y is a live output of `evaluate()` — `frozen_suite` builds it by
+    calling the ladder — so an L1 physics change moves it. MEASURED 2026-08-12,
+    reproducing make_baseline.py's exact configuration (n=120, harvest seed 21,
+    holdout 4242, GP.fit(seed=1)) against the file committed on 2026-08-07:
+
+        quantity     committed mark    re-measured    move    suite_fingerprint
+        wh_per_nm    0.15130937054     0.1434        -5.2%    d782c04bf198af11
+        gm           0.25174526392     0.2504        -0.5%    d782c04bf198af11
+        rt           0.15131012878     0.1435        -5.2%    d782c04bf198af11
+
+    A bit-identical suite id across three moved marks. `560fd52` changed the
+    L1 weight path that feeds evaluate(), and therefore both the frozen y and
+    the training y, under an id that could not see it — so the ratchet was
+    comparing a mark to a metric measured on different physics and calling that
+    a high-water mark.
+
+    Kept as a SECOND fingerprint rather than folded into the first, because the
+    two mismatches want different messages: a probe change is a different
+    benchmark, a target change is the same benchmark under different physics.
+    """
+    base = json.loads(_COMMITTED.read_text())
+    for q in ("wh_per_nm", "gm", "rt"):
+        row = base[q]
+        assert "targets_fingerprint" in row, (
+            f"{q} has no targets_fingerprint — the mark cannot say what "
+            f"physics it was measured under")
+        _X, y, _labels = F.frozen_suite(MissionSpec(), q, seed=4242)
+        assert row["targets_fingerprint"] == F.targets_fingerprint(y), (
+            f"the committed mark for {q} was measured on a frozen suite whose "
+            f"TARGET values this code no longer produces — regenerate it with "
+            f"scripts/make_baseline.py")
+        # the two ids are genuinely different questions, not one value twice
+        assert row["targets_fingerprint"] != row["suite_fingerprint"]
+
+    # THE GUARD IS MADE TO FIRE. Move one target by 1e-6 — far below anything
+    # `suite_fingerprint` can see, because it does not look at y at all.
+    _X, y, labels = F.frozen_suite(MissionSpec(), "wh_per_nm", seed=4242)
+    nudged = np.asarray(y, float).copy()
+    nudged[0] += 1e-6
+    assert F.targets_fingerprint(nudged) != F.targets_fingerprint(y)
+    assert suite_fingerprint(_X, labels) == suite_fingerprint(_X, labels)
+    # ...and the three quantities share probe points while differing in y,
+    # which is exactly the case one merged hash could not distinguish.
+    assert (base["wh_per_nm"]["suite_fingerprint"]
+            == base["gm"]["suite_fingerprint"])
+    assert (base["wh_per_nm"]["targets_fingerprint"]
+            != base["gm"]["targets_fingerprint"])
+
+
+def test_a_mark_measured_under_different_physics_is_refused(tmp_path):
+    """Gap T1's consequence, on the NON-bootstrap path — the ratchet must not
+    compare across a physics change, and a baseline that cannot say is
+    UNVERIFIABLE rather than fine (the D3 shape).
+    """
+    bp = tmp_path / "b.json"
+    fp = suite_fingerprint(None, [])
+    tfp = F.targets_fingerprint(None)
+
+    def run(base_row, **kw):
+        bp.write_text(json.dumps({"wh_per_nm": base_row}))
+        with mock.patch.object(F, "_metrics", return_value=(0.10, 0.95)), \
+             mock.patch.object(F, "frozen_suite",
+                               return_value=(None, None, [])), \
+             mock.patch.object(F.GP, "fit",
+                               staticmethod(lambda *a, **k: object())):
+            return retrain(_stub_prov(), None, baseline_path=bp, **kw)
+
+    row = {"median_rel_err": 0.10, "coverage_2sigma": 0.95,
+           "best_median_rel_err": 0.10, "best_coverage_2sigma": 0.95,
+           "suite_fingerprint": fp, "targets_fingerprint": tfp}
+    # the honest case still deploys, so the guard is not a constant
+    model, rep = run(dict(row))
+    assert model is not None and rep.passed_gate
+
+    # a moved target refuses, and says so in the words that name the cause
+    model, rep = run(dict(row, targets_fingerprint="0000000000000000"))
+    assert model is None and not rep.passed_gate
+    assert any("TARGET values moved" in r for r in rep.refusals), rep.refusals
+    assert rep.suite_mismatch
+
+    # ...and so does a baseline written before the field existed. An absent
+    # precondition is not a satisfied one.
+    absent = dict(row)
+    del absent["targets_fingerprint"]
+    model, rep = run(absent)
+    assert model is None and not rep.passed_gate
+    assert any("NOT RECORDED" in r for r in rep.refusals), rep.refusals
+
+
+def test_an_explicit_bootstrap_drops_the_prior_and_cannot_deadlock(tmp_path):
+    """Gap T2: the regeneration route was gated on a fingerprint that could not
+    see the thing that changes.
+
+    `scripts/make_baseline.py` reads and writes the same file, and the drop of
+    the stale prior was conditioned on `suite_fingerprint != fp`. That id is
+    target-blind on purpose, so a physics change moved all three marks while
+    the id stayed `d782c04bf198af11` — MEASURED 0.5-5.2% of movement across a
+    bit-identical id — and the prior was kept. Had the new physics been HARDER
+    to learn by more than the 1.25x tolerance, every quantity would have come
+    back REFUSED against the very file the script exists to replace, with no
+    escape but hand-editing a committed baseline, which is gap D3's shape.
+    It went the lucky direction. That is a coin toss, not a guard.
+
+    `bootstrap` already means "this prior is not evidence about this run", so
+    the drop is now unconditional on that flag. The absolute floors still bind,
+    and the test below proves both halves.
+    """
+    bp = tmp_path / "b.json"
+    fp = suite_fingerprint(None, [])
+    tfp = F.targets_fingerprint(None)
+
+    def run(med, **kw):
+        with mock.patch.object(F, "_metrics", return_value=(med, 0.95)), \
+             mock.patch.object(F, "frozen_suite",
+                               return_value=(None, None, [])), \
+             mock.patch.object(F.GP, "fit",
+                               staticmethod(lambda *a, **k: object())):
+            return retrain(_stub_prov(), None, baseline_path=bp, **kw)
+
+    # A prior whose ids MATCH exactly — the case the old condition kept — and a
+    # new mark 3.4x worse. Without a bootstrap this is refused by the ratchet.
+    prior = {"wh_per_nm": {"median_rel_err": 0.10, "coverage_2sigma": 0.95,
+                           "best_median_rel_err": 0.10,
+                           "best_coverage_2sigma": 0.95,
+                           "suite_fingerprint": fp,
+                           "targets_fingerprint": tfp}}
+    bp.write_text(json.dumps(prior))
+    model, rep = run(0.34)
+    assert model is None and not rep.passed_gate, (
+        "without a bootstrap the ratchet must still bite")
+
+    # WITH the bootstrap, the same matching prior is dropped and the run can
+    # re-baseline. This is the assertion the old code failed: the ids matched,
+    # so the drop did not happen and the stale mark kept binding.
+    bp.write_text(json.dumps(prior))
+    model, rep = run(0.34, bootstrap=True)
+    assert model is not None and rep.passed_gate
+    assert rep.rebaselined and "dropped" in rep.rebaselined
+
+    # ...and the drop is NOT a way to deploy a bad model: the absolute floor
+    # binds on a bootstrap exactly as it does otherwise.
+    bp.write_text(json.dumps(prior))
+    model, rep = run(F.HARD_MAX_MEDIAN_REL_ERR * 1.03, bootstrap=True)
+    assert model is None and not rep.passed_gate
+    assert any("absolute floor" in r for r in rep.refusals)
+
+
+def test_the_ratchet_marks_a_seed_ensemble_not_the_luckiest_seed():
+    """Gap T3: the mark was a single pinned seed, and it was the MINIMUM.
+
+    MEASURED 2026-08-12, eight honest seeds through the real path (n=120,
+    holdout 4242, GP.fit(seed=1)) — the numbers now recorded in the file:
+
+        quantity    median   min      max      spread   seed 21 is
+        wh_per_nm   0.1901   0.1240   0.2509   2.02x    the MINIMUM
+        gm          0.4194   0.2504   0.7456   2.98x    the MINIMUM
+        rt          0.1901   0.1240   0.2312   1.86x    the MINIMUM
+
+    `make_baseline.py` pinned seed 21, which is the best of the eight on all
+    three quantities, and `retrain` ratcheted a fresh single-seed draw against
+    it with a 1.25x tolerance. Against `best_median_rel_err * 1.25`, 4 of 8
+    honest seeds are refused on wh_per_nm and 7 of 8 on gm — a 50-90%
+    false-refusal rate on models that are fine. That is a broken statistic, not
+    a strict gate, and the absolute floors (0.35 / 0.80) are untouched by this
+    change and are what keep it from being a softened bar.
+
+    NOTE, recorded rather than smoothed over: gm's ensemble median 0.4194 is
+    ABOVE HARD_MAX_MEDIAN_REL_ERR (0.35). The floor is stricter than the mark
+    for that quantity, so most gm seeds would be refused outright regardless of
+    any ratchet — that is a real finding about the gm surrogate, not a defect
+    in this row.
+    """
+    base = json.loads(_COMMITTED.read_text())
+    seeds = base["_README"]["generation"]["harvest_seeds"]
+    assert len(seeds) >= 5, "a 'seed ensemble' of fewer than five is a sample"
+    for q in ("wh_per_nm", "gm", "rt"):
+        row = base[q]
+        for key in ("seeds", "median_rel_err_seeds", "coverage_2sigma_seeds",
+                    "ensemble_median_rel_err", "ensemble_coverage_2sigma",
+                    "seed_spread"):
+            assert key in row, f"{q} baseline has no {key}"
+        meds = row["median_rel_err_seeds"]
+        assert row["seeds"] == seeds
+        assert len(meds) == len(seeds), (
+            "an ensemble statistic over a subset of its own seeds is a "
+            "statistic that does not describe what its name says")
+        # the recorded statistic IS the median of the recorded draws, and the
+        # spread IS max/min of them — neither is a number written beside them
+        assert row["ensemble_median_rel_err"] == pytest.approx(
+            statistics.median(meds), rel=1e-12)
+        assert row["seed_spread"] == pytest.approx(
+            max(meds) / min(meds), rel=1e-12)
+        # ...and it is a ROBUST statistic, not the extreme the single seed gave
+        assert row["ensemble_median_rel_err"] > row["best_median_rel_err"], (
+            f"{q}: the ensemble median is not above the best seed, so either "
+            f"the ensemble is degenerate or the pinned seed is no longer the "
+            f"minimum — re-measure rather than re-word")
+        assert row["seed_spread"] > 1.25, (
+            f"{q}: the measured spread {row['seed_spread']:.2f}x is now inside "
+            f"the declared tolerance; re-state the finding above")
+
+
+def test_the_ratchet_uses_the_ensemble_mark_and_the_recorded_spread(tmp_path):
+    """Gap T3's consuming half. Both clauses of the row are used and this is
+    the 'say which': the MARK becomes the ensemble median (robust, not an
+    extreme order statistic) and the TOLERANCE widens to the recorded spread,
+    because seed-to-seed variation the baseline itself measured cannot be
+    evidence of a regression. Using only the first judges one draw against a
+    median with no allowance for the noise between them; using only the second
+    keeps ratcheting against the minimum.
+    """
+    bp = tmp_path / "b.json"
+    fp = suite_fingerprint(None, [])
+    tfp = F.targets_fingerprint(None)
+    row = {"median_rel_err": 0.10, "coverage_2sigma": 0.95,
+           "best_median_rel_err": 0.10, "best_coverage_2sigma": 0.95,
+           "suite_fingerprint": fp, "targets_fingerprint": tfp}
+
+    def run(base_row, med):
+        bp.write_text(json.dumps({"wh_per_nm": base_row}))
+        with mock.patch.object(F, "_metrics", return_value=(med, 0.95)), \
+             mock.patch.object(F, "frozen_suite",
+                               return_value=(None, None, [])), \
+             mock.patch.object(F.GP, "fit",
+                               staticmethod(lambda *a, **k: object())):
+            return retrain(_stub_prov(), None, baseline_path=bp)
+
+    # WITHOUT an ensemble the old behaviour is unchanged: 0.15 is above
+    # 1.25 x 0.10, so it is refused against the best ever recorded.
+    model, rep = run(dict(row), 0.15)
+    assert model is None and not rep.passed_gate
+    assert any("best ever recorded" in r for r in rep.refusals), rep.refusals
+
+    # WITH one, the same 0.15 is inside 1.25 x 0.1901 = 0.2376 and deploys —
+    # and the refusal vocabulary changes with it, so a reader can tell which
+    # mark bit.
+    ens = dict(row, seeds=[21, 22, 23, 24, 25, 26, 27, 28],
+               ensemble_median_rel_err=0.1901,
+               ensemble_coverage_2sigma=0.9444, seed_spread=2.0234)
+    model, rep = run(dict(ens), 0.15)
+    assert model is not None and rep.passed_gate
+
+    # ...AND IT IS STILL A RATCHET, well inside the absolute floor. 0.24 is
+    # above 0.2376 and below HARD_MAX_MEDIAN_REL_ERR, so the only thing that
+    # can refuse it is the high-water mark. This is the assertion that would
+    # have failed had the tolerance been widened to the recorded 2.02x spread:
+    # 0.1901 x 2.0234 = 0.3846 is ABOVE the 0.35 floor, which would have made
+    # the ratchet inert and left every sub-floor refusal to the floor.
+    assert 0.24 < F.HARD_MAX_MEDIAN_REL_ERR, "this trap needs 0.24 to be legal"
+    model, rep = run(dict(ens), 0.24)
+    assert model is None and not rep.passed_gate
+    assert any("8-seed ensemble median" in r for r in rep.refusals), rep.refusals
+    assert 0.1901 * 2.0234 > F.HARD_MAX_MEDIAN_REL_ERR, (
+        "the spread-widened threshold is no longer above the floor — re-state "
+        "the reason the tolerance is NOT widened")
+
+    # The floor still binds above it, on the same ensemble baseline.
+    model, rep = run(dict(ens), 0.36)
+    assert model is None and not rep.passed_gate
+    assert any("absolute floor" in r for r in rep.refusals)
+
+    # HALF A STATISTIC IS REFUSED, never silently completed from the
+    # single-seed mark: that would compare a median against a best-of-one.
+    half = dict(ens)
+    del half["ensemble_coverage_2sigma"]
+    model, rep = run(half, 0.15)
+    assert model is None and not rep.passed_gate
+    assert any("half a statistic" in r for r in rep.refusals), rep.refusals
 
 
 def test_a_mark_measured_on_a_different_benchmark_is_refused(stocked, tmp_path):
@@ -371,10 +653,17 @@ def test_the_floor_and_the_ratchet_each_catch_what_the_other_cannot(tmp_path):
     """
     bp = tmp_path / "b.json"
     fp = suite_fingerprint(None, [])          # the stubbed suite's fingerprint
+    # ...AND its targets fingerprint (gap T1, 2026-08-12). Without this key the
+    # baseline is refused for UNVERIFIABLE COMPARABILITY before the ratchet is
+    # ever reached, which would leave this test green while measuring the wrong
+    # refusal. The stub's y is None, and `targets_fingerprint` hashes that to
+    # the empty-array digest — the same value `retrain` computes from it.
+    tfp = F.targets_fingerprint(None)
     good = {"wh_per_nm": {"median_rel_err": 0.10, "coverage_2sigma": 0.95,
                           "best_median_rel_err": 0.10,
                           "best_coverage_2sigma": 0.95,
-                          "suite_fingerprint": fp}}
+                          "suite_fingerprint": fp,
+                          "targets_fingerprint": tfp}}
 
     def run(med, cov, **kw):
         with mock.patch.object(F, "_metrics", return_value=(med, cov)), \

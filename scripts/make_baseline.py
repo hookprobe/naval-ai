@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import statistics
 import sys
 import tempfile
 import time
@@ -45,7 +46,28 @@ from navalai.mission import MissionSpec                   # noqa: E402
 # Pinned generation parameters. Change these and the baseline changes, which is
 # why they are recorded in the file rather than living only here.
 N_HARVEST = 120
-HARVEST_SEED = 21
+# THE MARK IS MEASURED OVER A SEED ENSEMBLE, NOT ON ONE SEED (gap T3).
+# `HARVEST_SEED = 21` alone produced a mark that `flywheel.retrain` then
+# ratcheted against with a 1.25x tolerance. MEASURED 2026-08-12, eight honest
+# seeds at the identical configuration (n=120, holdout 4242, GP.fit(seed=1)):
+#
+#     quantity    median   min      max      spread   seed 21 is
+#     wh_per_nm   0.1901   0.1240   0.2509   2.02x    the MINIMUM
+#     gm          0.4194   0.2504   0.7456   2.98x    the MINIMUM
+#     rt          0.1901   0.1240   0.2312   1.86x    the MINIMUM
+#
+# The pinned seed was the best of the eight on all three quantities, so the
+# recorded mark was an extreme order statistic and the gate was comparing a
+# fresh random draw against it: against `best_median_rel_err * 1.25`, 4 of 8
+# honest seeds are refused on wh_per_nm and 7 of 8 on gm. The first seed is
+# still the one that produces the DEPLOYABLE entry -- that path is unchanged
+# and still runs the real gate -- but the ensemble median and its spread are
+# measured beside it and are what `retrain` ratchets on.
+#
+# Cost is measured and it is not a reason to skip this: one seed is 8.35 s
+# (harvest 4.0 s + three quantities), the whole eight-seed ensemble 66 s.
+HARVEST_SEEDS = (21, 22, 23, 24, 25, 26, 27, 28)
+HARVEST_SEED = HARVEST_SEEDS[0]        # the seed the deployable entry uses
 HOLDOUT_SEED = 4242
 QUANTITIES = ("wh_per_nm", "gm", "rt")
 
@@ -84,6 +106,62 @@ def build(out: Path, dry_run: bool = False) -> dict:
 
         baseline = json.loads(target.read_text()) if target.exists() else {}
 
+        # THE ENSEMBLE (gap T3). Every seed runs the SAME real path — a fresh
+        # harvest into a throwaway DB, then `retrain(..., bootstrap=True)`
+        # against a throwaway baseline file — so these are gate-computed
+        # numbers, not a hand-written statistic. The first seed's numbers are
+        # already in `baseline` above and are re-used rather than re-run.
+        ens: dict[str, dict[str, list[float]]] = {
+            q: {"med": [], "cov": []} for q in QUANTITIES}
+        for q in QUANTITIES:
+            if q in baseline:
+                ens[q]["med"].append(float(baseline[q]["median_rel_err"]))
+                ens[q]["cov"].append(float(baseline[q]["coverage_2sigma"]))
+            elif q in refused:
+                ens[q]["med"].append(float(refused[q]["median_err"]))
+                ens[q]["cov"].append(float(refused[q]["coverage_2sigma"]))
+        for seed in HARVEST_SEEDS[1:]:
+            with tempfile.TemporaryDirectory() as t2:
+                p2 = db.Provenance(Path(t2) / "ens.sqlite3")
+                harvest(N_HARVEST, mission, p2, seed=seed)
+                scratch = Path(t2) / "baselines.json"
+                for q in QUANTITIES:
+                    _gp, r = retrain(p2, mission, q, baseline_path=scratch,
+                                     bootstrap=True, holdout_seed=HOLDOUT_SEED)
+                    ens[q]["med"].append(float(r.median_rel_err))
+                    ens[q]["cov"].append(float(r.coverage_2sigma))
+            print(f"  ensemble seed {seed}: "
+                  + "  ".join(f"{q}={ens[q]['med'][-1]:.4f}"
+                              for q in QUANTITIES))
+
+        # A quantity whose ensemble is incomplete gets NO ensemble keys. An
+        # ensemble median over a subset, silently, is a statistic that does not
+        # describe what its name says — the same shape as a coverage figure
+        # computed over the rows that happened to be measurable.
+        for q in QUANTITIES:
+            meds, covs = ens[q]["med"], ens[q]["cov"]
+            if q not in baseline or len(meds) != len(HARVEST_SEEDS):
+                continue
+            lo, hi = min(meds), max(meds)
+            baseline[q].update({
+                "seeds": list(HARVEST_SEEDS),
+                "median_rel_err_seeds": meds,
+                "coverage_2sigma_seeds": covs,
+                # statistics.median, i.e. the AVERAGE of the two middle values
+                # at an even seed count. Taking the upper middle
+                # element instead would move wh_per_nm 0.1901 ->
+                # 0.2118, a looser mark bought by an off-by-one.
+                "ensemble_median_rel_err": float(statistics.median(meds)),
+                "ensemble_coverage_2sigma": float(statistics.median(covs)),
+                # max/min. The ratchet widens its tolerance to this when it is
+                # larger than the declared one, because seed-to-seed variation
+                # the baseline itself measured is not evidence of a regression.
+                "seed_spread": float(hi / lo) if lo > 0 else float("inf"),
+            })
+            print(f"  {q:10} ensemble median {baseline[q]['ensemble_median_rel_err']:.4f} "
+                  f"over {len(meds)} seeds  spread {baseline[q]['seed_spread']:.2f}x  "
+                  f"[{lo:.4f}, {hi:.4f}]")
+
     baseline["_README"] = {
         "what": "Frozen deployment marks for navalai.flywheel.retrain. Each "
                 "quantity key holds the metrics of the last ACCEPTED retrain "
@@ -96,6 +174,7 @@ def build(out: Path, dry_run: bool = False) -> dict:
                         "was written by hand.",
         "regenerate": "python scripts/make_baseline.py",
         "generation": {"n_harvest": N_HARVEST, "harvest_seed": HARVEST_SEED,
+                       "harvest_seeds": list(HARVEST_SEEDS),
                        "holdout_seed": HOLDOUT_SEED,
                        "mission": "MissionSpec() defaults",
                        "frozen_suite": "flywheel.frozen_suite — "

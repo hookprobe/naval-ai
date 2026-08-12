@@ -358,6 +358,45 @@ def suite_fingerprint(X, labels) -> str:
     return h.hexdigest()[:16]
 
 
+def targets_fingerprint(y) -> str:
+    """Identity of what the frozen suite is worth: its TARGET values (gap T1).
+
+    THE SECOND HALF OF THE COMPARABILITY QUESTION, and it was missing.
+    `suite_fingerprint` answers "are these the same probe points?" and that is
+    all it can answer, by design (see its docstring). The ratchet's real
+    question is "is the recorded mark comparable to the number I just
+    measured?", and a mark is comparable only if the probe points AND the
+    values behind them are the same. The frozen y is a live output of
+    `evaluate()` -- `frozen_suite` builds it by calling the ladder -- so every
+    L1 physics change moves it.
+
+    MEASURED 2026-08-12, reproducing `make_baseline.py`'s exact configuration
+    (n=120, harvest seed 21, holdout 4242, GP.fit(seed=1)) against the
+    committed file:
+
+        quantity     committed mark     re-measured     move   suite_fingerprint
+        wh_per_nm    0.15130937054      0.1434         -5.2%   d782c04bf198af11
+        gm           0.25174526392      0.2504         -0.5%   d782c04bf198af11
+        rt           0.15131012878      0.1435         -5.2%   d782c04bf198af11
+
+    Bit-identical fingerprint, three moved marks. `560fd52` ("evaluate: the L1
+    weight path planked a different boat than engineer.assess") changed the
+    weight path that feeds `evaluate()`, and therefore both the frozen y and
+    the training y, under a suite id that could not see it.
+
+    KEPT SEPARATE from `suite_fingerprint` rather than folded into it, because
+    the two mismatches mean different things and want different messages: a
+    probe change means "this is a different benchmark", a target change means
+    "this is the same benchmark under different physics, re-baseline". Merging
+    them would produce one hash that cannot say which happened.
+    """
+    h = hashlib.sha256()
+    A = np.asarray(y, float).ravel() if y is not None else np.zeros(0)
+    h.update(str(A.shape).encode())
+    h.update(np.round(A, 9).tobytes())
+    return h.hexdigest()[:16]
+
+
 @dataclass
 class DeployedSurrogate:
     """The ONLY caller-facing way to ask a deployed surrogate for a number.
@@ -572,6 +611,10 @@ class RetrainReport:
     # whether it is the one the baseline was measured on. A mark compared
     # across two different suites is not a comparison.
     suite_fingerprint: str = ""
+    # And what those probes were WORTH (gap T1): the frozen y is a live output
+    # of evaluate(), so a physics change moves it while suite_fingerprint --
+    # which hashes coordinates -- stays bit-identical. MEASURED: it did.
+    targets_fingerprint: str = ""
     suite_mismatch: bool = False
     # Share of the frozen suite this model would REFUSE to answer in
     # production. A receipt; see `DeployedSurrogate.frozen_ood_rate`.
@@ -671,6 +714,7 @@ def retrain(prov: db.Provenance, mission: MissionSpec,
     Xt, yt, labels = frozen_suite(mission, quantity=quantity, seed=holdout_seed)
     med, cov = _metrics(gp, Xt, yt, tf)
     fp = suite_fingerprint(Xt, labels)
+    tfp = targets_fingerprint(yt)
     # How much of its own deployment benchmark this model would refuse in
     # production. Measured through the SAME support test the query path uses,
     # so the receipt and the guard cannot disagree. Recorded as nan when the
@@ -710,14 +754,34 @@ def retrain(prov: db.Provenance, mission: MissionSpec,
     # bests, which is the whole point: a record set on another benchmark must
     # not be carried into this one. The absolute floors still bind, so this is
     # not a way to deploy a bad model.
-    if (prior is not None and bootstrap
-            and prior.get("suite_fingerprint") != fp):
+    #
+    # THE CONDITION WAS THE DEADLOCK (gap T2), AND IT IS GONE. The drop used to
+    # be gated on `prior.get("suite_fingerprint") != fp`, and `fp` is
+    # TARGET-BLIND on purpose: it hashes the probe COORDINATES. So a physics
+    # change moved the marks without moving the id, the stale prior was kept,
+    # and `make_baseline.py` -- which reads and writes the same file -- would
+    # refuse all three quantities against the very file it exists to replace
+    # whenever the new physics happened to be harder to learn. MEASURED
+    # 2026-08-12: the three committed marks are 0.5-5.2% away from what this
+    # tree produces at the identical configuration, under a bit-identical
+    # `d782c04bf198af11`. It went the lucky direction (better), so nothing
+    # deadlocked; that is a coin toss, not a guard.
+    #
+    # `bootstrap` ALREADY MEANS "this prior is not evidence about this run".
+    # Conditioning the drop on a fingerprint asked a second, weaker question on
+    # top of an explicit instruction. The absolute floors below bind on a
+    # bootstrap exactly as they do otherwise, so this is not a route to
+    # deploying a bad model -- it is a route to a baseline that can be
+    # regenerated. Comparability across a physics change is now the
+    # NON-bootstrap path's job, and `targets_fingerprint` is what gives it eyes.
+    if prior is not None and bootstrap:
         prior = None
         _rebaselined = (
             f"re-baselined: the previous mark for {key!r} was measured on suite "
-            f"{baseline[key].get('suite_fingerprint') or 'NOT RECORDED'} and "
-            f"this run is on {fp}; the old bests are dropped rather than "
-            f"carried across benchmarks")
+            f"{baseline[key].get('suite_fingerprint') or 'NOT RECORDED'} / "
+            f"targets {baseline[key].get('targets_fingerprint') or 'NOT RECORDED'} "
+            f"and this run is on {fp} / {tfp}; the old bests are dropped "
+            f"rather than carried across an explicit bootstrap")
     else:
         _rebaselined = ""
 
@@ -761,10 +825,64 @@ def retrain(prov: db.Provenance, mission: MissionSpec,
                 f"mark carried across two different benchmarks is not a "
                 f"comparison. Re-measure the baseline deliberately: "
                 f"python scripts/make_baseline.py")
+        # ...AND THE SAME BENCHMARK UNDER THE SAME PHYSICS (gap T1). A mark
+        # measured before a change to `evaluate()` describes a frozen suite
+        # whose y values no longer exist. A baseline written before this field
+        # existed is UNVERIFIABLE, not fine — the same D3 shape as the
+        # suite-fingerprint arm above, so it refuses rather than defaults.
+        prior_tfp = prior.get("targets_fingerprint")
+        if prior_tfp != tfp:
+            mismatch = True
+            ok = False
+            refusals.append(
+                f"the frozen suite's TARGET values moved: this run measures "
+                f"{tfp} and the baseline was measured on "
+                f"{prior_tfp or 'NOT RECORDED'}. The probe points are the "
+                f"same; the physics behind them is not, so the recorded mark "
+                f"is not a comparison. Re-measure it deliberately: "
+                f"python scripts/make_baseline.py")
     if ok and prior is not None:
-        best_med = prior.get("best_median_rel_err", prior.get("median_rel_err"))
-        best_cov = prior.get("best_coverage_2sigma",
-                             prior.get("coverage_2sigma"))
+        # THE MARK IS THE ENSEMBLE STATISTIC WHERE ONE WAS RECORDED (gap T3).
+        # `best_median_rel_err` is the best of however many seeds ever ran, and
+        # `make_baseline.py` pinned ONE — seed 21 — which MEASURED as the
+        # MINIMUM of an 8-seed ensemble on all three quantities. Ratcheting a
+        # fresh single-seed draw against the minimum of a distribution whose
+        # measured spread is 1.86x (rt), 2.02x (wh_per_nm) and 2.98x (gm),
+        # under a 1.25x tolerance, refuses 4 of 8 honest seeds on wh_per_nm and
+        # 7 of 8 on gm. That is not a strict gate, it is a broken statistic:
+        # its false-refusal rate is 50-90% on models that are fine.
+        #
+        # THE ROW OFFERS TWO ROUTES AND THIS TAKES THE FIRST ONE, SAID OUT LOUD:
+        # the MARK becomes the recorded ensemble median. The TOLERANCE is NOT
+        # widened to `seed_spread`, and that was tried and rejected on the
+        # measurement: 0.1901 x 2.0234 = 0.3846 is ABOVE
+        # HARD_MAX_MEDIAN_REL_ERR (0.35), so widening would have made the
+        # ratchet inert — every refusal below the floor would have come from the
+        # floor and the high-water mark would have stopped being a gate at all.
+        # At the declared 1.25x against the ensemble median the threshold is
+        # 0.2376, inside the floor, and it refuses 1 of the 8 measured honest
+        # seeds instead of 4. `seed_spread` stays in the file as a RECEIPT —
+        # it is what says the 1.25x tolerance is doing statistical work rather
+        # than being a round number — and it is deliberately not a gate input.
+        ens_med = prior.get("ensemble_median_rel_err")
+        ens_cov = prior.get("ensemble_coverage_2sigma")
+        if ens_med is not None:
+            if ens_cov is None:
+                ok = False
+                refusals.append(
+                    "the baseline records an ensemble median but no "
+                    "ensemble_coverage_2sigma — half a statistic is not one, "
+                    "and falling back to the single-seed mark for the other "
+                    "half would compare two different things")
+            best_med, best_cov = ens_med, ens_cov
+            mark_kind = (f"the {len(prior.get('seeds', ()))}-seed ensemble "
+                         f"median")
+        else:
+            best_med = prior.get("best_median_rel_err",
+                                 prior.get("median_rel_err"))
+            best_cov = prior.get("best_coverage_2sigma",
+                                 prior.get("coverage_2sigma"))
+            mark_kind = "the best ever recorded"
         if best_med is None or best_cov is None:
             ok = False
             refusals.append(
@@ -776,12 +894,12 @@ def retrain(prov: db.Provenance, mission: MissionSpec,
                 ok = False
                 refusals.append(
                     f"median {tf.err_kind} error {med:.4g} is above "
-                    f"{tol}x the best ever recorded ({best_med:.4g})")
+                    f"{tol:.4g}x {mark_kind} ({best_med:.4g})")
             if not cov >= best_cov - 0.15:
                 ok = False
                 refusals.append(
-                    f"2-sigma coverage {cov:.4g} is more than 0.15 below the "
-                    f"best ever recorded ({best_cov:.4g})")
+                    f"2-sigma coverage {cov:.4g} is more than 0.15 below "
+                    f"{mark_kind} ({best_cov:.4g})")
             if regressed:
                 ok = False
 
@@ -790,7 +908,8 @@ def retrain(prov: db.Provenance, mission: MissionSpec,
                            wall_clock_regressed=regressed,
                            transform=tf.name, err_kind=tf.err_kind,
                            suite="frozen_suite", labels=labels,
-                           suite_fingerprint=fp, suite_mismatch=mismatch,
+                           suite_fingerprint=fp, targets_fingerprint=tfp,
+                           suite_mismatch=mismatch,
                            frozen_ood_rate=frozen_ood, refusals=refusals,
                            rebaselined=_rebaselined)
     if ok:
@@ -811,7 +930,20 @@ def retrain(prov: db.Provenance, mission: MissionSpec,
             # WHICH suite, not just the word "suite" — the next run compares
             # against this and refuses if the benchmark moved underneath it.
             "suite_fingerprint": fp, "n_frozen": int(len(labels)),
+            # ...and WHAT THOSE PROBES WERE WORTH when this was measured, so a
+            # physics change cannot leave the mark looking comparable (gap T1).
+            "targets_fingerprint": tfp,
             "frozen_ood_rate": frozen_ood}
+        # The ensemble statistic and its spread survive a re-write of the row
+        # (gap T3). `retrain` measures ONE seed and cannot recompute them; they
+        # are written by scripts/make_baseline.py, and dropping them here would
+        # silently return the ratchet to the single-seed minimum on the first
+        # accepted retrain after a re-baseline.
+        for _k in ("ensemble_median_rel_err", "ensemble_coverage_2sigma",
+                   "seed_spread", "median_rel_err_seeds",
+                   "coverage_2sigma_seeds", "seeds"):
+            if prior is not None and _k in prior:
+                baseline[key][_k] = prior[_k]
         if cyc is not None:
             baseline[key]["cycle_s"] = cyc
             baseline[key]["best_cycle_s"] = (

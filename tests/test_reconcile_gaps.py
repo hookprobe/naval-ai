@@ -627,50 +627,72 @@ def test_a6b_asks_for_the_recall_MEASUREMENT_not_merely_for_a_support_test(tmp_p
 def test_the_section_T_predicates_can_flip_and_T1_comes_apart_from_T2(tmp_path):
     """A predicate that cannot fail on the defect cannot verify the fix — and
     the mirror of it: a predicate that cannot PASS on the fix is a permanent
-    OPEN wearing a clearing condition. T1-T3 all read OPEN today, so nothing
-    else in this suite exercises them in the closing direction.
+    OPEN wearing a clearing condition.
 
-    It also requires T1 and T2 to COME APART, for A6b's reason: T2 is stated in
-    the register as a consequence of T1, and a predicate that merely re-asked
-    T1's question would answer T1 twice and T2 never. T2's own clearing
-    condition is that the regeneration route cannot DEADLOCK, and dropping the
-    stale mark on an explicit bootstrap achieves that with the fingerprint left
-    target-blind.
+    RE-AIMED 2026-08-12, when T1-T3 landed. It used to doctor the tree in the
+    CLOSING direction because all three read OPEN; both are closed now, so it
+    doctors in the OPENING direction instead. The requirement is unchanged and
+    it is the load-bearing one: T1 and T2 must COME APART. T2 is stated in the
+    register as a consequence of T1, and a predicate that merely re-asked T1's
+    question would answer T1 twice and T2 never.
+
+    They come apart because the two fixes landed in different files. T1 is
+    closed by `targets_fingerprint` being RECORDED in data/baselines.json —
+    the row's own second arm, an equivalent targets guard — and T2 by the
+    bootstrap drop no longer being conditioned on a target-blind id in
+    flywheel.py. Remove either and only its own row notices.
     """
     (tmp_path / "navalai").mkdir()
+    (tmp_path / "data").mkdir()
     src = (_ROOT / "navalai" / "flywheel.py").read_text()
-    conditioned = ('    if (prior is not None and bootstrap\n'
-                   '            and prior.get("suite_fingerprint") != fp):')
-    assert conditioned in src, "the bootstrap branch moved; re-aim this control"
+    base = (_ROOT / "data" / "baselines.json").read_text()
+    unconditional = "    if prior is not None and bootstrap:"
+    assert unconditional in src, "the bootstrap branch moved; re-aim this control"
+    assert '"targets_fingerprint"' in base, (
+        "the committed baseline records no targets fingerprint; re-aim this "
+        "control")
 
     t1 = next(c for c in rg.CHECKS if c.source_id == "T1")
     t2 = next(c for c in rg.CHECKS if c.source_id == "T2")
 
-    # (a) the bootstrap drop stops being conditioned on the fingerprint: T2
-    #     closes, T1 does NOT — the frozen suite's y values are still unhashed.
-    (tmp_path / "navalai" / "flywheel.py").write_text(
-        src.replace(conditioned, "    if prior is not None and bootstrap:"))
-    rg._TEXT_CACHE.clear()
-    rg._CODE_CACHE.clear()
-    with rg.at_root(tmp_path):
-        assert t2.closed(), "T2 did not close on a bootstrap that cannot deadlock"
-        assert not t1.closed(), (
-            "T1 closed without the fingerprint ever reaching the suite's "
-            "targets, i.e. it is answering T2's question")
+    def _plant(flywheel_src: str, baseline_text: str):
+        (tmp_path / "navalai" / "flywheel.py").write_text(flywheel_src)
+        (tmp_path / "data" / "baselines.json").write_text(baseline_text)
+        rg._TEXT_CACHE.clear()
+        rg._CODE_CACHE.clear()
 
-    # (b) the fingerprint covers the targets: both close, T2 through T1.
-    fixed = src.replace("def suite_fingerprint(X, labels) -> str:",
-                        "def suite_fingerprint(X, labels, y=None) -> str:")
-    fixed = fixed.replace(
-        "    h.update(np.round(A, 9).tobytes())",
-        "    h.update(np.round(A, 9).tobytes())\n"
-        "    h.update(np.round(np.asarray(y, float), 9).tobytes())")
-    assert fixed != src, "suite_fingerprint moved; re-aim this control"
-    (tmp_path / "navalai" / "flywheel.py").write_text(fixed)
-    rg._TEXT_CACHE.clear()
-    rg._CODE_CACHE.clear()
+    # (0) the tree as committed: both closed. Without this the control could
+    #     be passing because the predicates never close on anything.
+    _plant(src, base)
     with rg.at_root(tmp_path):
         assert t1.closed() and t2.closed()
+
+    # (a) the targets guard is removed from the baseline and NOTHING ELSE
+    #     changes: T1 re-opens, T2 stays closed. `suite_fingerprint` is still
+    #     target-blind, so T1's first arm cannot rescue it.
+    _plant(src, base.replace("targets_fingerprint", "targets_removed"))
+    with rg.at_root(tmp_path):
+        assert not t1.closed(), (
+            "T1 stayed closed with no targets guard anywhere — it is "
+            "answering some other question")
+        assert t2.closed(), (
+            "T2 re-opened on a change to the baseline file, i.e. it is "
+            "answering T1's question")
+
+    # (b) the bootstrap drop goes back to being conditioned on the target-blind
+    #     id, and the baseline keeps its targets guard: T2 re-opens, T1 stays
+    #     closed. This is the deadlock the row is about, restored verbatim.
+    _plant(src.replace(unconditional,
+                       '    if (prior is not None and bootstrap\n'
+                       '            and prior.get("suite_fingerprint") != fp):'),
+           base)
+    with rg.at_root(tmp_path):
+        assert not t2.closed(), (
+            "T2 stayed closed with the deadlock condition restored")
+        assert t1.closed(), (
+            "T1 re-opened on a change to flywheel.py's bootstrap branch, i.e. "
+            "it is answering T2's question")
+
     rg._TEXT_CACHE.clear()
     rg._CODE_CACHE.clear()
 
