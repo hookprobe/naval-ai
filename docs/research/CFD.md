@@ -459,3 +459,181 @@ predictor, is the mechanism — Wigley survives a *thicker* relative stack
   tank mode (2L/n, moves with L) from the domain half-width (does not).
 - **A Wigley run against Michell**, which is the surviving test of whether the
   wave-resistance machinery is systematically wrong.
+
+---
+
+## 6 · 2026-08-12 — the wave/air blockMesh boundary is a 15.3:1 slab, and hull 4's 38 faces live inside it
+
+**Owner of the question:** Gate 2U mesh robustness. **Configuration:** seed-0
+25-hull grammar batch, `--scale 1.0 --speed 2.57`, `n_layers = 7` (the shipped
+`_MAX_LAYERS` cap), full-width domain, `MESH_ONLY=1` through
+`navalai/cfd/run-case.sh` — no solves. Run directories `runs/zb_*` and
+`runs/zba_h*` on this Mac at time of writing.
+
+### The handover, and what it already ruled out
+
+Hull 4 (lwl 8.9417) failed at every prism-layer count. The NURBS agent's Stage
+A (`bbf1a47`) put the chine on a row of the grid and removed a ~10 mm deviation
+floor, re-meshed hull 4, and measured **38 wrongly-oriented faces before Stage
+A and 38 after — not one moved**, with `nonOrtho` 98.9835 and `skew` 10.4659
+unchanged. The `wrongOrientedFaces` set decoded to a 26 mm band at fixed z
+spanning 44% of Lwl. `data/gate2u-layer-search-mesh.json` shows the same
+`38 / 98.9835 / 10.4659` at n = 3, 4, 5, 6, 7, 8 **and** 9 — a defect invariant
+to both the geometry and the layer count.
+
+### The mesh arithmetic, which is scale-free
+
+`_Z_EXPANSION = 20.0` was a **total** expansion (`simpleGrading (1 1 20)`, last
+cell / first cell, z upward) applied to both graded outer z-blocks. In units of
+Lwl — and these are scale-free, so they held on every case this project has
+ever meshed:
+
+| block | height | n | cell AT the core band | core band cell | step |
+|---|---|---|---|---|---|
+| air  | 0.160 L | 4 | 0.005148 L (46.0 mm) | 0.045 L (402.4 mm) | **8.74x finer** |
+| deep | 0.910 L | 7 | 0.36923 L (3301 mm)  | 0.045 L (402.4 mm) | **8.20x coarser** |
+
+The air block's grading was the right direction and eight times too strong: the
+mesh got *finer* moving away from the free surface and then coarser again. The
+first air cell is 705.9 x 705.9 x 46.0 mm — **15.34:1**, and `hexRef8` preserves
+aspect ratio at every level, so at hull refinement level 4 it is
+44.1 x 44.1 x 2.88 mm, still 15.34:1. That is CLAUDE.md's 2026-08-05 root cause
+(snap displacement scales with the LONG edge, so a few-mm move is several cell
+HEIGHTS and the cell folds) reintroduced inside a 46 mm horizontal slab that no
+hull feature marks. The ratio is a **constant 15.335 for every hull**, because
+dx and the first air cell are both proportional to Lwl — which is why it has no
+contrast group and could not have been found by comparing hulls.
+
+The deep block's grading was **inverted**: coarsest cell (3.30 m) against the
+402 mm core band, finest (165 mm) at the tank floor where nothing happens.
+
+### The decisive experiment: move the boundary and see whether the faces follow
+
+Hull 4, geometry byte-identical (`stl_sha256 3f8c87ae…`), n_layers 7, only the
+z-block constants moving. Face coordinates decoded from `wrongOrientedFaces`
+via `foamToVTK`.
+
+| config | cells | zeroVol | wrongOri | skew | nonOrtho | face z-range | first air cell |
+|---|---|---|---|---|---|---|---|
+| `_Z_BANDS` 0.09, `_Z_EXPANSION` 20 | 916677 | 0 | **38** | 10.3992 | 98.9835 | 0.8105 .. 0.8365 | [0.804755, 0.850783] |
+| `_Z_BANDS` 0.12, `_Z_EXPANSION` 20 | 843124 | 0 | **14** | 8.6104 | 89.1700 | **1.0774 .. 1.0897** | **[1.073006, 1.110405]** |
+| `_Z_BANDS` 0.09, `_Z_EXPANSION` 1  | 1106081 | 0 | **0** | 2.4415 | 69.1067 | — (`Mesh OK`) | — |
+
+**The faces moved with the blockMesh vertex.** The hull did not move; the
+defect did. That settles the causal direction: it is located by the mesh, not
+by the surface. And flattening the grading removes it entirely — 38 to 0, skew
+10.3992 to 2.4415, nonOrtho 98.9835 to 69.1067, and checkMesh prints `Mesh OK`
+on a hull that had failed three checks at every layer count.
+
+The `_Z_BANDS` 0.12 arm is reported for its location, not its count: moving the
+plane also moves what part of the topside sits at it, so 38 to 14 is not a
+dose-response.
+
+### The fix, and the companion change the data REFUSED
+
+`_z_grading()` derives the air block's grading so its first cell equals the
+ungraded core cell, bounded by an adjacent-cell ratio of 2.0. At the shipped
+proportions (0.160 L over 4 cells against a 0.045 L core) that resolves to
+**uniform**: 0.3577 L/8.94 m cells, an 0.889x step and a 1.97:1 first air cell.
+
+Correcting the deep block the same way is the obvious companion change, and
+**the batch refuses it**. 25 hulls, n_layers 7, `run-case.sh` bar (0 zero-volume
+cells, <= 5 wrongly-oriented faces, <= 20 max skewness):
+
+| configuration | bar | fixed | regressed | cells |
+|---|---|---|---|---|
+| baseline (`data/gate2u-cap7-mesh.json`) | **19 / 25** | — | — | — |
+| both blocks derived | **16 / 25** | 4, 14, 18 | 0, 1, 6, 8, 20, 22 | +12.2% |
+| **air block only** | **23 / 25** | 4, 10, 12, 14, 18 | 8 | **-0.2%** |
+
+The controlled triple on hull 0, which is clean at baseline, shows there is no
+additive story to tell:
+
+    hull 0   air derived, deep 20.0   619094 cells   0 zeroVol    0 wrongOri  skew  3.17  CLEAN
+    hull 0   air 20.0, deep derived   680425 cells   0 zeroVol    0 wrongOri  skew  4.52  CLEAN
+    hull 0   BOTH derived             686237 cells  30 zeroVol  324 wrongOri  skew 53.62  REFUSED
+
+Each change alone is clean and the pair is not. The deep block therefore keeps
+`_Z_EXPANSION = 20.0` — inverted, wasteful, and **unmeasured as harmful**.
+
+### KCS is untouched, and that is why nobody found this
+
+Symmetric, scale 1, same STL, `MESH_ONLY`:
+
+| n | grading | cells | zeroVol | wrongOri | skew | nonOrtho | layers achieved |
+|---|---|---|---|---|---|---|---|
+| 3 | fixed 20.0 | 227597 | 0 | 0 | 6.31765 | 73.4805 | 2.93 |
+| 3 | derived air | 227597 | 0 | 0 | **6.31765** | **68.2707** | 2.93 |
+| 5 | fixed 20.0 | 230725 | 0 | 0 | 8.93076 | 73.4805 | 4.63 |
+| 5 | derived air | 230725 | 0 | 0 | **8.93076** | **69.5849** | 4.63 |
+
+Identical cell count, identical zero-volume / wrongly-oriented / skewness,
+identical layer coverage; maximum non-orthogonality improves by 4-5 degrees at
+both counts. (The `fixed 20.0` rows reproduce CLAUDE.md's recorded KCS meshes
+exactly — 227597 / 6.32 / 2.93 and 230725 / 8.93 / 4.63 — so the baseline is
+the project's own record, not a re-derivation.)
+
+The reason is one number: **KCS's deck top is z = 0.4021 m and the wave/air
+boundary is 0.09 x 7.2786 = 0.6551 m.** No KCS geometry enters the air block at
+all, so the benchmark every mesh constant in this file was tuned on is blind to
+this defect by construction. CLAUDE.md already says a second anchor is owed;
+this is the first measured instance of the benchmark being unable to see a
+defect rather than merely not covering the physics.
+
+The background aspect ratio the 2026-08-05 fix depends on is **unchanged**:
+`dx / dz_core` is still 1.754 (the two equal 0.09 L core bands are untouched).
+What changed is the FIRST AIR CELL's aspect, 15.34:1 -> 1.97:1.
+
+### The sufficient condition was NOT found, and the search is at chance
+
+The brief asked for the condition separating hull 4 from the crossers that mesh
+clean. **There is none in the geometry, and the AUCs say so.** Measured over
+all 25 hulls against the baseline refusal (zero-volume or > 5 wrongly-oriented
+faces at n=7, 5 positives), on features computed from `Hull.closed_mesh` inside
+the first air cell:
+
+| feature | AUC |
+|---|---|
+| surface crosses the plane at all | 0.475 |
+| hull triangles in the band | 0.295 |
+| surface area in the band / Lwl^2 | 0.575 |
+| area-weighted mean \|n_z\| (surface inclination) | 0.475 |
+| z travelled per level-5 cell, in cell heights | 0.485 |
+| distinct background columns the band footprint covers | 0.385 |
+| max \|y\| in the band / Lwl | 0.625 |
+| deck height / za | 0.580 |
+| Lwl | 0.370 |
+
+Every one is chance at N=25. Two facts explain why, and both are measurements
+rather than excuses:
+
+1. **The aspect ratio has no contrast group.** dx and the first air cell are
+   both proportional to Lwl, so 15.335:1 is a constant across the entire batch.
+   The hazard is identical for every hull; only whether a *snap* lands badly
+   inside it varies, and that is not a property of the surface at the plane.
+2. **The effect is not confined to hulls that reach the plane.** Hulls 8 and 12
+   have their deck tops at 0.654 and 0.908 of za — neither touches the air
+   block — and the air grading change flipped **both** of them (12 fixed, 8
+   regressed). snappy's refinement propagation and the layer pass reach above
+   the deck, so the air block's cell sizes matter to a hull that never enters
+   it.
+
+Consistent with `docs/LESSONS.md` and with commit `b5771fb`: a defect present
+in every hull has no contrast group, and this one was found by moving the mesh,
+not by comparing hulls.
+
+### What is now owed
+
+- **Hull 8 regressed and hull 5 did not recover.** Hull 8 goes 0/0/2.866 ->
+  2 zeroVol / 34 wrongOri / 20.350 at n=7; `data/gate2u-layer-search-mesh.json`
+  already records hull 8 as knife-edge in n (clean at 4 and 7, REFUSED at 6),
+  so the two-sided layer search is the mechanism that should rescue it, and the
+  23/25 above is the rung-0-only number. Hull 5 fails either way and its
+  skewness intensifies (56.796 -> 3769.28); it is a different defect.
+- **The 23/25 is at rung 0.** Re-run `scripts/mesh_robustness.py
+  --layer-backoff` on top of this to get the number the ledger should carry.
+- **The deep block is still inverted.** It puts a 3.30 m cell against a 402 mm
+  core band and 165 mm cells at the tank floor. Correcting it is measured to
+  cost more than it buys AT n=7 ON THIS BATCH, which is not the same as it
+  being right. It should be re-measured once the layer search is in the loop,
+  because six of its regressions may be knife-edge in n rather than caused.

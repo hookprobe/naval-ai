@@ -1106,7 +1106,7 @@ def test_an_unreadable_layer_table_is_refused_not_scored_as_full_coverage(
     assert r["layers_achieved"] == -1.0
 
 
-def test_the_layer_backoff_ladder_descends_by_two_and_stops_at_three():
+def test_the_layer_backoff_ladder_walks_outward_by_one_in_both_directions():
     """MEASURED 2026-08-11 on the seed-0 Gate 2U batch: `n_layers_to_bridge`
     derives 8-10 layers for EVERY grammar hull, and on hulls 0 and 1 the
     derived count produces a mesh run-case.sh refuses (12 zero-volume cells /
@@ -1116,14 +1116,42 @@ def test_the_layer_backoff_ladder_descends_by_two_and_stops_at_three():
     The ladder must not jump to the floor: on hull 1, n=3 is ALSO refused
     (2 wrongly-oriented faces, skew 20.32) while n=5 and n=7 are clean, so
     lower is not monotonically better and the first passing rung is the answer.
+
+    THIS TEST ASSERTED THE SUPERSEDED LADDER AND WAS RED AT HEAD. Commit
+    1059c79 replaced the descending-only walk (step 2, reachable set {5, 3}
+    from _MAX_LAYERS=7) with an outward search at step 1, because the counts
+    three hulls need are all ABOVE the derived value: hull 10 meshes ONLY at
+    n=8, hull 12 ONLY at n=6, and hull 18 is clean at n=10 (skew 6.19) while
+    n=7 FAILS (skew 70.98). A descending ladder cannot reach any of them, and
+    step 2 from an odd start could not reach hull 12's 6 even within its own
+    range. The old expectations ([8, 6, 4] and [7, 5, 3]) are kept here only
+    as the thing that must NOT come back — a test named after a superseded
+    rule is worse than no test, so the name moved with the behaviour.
     """
-    assert C.layer_backoff_ladder(10) == [8, 6, 4]
-    assert C.layer_backoff_ladder(9) == [7, 5, 3]
+    assert C.layer_backoff_ladder(10) == [9, 8, 7, 6, 5, 4, 3]
+    assert C.layer_backoff_ladder(9) == [8, 7, 6, 5, 4, 3]
+    assert C.layer_backoff_ladder(10) != [8, 6, 4], "the step-2 ladder is gone"
     assert C.layer_backoff_ladder(3) == [], "the floor is a floor, not a rung"
     assert all(n >= 3 for n in C.layer_backoff_ladder(20))
-    # And it is strictly descending, so the loop terminates.
+    # No repeats, and the derived count is never re-offered as a rung.
     lad = C.layer_backoff_ladder(20)
-    assert lad == sorted(lad, reverse=True) and len(set(lad)) == len(lad)
+    assert len(set(lad)) == len(lad) and 20 not in lad
+
+    # COUNTS ABOVE THE DERIVED VALUE ARE REACHABLE — the whole point of the
+    # rewrite. `ceiling` is n_ideal (the unclamped bridging count); above it
+    # the near-wall cell cannot support the stack, so it is a bound, not an
+    # omission. scripts/mesh_robustness.py passes it.
+    up = C.layer_backoff_ladder(7, ceiling=10)
+    assert 8 in up and 10 in up, "hull 10 needs 8 and hull 18 needs 10"
+    assert C.layer_backoff_ladder(7, ceiling=7) == [6, 5, 4, 3], \
+        "with no headroom the search still descends"
+
+    # ORDERED OUTWARD from the derived count: |rung - n0| is non-decreasing,
+    # so a hull that needs a near rung pays for the near rungs only. (1.9
+    # rungs per hull is the measured mean over the 25-hull batch.)
+    outward = C.layer_backoff_ladder(7, ceiling=10)
+    dist = [abs(n - 7) for n in outward]
+    assert dist == sorted(dist), f"not ordered outward: {outward}"
 
 
 def test_the_campaign_taxonomy_names_the_stage_that_refused():
@@ -1330,3 +1358,159 @@ def test_reclassify_refuses_to_write_a_zero_it_could_not_measure(tmp_path,
     assert out.exists() and (out / "h000").exists(), (
         "--reclassify deleted the tree it was asked to read")
     assert "REFUSING to write" in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------------------
+# THE WAVE/AIR BLOCKMESH BOUNDARY WAS A 15.3:1 SLAB, AND IT FOLDED CELLS
+#
+# MEASURED 2026-08-12 on Gate 2U hull 4 (seed-0 batch, lwl 8.9417, stl_sha256
+# 3f8c87ae..). `_Z_EXPANSION` was a fixed 20.0 applied to both graded outer
+# z-blocks, which made the FIRST air cell 8.74x FINER than the ungraded core
+# band it adjoins (46.0 mm against 402.4 mm) and 705.9 mm wide -> 15.34:1.
+# hexRef8 preserves that ratio at every refinement level, which is CLAUDE.md's
+# 2026-08-05 root cause in a 46 mm horizontal slab.
+#
+# Hull 4 carried 38 wrongly-oriented faces at EVERY layer count from n=3 to
+# n=9, with byte-identical checkMesh output (nonOrtho 98.9835, skew 10.4659) —
+# a layer-invariant defect. The faces are located by the MESH: decoded from
+# `wrongOrientedFaces` they sit at z 0.8105..0.8365 inside the first air cell
+# [0.804755, 0.850783], and when _Z_BANDS moved to 0.12 they MOVED WITH IT to
+# z 1.0774..1.0897 inside [1.073006, 1.110405]. Commit bbf1a47 changed the
+# hull surface underneath them and not one of the 38 moved.
+# ---------------------------------------------------------------------------
+
+def _z_block_cells(height: float, n: int, grading: float) -> list[float]:
+    """blockMesh simpleGrading cell heights, first cell first."""
+    r = grading ** (1.0 / (n - 1))
+    f = height / sum(r ** i for i in range(n))
+    return [f * r ** i for i in range(n)]
+
+
+@pytest.mark.parametrize("lwl", [7.2786, 8.9417, 15.015, 18.702])
+@pytest.mark.parametrize("scale", [1.0, math.sqrt(2.0), 2.0])
+@pytest.mark.parametrize("speed", [2.57, 12.0, 20.0])
+def test_the_graded_z_blocks_match_the_core_band_at_the_face_they_share(
+        lwl, scale, speed):
+    """The size step across either internal z-block boundary must stay under
+    the 5.6:1 that CLAUDE.md records as REJECTED.
+
+    THE BAR IS NOT INTERPOLATED. 5.6:1 is the ratio a 0.03 Lwl core band
+    produced (109 mm cells against a 607 mm dx) and which CLAUDE.md records as
+    "reintroducing the very anisotropy the isotropic background fixed" — the
+    reason the two core bands are EQUAL at 0.09 Lwl. The configuration this
+    test refuses is measured, not guessed: `_Z_EXPANSION` 20.0 gives 8.74x at
+    the wave/air boundary and 8.20x at the deep/hull boundary (hull 4, scale
+    1), and that mesh carries 38 wrongly-oriented faces. The configuration it
+    accepts is measured too: the derived grading gives 1.125x / 1.000x and the
+    same hull meshes `Mesh OK` — 0 zero-volume, 0 wrongly-oriented, skew
+    2.44145 down from 10.3992, nonOrtho 69.1067 down from 98.9835.
+    """
+    nx, _, nz_deep, n_hull, _, nz_air = C.background_counts(scale, False)
+    za = C._Z_BANDS["wave"] * lwl
+    zh = C._Z_BANDS["hull"] * lwl
+    # A PLANING TANK DEEPENS ITSELF AS U^2 while dz_core does not, so
+    # the `_Z_CELL_RATIO_MAX` cap eventually binds and the deep block
+    # can no longer match. 20 m/s (a 192 m tank on an 8.9 m hull) still
+    # steps only 3.74x, which is why the cap is on the ADJACENT-cell
+    # ratio and not on the total expansion the generator used to fix at
+    # 20 -- a total of 20 is 2.714 per cell over the air block's 4 cells
+    # and 1.648 per cell over the deep block's 7, so it bounded neither.
+    depth = max(1.0 * lwl, 1.5 * math.pi * speed ** 2 / 9.81)
+    dz_core = zh / n_hull
+    dx = C._DOMAIN_LENGTH_L * lwl / nx
+
+    g_air = C._z_grading(dz_core, 0.25 * lwl - za, nz_air, core_below=True)
+    g_deep = C._z_grading(dz_core, depth - zh, nz_deep, core_below=False)
+    air = _z_block_cells(0.25 * lwl - za, nz_air, g_air)
+    deep = _z_block_cells(depth - zh, nz_deep, g_deep)
+
+    # The cell touching the core band: the air block's FIRST, the deep
+    # block's LAST (z increases upward through both).
+    for name, shared in (("air", air[0]), ("deep", deep[-1])):
+        step = max(shared / dz_core, dz_core / shared)
+        assert step < 5.6, (
+            f"{name} block steps {step:.2f}x across the shared face at "
+            f"lwl {lwl} scale {scale} — CLAUDE.md records 5.6:1 as the ratio "
+            f"that reintroduces the anisotropy the 2026-08-05 fix removed")
+
+    # And the resulting cell must not be the 15.34:1 slab that folded.
+    assert dx / air[0] < 5.6, f"first air cell is {dx / air[0]:.2f}:1"
+
+    # The graded blocks must COARSEN away from the core band, never refine
+    # toward it. The shipped 20.0 did the opposite in the air (fine at the
+    # boundary, coarse at the atmosphere is right in direction but 8.7x too
+    # strong) and was INVERTED in the water: it put the block's coarsest cell
+    # (3.30 m) against the 402 mm core band and its finest (165 mm) at the
+    # tank floor, where nothing happens.
+    assert air[-1] >= air[0], "air block must coarsen upward"
+    assert deep[0] >= deep[-1], "deep block must coarsen downward"
+
+
+def test_the_fixed_z_expansion_of_20_is_refused_by_that_bar():
+    """LESSONS class 3: feed the guard the VERBATIM configuration it exists to
+    reject. `_Z_EXPANSION` 20.0 on hull 4 at scale 1, which is the mesh that
+    carried 38 wrongly-oriented faces at every layer count."""
+    lwl = 8.9417
+    nx, _, nz_deep, n_hull, _, nz_air = C.background_counts(1.0, False)
+    za, zh = 0.09 * lwl, 0.09 * lwl
+    dz_core = zh / n_hull
+    dx = C._DOMAIN_LENGTH_L * lwl / nx
+    air = _z_block_cells(0.25 * lwl - za, nz_air, 20.0)
+    deep = _z_block_cells(1.0 * lwl - zh, nz_deep, 20.0)
+    assert dz_core / air[0] == pytest.approx(8.74, abs=0.05)
+    assert deep[-1] / dz_core == pytest.approx(8.20, abs=0.05)
+    assert dx / air[0] == pytest.approx(15.34, abs=0.05)
+    assert dx / air[0] > 5.6, "the bar must refuse this, or it guards nothing"
+    # And the inversion: the coarsest deep cell sat against the core band.
+    assert deep[-1] > deep[0], "the shipped deep grading was inverted"
+
+
+def test_the_derived_z_grading_keeps_the_refinement_family_systematic():
+    """`_Z_EXPANSION`'s original comment is the constraint this must not break:
+    a FIXED PER-CELL ratio shrinks the interface cell exponentially in n and
+    the three grids stop being a refinement family. Pinning the SHARED-FACE
+    cell to dz_core is strictly stronger — dz_core scales exactly like
+    1/scale, so the graded block's finest cell tracks it across the triplet.
+
+    MEASURED on the deep block, which has the headroom to match exactly: the
+    cell against the core band is 1.000x dz_core at scale 1, sqrt(2) and 2.
+    """
+    lwl = 8.9417
+    ratios = []
+    for scale in (1.0, math.sqrt(2.0), 2.0):
+        _, _, nz_deep, n_hull, _, _ = C.background_counts(scale, False)
+        dz_core = 0.09 * lwl / n_hull
+        g = C._z_grading(dz_core, 1.0 * lwl - 0.09 * lwl, nz_deep,
+                         core_below=False)
+        ratios.append(_z_block_cells(1.0 * lwl - 0.09 * lwl, nz_deep, g)[-1]
+                      / dz_core)
+    assert ratios == pytest.approx([1.0, 1.0, 1.0], abs=1e-3), ratios
+
+
+def test_z_grading_returns_uniform_when_the_block_cannot_hold_the_core_cell():
+    """The air block is 0.160 Lwl over 4 cells against a 0.045 Lwl core: even
+    uniform is 0.89x the core cell, so there is no growing series starting at
+    dz_core. The answer is 1.0 (uniform), NOT a ratio below 1 that would make
+    the block refine upward -- which is the shipped defect in miniature."""
+    assert C._z_grading(0.4024, 1.4307, 4, core_below=True) == 1.0
+    assert C._z_grading(0.4024, 1.4307, 4, core_below=False) == 1.0
+    # n < 2, or a degenerate height, is uniform rather than a division by zero.
+    assert C._z_grading(0.4, 1.0, 1, core_below=True) == 1.0
+    assert C._z_grading(0.4, 0.0, 4, core_below=True) == 1.0
+
+
+def test_the_stl_resolution_cap_binds_at_every_lwl_and_is_recorded():
+    """MEASURED 2026-08-12 (docs/research/STL.md, commit 749801c): the
+    `lwl` argument is INERT at the only call site, because `target_edge` is
+    proportional to lwl. The request is 811 for a 6.8 m hull and 811 for an
+    18.7 m one, the [80, 600] clamp binds on both, and the STL therefore ships
+    1.353x coarser in x than the generator asks for on EVERY case ever run.
+    A size-dependent resolution deficit is impossible by construction."""
+    reqs, ships = set(), set()
+    for lwl in (6.836, 8.9417, 15.015, 18.702):
+        target = 0.5 * (C._DOMAIN_LENGTH_L * lwl / C._NX_BASE) / 2 ** C._HULL_REFINE[1]
+        reqs.add(C.stl_resolution_request(lwl, target))
+        ships.add(C.stl_resolution(lwl, target))
+    assert reqs == {811}, f"the request is supposed to be lwl-free: {reqs}"
+    assert ships == {(600, 120)}, ships
+    assert 811 / 600 == pytest.approx(1.3517, abs=1e-3)

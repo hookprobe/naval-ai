@@ -16,12 +16,131 @@ import numpy as np
 
 from ..geometry import Hull
 
-# Total z-expansion across each block (coarsest cell / finest cell). Held
+# Total z-expansion across the DEEP block (coarsest cell / finest cell). Held
 # FIXED while cell counts scale, which is what makes the refinement
 # systematic: every cell dimension then shrinks like 1/scale together. Fixing
 # the per-cell ratio instead would shrink the interface cell exponentially in
 # n and the three grids would not be a refinement family at all.
+#
+# THE AIR BLOCK NO LONGER USES THIS — see `_z_grading`. The deep block still
+# does, AND THAT IS A MEASUREMENT, NOT AN OMISSION. This value is INVERTED on
+# the deep block (it puts the block's coarsest cell, 3.30 m, against the
+# 402 mm core band and its finest, 165 mm, at the tank floor where nothing
+# happens), so correcting it was the obvious companion change. MEASURED
+# 2026-08-12 over the 25-hull seed-0 batch at n_layers=7, and the data refuse
+# it: correcting BOTH blocks took the run-case.sh bar from 19/25 to **16/25**,
+# fixing hulls 4, 14 and 18 and breaking 0, 1, 6, 8, 20 and 22. The controlled
+# pair on hull 0, which is clean at baseline:
+#
+#     hull 0   air derived, deep 20.0   619094 cells   0 zeroVol    0 wrongOri  skew  3.17  CLEAN
+#     hull 0   air 20.0, deep derived   680425 cells   0 zeroVol    0 wrongOri  skew  4.52  CLEAN
+#     hull 0   BOTH derived             686237 cells  30 zeroVol  324 wrongOri  skew 53.62  REFUSED
+#
+# Each change alone is clean and the pair is not, so there is no additive
+# story to tell and no measurement that says the deep block is hurting
+# anything. Changing it is therefore an unmotivated change to a shared
+# constant that the KCS benchmark also rides on. It stays until something
+# measures it.
 _Z_EXPANSION = 20.0
+
+# CEILING on the ratio between ADJACENT cells inside the DERIVED air grading.
+# A total expansion is the wrong quantity to bound: 20.0 over the air block's
+# 4 cells is a per-cell ratio of 2.714 (too aggressive) while the same 20.0
+# over the deep block's 7 cells is 1.648 (mild), so one number bounded
+# neither. The adjacent-cell ratio is the standard CFD guideline and it is
+# what the finite-volume discretisation actually sees.
+_Z_CELL_RATIO_MAX = 2.0
+
+
+def _z_grading(dz_core: float, height: float, n: int, core_below: bool,
+               cap: float = _Z_CELL_RATIO_MAX) -> float:
+    """blockMesh `simpleGrading` z-ratio for a graded OUTER z-block, derived so
+    its cell AT THE SHARED FACE equals the ungraded core band's cell.
+
+    THE DEFECT THIS REPLACES, MEASURED 2026-08-12 on Gate 2U hull 4 (lwl
+    8.9417, seed-0 batch). `_Z_EXPANSION` 20.0 was applied to both outer
+    blocks as `simpleGrading (1 1 20.0)`, i.e. last cell / first cell = 20 with
+    z increasing UPWARD. Consequences at scale 1, in units of Lwl (they are
+    scale-free, so they held on every case this project has ever meshed):
+
+        block   height   n   cell AT the core band   core band cell   jump
+        air     0.160L   4   0.00515L (46.0 mm)      0.045L (402 mm)  8.74x
+        deep    0.910L   7   0.36923L (3.301 m)      0.045L (402 mm)  8.20x
+
+    The air block's grading was the right DIRECTION and eight times too
+    strong: it made the first air cell 8.74x FINER than the ungraded cell
+    beneath it, so the mesh got finer moving AWAY from the free surface and
+    then coarser again. The deep block's grading was INVERTED: it put the
+    block's coarsest cell (3.3 m) against the 402 mm core band and its finest
+    (165 mm) at the tank floor, where nothing happens.
+
+    The first air cell is 705.9 mm x 705.9 mm x 46.0 mm — 15.3:1 — and
+    `hexRef8` preserves aspect ratio at every level, so at hull refinement
+    level 4 it is 44.1 x 44.1 x 2.88 mm, still 15.3:1. That is CLAUDE.md's
+    2026-08-05 root cause (snap displacement scales with the LONG edge, so a
+    few-mm move is several cell HEIGHTS and the cell folds) reintroduced in a
+    46 mm horizontal slab that no hull feature marks. The ratio is a CONSTANT
+    15.335 for every hull, because dx and the first air cell are both
+    proportional to Lwl.
+
+    MEASURED on hull 4, geometry byte-identical (stl_sha256 3f8c87ae..), same
+    n_layers=7, MESH_ONLY, only this constant moving:
+
+        config                         cells   zeroVol  wrongOri   skew   nonOrtho
+        _Z_BANDS 0.09, _Z_EXPANSION 20 916677     0        38     10.3992  98.9835
+        _Z_BANDS 0.12, _Z_EXPANSION 20 843124     0        14      8.6104  89.1700
+        _Z_BANDS 0.09, _Z_EXPANSION  1 1106081    0         0      2.4415  69.1067
+        AIR derived, deep left at 20    935021    0         0      5.4157  69.9393
+
+    and the 38 faces are LOCATED BY THE MESH, not by the hull. Decoded from
+    `wrongOrientedFaces` via foamToVTK: at bands 0.09 they sit at z 0.8105 ..
+    0.8365 inside the first air cell [0.804755, 0.850783]; at bands 0.12 they
+    MOVED WITH THE BOUNDARY to z 1.0774 .. 1.0897 inside [1.073006, 1.110405].
+    A defect that is a horizontal plane while x sweeps 0.44 Lwl, and that
+    follows a blockMesh vertex when the geometry does not move, is not a
+    geometry defect. Commit bbf1a47 (the chine became a row of the grid,
+    removing a ~10 mm deviation floor) changed the surface underneath these
+    faces and not one of the 38 moved.
+
+    `core_below` is True for the air block (the core band is beneath it, so
+    the block's FIRST cell is the shared one and it grows upward, grading >= 1)
+    and False for the deep block (the core band is above it, so the block's
+    LAST cell is the shared one and cells grow DOWNWARD, grading <= 1).
+    ONLY THE AIR BLOCK CALLS THIS — the deep block keeps `_Z_EXPANSION`,
+    because correcting both regressed the batch from 19/25 to 16/25. See the
+    `_Z_EXPANSION` comment for the controlled pair.
+
+    Returns 1.0 (uniform) when the block cannot hold `n` cells starting at
+    `dz_core` — height/n < dz_core means even a uniform block is finer than the
+    core, which is the air block's situation at the shipped proportions
+    (0.160L / 4 = 0.040L against a 0.045L core, an 0.89x step).
+
+    `cap` bounds the ADJACENT-cell ratio, so a match is not always reachable: a
+    planing tank deepens itself as U^2 (depth = 1.5*lambda/2) while dz_core
+    does not move. MEASURED on hull 4 at scale 1, deep block, n=7: the match
+    holds exactly (1.00x) to U = 8 m/s, and at U = 20 m/s — a 192 m tank on an
+    8.9 m hull — the cap binds and the step is 3.74x, still under the 5.6:1
+    that CLAUDE.md records as the anisotropy bar. `case.info` records the
+    achieved step as `z_step_wave_to_air` / `z_step_deep_to_hull`.
+    """
+    if n < 2 or dz_core <= 0.0 or height <= 0.0:
+        return 1.0
+    # Required sum of the geometric series, in units of the shared-face cell.
+    target = height / dz_core
+    if target <= n:                      # uniform is already finer than dz_core
+        return 1.0
+    lo, hi = 1.0, float(cap)
+    if sum(hi ** i for i in range(n)) <= target:
+        r = hi                           # the cap binds; see _Z_CELL_RATIO_MAX
+    else:
+        for _ in range(200):             # bisection on the ADJACENT-cell ratio
+            mid = 0.5 * (lo + hi)
+            if sum(mid ** i for i in range(n)) < target:
+                lo = mid
+            else:
+                hi = mid
+        r = 0.5 * (lo + hi)
+    return r ** (n - 1) if core_below else r ** -(n - 1)
 
 # Free-surface refinement slab, as multiples of LWL (hull occupies x in [0,L]).
 # Refining the whole tank buys nothing for hull forces and costs the run:
@@ -1025,16 +1144,59 @@ writeFlags (scalarLevels); mergeTolerance 1e-6;
 """
 
 
+# Triangulation bounds. The CAP is deliberate (600x120 ~ 144k triangles) and
+# is not raised here: nothing measured says a finer STL helps, and the cost is
+# paid in surfaceFeatureExtract and in every snap iteration.
+_STL_NX_FLOOR, _STL_NX_CAP = 80, 600
+
+
+def stl_resolution_request(lwl: float, target_edge: float) -> int:
+    """The nx `stl_resolution` ASKS for, before the floor and the cap.
+
+    Separate from the clamped value so the two can be recorded side by side
+    without either being computed twice — the clamp is invisible otherwise,
+    and it has been binding on every case this project has ever run.
+    """
+    return int(round(lwl / max(target_edge, 1e-6)))
+
+
 def stl_resolution(lwl: float, target_edge: float) -> tuple[int, int]:
-    """(nx, nz) giving a hull triangulation of roughly `target_edge` metres.
+    """(nx, nz) giving a hull triangulation of roughly `target_edge` metres,
+    CLAMPED to [80, 600] — and in production the cap binds on every hull, so
+    the returned value does not depend on `lwl` at all.
 
     The STL must be FINER than the cells that snap to it or the mesher snaps
     to facets. MEASURED: the default 80x16 gives ~112 mm triangles on a 10 m
     hull — adequate against the 104 mm cells of hull refinement level 3, but
     the limiting surface as soon as the hull is refined to level 4-5 (52/26 mm)
     to get the near-wall spacing y+ needs. Keeps the original 1:5 nz:nx ratio.
+
+    THE `lwl` ARGUMENT IS INERT AT THE ONLY CALL SITE, MEASURED 2026-08-12
+    (docs/research/STL.md, commit 749801c). `write_resistance_case` passes
+    `target_edge = 0.5 * (_DOMAIN_LENGTH_L * lwl / nx_bg) / 2**_HULL_REFINE[1]`,
+    which is PROPORTIONAL to lwl, so lwl cancels and the request is
+    `round(57 * 4.5 / (2 * 0.5 * 32)) = 811` for a 6.8 m hull and 811 for an
+    18.7 m one. The cap binds on both, and across the 25-hull seed-0 batch
+    `h_stl,x / h_cell = 0.676683` and `station spacing / h_cell = 10.1333` at
+    EVERY lwl, to six decimals. Two consequences worth stating out loud:
+
+    - the STL ships 1.353x COARSER in x than this function asks for, on every
+      case ever run — the docstring above describes a resolution that scales
+      with the hull and the refinement level, and it never varies;
+    - a SIZE-DEPENDENT resolution deficit is therefore impossible by
+      construction. Spearman(lwl, fraction of triangles coarser than the cell)
+      = -0.740 (p 2.4e-5) — the correlation runs the OPPOSITE way to the
+      intuition, because bigger hulls get bigger cells against a fixed nx.
+
+    And nx is not the binding resolution in x anyway: `Hull.closed_mesh`
+    interpolates linearly between 41 STATIONS, so raising nx from 80 to 600
+    multiplies the triangle count by 55 and moves the effective longitudinal
+    resolution NOT AT ALL (10.133 cells per station spacing, independent of
+    nx). `case.info` records the request beside the shipped value so the clamp
+    is visible from the case directory.
     """
-    nx = int(min(max(round(lwl / max(target_edge, 1e-6)), 80), 600))
+    nx = int(min(max(stl_resolution_request(lwl, target_edge),
+                     _STL_NX_FLOOR), _STL_NX_CAP))
     return nx, int(min(max(round(nx * 0.2), 16), 120))
 
 
@@ -1273,12 +1435,34 @@ def write_resistance_case(hull: Hull, speed: float, out_dir: str | Path,
     # Triangulate finer than the smallest cell that will snap to this surface,
     # or snappy snaps to facets and the layer stack sits on a faceted wall.
     bg_dx = _DOMAIN_LENGTH_L * lwl / max(int(round(_NX_BASE * scale)), 20)
-    nx, nz = stl_resolution(lwl, 0.5 * bg_dx / 2 ** _HULL_REFINE[1])
+    target_edge = 0.5 * bg_dx / 2 ** _HULL_REFINE[1]
+    nx, nz = stl_resolution(lwl, target_edge)
+    nx_req = stl_resolution_request(lwl, target_edge)
     stl_sha = hull_to_stl(hull, out / "constant" / "triSurface" / "hull.stl",
                           nx=nx, nz=nz)
-    return _write_case_dicts(out, stl_sha, lwl, speed,
+    info = _write_case_dicts(out, stl_sha, lwl, speed,
                              end_time, scale, np_procs, symmetric,
                              free_motion, lts, n_layers)
+    # THE CLAMP IS A SILENT KNOB, so it gets a receipt. MEASURED 2026-08-12
+    # (docs/research/STL.md): `nx_requested` is 811 for EVERY hull in the
+    # seed-0 batch — target_edge is proportional to lwl, so lwl cancels — and
+    # the 600 cap binds on all of them, shipping an STL 1.353x coarser in x
+    # than the generator asked for. Nothing in the case directory said so.
+    # `stations` is the number that actually bounds longitudinal resolution:
+    # `Hull.closed_mesh` interpolates linearly between them, so nx buys
+    # triangles, not geometry.
+    with (out / "case.info").open("a") as fh:
+        fh.write(f"stl_nx_requested={nx_req}\nstl_nx_shipped={nx}\n"
+                 f"stl_nz_shipped={nz}\n"
+                 f"stl_target_edge_m={target_edge:.6f}\n"
+                 f"stl_edge_x_m={lwl / nx:.6f}\n"
+                 f"stl_resolution_shortfall={nx_req / nx:.4f}\n"
+                 f"stl_stations={len(hull.x)}\n"
+                 f"stl_station_spacing_m={lwl / max(len(hull.x) - 1, 1):.6f}\n"
+                 "  # shortfall > 1 means the [80, 600] clamp bound. It binds\n"
+                 "  # on every hull in the seed-0 batch, so stl_nx_shipped is\n"
+                 "  # INDEPENDENT of lwl; see stl_resolution's docstring.\n")
+    return info
 
 
 def background_counts(scale: float, symmetric: bool) -> tuple[int, int, int, int, int, int]:
@@ -1388,8 +1572,34 @@ def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
                side1_type="symmetry" if symmetric else "wall",
                nx=nx, ny=ny,
                nz_deep=nz_deep, nz_hull=n_hull, nz_wave=n_wave, nz_air=nz_air,
-               g_deep=float(_Z_EXPANSION), g_air=float(_Z_EXPANSION))
+               # THE AIR GRADING IS DERIVED so the block MATCHES the ungraded
+               # core band at the face they share, instead of a fixed 20.0
+               # that put an 8.74x refinement step there — see `_z_grading`
+               # for the hull-4 measurement (38 wrongly-oriented faces, all
+               # inside the first air cell, tracking the blockMesh boundary
+               # when it moved). The deep block keeps the fixed value: it has
+               # the same defect in the other direction and correcting it
+               # MEASURED WORSE across the batch (19/25 -> 16/25).
+               g_deep=float(_Z_EXPANSION),
+               g_air=_z_grading(dz_core, 0.25 * lwl - za, nz_air,
+                                core_below=True))
     assert depth >= half_lambda, "deep-water condition violated"
+
+    # THE STEP ACROSS EACH INTERNAL z-BLOCK BOUNDARY, RECORDED. It was 8.74x
+    # (wave/air) and 8.20x (deep/hull) for the life of this generator and
+    # nothing in the case directory said so; hull 4's 38 wrongly-oriented
+    # faces all sat inside the 46 mm cell that step produced. A receipt is
+    # what makes the next one visible without decoding a VTK face set.
+    def _shared_cell(height: float, n: int, grading: float,
+                     first: bool) -> float:
+        r = grading ** (1.0 / (n - 1))
+        f = height / sum(r ** i for i in range(n))
+        return f if first else f * r ** (n - 1)
+
+    z_step_air = _shared_cell(0.25 * lwl - za, nz_air, dom["g_air"],
+                              first=True) / dz_core
+    z_step_deep = _shared_cell(depth + zh, nz_deep, dom["g_deep"],
+                               first=False) / dz_core
 
     fs_dz = dz_core                     # uniform through hull and wave bands
     # x cell inside the free-surface refinement box (snappy, isotropic)
@@ -1694,6 +1904,17 @@ def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
            f"end_time_flow_throughs={end_time * speed / (dom['x1'] - dom['x0']):.3f}\n")
         + f"wavelength_m={wavelength:.4f}\ntank_depth_m={abs(dom['z0']):.4f}\n"
         f"fs_dz_m={fs_dz:.5f}\nfs_dx_m={dx:.5f}\n"
+        # z-BLOCK CONTINUITY. 1.0 means the graded block's cell at the shared
+        # face equals the ungraded core cell. The generator shipped 0.114 and
+        # 8.20 here until 2026-08-12 (see `_z_grading`): the air block was
+        # 8.74x FINER than the core band it adjoins, giving a 705.9 x 705.9 x
+        # 46.0 mm slab — 15.34:1 — that hexRef8 carried to every refinement
+        # level, and hull 4 folded 38 faces inside it at every layer count.
+        f"z_core_dz_m={dz_core:.5f}\n"
+        f"z_bg_aspect_dx_over_dz={dx * 2 ** 2 / dz_core:.3f}\n"
+        f"z_step_wave_to_air={z_step_air:.4f}\n"
+        f"z_step_deep_to_hull={z_step_deep:.4f}\n"
+        f"z_grading_air={dom['g_air']:.6f}\nz_grading_deep={dom['g_deep']:.6f}\n"
         f"cells_per_wavelength={cells_per_wave:.1f}\n"
         f"target_yplus={_TARGET_YPLUS}\nfirst_layer_m={t1:.6e}\n"
         f"n_layers={n_layers}\nn_layers_to_fully_bridge={n_ideal}\n"
