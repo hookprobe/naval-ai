@@ -97,7 +97,43 @@ class Absent:
     unblocked_by: str = ""
 
 
+# ORDERED BY WHAT EACH PURCHASE UNBLOCKS, AND THE FIRST TWO CLOSE A RED GATE.
+#
+# MEASURED 2026-08-12: neither of the two standards that Gate 6R is RED for was
+# on this queue. `review.edition_defects()` returns exactly
+#
+#     ISO 12215-5: edition is a placeholder ('edition not recorded — set this')
+#     ISO 12217-1: edition is a placeholder ('edition not recorded — set this')
+#
+# and this tuple listed neither, while docs/research/COMPLIANCE.md §11 listed
+# "ISO 12217-1 full text" and not 12215-5. Three lists of what to buy, all
+# different, and the one in code — the one a purchaser would run — omitted both
+# items that would turn a RED gate green. That is A LIST DECLARED TWICE, the
+# defect class this repository keeps paying for, applied to its own procurement.
+#
+# `test_every_edition_defect_has_a_purchase_row` is the fence.
 PURCHASE_QUEUE = (
+    "ISO 12217-1:2022 — Small craft, stability and buoyancy assessment and "
+    "categorization, Part 1: non-sailing boats of hull length >= 6 m. CLOSES "
+    "HALF OF GATE 6R (RED). Needed: the four design-category rows behind "
+    "iso12217.CATEGORY_TABLE — downflooding height, GM floor, offset-load heel "
+    "angle and the significant wave height each category implies — plus the "
+    "crew mass and crowding fraction for the offset-load test (85 kg and 0.4 "
+    "are engineering-practice stand-ins) and the scope clause behind R-SCP. "
+    "The MECHANICS are exact and tested; only the coefficients are basis='approx'",
+    "ISO 12215-5 — Small craft, hull construction and scantlings, Part 5: "
+    "design pressures for monohulls, design stresses, scantlings determination. "
+    "CLOSES THE OTHER HALF OF GATE 6R (RED). Needed: the displacement-mode "
+    "design-pressure coefficients (P_BM = max(10, 2.4*mLDC^0.33 + 20) is the "
+    "stand-in), the k2 aspect-ratio table, the kC curvature correction, and the "
+    "plywood design bending stress sigma_d (15.0 N/mm^2 for okoume is the "
+    "stand-in and it sets scantlings directly)",
+    "ISO 12217-2 — sailing craft 6-24 m, including WIND-HEELING criteria. Not "
+    "an edition defect (nothing implements it), but it BLOCKS THE WINDWING SKU: "
+    "a kite-rigged craft must EXTEND R-SCP rather than bypass it, and the rules "
+    "tier must refuse to produce -1 findings for it until this is held",
+    "ISO 12215-7 — extends scantling loads to MULTIHULLS; blocks any catamaran "
+    "SKU outright",
     "ISO 15085:2024 (2nd ed.) — per-zone equipment lists and 2024 numeric "
     "clauses; the Z1/Z2/Z3 zone STRUCTURE is verified and encoded, the numbers "
     "shipped alongside it are the 2003 floors",
@@ -108,7 +144,12 @@ PURCHASE_QUEUE = (
     "(claim-level content is verified; the dimensions are behind membership)",
     "Panero & Zelnik, Human Dimension & Interior Space (1979) — the "
     "percentile-organised anthropometric tables themselves",
-    "Larsson & Eliasson, Principles of Yacht Design",
+    "Larsson & Eliasson, Principles of Yacht Design — supplies "
+    "`bilge_depth_mm` (the clearance a sole needs above the inside of the "
+    "bottom planking for limber water and structure; without it the "
+    "arrangement places the sole on a WIDTH criterion, which is geometric and "
+    "honest but is not the rule a builder uses) and, with Panero & Zelnik, "
+    "`passage_clear_width_mm`. Both are named by `refdata.absent()`",
 )
 
 

@@ -248,22 +248,53 @@ objects** into the structures that already exist, and PROV-O / SysML v2 are
 
 ---
 
-## 9 · The purchase queue, in priority order
+## 9 · The purchase queue — ASK THE CODE, NOT THIS SECTION
 
-Itemised in code as `navalai.refdata.PURCHASE_QUEUE`, with `refdata.absent()`
-naming exactly which quantity each purchase unblocks. Nothing carries
-`basis='purchased'` yet, and a test asserts that.
+**`navalai.refdata.PURCHASE_QUEUE` is the one list.** Run it:
 
-1. **ISO 12215-7** — multihull loads; blocks any catamaran SKU.
-2. **ABYC E-13 / E-11** — lithium and general DC/AC systems.
-3. **ISO 12217-1 full text**, and **ISO 12217-2** if any wind-traction SKU is
-   pursued; **ISO 12217-3** for sub-6 m.
-4. **ISO 15085:2024** — per-zone equipment lists and 2024 numeric clauses.
-5. **ISO 9094** — fire protection.
-6. **ABYC H-41** — reboarding, ladder and handhold exact values.
-7. **DNV-RP-A204**, **ISO 19030-1/-2** — twin assurance and in-service KPIs.
-8. **ES-TRIN** — the Danube SKU is the one product line that requires it.
-9. Reference books: Panero & Zelnik; Larsson & Eliasson.
+```
+python -c "from navalai import refdata; [print(f'{i}. {r}') for i,r in enumerate(refdata.PURCHASE_QUEUE,1)]"
+```
+
+Each row names WHICH numbers the purchase supplies, so a buyer can tell whether
+the document they found is the one that helps. `refdata.absent()` names the
+quantity each unblocks, and `rules.review.edition_defects()` names the
+standards holding **Gate 6R** red.
+
+**RECONCILED 2026-08-12, after this section and the code disagreed.** There
+were THREE lists of what to buy and all three differed. `edition_defects()`
+returned `ISO 12215-5` and `ISO 12217-1`; `PURCHASE_QUEUE` contained **neither**;
+this section listed "ISO 12217-1 full text" and not 12215-5. The list in CODE —
+the one anyone would run to answer *"what do I buy to go green"* — omitted both
+items that would turn a RED gate green. A list declared twice, applied to this
+project's own procurement, which is the defect class the top of this repository
+warns about. `tests/test_refdata.py::test_every_edition_defect_has_a_purchase_row`
+is the fence, and it is one-directional: a queue row may exist without an
+edition defect (12217-2 and 12215-7 block SKUs, and nothing implements them, so
+they cannot have one), but a standard holding a gate red may never be missing
+from the queue.
+
+**The two that close Gate 6R, and nothing else does:**
+
+| standard | what is needed from it |
+|---|---|
+| **ISO 12217-1:2022** | the four design-category rows behind `iso12217.CATEGORY_TABLE` — downflooding height, GM floor, offset-load heel angle, and the significant wave height each category implies — plus the crew mass and crowding fraction for the offset-load test (85 kg / 0.4 are stand-ins) and the scope clause behind `R-SCP` |
+| **ISO 12215-5** | the displacement-mode design-pressure coefficients (`P_BM = max(10, 2.4·mLDC^0.33 + 20)` is the stand-in), the `k2` aspect-ratio table, the `kC` curvature correction, and the plywood design bending stress `σ_d` (15.0 N/mm² for okoumé — it sets scantlings directly) |
+
+In both cases the **mechanics are exact and tested**; only the coefficients are
+`basis='approx'`. And Gate 6R's bar is the *dated edition a reviewer held*, so a
+correct number from an unnamed edition still does not close it.
+
+**Two more bound the PRODUCT rather than the paperwork:** ISO 12217-2 (sailing
+craft incl. wind-heeling) blocks the WindWing SKU — a kite-rigged craft must
+EXTEND `R-SCP`, not bypass it — and ISO 12215-7 (multihull loads) blocks any
+catamaran SKU outright.
+
+Not on the code queue, and recorded here so the reasoning is not lost: **ABYC
+E-13 / E-11** (lithium and DC/AC systems), **DNV-RP-A204** and **ISO 19030-1/-2**
+(twin assurance and in-service KPIs), **ES-TRIN** (required only by the Danube
+SKU). These are named by no `edition_defects()` row and no `absent()` row, so
+they are a scope decision rather than a blocked quantity.
 
 **The pattern, which is not negotiable:** a paywalled number is recorded
 **ABSENT** via `refdata.absent()`, never filled in at a plausible value, and the

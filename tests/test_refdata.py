@@ -251,3 +251,51 @@ def test_units_are_declared_everywhere_including_flags():
         elif isinstance(rv.value, (int, float)):
             assert rv.unit, f"{name}: numeric value with no unit"
             assert math.isfinite(rv.value)
+
+
+def test_every_edition_defect_has_a_purchase_row():
+    """What closes a RED gate must be on the list a purchaser actually runs.
+
+    MEASURED 2026-08-12. `review.edition_defects()` named the two standards
+    Gate 6R is red for:
+
+        ISO 12215-5: edition is a placeholder ('edition not recorded — set this')
+        ISO 12217-1: edition is a placeholder ('edition not recorded — set this')
+
+    `refdata.PURCHASE_QUEUE` listed NEITHER, while docs/research/COMPLIANCE.md
+    §11 listed "ISO 12217-1 full text" and not 12215-5. Three lists of what to
+    buy, all three different, and the one in CODE — the one anyone would run to
+    answer "what do I buy to go green" — omitted both items that would do it.
+    A list declared twice, applied to this project's own procurement.
+
+    The fence is deliberately one-directional: a queue row may exist without an
+    edition defect (12217-2 and 12215-7 block SKUs rather than a gate, and
+    nothing implements them, so they CANNOT have an edition defect). What may
+    never happen is the reverse — a standard whose absence is holding a gate
+    red, with nothing telling the buyer to buy it.
+    """
+    from navalai.refdata import PURCHASE_QUEUE
+    from navalai.rules.review import edition_defects
+
+    queue = "\n".join(PURCHASE_QUEUE)
+    missing = []
+    for defect in edition_defects():
+        std = defect.split(":")[0].strip()          # "ISO 12215-5"
+        if std not in queue:
+            missing.append(std)
+    assert not missing, (
+        f"{missing} hold Gate 6R RED and are not in PURCHASE_QUEUE — the buyer "
+        f"cannot find what closes the gate. Add a row naming WHICH numbers the "
+        f"purchase supplies, not just the standard's title")
+
+
+def test_a_purchase_row_says_what_it_supplies_not_just_a_title():
+    """A row reading 'ISO 12217-1' is a shopping list entry nobody can act on:
+    it does not say which numbers are stand-ins, so a buyer cannot tell whether
+    the PDF they found is the one that helps. Every row names its consequence.
+    """
+    from navalai.refdata import PURCHASE_QUEUE
+
+    for row in PURCHASE_QUEUE:
+        assert len(row) > 60, f"purchase row is a bare title: {row!r}"
+        assert "—" in row or "-" in row, f"no rationale separator: {row!r}"
