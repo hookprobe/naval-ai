@@ -124,6 +124,26 @@ DESIGN_FN = 0.260
 DESIGN_SPEED = 2.196             # m/s
 DESIGN_RE = 1.26e7
 
+# Vertical centre of gravity, metres ABOVE THE KEEL, model scale.
+#
+# THIS NUMBER EXISTED ONLY IN A COMMENT IN navalai/cfd/case.py UNTIL
+# 2026-08-12, which is why it belongs here: benchmarks/kcs.py is the single
+# source for KCS constants, and a value a caller has to retype from a comment
+# is a number with no source at all.
+#
+# It is the one mass property a hull SHAPE cannot supply -- it depends on how
+# the model is ballasted -- so `motion_from_geometry` takes it as an argument
+# and WARNS when it is absent. Defaulting to VCB answers a different ship:
+# MEASURED on KCS, VCB gives KG-above-keel 0.187 m against this 0.2303, i.e.
+# 19% low, and KG is the lever that sets trim under a towing force.
+#
+# It is what the FREE sinkage-and-trim experiment needs. KCS Case 2.1 is towed
+# FREE to sink and trim and we solve FIXED, which is a known part of the Gate
+# 2M error and the part the viscous/pressure split localises: viscous is right
+# at 1.161x ITTC-57 while pressure carries 2.32x. EFD's free-condition
+# attitude is recorded immediately below as the acceptance data.
+KG_ABOVE_KEEL_M = 0.2303
+
 # Experimental data, KRISO towing tank (PDF p.5, row "EFD(KRISO)").
 EFD = {
     "fn": 0.260,

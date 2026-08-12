@@ -82,3 +82,47 @@ def test_the_submerged_volume_accepts_the_geometry():
         f"submerged volume {vol:.6f} m^3 is {err:+.3f}% from the published "
         f"{a['published_m3']:.6f} m^3 — outside the {a['tolerance_pct']}% "
         f"bar. Re-check the recipe in data/benchmark_geom/CHECKSUMS.json.")
+
+
+def test_kcs_kg_is_a_constant_not_a_comment_and_beats_the_vcb_fallback():
+    """Gate 2M's free sinkage-and-trim experiment needs KG, and until
+    2026-08-12 the published value existed ONLY inside a comment in
+    navalai/cfd/case.py. A number a caller has to retype out of a comment has
+    no single source, which is this repository's signature defect applied to
+    the one input the free-motion path cannot derive.
+
+    KG is the one mass property a hull SHAPE cannot supply — it depends on how
+    the model is ballasted — so `motion_from_geometry` accepts it and WARNS
+    when it is absent. This test pins both halves: the constant is here, and it
+    is materially different from the VCB fallback, so the warning is not
+    pedantry. MEASURED on KCS: VCB gives KG-above-keel 0.187 m against the
+    published 0.2303 m, 19% low, and KG is the lever that sets trim under tow.
+    """
+    from benchmarks.kcs import EFD, KG_ABOVE_KEEL_M
+
+    assert KG_ABOVE_KEEL_M == 0.2303
+    vcb_fallback = 0.187
+    rel = abs(KG_ABOVE_KEEL_M - vcb_fallback) / KG_ABOVE_KEEL_M
+    assert rel > 0.15, (
+        "if the fallback ever came within 15% of the published KG the warning "
+        "in motion_from_geometry would be noise — re-measure before relaxing it")
+
+    # the acceptance data the free run is judged against must travel with it,
+    # or the experiment has no bar
+    assert EFD["sinkage_m"] == -1.394e-2, "negative = sinks"
+    assert EFD["trim_deg"] == -0.169, "negative = bow down"
+
+
+def test_the_kg_comment_in_case_py_no_longer_carries_the_number_alone():
+    """The other half of 'one source per question'. The value may be QUOTED in
+    case.py's explanation — that is what makes the comment readable — but the
+    free-motion path must not be reachable only by retyping it."""
+    import pathlib
+
+    from benchmarks.kcs import KG_ABOVE_KEEL_M
+
+    src = (pathlib.Path(__file__).resolve().parents[1]
+           / "navalai/cfd/case.py").read_text()
+    assert str(KG_ABOVE_KEEL_M) in src or "0.2303" in src, (
+        "case.py's warning cites the published KG as the reason the VCB "
+        "fallback is wrong; if that citation moved, move this test with it")
