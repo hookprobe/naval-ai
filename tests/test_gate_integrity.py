@@ -281,3 +281,52 @@ def test_the_geometry_acceptance_bar_is_measured_and_can_fail():
         wrong = a["measured_m3"] * factor
         bad = abs(wrong - a["published_m3"]) / a["published_m3"] * 100.0
         assert bad > a["tolerance_pct"], label
+
+
+def test_every_ledger_verify_names_something_that_exists():
+    """The ledger's `verify` is the only thing that makes a watermark checkable.
+
+    GENERALISED 2026-08-12 from a guard that covered ONE ROW and could not
+    fail. `test_the_gate2m_ledger_entry_points_at_something_real` hardcodes
+    ["Gate 2M"] and asserts that each `runs/...` path its verify names still
+    exists — but no verify command references a `runs/` path any more, so the
+    loop body never executes and the assertion is vacuous. A guard that cannot
+    fire is docs/LESSONS.md defect class 3, and this file is where that class
+    is supposed to be caught.
+
+    The rule with teeth is the one that generalises: whatever a verify command
+    INVOKES must exist. A watermark whose reproduction instructions name a
+    deleted script is gap N6 in a new place — the number outlives the evidence
+    and nothing says so.
+
+    MEASURED at the time of writing, all five RED rows pass:
+
+        Gate 2M  scripts/make_case.py, scripts/run_campaign.sh, scripts/gate2m.py
+        Gate 2U  scripts/mesh_robustness.py
+        Gate 4F  tests/test_surrogate_honesty.py
+        Gate 6D  tests/test_manufacturing.py
+        Gate 6R  tests/test_phase6r.py
+    """
+    import re
+
+    led = json.loads((_ROOT / "data/gate-ledger.json").read_text())
+    checked = 0
+    for gate, entry in led.items():
+        if not isinstance(entry, dict) or "verify" not in entry:
+            continue
+        verify = entry["verify"]
+        verify = " ".join(verify) if isinstance(verify, list) else str(verify)
+        refs = re.findall(
+            r"(?:scripts|navalai|tests|data|docs)/[A-Za-z0-9_./-]+"
+            r"\.(?:py|json|md|sh)", verify)
+        assert refs, (
+            f"{gate}: its verify command names no file at all, so nobody can "
+            f"tell what would reproduce the watermark — {verify[:120]!r}")
+        for ref in refs:
+            assert (_ROOT / ref).exists(), (
+                f"{gate}: verify names {ref}, which does not exist. A verify "
+                f"that cannot run is not a verification, and the watermark "
+                f"beside it is unreproducible.")
+            checked += 1
+    assert checked >= 5, (
+        f"only {checked} verify references checked; the fence went blind")

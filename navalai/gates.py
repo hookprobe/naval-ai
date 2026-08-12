@@ -349,6 +349,22 @@ GATES = [
     Gate("Gate 2C", "the campaign classifier names the mechanism that actually "
          "failed, and refuses one it cannot measure",
          "tests/test_campaign_classifier.py"),
+    # The repair literature's whole taxonomy, implemented on the IMPORT
+    # boundary only. MEASURED 2026-08-12: our own surfaces are already clean by
+    # every classical metric (0 degenerate, 0 slivers, 0 zero-length edges,
+    # 0 boundary edges, 0 winding conflicts, min area 7.24e-06 m^2 over 288890
+    # triangles), so a MeshFix-style pass would find nothing and would COST the
+    # chine row bbf1a47 put on the grid to 1e-9 m — Blender's voxel remesh was
+    # measured taking that chine from 72.0 deg to 0.0.
+    #
+    # So the gate's load-bearing clause is the REFUSAL: a defect in a generated
+    # hull is a bug in Hull.closed_mesh, and healing it would make the bug
+    # survive as a warning. Only winding is auto-repaired, because relabelling
+    # triangles does not move a vertex; holes and true self-intersections are
+    # REPORTED, because closing them retriangulates and a repair that silently
+    # changes the shape is a different boat.
+    Gate("Gate 2H", "surface repair on the import boundary, and generated "
+         "geometry refused rather than healed", "tests/test_mesh_repair.py"),
     Gate("Gate 2G", "KCS benchmark geometry: present and accepted "
          "(scripts/fetch_benchmark_geom.py)", "tests/test_benchmark_geom.py"),
     # Gap D8. is_complete() now requires a DATED edition per standard, which

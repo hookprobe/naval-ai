@@ -33,9 +33,30 @@ KCS_MODEL_U = 2.196
 KCS_EFD_CT = 3.711e-3          # KRISO, Tokyo-2015 Case 2.1
 KCS_SCATTER = (3.620e-3, 3.733e-3)
 
-_STL = ("solid s\nfacet normal 0 0 1\nouter loop\n"
-        "vertex 0 0 0\nvertex 1 0 0\nvertex 0 1 0\n"
-        "endloop\nendfacet\nendsolid s\n")
+def _tetra_stl() -> str:
+    """A CLOSED tetrahedron, not a single triangle.
+
+    This fixture was one triangle until 2026-08-12 — an open shell fed to
+    `write_resistance_case_from_stl`, whose docstring has always said "The STL
+    must be watertight". It worked because nothing enforced that, and it stopped
+    working the moment the import boundary got its guard (Gate 2H). The test
+    itself is unaffected: it measures BACKGROUND cell counts, which derive from
+    `lwl` and the domain multiples, never from the surface. So the fix is to
+    make the fixture honest rather than to exempt the test — a test that only
+    passes because a guard is missing is a test that was measuring the gap.
+    """
+    v = [(0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)]
+    faces = [(0, 2, 1), (0, 1, 3), (0, 3, 2), (1, 2, 3)]
+    out = ["solid s"]
+    for a, b, c in faces:
+        out += ["facet normal 0 0 0", "outer loop"]
+        out += [f"vertex {v[i][0]} {v[i][1]} {v[i][2]}" for i in (a, b, c)]
+        out += ["endloop", "endfacet"]
+    out.append("endsolid s")
+    return "\n".join(out) + "\n"
+
+
+_STL = _tetra_stl()
 
 
 def _model() -> Condition:

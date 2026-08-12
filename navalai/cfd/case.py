@@ -1406,11 +1406,45 @@ def write_resistance_case_from_stl(stl_path: str | Path, lwl: float,
     """
     out = Path(out_dir)
     (out / "constant" / "triSurface").mkdir(parents=True, exist_ok=True)
+
+    # THE IMPORT BOUNDARY, AND THE ONE PLACE REPAIR BELONGS. The docstring
+    # above has said "The STL must be watertight" since this function was
+    # written and enforced NOTHING — the same shape as `stl_watertight_report`
+    # being reachable from everywhere except the code that meshes.
+    #
+    # This is where third-party geometry enters, and CLAUDE.md records what
+    # arrives: the mirrored `KCS.igs` mesh died on the first timestep with 73
+    # wrongly-oriented faces, and plain `surfaceCheck` called it fine.
+    #
+    # Winding is REPAIRED (relabelling triangles moves no vertex, so the shape
+    # is bit-identical). Holes and true self-intersections are REFUSED, not
+    # patched: closing them retriangulates, and silently changing an imported
+    # benchmark's shape would invalidate the very comparison it exists for.
+    from ..mesh_repair import IMPORTED, diagnose
+    rep = diagnose(str(stl_path), origin=IMPORTED)
+    if rep.found["boundary_edges"] or rep.found["nonmanifold_edges"]:
+        raise ValueError(
+            f"imported STL is not a closed manifold and will not be meshed: "
+            f"{rep.found['boundary_edges']} boundary edge(s), "
+            f"{rep.found['nonmanifold_edges']} non-manifold edge(s). An open "
+            f"shell floods the interior and yields a complete, plausible, "
+            f"meaningless run. Repair it upstream — navalai.mesh_repair.repair "
+            f"reports what is wrong; it will not close a hole for you, because "
+            f"that retriangulates and changes the geometry you are calibrating "
+            f"against.")
+
     data = Path(stl_path).read_bytes()
     (out / "constant" / "triSurface" / "hull.stl").write_bytes(data)
     stl_sha = hashlib.sha256(data).hexdigest()
-    return _write_case_dicts(out, stl_sha, lwl, speed, end_time, scale,
+    info = _write_case_dicts(out, stl_sha, lwl, speed, end_time, scale,
                              np_procs, symmetric, free_motion, lts, n_layers)
+    # The receipt goes in whether or not anything was wrong, so a reader can
+    # tell "checked and clean" from "never checked".
+    with (out / "case.info").open("a") as fh:
+        for k, v in rep.found.items():
+            fh.write(f"import_{k}={v}\n")
+        fh.write(f"import_winding_repaired={'yes' if rep.applied else 'no'}\n")
+    return info
 
 
 def write_resistance_case(hull: Hull, speed: float, out_dir: str | Path,
