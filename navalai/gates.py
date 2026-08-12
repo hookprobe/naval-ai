@@ -294,6 +294,12 @@ GATES = [
     # denominator, which is the gaming signature the split exists to expose.
     Gate("Gate 2A", "CFD-admissibility screen: a grammar-valid hull is not a "
          "CFD-meshable one", "tests/test_admissibility.py"),
+    # The 10 -> 7 cap shipped with NO test; `grep _MAX_LAYERS tests/` was empty,
+    # so the value that fixed Gate 2U could have been argued back to 10 the way
+    # it got there. Gate 2L pins it to its measurement and refuses the cap-3
+    # trap (clean because the stack is empty).
+    Gate("Gate 2L", "the prism-layer cap is a measured value, and a clean mesh "
+         "with no boundary layer is not a pass", "tests/test_layer_cap.py"),
     Gate("Gate 2G", "KCS benchmark geometry: present and accepted "
          "(scripts/fetch_benchmark_geom.py)", "tests/test_benchmark_geom.py"),
     # Gap D8. is_complete() now requires a DATED edition per standard, which
