@@ -96,6 +96,7 @@ different Gate 2M numbers came to circulate at once (gap J1).
 | Gate 2A | CFD-admissibility screen: a grammar-valid hull is not a CFD-meshable one | `tests/test_admissibility.py` (21 tests) |
 | Gate 2L | the prism-layer cap is a measured value, and a clean mesh with no boundary layer is not a pass | `tests/test_layer_cap.py` (6 tests) |
 | Gate 2F | STL forensics: watertight is not valid, and the surface handed to snappy is measured rather than assumed | `tests/test_stl_forensics.py` (15 tests) |
+| Gate 2B | Blender-native hull generation, measured and REFUSED on the hull path: a 0.05 m voxel remesh destroys the chine | `tests/test_blender_hull.py` (7 tests) |
 | Gate 2C | the campaign classifier names the mechanism that actually failed, and refuses one it cannot measure | `tests/test_campaign_classifier.py` (11 tests) |
 | Gate 2G | KCS benchmark geometry: present and accepted (scripts/fetch_benchmark_geom.py) | `tests/test_benchmark_geom.py` (2 tests) |
 | Gate 6R-mech | review-record mechanics + basis routing | `tests/test_phase6r.py` (10 tests) |

@@ -314,6 +314,30 @@ GATES = [
     Gate("Gate 2F", "STL forensics: watertight is not valid, and the surface "
          "handed to snappy is measured rather than assumed",
          "tests/test_stl_forensics.py"),
+    # Gate 2B is a NEGATIVE RESULT kept as a fence, which is the only reason it
+    # is a gate at all: nothing in `navalai/blender/` is in the ladder, in
+    # `pipeline.py` or in the case writer, and `docs/research/BLENDER.md`
+    # records that Blender-native generation is NOT closer to the analytic hull
+    # than the current path.
+    #
+    # It is registered because the refuted proposal is cheap to re-propose. A
+    # voxel Remesh at 0.05 m — 50 mm on an 8.9-12.3 m hull — looks like a
+    # tidy-up and MEASURED 2026-08-12 it takes the chine dihedral 5 mm off the
+    # knuckle from 53.5 / 69.4 / 72.0 deg to 0.0 / 0.0 / 0.0 on hulls 4/8/14,
+    # i.e. deletes the feature commit bbf1a47 had just made exact to 1e-9 m,
+    # while every x/L bin's deviation from the analytic surface rises from a
+    # 0.01-3.03 mm band to 22.2-57.6 mm and `surfaceFeatureExtract` at the
+    # pipeline's own `includedAngle 150` goes from 6-7 feature points and 0
+    # internal edges to 489-524 and 123-156. The suite feeds that VERBATIM
+    # configuration to the guard, so a change that made it safe would have to
+    # re-measure rather than inherit the refusal.
+    #
+    # The suite SKIPS where the Blender binary is absent (fortress001 has no
+    # /Applications). A skip is not a pass and the document, not the suite,
+    # is the home of the numbers.
+    Gate("Gate 2B", "Blender-native hull generation, measured and REFUSED on "
+         "the hull path: a 0.05 m voxel remesh destroys the chine",
+         "tests/test_blender_hull.py"),
     # Gate 2U is an EXPECTED RED with no suite, so nothing tested the campaign
     # runner that produces its number — and `classify()` mislabelled the
     # mechanism twice, in opposite directions, on rows the ledger then quoted.
