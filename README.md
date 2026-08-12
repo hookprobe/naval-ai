@@ -67,7 +67,7 @@ different Gate 2M numbers came to circulate at once (gap J1).
 | Gate 1P | the L1 physics core says what it actually computed | `tests/test_gapfix_physics.py` (13 tests) |
 | Gate 1b | NSGA-II Pareto front | `tests/test_optimize.py` (8 tests) |
 | Gate 2 | Capytaine BEM (Hulme anchor) | `tests/test_phase2.py` (18 tests) |
-| Gate 2R | CFD reference parity + GCI honesty | `tests/test_cfd_reference_parity.py` (57 tests) |
+| Gate 2R | CFD reference parity + GCI honesty | `tests/test_cfd_reference_parity.py` (97 tests) |
 | Gate 3 | surrogate spine: GP + co-kriging rho, OOD refusal, batched-EI infill | `tests/test_phase3.py` (17 tests) |
 | Gate 4 | generative + slider p95<100ms (raw feasibility: Gate 4F) | `tests/test_phase4.py` (27 tests) |
 | Gate 5 | mission translation + LLM seam | `tests/test_phase5.py` (11 tests) |
@@ -96,7 +96,7 @@ different Gate 2M numbers came to circulate at once (gap J1).
 | Gate 2A | CFD-admissibility screen: a grammar-valid hull is not a CFD-meshable one | `tests/test_admissibility.py` (21 tests) |
 | Gate 2L | the prism-layer cap is a measured value, and a clean mesh with no boundary layer is not a pass | `tests/test_layer_cap.py` (6 tests) |
 | Gate 2F | STL forensics: watertight is not valid, and the surface handed to snappy is measured rather than assumed | `tests/test_stl_forensics.py` (15 tests) |
-| Gate 2C | the campaign classifier names the mechanism that actually failed, and refuses one it cannot measure | `tests/test_campaign_classifier.py` (9 tests) |
+| Gate 2C | the campaign classifier names the mechanism that actually failed, and refuses one it cannot measure | `tests/test_campaign_classifier.py` (11 tests) |
 | Gate 2G | KCS benchmark geometry: present and accepted (scripts/fetch_benchmark_geom.py) | `tests/test_benchmark_geom.py` (2 tests) |
 | Gate 6R-mech | review-record mechanics + basis routing | `tests/test_phase6r.py` (10 tests) |
 | Gate 4F | raw generative feasibility: UNFILTERED model draws vs the >=99% bar (BuildPlan Phase 4) | **RED** — `data/gate-ledger.json` |

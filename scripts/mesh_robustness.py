@@ -182,7 +182,40 @@ def mesh_one(case: Path, np_procs: int = 1, mesh_only: bool = True,
         "meshed_runner_bar": (zero == 0 and wrong_n <= 5 and cells > 0
                               and 0 <= (grab(r"Max skewness = ([\d.]+)",
                                              default=-1.0) or -1.0) <= 20.0),
+        # WHICH SURFACE THIS ROW MEASURED. MEASURED 2026-08-12: not one of the
+        # five gate2u-*.json artifacts recorded it, and commit bbf1a47 (the
+        # chine onto a grid row) changed `navalai/geometry.py` and therefore
+        # every hull's STL. So every rate on record — 23/25, 20/25, the cap-3,
+        # cap-5 and cap-7 batches — describes a surface that no longer exists,
+        # and NO FIELD IN THE ARTIFACT SAYS SO. That is LESSONS.md defect
+        # class 5 (citing evidence that no longer exists) made structural: the
+        # record cannot be checked against the code, in either direction.
+        #
+        # The datum already existed per case — `case.info` carries stl_sha256,
+        # which is what gate2m.py matches against CHECKSUMS.json to refuse a
+        # case that is not KCS. The campaign simply never carried it up into
+        # its own row, so the one artifact that gets QUOTED was the one that
+        # could not be verified.
+        "stl_sha256": _case_stl_sha(case),
     }
+
+
+def _case_stl_sha(case: Path) -> str:
+    """The `stl_sha256` this case was generated from, or the honest refusal.
+
+    Returns "UNRECORDED" rather than "" or None: an empty string compares equal
+    to another empty string, so two batches meshed from DIFFERENT unknown
+    surfaces would silently agree. The whole point of the field is to refuse
+    that comparison, and a sentinel that quietly satisfies it is defect class 1
+    reintroduced in the fix for defect class 5.
+    """
+    info = case / "case.info"
+    if not info.exists():
+        return "UNRECORDED"
+    for line in info.read_text().splitlines():
+        if line.startswith("stl_sha256="):
+            return line.split("=", 1)[1].strip() or "UNRECORDED"
+    return "UNRECORDED"
 
 
 def solve_one(case: Path) -> dict:

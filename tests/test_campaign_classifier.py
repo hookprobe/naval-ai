@@ -166,6 +166,58 @@ def test_every_stored_campaign_row_re_derives_its_own_label():
     assert seen >= 20, f"only {seen} labelled rows found; the fence went blind"
 
 
+def test_a_campaign_row_records_which_surface_it_measured(tmp_path):
+    """MEASURED 2026-08-12: not ONE of the five gate2u-*.json artifacts carries
+    an STL or geometry hash, and commit bbf1a47 changed navalai/geometry.py and
+    therefore every hull's surface. Every rate on record -- 23/25, 20/25, and
+    the cap-3/cap-5/cap-7 batches -- describes a surface that no longer exists,
+    and no field in the artifact says so.
+
+    The datum already existed per case: `case.info` carries stl_sha256, which
+    gate2m.py matches against CHECKSUMS.json to refuse a case that is not KCS.
+    The campaign never carried it into its own row, so the artifact that gets
+    QUOTED was the one that could not be verified.
+    """
+    case = tmp_path / "c"
+    case.mkdir()
+    assert _mr._case_stl_sha(case) == "UNRECORDED", "no case.info is not a pass"
+
+    sha = "3f8c87ae6b11e6643f30f4622aad43b153ff7329270fe194059435b82b51a20e"
+    (case / "case.info").write_text(f"lwl=8.9417\nstl_sha256={sha}\nbenchmark=unknown\n")
+    assert _mr._case_stl_sha(case) == sha
+
+    (case / "case.info").write_text("lwl=8.9417\nstl_sha256=\n")
+    assert _mr._case_stl_sha(case) == "UNRECORDED", (
+        "an EMPTY hash must not read as a recorded one -- two batches meshed "
+        "from different unknown surfaces would then compare equal, which is "
+        "defect class 1 reintroduced inside the fix for defect class 5"
+    )
+
+
+def test_one_batch_measures_one_surface():
+    """A campaign row is only comparable to another row from the same surface.
+
+    Applies to artifacts that HAVE the field; the five written before
+    2026-08-12 do not, and are therefore not comparable to anything measured
+    after bbf1a47 -- which is the finding, not an oversight to be papered over.
+    """
+    import json
+    from pathlib import Path
+
+    for path in sorted((Path(__file__).resolve().parents[1] / "data").glob("gate2u*.json")):
+        rows = json.loads(path.read_text()).get("rows") or []
+        shas = {r["stl_sha256"] for r in rows if "stl_sha256" in r}
+        assert "UNRECORDED" not in shas, (
+            f"{path.name} has a row whose surface could not be identified; a "
+            "batch with an unidentifiable member cannot be compared to a later "
+            "one, so it must not be published as a rate"
+        )
+        assert len(shas) <= 1 or len(shas) == len([r for r in rows if "stl_sha256" in r]), (
+            f"{path.name} mixes {len(shas)} surfaces in one batch -- the rate "
+            "is then an average over geometries that were never the same hull"
+        )
+
+
 @pytest.mark.parametrize("sentinel_field", ["cells", "max_skewness"])
 def test_no_negative_sentinel_ever_produces_the_string_ok(sentinel_field):
     """The general fence, so the next sentinel added does not repeat this.
