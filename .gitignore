@@ -81,3 +81,22 @@ data/blender/
 # docs/research/STL.md carries the command that regenerates them from the
 # CURRENT geometry.
 docs/research/*.png
+
+# THE README HERO IMAGE IS AN ASSET, NOT A BUILD ARTIFACT, and the distinction
+# is the whole of gap J6 rather than an exception to it.
+#
+# `renders/` and `docs/research/*.png` are ignored because they held PNGs that
+# are REPRODUCIBLE from a script and therefore go stale silently: the three
+# hull renders committed on 2026-08-12 were rendered at 14:53 and committed at
+# 15:41, while the chine fix landed at 15:22 BETWEEN them, so they were
+# pictures of a surface the code had already stopped producing. A binary
+# artifact cannot carry a diff, so nothing could have shown that.
+#
+# `docs/assets/` is different in the one way that matters: nothing regenerates
+# it. It is authored once, it depicts no measured state, and it cannot fall out
+# of step with the code because it makes no claim about the code. It must be
+# tracked or README.md renders a broken image on GitHub.
+#
+# The test is not "is it a PNG", it is "could this silently disagree with the
+# code". Put a rendered result here and the rule has been broken, not widened.
+!docs/assets/

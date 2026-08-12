@@ -1,13 +1,47 @@
-# NavalAI — autonomous naval-architecture validation AI
+# NavalAI
+
+<p align="center">
+  <img src="docs/assets/naval-ai.png" alt="NavalAI" width="100%">
+</p>
+
+**An autonomous naval-architecture system that designs a hull, proves it with
+physics, and refuses to overstate what it proved.**
+
+Describe a mission in plain language. NavalAI generates hull forms inside a
+grammar that cannot express an invalid boat, validates each one up a four-tier
+physics ladder, checks it against ISO small-craft rules, and exports panels a
+shop can cut. Every number it reports carries the tier that produced it and an
+uncertainty — and a gate that misses its bar stays red, on the record, with an
+owner and a review date.
 
 Licensed under **GNU AGPL-3.0** (see `LICENSE`).
 
-Mission in natural language → grammar-constrained hull generation → slider
-surface with live physics → tiered validation ladder → rules gate → export.
-Built to `docs/BUILD-PLAN.md` (the one plan). The literature it rests on is
-`docs/research/PRIOR-ART.md`, which also records that the earliest sweeps'
-"24 primary sources / 11 claims verified" provenance has no artifact in this
-tree and cannot be checked from it.
+## Quickstart
+
+```bash
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt              # pinned, lower and upper bounds
+pip install -r requirements-optional.txt     # capytaine/cadquery/mujoco tiers
+
+python3 -m navalai.gates                     # what is proven, and what is not
+python3 ui/server.py                         # slider surface -> localhost:8642
+python3 benchmarks/wigley.py                 # the Michell Wigley curve
+python3 -m pytest tests/ -q                  # the whole ladder (~10 min)
+```
+
+`python3 -m navalai.gates` is the honest status of the project and the only one
+— no document in this tree carries a gate verdict. `python3 scripts/reconcile_gaps.py`
+does the same for outstanding work.
+
+## Where to start reading
+
+| You want | Read |
+|---|---|
+| how the system is built, and what order it is being built in | `docs/BUILD-PLAN.md` |
+| what has been MEASURED, and what was refuted | `docs/research/*.md` |
+| what this project learned the hard way | `docs/LESSONS.md` |
+| how to work in this repository | `CLAUDE.md` |
+| what a production vessel needs beyond a hull | `docs/research/PRODUCTION.md` |
 
 ## The ladder
 
@@ -110,34 +144,6 @@ different Gate 2M numbers came to circulate at once (gap J1).
 
 <!-- END GATE TABLE -->
 
-## Run it
-
-```bash
-python3 -m pytest tests/ -q          # the whole ladder (~2.5 min)
-python3 -m navalai.gates             # gate table
-python3 ui/server.py                 # slider surface → http://127.0.0.1:8642
-python3 benchmarks/wigley.py         # print the Michell Wigley curve
-```
-
-Deps: numpy, scipy, pymoo, capytaine, pytest (`pip install --user --break-system-packages ...`).
-
-## Alignment campaign (stages B–F, see ALIGNMENT.md)
-
-The original agentic-PLM plan was audited against the build; all 11 gaps
-closed behind gates:
-
-| Stage | Closed | Gate |
-|---|---|---|
-| B | grammar AST + typology type-checker · plywood bend-radius · 8-D pPCA genome | Gate B |
-| C | async agent network (Orchestrator/Builder/Validator/Engineer, audit trail) · engineer metrics · STEP/IGES export (CadQuery/OCP) | Gate C |
-| D | JONSWAP + heave-RAO response spectra · inertia/mooring/lifting + MuJoCo cross-check · CFD runner + forces parser + Roache GCI | Gate D |
-| E | NSGA-II over the 8-D genome · latent-GP (measured: 8-D costs 2–3× accuracy) | Gate E |
-| F | developable-panel unrolling → DXF · Pareto dashboard · handoff-latency receipt (<1% of physics) | Gate F |
-
-Status and test counts are in the generated table above, not here — the same
-number written twice is this codebase's recurring defect, and this table
-carried a second copy of five of them.
-
 ## What is deliberately NOT here yet
 
 - guided tabular diffusion (GMM baseline stands in; same interface)
@@ -171,3 +177,25 @@ carried a second copy of five of them.
   file contradicted itself, because the table is regenerated and the prose is
   not. Corrected 2026-08-11; the durable fix is to stop keeping a second copy
   (`docs/BUILD-PLAN.md` §0).
+
+---
+
+<details>
+<summary><b>Alignment campaign (stages B–F) — historical</b></summary>
+
+The original agentic-PLM plan was audited against the build; all 11 gaps
+closed behind gates:
+
+| Stage | Closed | Gate |
+|---|---|---|
+| B | grammar AST + typology type-checker · plywood bend-radius · 8-D pPCA genome | Gate B |
+| C | async agent network (Orchestrator/Builder/Validator/Engineer, audit trail) · engineer metrics · STEP/IGES export (CadQuery/OCP) | Gate C |
+| D | JONSWAP + heave-RAO response spectra · inertia/mooring/lifting + MuJoCo cross-check · CFD runner + forces parser + Roache GCI | Gate D |
+| E | NSGA-II over the 8-D genome · latent-GP (measured: 8-D costs 2–3× accuracy) | Gate E |
+| F | developable-panel unrolling → DXF · Pareto dashboard · handoff-latency receipt (<1% of physics) | Gate F |
+
+Status and test counts are in the generated table above, not here — the same
+number written twice is this codebase's recurring defect, and this table
+carried a second copy of five of them.
+
+</details>
