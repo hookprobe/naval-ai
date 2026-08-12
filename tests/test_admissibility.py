@@ -27,7 +27,7 @@ from navalai.admissibility import (Basis, Metric, Verdict, screen,
                                    surface_grid)
 from navalai.cfd.case import _HULL_REFINE, _refine_boxes, layer_spec
 from navalai.evaluate import sample_valid
-from navalai.geometry import Hull, _halfbreadth_at
+from navalai.geometry import Hull
 from navalai.mission import MissionSpec
 
 SPEED = 2.57
@@ -67,8 +67,64 @@ def test_surface_grid_is_the_grid_closed_mesh_triangulates():
     A replica is defect class 2 (a number — here a whole surface — declared
     twice) unless it is fenced, and it exists only because `closed_mesh` is a
     Python double loop costing ~1.4 s per hull at the case's 600x120
-    triangulation. This asserts it against the two PRIVATE helpers
-    `closed_mesh` itself calls, so a change to either side is caught.
+    triangulation.
+
+    STRENGTHENED 2026-08-12, when the chine became a grid row: the fence used
+    to re-derive the grid from `_section_at` + `_halfbreadth_at`, which is a
+    THIRD transcription of the sampling rule and drifts with the other two.
+    It now asserts that every point of `surface_grid` is literally a vertex of
+    what `closed_mesh` returned — the only statement that cannot be satisfied
+    by two copies agreeing with each other and disagreeing with the mesh.
+    """
+    X, _ = sample_valid(3, MissionSpec(), seed=7)
+    for x in X:
+        h = Hull(x)
+        nx, nz = 61, 12
+        S = surface_grid(h, nx, nz)
+        verts, tris = h.closed_mesh(nx=nx, nz=nz)
+        emitted = {tuple(np.round(v, 9)) for v in verts[tris.ravel()]}
+        xs = np.linspace(float(h.x[0]), float(h.x[-1]), nx)
+        for i in (0, 1, nx // 3, nx // 2, nx - 2, nx - 1):
+            assert S[i, :, 0] == pytest.approx(xs[i])
+            for j in range(nz + 1):
+                assert tuple(np.round(S[i, j], 9)) in emitted, (i, j)
+
+
+def test_the_chine_is_a_row_of_the_grid_not_a_corner_it_chords_across():
+    """Stage A, and the reason `chine_row` exists at all.
+
+    MEASURED 2026-08-12 at the nx=600/nz=120 triangulation
+    `make_resistance_case` writes: the exact chine point of the blended
+    section sat 11.95 / 4.50 / 11.45 mm off the chord the uniform-z grid put
+    in its place, on hulls 4 / 8 / 14 of `sample_valid(25, MissionSpec(),
+    seed=0)` — at EVERY x, not only at the stem. Bar: 1e-9 m, i.e. the chine
+    is ON the surface, not near it (docs/LESSONS.md defect class 3 — the
+    assertion has to be the one the old grid FAILS, and the old grid fails
+    this by 12 mm).
+    """
+    X, _ = sample_valid(25, MissionSpec(), seed=0)
+    for hid in (4, 8, 14):
+        h = Hull(np.asarray(X[hid], float))
+        nz = 120
+        jc = h.chine_row(nz)
+        assert 1 <= jc <= nz - 1
+        S = surface_grid(h, 97, nz)
+        xs = np.linspace(float(h.x[0]), float(h.x[-1]), 97)
+        for i in range(0, 97, 7):
+            pts = h._section_at(float(xs[i]))
+            assert S[i, jc, 1] == pytest.approx(pts[1, 0], abs=1e-9)
+            assert S[i, jc, 2] == pytest.approx(pts[1, 1], abs=1e-9)
+        # and the row is still a partition: keel at 0, sheer at nz
+        assert S[50, 0, 2] == pytest.approx(h._section_at(float(xs[50]))[0, 1])
+        assert S[50, nz, 2] == pytest.approx(h._section_at(float(xs[50]))[2, 1])
+
+
+def test_every_grid_point_still_lies_on_the_analytic_section_polyline():
+    """Redistributing rows must MOVE VERTICES ALONG the section, never off it.
+
+    The panels are unchanged straight segments; only the sampling parameter
+    changed. If this ever fails, the row split has become a shape change —
+    which would be a different boat, not a better mesh.
     """
     X, _ = sample_valid(3, MissionSpec(), seed=7)
     for x in X:
@@ -76,14 +132,22 @@ def test_surface_grid_is_the_grid_closed_mesh_triangulates():
         nx, nz = 61, 12
         S = surface_grid(h, nx, nz)
         xs = np.linspace(float(h.x[0]), float(h.x[-1]), nx)
-        for i in (0, 1, nx // 3, nx // 2, nx - 2, nx - 1):
+        for i in range(nx):
             pts = h._section_at(float(xs[i]))
-            zt = np.linspace(pts[0, 1], pts[2, 1], nz + 1)
-            for j, z in enumerate(zt):
-                assert S[i, j, 0] == pytest.approx(xs[i])
-                assert S[i, j, 2] == pytest.approx(z)
-                assert S[i, j, 1] == pytest.approx(
-                    _halfbreadth_at(pts, float(z)), abs=1e-12)
+            for j in range(nz + 1):
+                y, z = float(S[i, j, 1]), float(S[i, j, 2])
+                d = min(_seg_dist(y, z, 0.0, pts[0, 1], pts[1, 0], pts[1, 1]),
+                        _seg_dist(y, z, pts[1, 0], pts[1, 1],
+                                  pts[2, 0], pts[2, 1]))
+                assert d < 1e-12, (i, j, d)
+
+
+def _seg_dist(py, pz, ay, az, by, bz) -> float:
+    e = np.array([by - ay, bz - az])
+    q = np.array([py - ay, pz - az])
+    den = float(e @ e)
+    t = 0.0 if den <= 1e-30 else float(np.clip((q @ e) / den, 0.0, 1.0))
+    return float(np.linalg.norm(q - t * e))
 
 
 def test_no_pipeline_constant_is_restated_in_this_module():

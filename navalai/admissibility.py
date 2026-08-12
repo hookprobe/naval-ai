@@ -214,6 +214,12 @@ def surface_grid(hull: Hull, nx: int, nz: int) -> np.ndarray:
     the STATION polylines (41 of them) and interpolates LINEARLY in x, so the
     STL carries a crease at every station and its true longitudinal resolution
     is Lwl/40 (0.25 m on a 10 m hull) however many triangles are written.
+
+    UPDATED 2026-08-12 with `closed_mesh`: the section is sampled PER PANEL
+    (keel->chine, chine->sheer) with the chine on row `hull.chine_row(nz)`,
+    not uniformly in z across the whole section. The row split is imported
+    from `Hull`, never restated here — this function is already a second copy
+    of a surface and one number declared twice inside it is enough.
     """
     xs = np.linspace(float(hull.x[0]), float(hull.x[-1]), nx)
     xst = hull.x
@@ -225,21 +231,15 @@ def surface_grid(hull: Hull, nx: int, nz: int) -> np.ndarray:
 
     zk, yc, zc = lerp(hull.z_keel), lerp(hull.y_chine), lerp(hull.z_chine)
     ys, zs = lerp(hull.y_sheer), lerp(hull.z_sheer)
-    t = np.linspace(0.0, 1.0, nz + 1)
-    Z = zk[:, None] + (zs - zk)[:, None] * t[None, :]
-    d1 = (zc - zk)[:, None]
-    d2 = (zs - zc)[:, None]
-    Y = np.zeros_like(Z)
-    seg1 = (Z <= zc[:, None]) & (d1 > 0)
-    Y = np.where(seg1, yc[:, None] * (Z - zk[:, None]) / np.where(d1 > 0, d1, 1.0), Y)
-    seg2 = (Z > zc[:, None]) & (d2 > 0)
-    Y = np.where(seg2, yc[:, None] + (ys - yc)[:, None]
-                 * (Z - zc[:, None]) / np.where(d2 > 0, d2, 1.0), Y)
-    # A section whose two segments are both degenerate: `_halfbreadth_at`
-    # falls through its loop and returns the SHEER half-breadth. Mirrored here
-    # rather than defaulted to zero, because the two differ at the stem.
-    Y = np.where((~seg1) & (~seg2) & (Z > zk[:, None]), ys[:, None], Y)
-    Y = np.where(Z <= zk[:, None], 0.0, Y)
+    jc = hull.chine_row(nz)
+    t_lo = np.linspace(0.0, 1.0, jc + 1)
+    t_hi = np.linspace(0.0, 1.0, nz - jc + 1)[1:]
+    Y = np.empty((len(xs), nz + 1))
+    Z = np.empty_like(Y)
+    Y[:, :jc + 1] = yc[:, None] * t_lo[None, :]
+    Z[:, :jc + 1] = zk[:, None] + (zc - zk)[:, None] * t_lo[None, :]
+    Y[:, jc + 1:] = yc[:, None] + (ys - yc)[:, None] * t_hi[None, :]
+    Z[:, jc + 1:] = zc[:, None] + (zs - zc)[:, None] * t_hi[None, :]
     return np.stack([np.repeat(xs[:, None], nz + 1, axis=1), Y, Z], axis=-1)
 
 

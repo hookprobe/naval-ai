@@ -247,14 +247,44 @@ class Hull:
 
         Returns (verts (N,3), tris (M,3) int). Degenerate slivers at the stem
         are skipped by area.
+
+        THE CHINE IS A ROW OF THE GRID (`chine_row`), not something the
+        z-sampling straddles. It used to be the latter: `z` ran uniformly from
+        `z_keel` to `z_sheer` over nz+1 levels, so the chine KNUCKLE — the one
+        hard feature every hull this grammar emits has — fell strictly inside a
+        sampling interval and the mesh chorded across it.
+
+        MEASURED 2026-08-12 on hulls 4/8/14 of `sample_valid(25, MissionSpec(),
+        seed=0)`, at the nx=600/nz=120 triangulation `make_resistance_case`
+        actually writes: the exact chine point sat 11.95 / 4.50 / 11.45 mm off
+        the chord that replaced it, at EVERY x, not only at the ends. It was
+        the whole of the ~10 mm floor in the deviation of this mesh from the
+        analytic surface (`docs/research/NURBS.md` §1) — the rest of the hull
+        agrees with the manufacturing loft to 0.3 mm rms. It also meant
+        `surfaceFeatureExtract` had no chine crease to find: the knuckle was
+        spread over two rows of triangles whose normal jump is half the real
+        one, on both sides of a spurious edge.
+
+        The rows are apportioned between the two panels ONCE per hull, by mean
+        girth, so the row index of the chine is the same at every station and
+        the quad connectivity below is unchanged. Row count stays nz+1: this
+        redistributes rows, it does not add any.
         """
         xs = np.linspace(float(self.x[0]), float(self.x[-1]), nx)
+        jc = self.chine_row(nz)
+        t_lo = np.linspace(0.0, 1.0, jc + 1)
+        t_hi = np.linspace(0.0, 1.0, nz - jc + 1)[1:]
         S = np.zeros((nx, nz + 1, 3))
         for i, xv in enumerate(xs):
             pts = self._section_at(xv)
-            zs = np.linspace(pts[0, 1], pts[2, 1], nz + 1)
-            for j, z in enumerate(zs):
-                S[i, j] = (xv, _halfbreadth_at(pts, float(z)), z)
+            zk = pts[0, 1]
+            yc, zc = pts[1, 0], pts[1, 1]
+            ys, zsh = pts[2, 0], pts[2, 1]
+            S[i, :jc + 1, 1] = yc * t_lo
+            S[i, :jc + 1, 2] = zk + (zc - zk) * t_lo
+            S[i, jc + 1:, 1] = yc + (ys - yc) * t_hi
+            S[i, jc + 1:, 2] = zc + (zsh - zc) * t_hi
+            S[i, :, 0] = xv
         P = S * np.array([1.0, -1.0, 1.0])
 
         verts: list = []
@@ -304,6 +334,31 @@ class Hull:
             quad(S[-1, j], S[-1, j + 1], P[-1, j + 1], P[-1, j])
 
         return np.array(verts), np.array(tris, dtype=int)
+
+    def chine_row(self, nz: int) -> int:
+        """Row index of the CHINE in an (nz+1)-row section grid.
+
+        ONE definition, because `closed_mesh` and `admissibility.surface_grid`
+        both need it and a second copy would be defect class 2 — which is
+        exactly why `surface_grid` is fenced by a test against `closed_mesh`'s
+        own helpers.
+
+        The split is by MEAN GIRTH of the two panels over the stations, not by
+        z-extent: the bottom panel is wide and shallow at low deadrise, so a
+        z-proportional split starves it of rows precisely on the hulls where
+        it does the most work. It is a single integer per hull, so the row
+        index does not move along the hull and the quad connectivity in
+        `closed_mesh` is unchanged.
+
+        Clamped to [1, nz-1]: a panel with zero rows is a panel that is not
+        meshed, and returning 0 or nz would silently delete one.
+        """
+        g_lo = float(np.mean(np.hypot(self.y_chine, self.z_chine - self.z_keel)))
+        g_hi = float(np.mean(np.hypot(self.y_sheer - self.y_chine,
+                                      self.z_sheer - self.z_chine)))
+        tot = g_lo + g_hi
+        frac = 0.5 if tot <= 1e-12 else g_lo / tot
+        return int(min(max(int(round(nz * frac)), 1), max(nz - 1, 1)))
 
     def _section_at(self, xv: float) -> np.ndarray:
         i = np.searchsorted(self.x, xv)
