@@ -209,10 +209,25 @@ def test_the_policy_rows_constrain_the_front_and_exclude_a_ladder_ok_hull():
          search that was already compliant.
 
     MEASURED, pop 24 x 10, seed 3: 10 of the 12 ungoverned front members are
-    ladder-feasible and policy-infeasible. One of them (LWL 11.71 m) is INSIDE
-    the box and violates `policy_energy` alone, which is the row half of the
-    kernel doing work the bound cannot do — the box has no edge for a solar
-    fraction.
+    ladder-feasible and policy-infeasible.
+
+    HALF 2's WITNESS NO LONGER COMES OUT OF THE SEARCH, and the reason is a
+    measurement, not a preference. CI run 31611386179 (ubuntu-latest) failed
+    here with "every witness is out of the box" while this Mac passed on the
+    same commit, same seed, same budget. The count and the identity of the
+    front members are not stable across the aarch64/Accelerate ↔
+    x86-64/OpenBLAS boundary, and the reason they are not is structural: an
+    NSGA-II generation ranks the population by DOMINATION, which is a discrete
+    decision taken on continuous inputs, and ten of those in sequence turn a
+    last-bit difference into a different trajectory. MEASURED over seeds 1-20
+    at this budget, the in-box witness count is 0 on ELEVEN of them and
+    exactly 1 on seed 3 — so the assertion was riding on a single design that
+    a different libm is free to move.
+
+    `_in_box_witnesses` below asserts the same claim off a well-conditioned
+    computation instead: uniform draws inside the box (PCG64 is bit-identical
+    everywhere) evaluated directly, no sort, no trajectory. See its docstring
+    for the measurement.
     """
     from navalai.evaluate import evaluate as ev_
     from navalai.optimize import pareto_front
@@ -222,6 +237,13 @@ def test_the_policy_rows_constrain_the_front_and_exclude_a_ladder_ok_hull():
     m = _GOV_MISSION
 
     governed = pareto_front(m, pop=24, gens=10, seed=3, policy=cp)
+    # KNOWN FRAGILE, kept because it is measured to hold at THIS seed on both
+    # platforms and because lowering a bar that is passing is not a fix: over
+    # seeds 1-20 the governed front is under 3 members on eight of them. If
+    # this ever fails, it is the same trajectory chaos described above and not
+    # a collapse of the governed search — re-measure across seeds before
+    # touching it, and read what it actually guards (the loop below is vacuous
+    # on an empty front).
     assert len(governed.X) >= 3, "governed front collapsed"
     for x in governed.X:
         ev = ev_(x, m, policy=cp)
@@ -241,13 +263,63 @@ def test_the_policy_rows_constrain_the_front_and_exclude_a_ladder_ok_hull():
         "design, so this budget cannot show that the rows bite")
     # The witness the box could NEVER have caught: INSIDE the parameter box and
     # rejected by a row. Without one of these the rows would only be agreeing
-    # with the bound, and the wiring of output (2) would be untested.
-    box = cp.box(m.design_category)
-    assert [x for x in witnesses if box.contains(x)], (
-        "every witness is out of the box, so this test cannot tell the rows "
-        "from the bound — it is the box being proven twice")
+    # with the bound, and the wiring of output (2) would be untested. Taken
+    # from a well-conditioned draw rather than from the front — see the
+    # docstring and `_in_box_witnesses`.
+    found = _in_box_witnesses(m, cp)
+    assert found, (
+        "no draw inside the box is ladder-feasible and policy-infeasible, so "
+        "this test cannot tell the rows from the bound — it is the box being "
+        "proven twice")
+    for x, ev in found:
+        assert cp.box(m.design_category).contains(x)
+        assert ev_(x, m).ok, "the ladder must ACCEPT it, or it is not a witness"
+        tripped = [r for r in cp.rows if ev.g[r] > 0.0]
+        assert tripped == ["policy_energy"], (
+            f"the in-box witness must fail a row the BOUND has no edge for; "
+            f"this one trips {tripped}")
+    # ...and not by a hair, or a last-bit difference would erase the claim the
+    # way it erased the front-derived one.
+    assert max(float(ev.g["policy_energy"]) for _, ev in found) > 0.1
     # The same property, counted on the governed front: none.
     assert excluded(governed.X) == []
+
+
+def _in_box_witnesses(mission, cp, n_draws: int = 1500):
+    """Designs INSIDE the policy box that the ladder accepts and a policy ROW
+    refuses — the thing the parameter bound structurally cannot produce.
+
+    WHY DRAWS AND NOT THE FRONT. This is the same claim the caller used to
+    take off the ungoverned Pareto front, moved onto a computation that is a
+    function of its inputs. Uniform draws from a PCG64 stream are bit-identical
+    on every platform, `evaluate` is well-conditioned here (a 1-ULP move in a
+    decision variable changes every objective and constraint by at most 2.6e-14
+    relative), and no sort or trajectory sits between the draw and the verdict.
+    An NSGA-II front has all three problems.
+
+    MEASURED on this tree, 1500 draws from `default_rng(0)` inside
+    `reference_policy().box`, reference SKU at category C: **9** witnesses, and
+    ALL NINE trip `policy_energy` alone — the box has no edge for a solar
+    fraction, which is exactly the row half of the kernel doing work the bound
+    cannot do. Their `policy_energy` margins span +0.329 to +0.887, i.e. they
+    are nowhere near the sign change, so the claim cannot be lost to a
+    different libm. Cost: 1.9 s. The first witness is LWL 10.56 m.
+
+    Returns [(x, evaluation_under_policy)]; the caller asserts the properties.
+    """
+    from navalai.evaluate import evaluate as ev_
+
+    box = cp.box(mission.design_category)
+    rng = np.random.default_rng(0)
+    out = []
+    for _ in range(n_draws):
+        x = box.low + rng.random(len(box.low)) * (box.high - box.low)
+        if not ev_(x, mission).ok:
+            continue
+        ev = ev_(x, mission, policy=cp)
+        if not ev.ok:
+            out.append((x, ev))
+    return out
 
 
 def test_with_no_policy_the_search_is_the_search_it_always_was():

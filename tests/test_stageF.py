@@ -103,12 +103,59 @@ def test_dxf_roundtrip(tmp_path):
 # ---------------- Pareto dashboard ----------------
 
 def test_pareto_endpoint_serves_designs():
-    from ui.server import get_pareto
+    """THE COUNT WAS A DRAW, NOT A BAR — and what replaced it asks more.
+
+    MEASURED, CI run 31611386179 on ubuntu-latest: `assert (2 >= 3)`. This Mac
+    serves 24 points from the same commit, the same mission and the SAME
+    SEED — `ui/server.py` calls `pareto_front(mission, pop=24, gens=10,
+    seed=2)`, and pymoo 0.6.2 derives a local PCG64 from that seed, so the RNG
+    is pinned and thread counts provably change nothing. What is not pinned is
+    the trajectory: NSGA-II ranks each generation by DOMINATION, a discrete
+    decision on continuous inputs, so a last-bit arithmetic difference sends
+    ten generations somewhere else. Swept over 100 seeds on this machine the
+    front spans **0 to 24 members**, and is under 3 on 2% of them.
+
+    So `>= 3` described one draw on one platform. `ui/server.py`'s own comment
+    calls 24/10 a "BUDGET, not bar"; this test had turned that budget's
+    observed output into a bar.
+
+    The count is replaced by the properties the ENDPOINT actually owes, two of
+    which were not being asked at all:
+
+      - it serves designs (>= 1) with the declared payload shape,
+      - every served design RE-VALIDATES on the ladder for the mission it was
+        served for (honesty rule 2), and
+      - the served `gm_m` is the LADDER's GM. `ui/server.py` records that this
+        field was once `-f[2]`, minus a distance, and reported gm_m = -0.047
+        for a hull whose GM is +0.514 m. Nothing here checked it.
+
+    WHAT IS NOT REPLACED, and is owed in `ui/server.py` rather than here: at
+    some seeds `pareto_front` returns ZERO members and `get_pareto` caches and
+    serves `{"points": []}` without refusing or flagging it — a dashboard
+    drawing nothing, or one point instead of a trade-off, which is the very
+    failure the pop=16/gens=6 -> 24/10 budget change was made to fix. A test
+    cannot assert a floor the search does not guarantee; the endpoint has to
+    declare a degenerate front. That file is not this change's to edit.
+    """
+    import numpy as np
+
+    from navalai import grammar
+    from navalai.evaluate import evaluate
+    from ui.server import _mission_default, get_pareto
+
     d = get_pareto()
-    assert len(d["points"]) >= 3 and d["tier"] == "L1"
+    assert d["tier"] == "L1"
+    assert len(d["points"]) >= 1, "the endpoint served no designs at all"
     for p in d["points"]:
         assert set(p) == {"params", "wh_per_nm", "build_area_m2", "gm_m"}
         assert len(p["params"]) == 15
+        x = np.array([p["params"][n] for n in grammar.NAMES], float)
+        ev = evaluate(x, _mission_default)
+        assert ev.ok, f"a served design fails the ladder: {ev.violations}"
+        assert p["gm_m"] == pytest.approx(round(float(ev.gm_m), 3)), (
+            f"served gm_m {p['gm_m']} is not the ladder's {ev.gm_m} — this "
+            f"field was once minus an objective distance and read -0.047 m "
+            f"for a hull at +0.514 m")
     # cached: second call is instant
     t0 = time.perf_counter()
     get_pareto()
@@ -234,7 +281,17 @@ def test_pareto_declares_the_cold_search_instead_of_hiding_it():
 def test_pareto_over_http_takes_a_mission():
     """The wire, not the function. `get_pareto` already took a mission; what
     was missing was any way for the dashboard to pass one — GET carries no
-    body and there was no POST route, so this request used to 404."""
+    body and there was no POST route, so this request used to 404.
+
+    THE FRONT SIZE IS NO LONGER ASSERTED HERE. CI run 31611386179 failed this
+    test on `len(default["points"]) >= 3` — a clause incidental to the wire,
+    duplicating one `test_pareto_endpoint_serves_designs` already owns, and
+    measured over 100 seeds to span 0 to 24 members (see that test for the
+    mechanism and why a count is not a bar). Two copies of a bar is this
+    repo's number-declared-twice defect wearing a count; the wire claims below
+    — the typed mission's speed round-trips, the typed front differs from the
+    default, the payload keys — are structural and platform-independent, and
+    they are what this test exists for."""
     from http.server import ThreadingHTTPServer
     import threading
     import urllib.request
@@ -258,7 +315,7 @@ def test_pareto_over_http_takes_a_mission():
     finally:
         srv.shutdown()
 
-    assert default["tier"] == "L1" and len(default["points"]) >= 3
+    assert default["tier"] == "L1"
     assert typed["mission"]["cruise_speed_kn"] == 9.0
     assert typed["points"] != default["points"], (
         "POST /pareto returned the default mission's front")

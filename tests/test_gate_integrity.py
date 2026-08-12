@@ -172,6 +172,116 @@ def test_a_partial_skip_still_says_so_out_loud():
     assert label == "GREEN (2 skipped)" and fail is False
 
 
+# ------------------------------------------- a DECLARED skip, and its limits
+#
+# MOTIVATING INCIDENT: CI run 31611386179 on commit 0798182. The `--strict`
+# tier printed
+#
+#     Gate 2B  Blender-native hull generation   SKIPPED (7 skipped in 0.13s)
+#     Gate 2G  KCS benchmark geometry           SKIPPED (2 skipped in 0.02s)
+#     2 gate(s) ran no tests ... FAILING (--strict).
+#
+# on every run, and no hosted runner can fix either: there is no Blender on a
+# GitHub runner, and scripts/fetch_benchmark_geom.py refuses by design to
+# re-host the registration-walled KCS IGES. A check that can never pass is the
+# defect .github/workflows/gates.yml exists to remove.
+#
+# `Requirement` narrows the excuse to a named, PROBED environment fact. These
+# four tests are the fence, and they are adversarial in the shape
+# docs/LESSONS.md defect class 3 demands: the second one feeds the mechanism
+# the VERBATIM case it must refuse (a declared requirement that is PRESENT),
+# because a test showing a guard accepts a good case proves nothing about
+# rejection.
+
+def _skipped_run(monkeypatch, gates):
+    """Run main() with every suite forced to report 'ran nothing'."""
+    class _R:
+        returncode = 0
+        stdout = "= 20 skipped in 1.0s =\n"
+    monkeypatch.setattr(G.subprocess, "run", lambda *a, **k: _R())
+    monkeypatch.setattr(G, "GATES", gates)
+    return G.main(["--strict"])
+
+
+def _row(**kw):
+    return G.Gate("Gate Q", "a suite that ran nothing",
+                  "tests/test_phase0.py", **kw)
+
+
+def test_an_undeclared_skip_still_fails_strict(monkeypatch, capsys):
+    """THE RULE THAT SURVIVES. Nothing about Requirement relaxes this."""
+    assert _skipped_run(monkeypatch, [_row()]) == 1
+    assert "did NOT declare why" in capsys.readouterr().out
+
+
+def test_a_declared_skip_whose_requirement_is_ABSENT_does_not_fail_strict(
+        monkeypatch, capsys):
+    req = G.Requirement(what="the Blender binary", why="no runner has one",
+                        probe=lambda: False)
+    assert _skipped_run(monkeypatch, [_row(requires=req)]) == 0
+    out = capsys.readouterr().out
+    # loud, not silent: the reason is printed on the row AND in the summary
+    assert "the Blender binary" in out and "no runner has one" in out
+    assert "DECLARED, PROBED" in out
+
+
+def test_a_declared_skip_whose_requirement_is_PRESENT_is_a_failure(
+        monkeypatch, capsys):
+    """THE ATTACK. Declaring a requirement must not buy a pass once the thing
+    it names is installed — otherwise `Requirement` is the blanket
+    "ignore skips" flag it was written instead of. It fails WITHOUT --strict
+    too, so no CI tier can opt out of it."""
+    req = G.Requirement(what="the Blender binary", why="no runner has one",
+                        probe=lambda: True)
+    assert _skipped_run(monkeypatch, [_row(requires=req)]) == 1
+    assert "could have run and did not" in capsys.readouterr().out
+
+    class _R:
+        returncode = 0
+        stdout = "= 20 skipped in 1.0s =\n"
+    monkeypatch.setattr(G.subprocess, "run", lambda *a, **k: _R())
+    monkeypatch.setattr(G, "GATES", [_row(requires=req)])
+    assert G.main([]) == 1, "no --strict, and it must STILL fail"
+
+
+def test_a_requirement_that_cannot_be_PROBED_is_a_failure_not_a_pass(
+        monkeypatch, capsys):
+    """docs/LESSONS.md defect class 1, applied to this mechanism before it can
+    produce an instance of it: `${_MQ_SKEW:-0}` turned "I could not measure
+    this" into a perfect score. A probe that raises means the prerequisite is
+    UNKNOWN, and unknown is never satisfied."""
+    def boom():
+        raise OSError("no such file")
+    req = G.Requirement(what="the Blender binary", why="no runner has one",
+                        probe=boom)
+    assert _skipped_run(monkeypatch, [_row(requires=req)]) == 1
+    assert "could NOT BE PROBED" in capsys.readouterr().out
+
+
+def test_a_status_row_cannot_carry_a_requirement():
+    """A status row runs nothing by construction, so a Requirement on one
+    would excuse a gate that never had a suite to skip."""
+    with pytest.raises(ValueError, match="meaningless on a status row"):
+        G.Gate("Gate Q", "scope", status=G.Verdict.RED,
+               requires=G.Requirement(what="x", why="y", probe=lambda: False))
+
+
+@pytest.mark.parametrize("name", ["Gate 2B", "Gate 2G"])
+def test_the_two_declared_gates_probe_the_same_thing_their_suite_does(name):
+    """A declaration nobody checked against the suite is prose. Both probes
+    must agree with the suite's own skip condition ON THIS MACHINE, or the
+    row would read "could have run and did not" for a suite that honestly
+    cannot."""
+    g = next(x for x in G.GATES if x.name == name)
+    assert g.requires is not None and g.suite is not None
+    here = g.requires.present()          # must not raise on any machine
+    if name == "Gate 2B":
+        from navalai.blender.run import have_blender
+        assert here is have_blender()
+    else:
+        assert here is (_ROOT / "data/benchmark_geom/kcs.stl").exists()
+
+
 # ------------------------------------------------------------- the documents
 #
 # GAP J2. Five different Gate 2M numbers circulated at once because five

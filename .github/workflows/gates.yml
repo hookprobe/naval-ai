@@ -3,7 +3,7 @@ name: gate ladder
 # PLM.md §5 makes `python -m navalai.gates` the single source of gate truth,
 # and §3 step 5 says a gate goes GREEN only by meeting its bar.
 #
-# THE PROBLEM THIS FILE NOW FIXES (audit 2026-08-05).
+# THE PROBLEM THIS FILE FIXED FIRST (audit 2026-08-05).
 # The previous version ran `python -m navalai.gates` with no ledger. Gate 2M
 # and Gate 2U are honestly, deliberately RED and will stay red for a while, so
 # the runner exited 1 on EVERY push, forever. GitHub renders one status per
@@ -19,6 +19,42 @@ name: gate ladder
 #     after:  "is anything red that we did not
 #              already record, or REDDER than we
 #              recorded, or past its review date?"    (a variable)
+#
+# THE PROBLEM THIS FILE FIXES NOW (2026-08-12), AND IT IS THE SAME DEFECT
+# WEARING A STOPWATCH.
+#
+# MEASURED on run 31611386179 (commit 0798182), and on the eleven runs before
+# it: EVERY ONE was `cancelled`. Not failed — cancelled, i.e. the 25-minute
+# timeout killed the job. The required check had therefore been unable to pass
+# for structural reasons since it was written, which is exactly the state the
+# 2026-08-05 fix above existed to end.
+#
+# The cause was not a slow test. It was that the required job ran the ENTIRE
+# TEST SUITE THREE TIMES:
+#
+#     step 5  test suite            13m42s   pytest tests/ -q
+#     step 6  gate ladder           (skipped after step 5 failed)
+#     step 7  publish the red gates 14m26s   `python -m navalai.gates || true`
+#
+# `python -m navalai.gates` re-executes every registered suite as a subprocess.
+# Step 7 existed only to PRINT the table onto the run summary, and it paid a
+# second full ladder to do it — 14m26s of compute to render text that step 6
+# had already produced (or would have). On a run where nothing fails, step 6
+# runs too, and the job costs 13m42s + ~21m + ~21m ≈ 56 minutes against a
+# 25-minute budget.
+#
+# The fix removes the duplicate EXECUTION and nothing else: the ladder runs
+# ONCE, with the ledger, `tee`d to a file, and the summary step publishes that
+# file. Same command, same output, same red rows first, half the wall clock.
+# The timeout is then raised to a number the measurement supports rather than
+# one the job was always going to breach.
+#
+# MEASURED component costs on ubuntu-latest (2 vCPU), run 31611386179:
+#     pytest tests/ -q                      13m42s  (no optional wheels)
+#     navalai.gates --ledger --strict       30m27s  (WITH optional wheels;
+#                                                    Gate 2 alone was 9m35s)
+# The required job installs no optional wheels, so its ladder is ~21m. 50
+# minutes is ~40% headroom over 13m42s + 21m, on the slowest runner observed.
 
 on:
   push:
@@ -31,7 +67,7 @@ jobs:
   ladder:
     name: regression signal (required)
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 50
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -44,22 +80,43 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: test suite
+      # Kept, deliberately, even though the ladder below re-runs every suite:
+      # this is the ONE run that executes the whole tree in a SINGLE process,
+      # so it is the only thing here that can catch cross-file state leakage
+      # (a test that seeds numpy's global RNG and changes another file's
+      # answer). The ladder's per-suite subprocesses cannot see that class of
+      # defect by construction. It is not `-n auto` for the same reason:
+      # xdist reorders and re-partitions, which is precisely the property this
+      # step exists to hold fixed.
+      - name: test suite (single process — the cross-file ordering check)
         run: python -m pytest tests/ -q
 
+      # ONE ladder run, captured. `!cancelled()` rather than `success()` so a
+      # failing suite above still gets a gate verdict — under the old file the
+      # ladder step was SKIPPED on a red suite while the summary step ran the
+      # whole ladder anyway, which is the worst of both.
       - name: gate ladder, judged against the expected-red ledger
-        run: python -m navalai.gates --ledger data/gate-ledger.json
-
-      - name: publish the red gates on the run summary
-        if: always()
+        if: ${{ !cancelled() }}
+        shell: bash
         run: |
-          # Exit code deliberately ignored: this step exists to PUBLISH, not to
-          # gate. Nothing is hidden — the red rows are the first thing a reader
-          # sees, on every run, forever.
+          set -o pipefail
+          python -m navalai.gates --ledger data/gate-ledger.json \
+            | tee gate-ladder.txt
+
+      - name: publish the gate ladder on the run summary
+        if: always()
+        shell: bash
+        run: |
+          # PUBLISHES; it does not gate, and it no longer COMPUTES. The table
+          # is the one the step above already produced, with the ledger
+          # applied — which is strictly more informative than the ledger-less
+          # re-run this step used to perform, because a recorded red printed
+          # there as "RED (NEW — not in the ledger)".
           {
             echo '## Gate ladder'
             echo '```'
-            python -m navalai.gates || true
+            cat gate-ladder.txt 2>/dev/null \
+              || echo '(the ladder did not run — see the step above)'
             echo '```'
             echo '### Expected-red ledger'
             echo 'A gate listed here is red BY RECORD, with a measured'
@@ -72,7 +129,7 @@ jobs:
   full-tiers:
     name: optional tiers (--strict)
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 50
     # Not required to merge: these wheels are heavy and occasionally break for
     # reasons that have nothing to do with this repo. But it must RUN, because
     # without it Gate 2 is entirely unverified in CI — tests/test_phase2.py has
@@ -94,8 +151,23 @@ jobs:
           pip install -r requirements-optional.txt
 
       - name: gate ladder, strict
-        # --strict makes a suite that ran NOTHING a failure. It is documented
-        # in status_of() as "use that in CI" and was, until now, used nowhere.
+        # --strict makes a suite that ran NOTHING a failure.
+        #
+        # It could not pass here until 2026-08-12, and the reason was not a
+        # regression: Gate 2B needs the Blender binary and Gate 2G needs
+        # data/benchmark_geom/kcs.stl, and NO hosted runner can have either.
+        # The KCS geometry is gitignored under workshop terms and
+        # scripts/fetch_benchmark_geom.py refuses by design to re-host its
+        # registration-walled source ("IT DOES NOT DOWNLOAD ANYTHING, AND THAT
+        # IS NOT AN OVERSIGHT"), so running the fetch script here would not
+        # produce the file.
+        #
+        # The fix is NOT a flag that ignores skips. `navalai.gates.Requirement`
+        # makes those two rows declare, in committed code, WHAT they need and
+        # WHY an environment may lack it — and PROBES it. A declared skip whose
+        # requirement turns out to be PRESENT is a failure with or without
+        # --strict, because the suite could have run and did not; an
+        # undeclared skip still fails --strict exactly as before.
         run: python -m navalai.gates --ledger data/gate-ledger.json --strict
 
       - name: what could not be verified here
@@ -103,3 +175,9 @@ jobs:
         run: |
           echo "Gate 2M needs an OpenFOAM machine; Gate 6R needs a qualified"
           echo "reviewer. Neither can be verified in CI — see PLM.md section 5."
+          echo
+          echo "Gate 2B (Blender binary) and Gate 2G (data/benchmark_geom/"
+          echo "kcs.stl) ran NOTHING here, by a declaration in navalai/gates.py"
+          echo "that names what they need and is probed rather than believed."
+          echo "They are verified on the Mac simulation node, where both are"
+          echo "present. A skip is not a pass."

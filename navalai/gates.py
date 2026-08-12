@@ -46,6 +46,7 @@ import json
 import re
 import subprocess
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -60,11 +61,99 @@ class Verdict:
     Deliberately not free text. RED means "ran and missed its bar"; METAL and
     REVIEW mean "honestly unverifiable here", which is a different claim and
     must never be reachable by editing a RED row's wording.
+
+    METAL and REVIEW are currently UNUSED, and that is not an oversight to be
+    tidied away. They describe a gate with NO SUITE that no machine here can
+    verify. Every gate that reads like one — 2M needs an OpenFOAM node, 6R
+    needs a qualified reviewer — is instead a typed RED with a ledger entry,
+    which is the STRONGER claim: it carries a measured watermark, an owner and
+    a review_by date, where METAL carries only a sentence. Reclassifying either
+    of them as METAL would remove the number and the deadline, so it is a
+    softening wearing a taxonomy's clothes. For a gate that DOES have a suite
+    and needs software this node lacks, the mechanism is `Requirement` below —
+    METAL's per-suite analogue, which keeps the suite running wherever the
+    software IS present.
     """
 
     RED = "RED"          # ran, missed its bar, kept red
     METAL = "METAL"      # needs hardware/software this machine lacks
     REVIEW = "REVIEW"    # needs a qualified human
+
+
+@dataclass(frozen=True)
+class Requirement:
+    """An environment fact a suite needs, NAMED, REASONED and PROBEABLE.
+
+    MOTIVATING INCIDENT (CI run 31611386179, commit 0798182). The `--strict`
+    tier — "a suite that ran NOTHING is a failure, not a comfortable green" —
+    could never pass on a GitHub runner, because two gates skip there for
+    reasons no runner can fix:
+
+        Gate 2B  needs the Blender binary; no hosted runner has one.
+        Gate 2G  needs data/benchmark_geom/kcs.stl, which is gitignored and
+                 whose SOURCE is a registration-walled workshop bundle that
+                 scripts/fetch_benchmark_geom.py deliberately refuses to
+                 re-host ("IT DOES NOT DOWNLOAD ANYTHING, AND THAT IS NOT AN
+                 OVERSIGHT").
+
+    An always-red check is the very defect .github/workflows/gates.yml was
+    written to remove: it cannot distinguish "2B still cannot run here" from
+    "Gate 3 just broke". But the answer is NOT a flag that ignores skips,
+    because a skip nobody wrote down is the defect, not the skip.
+
+    So a skip is EXPECTED only where the gate declares, in committed code,
+    WHAT it needs and WHY this environment may lack it — and the declaration
+    is not taken on trust. `probe()` is run, and the three outcomes are
+    different verdicts:
+
+        requirement ABSENT   -> the skip is expected; --strict does not fail
+        requirement PRESENT  -> the suite COULD have run and did not: FAILURE,
+                                with or without --strict. This is the clause
+                                that stops the declaration becoming a blanket
+                                excuse, and it is the surviving rule.
+        probe RAISES         -> FAILURE. An unmeasurable prerequisite is not a
+                                satisfied one (docs/LESSONS.md defect class 1:
+                                `${_MQ_SKEW:-0}` scored a metric it could not
+                                read as perfect).
+
+    `why` is prose and is NEVER load-bearing — the verdict comes from `probe`.
+    """
+
+    what: str                      # the thing, named: "the Blender binary"
+    why: str                       # why an environment may honestly lack it
+    probe: Callable[[], bool]      # is it present HERE? may raise; may not lie
+
+    def present(self) -> bool:
+        return bool(self.probe())
+
+
+def _blender_binary_present() -> bool:
+    """Probes exactly what tests/test_blender_hull.py's skipif probes.
+
+    Imported rather than reimplemented: `have_blender` checks the FILE and
+    never `shutil.which`, and that distinction is itself a measured lesson
+    (an empty PATH once read as "Blender is not installed" while 5.2.0 LTS
+    sat in /Applications).
+    """
+    from navalai.blender.run import have_blender
+    return have_blender()
+
+
+_KCS_GEOM = _ROOT / "data" / "benchmark_geom" / "kcs.stl"
+
+
+def _kcs_geometry_present() -> bool:
+    """The artefact tests/test_benchmark_geom.py skips on.
+
+    This states the path a second time, deliberately and safely: a
+    disagreement between this probe and that suite's `_KCS` cannot hide. If
+    the probe pointed at something that exists while the suite skipped, the
+    row reads "the suite COULD have run and did not" and FAILS. The one
+    direction that goes quiet — probe wrong about an absent file while the
+    suite runs — leaves the gate GREEN on a suite that actually executed,
+    which is not a claim anybody loses by.
+    """
+    return _KCS_GEOM.exists()
 
 
 @dataclass(frozen=True)
@@ -74,6 +163,7 @@ class Gate:
     suite: str | None = None      # pytest file, or None for a status row
     status: str | None = None     # a Verdict, required when suite is None
     detail: str = ""              # human context; NEVER load-bearing
+    requires: Requirement | None = None   # declared, probed prerequisite
 
     def __post_init__(self) -> None:
         if (self.suite is None) == (self.status is None):
@@ -83,6 +173,11 @@ class Gate:
                 f"like a gate")
         if self.status is not None and self.status not in vars(Verdict).values():
             raise ValueError(f"{self.name}: {self.status!r} is not a Verdict")
+        if self.requires is not None and self.suite is None:
+            raise ValueError(
+                f"{self.name}: `requires` explains why a SUITE skipped, so it "
+                f"is meaningless on a status row — a status row runs nothing "
+                f"by construction and would be excused for free")
 
 
 GATES = [
@@ -338,10 +433,27 @@ GATES = [
     #
     # The suite SKIPS where the Blender binary is absent (fortress001 has no
     # /Applications). A skip is not a pass and the document, not the suite,
-    # is the home of the numbers.
+    # is the home of the numbers. That skip is now DECLARED rather than merely
+    # tolerated (see Requirement): where Blender IS present and the suite still
+    # runs nothing, the row fails.
+    #
+    # This row deliberately stays a SUITE and does not become Verdict.METAL.
+    # METAL runs nothing anywhere; this suite runs on the Mac simulation node,
+    # where it is the fence that makes the voxel-remesh refutation
+    # re-measurable rather than inherited. Converting a gate that DOES execute
+    # somewhere into one that executes nowhere would trade a real fence for a
+    # tidier table.
     Gate("Gate 2B", "Blender-native hull generation, measured and REFUSED on "
          "the hull path: a 0.05 m voxel remesh destroys the chine",
-         "tests/test_blender_hull.py"),
+         "tests/test_blender_hull.py",
+         requires=Requirement(
+             what="the Blender binary",
+             why="Blender is the Mac simulation node's tool and is not "
+                 "installable on a hosted CI runner in any form this project "
+                 "uses (the package deliberately does not `import bpy`); "
+                 "fortress001 has no /Applications either. "
+                 "docs/research/BLENDER.md carries the measurements.",
+             probe=_blender_binary_present)),
     # Gate 2U is an EXPECTED RED with no suite, so nothing tested the campaign
     # runner that produces its number — and `classify()` mislabelled the
     # mechanism twice, in opposite directions, on rows the ledger then quoted.
@@ -369,8 +481,25 @@ GATES = [
     # changes the shape is a different boat.
     Gate("Gate 2H", "surface repair on the import boundary, and generated "
          "geometry refused rather than healed", "tests/test_mesh_repair.py"),
+    # The skip is DECLARED, not excused. `scripts/fetch_benchmark_geom.py` is
+    # the committed recipe, and running it in CI was the obvious fix and is not
+    # available: the script's own docstring says "IT DOES NOT DOWNLOAD
+    # ANYTHING, AND THAT IS NOT AN OVERSIGHT" — the Tokyo-2015 bundle sits
+    # behind a registration the script cannot honestly complete on a user's
+    # behalf, and re-hosting the geometry is what its terms may forbid. So no
+    # hosted runner can obtain kcs.stl, and the honest statement is that fact,
+    # probed. Where the STL IS present and this suite still runs nothing, the
+    # row fails — which is the case CLAUDE.md's "loudly, by design" was about.
     Gate("Gate 2G", "KCS benchmark geometry: present and accepted "
-         "(scripts/fetch_benchmark_geom.py)", "tests/test_benchmark_geom.py"),
+         "(scripts/fetch_benchmark_geom.py)", "tests/test_benchmark_geom.py",
+         requires=Requirement(
+             what="data/benchmark_geom/kcs.stl",
+             why="gitignored by workshop terms, and its SOURCE IGES is behind "
+                 "a registration wall that scripts/fetch_benchmark_geom.py "
+                 "refuses to work around, so no hosted runner can produce it. "
+                 "Restore it locally with "
+                 "`python scripts/fetch_benchmark_geom.py --iges <KCS.igs>`.",
+             probe=_kcs_geometry_present)),
     # Gap D8. is_complete() now requires a DATED edition per standard, which
     # flips the parity claim red. What remains testable — that basis routes
     # from the record, that no unreviewed basis leaks 'standard', that our own
@@ -509,6 +638,33 @@ def status_of(returncode: int, c: dict) -> tuple[str, bool]:
     if c["skipped"]:
         return f"GREEN ({c['skipped']} skipped)", False
     return "GREEN", False
+
+
+def judge_skip(gate: Gate, label: str) -> tuple[str, bool, bool]:
+    """A suite ran nothing. (label, is_failure, the_skip_was_declared)
+
+    THE RULE THAT SURVIVES: a suite that COULD have run and did not is still a
+    failure. `Requirement` narrows the excuse to a named, probed environment
+    fact; it never grants one. See Requirement's docstring for the incident.
+    """
+    if gate.requires is None:
+        # Undeclared. Unchanged behaviour: --strict fails on it, and a gate
+        # that starts skipping for a NEW reason lands here rather than being
+        # absorbed by somebody else's declaration.
+        return label, False, False
+    req = gate.requires
+    try:
+        here = req.present()
+    except Exception as exc:
+        return (f"SKIPPED — the requirement '{req.what}' could NOT BE PROBED "
+                f"({type(exc).__name__}: {exc}). An unmeasurable prerequisite "
+                f"is not a satisfied one.", True, False)
+    if here:
+        return (f"SKIPPED, BUT '{req.what}' IS PRESENT HERE — the suite could "
+                f"have run and did not. Failure, with or without --strict.",
+                True, False)
+    return (f"SKIPPED (declared: needs '{req.what}', absent here — {req.why})",
+            False, True)
 
 
 def load_ledger(path: str | Path | None) -> dict:
@@ -656,7 +812,7 @@ def main(argv: list[str] | None = None) -> int:
     ledger = load_ledger(ledger_path)
     today = date.today()
 
-    failures = skipped_gates = red_gates = 0
+    failures = skipped_gates = red_gates = declared_skips = 0
     green_names: list[str] = []
     print(f"{'gate':13} {'scope':45} status")
     print("-" * 84)
@@ -674,11 +830,17 @@ def main(argv: list[str] | None = None) -> int:
                             "--no-header"], capture_output=True, text=True)
         c = counts(r.stdout)
         label, is_fail = status_of(r.returncode, c)
-        failures += 1 if is_fail else 0
-        if label.startswith("SKIPPED"):
-            skipped_gates += 1
+        ran_nothing = label.startswith("SKIPPED")
+        if ran_nothing:
+            label, is_fail, declared = judge_skip(g, label)
+            # Only an UNDECLARED skip arms --strict. A declared one is counted
+            # and printed separately so it stays visible rather than vanishing
+            # into a green check.
+            declared_skips += 1 if declared else 0
+            skipped_gates += 0 if declared else 1
         elif not is_fail:
             green_names.append(g.name)
+        failures += 1 if is_fail else 0
         tail = r.stdout.strip().splitlines()[-1] if r.stdout.strip() else ""
         print(f"{g.name:13} {g.scope:45} {label}  ({tail})")
 
@@ -694,11 +856,17 @@ def main(argv: list[str] | None = None) -> int:
         print(f"\n{red_gates} gate(s) are red in a way the ledger does not "
               f"account for. A failing gate is information; never soften it.")
     if skipped_gates:
-        print(f"\n{skipped_gates} gate(s) ran no tests — a missing optional "
-              f"dependency, or an artefact this machine does not have (Gate 2G "
-              f"needs data/benchmark_geom/kcs.stl; see "
-              f"scripts/fetch_benchmark_geom.py). "
+        print(f"\n{skipped_gates} gate(s) ran no tests and did NOT declare why "
+              f"— a missing optional dependency, or an artefact this machine "
+              f"does not have. Give the row a Requirement naming what it needs "
+              f"and how this environment can lack it, or install the thing. "
               f"{'FAILING (--strict).' if strict else 'Nothing was verified by them.'}")
+    if declared_skips:
+        print(f"\n{declared_skips} gate(s) ran no tests for a DECLARED, PROBED "
+              f"reason (printed above). Nothing was verified by them HERE, and "
+              f"that is not softened: the declaration lives in "
+              f"navalai/gates.py where it is reviewable in a diff, and the "
+              f"probe makes it fail the moment the thing it names is present.")
     return 1 if (failures or red_gates or (strict and skipped_gates)) else 0
 
 

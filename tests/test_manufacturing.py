@@ -365,17 +365,128 @@ def test_refold_does_not_converge_with_station_count():
     """A refold error that shrank under refinement would be a discretisation
     artefact of the development, not a statement about the panel.
 
-    It does not, on EITHER ruling family. Constant-x: 141.0 -> 143.8 mm over a
-    4x refinement, i.e. slightly WORSE. Developable: 29.2 -> 64.2 mm, also
-    worse, because refinement pushes the sheer/chine chord error down while
-    leaving the pairing a harder problem in 159 unknowns instead of 39. Either
-    way the miss is geometry."""
-    for rulings, lo, hi in (("constant-x", 1.0, 1.2), ("developable", 1.0, 3.0)):
-        coarse = hull_panels(Hull(mid_params(), n_stations=41), rulings)[0]
-        fine = hull_panels(Hull(mid_params(), n_stations=161), rulings)[0]
+    It does not, on EITHER ruling family. What changed on 2026-08-12 is the
+    STATION COUNTS this is asked at, because one of them was asking about a
+    number that does not exist — see
+    `test_the_constant_x_refold_at_161_stations_is_decided_by_roundoff` below,
+    which is the finding, not the fix.
+
+      constant-x   21 -> 41 stations (2x):  139.7 -> 141.0 mm, i.e. WORSE
+      developable  41 -> 161 stations (4x):  29.2 ->  64.2 mm, also worse,
+        because refinement pushes the sheer/chine chord error down while
+        leaving the pairing a harder problem in 159 unknowns instead of 39.
+
+    Either way the miss is geometry. NEITHER BAND MOVED: [1.0, 1.2] and
+    [1.0, 3.0] are the bars recorded on 2026-08-11 and both still hold on the
+    counts where the quantity is a function of its input. The constant-x pair
+    is a 2x refinement rather than 4x because n>=81 on that family is not
+    computable in float64, not because 4x was too demanding — the 21 -> 41
+    ratio is 1.009, comfortably inside the same band the 4x pair used to
+    satisfy at 1.020.
+    """
+    for rulings, n_coarse, n_fine, lo, hi in (
+            ("constant-x", 21, 41, 1.0, 1.2),
+            ("developable", 41, 161, 1.0, 3.0)):
+        coarse = hull_panels(Hull(mid_params(), n_stations=n_coarse), rulings)[0]
+        fine = hull_panels(Hull(mid_params(), n_stations=n_fine), rulings)[0]
         ratio = (refold_deviation_mm(fine).max()
                  / refold_deviation_mm(coarse).max())
         assert lo <= ratio <= hi, f"{rulings}: fine/coarse = {ratio:.2f}"
+
+
+def _refold_under_1ulp(n_stations, rulings, seed):
+    """`refold_deviation_mm` of the bottom panel with the 3-D datum edges
+    nudged by one unit in the last place — the size of a difference between
+    two correctly-rounded `libm` implementations."""
+    panel = hull_panels(Hull(mid_params(), n_stations=n_stations), rulings)[0]
+    rng = np.random.default_rng(seed)
+    for edge in (panel.src_a, panel.src_b):
+        edge *= 1.0 + 1e-16 * rng.standard_normal(edge.shape)
+    return refold_deviation_mm(panel).max()
+
+
+def test_the_constant_x_refold_at_161_stations_is_decided_by_roundoff():
+    """THE DEFECT macOS WAS HIDING, and it is worth more than the CI fix that
+    found it.
+
+    MOTIVATING INCIDENT, CI run 31611386179 on ubuntu-latest. The test above
+    passed here (Apple Accelerate) and failed there:
+
+        AssertionError: constant-x: fine/coarse = 0.17
+        assert 1.0 <= 0.17403726874190614
+
+    0.174 is not a rounding difference, it is a DIFFERENT ANSWER: 24.534 mm
+    where this machine reads 143.799 mm at the same 161 stations, on the same
+    committed code, from the same inputs.
+
+    THE MECHANISM is a square-root branch point in a marching reconstruction,
+    not a BLAS or LAPACK convention — there is no SVD, eigendecomposition,
+    least squares or rotation fit anywhere in the constant-x refold path, and
+    pinning the thread counts changes nothing. `unroll._trilaterate` computes
+    the out-of-plane offset as `sqrt(max(r1^2 - x^2 - y^2, 0))`, and that
+    radicand is ZERO exactly when the quad is planar. The aft bottom panel is
+    planar to machine precision — `unroll` already records that it "refolds to
+    0.008 mm" and that "the sign flips 63 times" — so the sphere intersection
+    is tangential over most of the panel, `d(sqrt(a))/da = 1/(2 sqrt(a))`
+    amplifies by a measured geometric mean of ~650 per step, and `refold`
+    feeds each reconstructed point into the next. Over 160 steps the result is
+    BISTABLE: two widely separated attractors and nothing in between.
+
+    MEASURED HERE, 16 one-ULP perturbations of the 3-D datum edges, max
+    `refold_deviation_mm` of `bottom-stbd` in mm:
+
+        n_stations    band under 1 ULP        spread
+             21       139.706 .. 139.765       1.000x   computable
+             41       140.452 .. 141.010       1.004x   computable
+             81        67.641 .. 142.699       2.110x   NOT computable
+            161        24.534 .. 143.799       5.861x   NOT computable
+            321        11.571 .. 144.492      12.487x   NOT computable
+
+    The CI value, 24.534 / 140.997 = 0.17400, is the low attractor at 161 over
+    the stable 41 — i.e. the Linux answer is reproduced here exactly, by a
+    one-ULP nudge. Higher precision does not help: the same computation in
+    `decimal` at 20 through 2000 digits returns one of the same two values and
+    flips between them non-monotonically. This is ill-posed, not
+    precision-limited.
+
+    So this test asserts the honest statement — that the 161-station number is
+    NOT A MEASUREMENT — by feeding the computation the verbatim perturbation
+    it cannot survive (docs/LESSONS.md defect class 3), and it pins 41 as
+    computable so the refusal cannot creep down onto counts that are fine.
+
+    IF THIS TEST EVER FAILS BECAUSE THE SPREAD COLLAPSED, that is good news
+    and it must be re-measured, not deleted: it would mean the branch point
+    was removed (a noise-floor snap in `_trilaterate` was measured NOT to do
+    this) and the n>=81 figures could be quoted again.
+
+    STILL OWED, and NOT fixed here because these files belong to other owners:
+    `navalai/unroll.py:864` still tabulates 143.8 mm at 161 stations,
+    `tests/test_gaps.py:523` repeats it, and `data/gate-ledger.json`'s Gate 6D
+    `measured_on` prose cites 143.1 / 203.4 mm at 161 stations. All three are
+    roundoff-decided and should be withdrawn. GATE 6D'S WATERMARK ITSELF DOES
+    NOT MOVE: 66.2 mm is the DEVELOPABLE family at 41 stations, which is
+    stable (spread 1.000x), and it is unaffected.
+    """
+    seeds = range(16)
+    at41 = [_refold_under_1ulp(41, "constant-x", s) for s in seeds]
+    at161 = [_refold_under_1ulp(161, "constant-x", s) for s in seeds]
+
+    assert max(at41) / min(at41) < 1.02, (
+        f"41 stations must still be computable: {min(at41):.3f} .. "
+        f"{max(at41):.3f} mm — if this widened, the test above is asking "
+        f"about a number that has stopped existing there too")
+    assert 140.0 < np.median(at41) < 142.0, (
+        "and it must still be the recorded 141.0 mm, so a collapse of the "
+        "spread cannot be mistaken for stability at a different value")
+
+    assert max(at161) / min(at161) > 2.0, (
+        f"161 stations read {min(at161):.3f} .. {max(at161):.3f} mm under a "
+        f"one-ULP nudge (spread {max(at161)/min(at161):.2f}x). If this is "
+        f"now under 2x, RE-MEASURE the whole table above and re-open the "
+        f"n>=81 figures — do not delete this test")
+    assert min(at161) < 100.0, (
+        "the low attractor is what CI landed on (24.5 mm); a band that is "
+        "wide but never reaches it is a different phenomenon")
 
 
 def test_refold_refuses_a_panel_it_cannot_locate():

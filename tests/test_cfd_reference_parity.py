@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import math
+import shutil
 from pathlib import Path
 
 import numpy as np
@@ -1219,7 +1220,29 @@ def test_an_fpe_divergence_is_not_reported_as_a_completed_solve(tmp_path):
 
     Under LTS there is also no `deltaT =` line to watch collapse; the local
     time scale is the equivalent quantity and it had fallen to 8.567e-105.
+
+    SKIPS WITHOUT THE `openfoam` LAUNCHER, and it is the only test in this file
+    that needs it. MEASURED, CI run 31611386179 on ubuntu-latest:
+    `FileNotFoundError: [Errno 2] No such file or directory: 'openfoam'`. The
+    assertion is pure log-parsing, but `solve_one` reads `endTime` by shelling
+    out to `openfoam foamDictionary` rather than parsing controlDict itself, so
+    the parse cannot be exercised without the launcher on PATH.
+
+    `shutil.which` is the right probe HERE, unlike `have_blender` — which
+    checks the FILE precisely because a PATH lookup once read as "Blender is
+    not installed". The difference is what the code under test does:
+    `solve_one` invokes the bare name `openfoam`, so PATH resolution IS the
+    thing being depended on, and probing anything else would be testing a
+    different question. A skip is not a pass: Gate 2R's suite still runs
+    everything else, and the claim is enforced on every machine that can run
+    Gate 2M at all.
     """
+    if shutil.which("openfoam") is None:
+        pytest.skip(
+            "no `openfoam` launcher on PATH — mesh_robustness.solve_one reads "
+            "endTime via `openfoam foamDictionary`, so this parse cannot run "
+            "here. This is the Mac simulation node's tool (CLAUDE.md, "
+            "'Working on the Mac'); no compute is performed by this test.")
     mr = _mesh_robustness()
     case = tmp_path / "h002"
     (case / "system").mkdir(parents=True)
