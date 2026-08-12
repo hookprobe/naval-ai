@@ -116,6 +116,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
+import re as _re
+
 import numpy as np
 
 from .geometry import Hull
@@ -508,15 +510,246 @@ def developable_pairing(hull: Hull, edge_a: int, edge_b: int) -> np.ndarray:
     return v
 
 
+def developable_seams(hull: Hull, edge_a: int, edge_b: int,
+                      n_a: int = 200, n_b: int = 1500,
+                      jump_tol: float = 0.06) -> list[float]:
+    """Longitudinal stations [m] where the developable ruling family BREAKS.
+
+    THE MATH, because the previous approach was solving the wrong problem.
+    For X(u,t) = A(u) + t*(B(s(u)) - A(u)) the surface normal is
+    (A' + t*rdot) x r, and the surface is developable iff that direction does
+    not depend on t, i.e. det[A', rdot, r] = 0. With rdot = B'*s' - A' and
+    det[A', A', r] = 0 identically, this collapses to
+
+        s'(u) * det[A'(u), B'(s), B(s) - A(u)] = 0
+
+    so away from s' = 0 the condition is ALGEBRAIC IN s, not a differential
+    equation: at each u, a developable ruling exists iff that determinant has a
+    root in s. That is an EXISTENCE test, and it is not what `ruling_twist`
+    measures -- twist is the residual of one particular pairing.
+
+    MEASURED 2026-08-12 on the seed-0 batch, which is why this function exists
+    rather than a grammar constraint:
+
+      * Existence holds almost everywhere. 18 of 25 hulls have a root at EVERY
+        chine station; the batch mean obstruction is 2.1%. **The topside is not
+        intrinsically undevelopable**, so constraining the hull form -- the
+        obvious reading of Gate 6D -- would have been fixing the wrong thing.
+      * What fails is MONOTONICITY. Following the root branch by nearest-root
+        continuation, a single non-crossing ruling family covers only 49-85% of
+        the panel (hull 14 / hull 8 / hull 4). Crossing rulings are not a
+        buildable strake regardless of how developable each ruling is.
+
+    So the obstruction is not "this surface cannot be flattened", it is "it
+    cannot be flattened as ONE piece". Each break is a STRAKE SEAM, which is
+    what a boatbuilder does anyway. Measured seam counts on the batch: median
+    2, 23/25 need <= 2, all 25 need <= 3.
+
+    A seam is declared only where the branch genuinely fails -- no root at all,
+    a jump over `jump_tol` of LWL, or a reversal of direction (which is where
+    rulings would cross). Breaks closer than 3% LWL are ONE seam: a greedy
+    "smallest root above the current one" tracker reported six seams at
+    x/L 0.31..0.35 on hull 4, which was the tracker restarting and re-breaking,
+    not six places to cut. Nearest-root continuation reports the one real seam.
+    """
+    x = np.asarray(hull.x, dtype=float)
+    L = float(x[-1])
+    h = 1e-5 * L
+    xa = np.linspace(0.03 * L, 0.97 * L, n_a)
+    # inset: edge_curves evaluates (x/xm)**p_stern, which is NaN for x < 0, and
+    # np.sign(nan) fabricates sign changes -- i.e. roots that are not there.
+    xb = np.linspace(0.02 * L, 0.98 * L, n_b)
+    A = hull.edge_curves(xa)[edge_a]
+    dA = (hull.edge_curves(xa + h)[edge_a]
+          - hull.edge_curves(xa - h)[edge_a]) / (2.0 * h)
+    B = hull.edge_curves(xb)[edge_b]
+    dB = (hull.edge_curves(xb + h)[edge_b]
+          - hull.edge_curves(xb - h)[edge_b]) / (2.0 * h)
+    r = B[None, :, :] - A[:, None, :]
+    d = np.einsum("ak,abk->ab", dA, np.cross(dB[None, :, :], r))
+    d /= (np.linalg.norm(dA, axis=1)[:, None]
+          * np.linalg.norm(dB, axis=1)[None, :]
+          * np.linalg.norm(r, axis=2) + 1e-300)
+    if not np.all(np.isfinite(d)):
+        raise ValueError("non-finite planarity determinant — the edge curves "
+                         "were sampled outside their valid range")
+
+    roots: list[np.ndarray] = []
+    for i in range(n_a):
+        k = np.flatnonzero(np.diff(np.sign(d[i])) != 0)
+        roots.append(np.array(
+            [xb[j] + (xb[j + 1] - xb[j]) * abs(d[i, j])
+             / (abs(d[i, j]) + abs(d[i, j + 1]) + 1e-300) for j in k]))
+
+    tol = jump_tol * L
+    breaks: list[float] = []
+    prev: float | None = None
+    prev_step = 0.0
+    for i in range(n_a):
+        if len(roots[i]) == 0:
+            if prev is not None:
+                breaks.append(float(xa[i]))
+            prev = None
+            continue
+        if prev is None:
+            prev = float(roots[i][np.argmin(np.abs(roots[i] - xa[i]))])
+            prev_step = 0.0
+            continue
+        cand = float(roots[i][np.argmin(np.abs(roots[i] - prev))])
+        step = cand - prev
+        reversed_ = (prev_step != 0.0 and np.sign(step) != np.sign(prev_step)
+                     and abs(step) > 0.005 * L)
+        if abs(step) > tol or reversed_:
+            breaks.append(float(xa[i]))
+            prev = float(roots[i][np.argmin(np.abs(roots[i] - xa[i]))])
+            prev_step = 0.0
+        else:
+            prev, prev_step = cand, step
+
+    merged: list[float] = []
+    for b in breaks:
+        if not merged or b - merged[-1] > 0.03 * L:
+            merged.append(b)
+    return merged
+
+
+def strake_pairings(hull: Hull, edge_a: int, edge_b: int,
+                    n_b: int = 1500) -> list[tuple[np.ndarray, np.ndarray]]:
+    """(par_a, par_b) per STRAKE — the panel cut at its ruling-branch seams.
+
+    The root continuation in `developable_seams` already IS the pairing: at
+    each station u the developable ruling lands at the root s of
+    det[A'(u), B'(s), B(s) - A(u)], so following that root gives v(u) directly
+    and no Levenberg-Marquardt solve is needed. `developable_pairing` fits one
+    pairing over the WHOLE panel and is refused by `hull_panels` unless it
+    comes out monotone; measured on the seed-0 batch a single monotone family
+    covers only 49-85% of the topside, so on most hulls that refusal is the
+    only correct answer and the panel falls back to constant-x.
+
+    Cutting at the seams removes the obstruction instead of failing on it.
+    Each strake carries its own monotone pairing, and a strake seam is a real
+    thing a builder makes: measured seam counts are median 2, 23/25 hulls need
+    <= 2, all 25 need <= 3.
+
+    Segments shorter than 8% LWL are absorbed into their neighbour — a 200 mm
+    strake on a 12 m hull is a cut line, not a plank, and splitting there would
+    trade a refold error for a fabrication one.
+
+    MEASURED 2026-08-12 — THIS DOES NOT WORK YET, AND IT IS RECORDED RATHER
+    THAN SHIPPED. Two-sided Hausdorff between the hull's panel surface and the
+    UNION of its strakes (charging one strake for what another covers is not a
+    measure of the panelisation), against the 5 mm bar:
+
+        hull  panel      constant-x   developable   strakes
+           4  bottom          36.2          9.1       112.6
+           4  topside        933.6        706.0       709.1
+           8  bottom         101.5         54.3       792.1
+           8  topside        176.1         71.0       868.6
+          14  bottom         727.4        335.1       573.4
+          14  topside        407.2        147.4       409.1
+
+    Worse than the fitted pairing in five of six, and it clears the bar in
+    none. The diagnosis is in `_branch_pairing`'s monotone clamp: it binds at
+    14/28, 19/40 and 11/36 stations INSIDE a segment, so at up to half the
+    stations the pairing is not a root of the planarity condition at all — it
+    is being forced upward to stay monotone, which destroys planarity exactly
+    where the panel needed it.
+
+    So the seams are in the wrong places. The existence result and the seam
+    COUNT stand (they are measured on a 200-point auxiliary grid and reproduce
+    exactly), but a seam must be placed where the pairing breaks at the 41
+    stations the panel is actually developed at, not where the branch breaks on
+    the auxiliary grid. Deriving the cut from the same resolution the panel
+    uses is the next attempt; until then `hull_panels` keeps "developable" as
+    its default and this mode exists to be measured, not adopted.
+    """
+    x = np.asarray(hull.x, dtype=float)
+    L = float(x[-1])
+    seams = developable_seams(hull, edge_a, edge_b, n_b=n_b)
+    cuts = [0.0] + [s for s in seams] + [L]
+    # drop segments too short to be a plank
+    keep = [cuts[0]]
+    for c in cuts[1:-1]:
+        if c - keep[-1] >= 0.08 * L and (L - c) >= 0.08 * L:
+            keep.append(c)
+    keep.append(L)
+
+    out: list[tuple[np.ndarray, np.ndarray]] = []
+    for lo, hi in zip(keep[:-1], keep[1:]):
+        xs = x[(x >= lo - 1e-9) & (x <= hi + 1e-9)]
+        if len(xs) < 3:
+            continue
+        v = _branch_pairing(hull, edge_a, edge_b, xs, n_b)
+        out.append((xs, v))
+    return out
+
+
+def _branch_pairing(hull: Hull, edge_a: int, edge_b: int,
+                    xs: np.ndarray, n_b: int) -> np.ndarray:
+    """Follow the planarity root across `xs`, clamped monotone and to the ends.
+
+    Falls back to the station's own x wherever the branch has no root, so the
+    result is always a usable sampling parameter — a strake with a hole in its
+    pairing is not a panel."""
+    L = float(hull.x[-1])
+    h = 1e-5 * L
+    xb = np.linspace(0.02 * L, 0.98 * L, n_b)
+    # one-sided at the ends: edge_curves evaluates (x/xm)**p_stern, which is
+    # NaN for x < 0, and a NaN derivative fabricates roots downstream.
+    xp = np.minimum(xs + h, L - 1e-9)
+    xm_ = np.maximum(xs - h, 1e-9)
+    A = hull.edge_curves(xs)[edge_a]
+    dA = ((hull.edge_curves(xp)[edge_a] - hull.edge_curves(xm_)[edge_a])
+          / (xp - xm_)[:, None])
+    B = hull.edge_curves(xb)[edge_b]
+    dB = (hull.edge_curves(xb + h)[edge_b]
+          - hull.edge_curves(xb - h)[edge_b]) / (2.0 * h)
+    r = B[None, :, :] - A[:, None, :]
+    d = np.einsum("ak,abk->ab", dA, np.cross(dB[None, :, :], r))
+    d /= (np.linalg.norm(dA, axis=1)[:, None]
+          * np.linalg.norm(dB, axis=1)[None, :]
+          * np.linalg.norm(r, axis=2) + 1e-300)
+    v = np.empty(len(xs))
+    prev = float(xs[0])
+    for i in range(len(xs)):
+        k = np.flatnonzero(np.diff(np.sign(d[i])) != 0)
+        if len(k) == 0:
+            v[i] = prev = max(prev, float(xs[i]))
+            continue
+        cand = np.array([xb[j] + (xb[j + 1] - xb[j]) * abs(d[i, j])
+                         / (abs(d[i, j]) + abs(d[i, j + 1]) + 1e-300)
+                         for j in k])
+        pick = cand[np.argmin(np.abs(cand - (prev if i else xs[0])))]
+        v[i] = prev = max(float(pick), prev + 1e-9)
+    # the strake must span its own segment, not a convenient part of it
+    v[0], v[-1] = float(xs[0]), float(xs[-1])
+    return np.maximum.accumulate(v)
+
+
 def hull_panels(hull: Hull, rulings: str = "developable") -> list[FlatPanel]:
     """The two shell panels, developed.
 
     `rulings="constant-x"` is the pre-2026-08-11 behaviour, kept executable so
     the improvement has a control to be measured against rather than a
     remembered number (defect class 3: a guard that was never made to fire).
+
+    `rulings="strakes"` cuts each panel at its ruling-branch seams and develops
+    each strake on its own monotone pairing — see `developable_seams` for why a
+    single family cannot span the panel.
     """
-    if rulings not in ("developable", "constant-x"):
+    if rulings not in ("developable", "constant-x", "strakes"):
         raise ValueError(f"unknown ruling family {rulings!r}")
+    if rulings == "strakes":
+        out: list[FlatPanel] = []
+        for name, ia, ib in (("bottom-stbd", 0, 1), ("topside-stbd", 1, 2)):
+            segs = strake_pairings(hull, ia, ib)
+            for k, (xs, v) in enumerate(segs, 1):
+                nm = name if len(segs) == 1 else f"{name}-s{k}"
+                out.append(replace(
+                    develop(hull.edge_curves(xs)[ia],
+                            hull.edge_curves(v)[ib], nm),
+                    rulings="strakes", par_a=xs.copy(), par_b=v.copy()))
+        return out
     x = np.asarray(hull.x, dtype=float)
     out: list[FlatPanel] = []
     for name, ia, ib in (("bottom-stbd", 0, 1), ("topside-stbd", 1, 2)):
@@ -724,7 +957,8 @@ def refold_surface_deviation_mm(hull: Hull, panel: FlatPanel,
     """
     if panel.src_a is None or panel.src_b is None:
         raise ValueError("needs the 3-D edges: build the panel with develop()")
-    ia, ib = _PANEL_EDGES[panel.name]
+    # strakes are named '<panel>-sN'; they share the panel's edge pair
+    ia, ib = _PANEL_EDGES[_re.sub(r'-s\d+$', '', panel.name)]
     A = np.asarray(panel.src_a, dtype=float)
     B = refold(panel)
     t = np.linspace(0.0, 1.0, n_along + 1)[:, None]
