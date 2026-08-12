@@ -105,6 +105,55 @@ def test_swamping_is_refused():
         solve_to_displacement(h, 1e6)
 
 
+def test_an_unbracketable_or_unconverged_flotation_is_refused_not_midpointed():
+    """Gap E14: `solve_to_displacement` returned the bisection MIDPOINT after
+    80 iterations, in the same 2-tuple as a converged answer.
+
+    MEASURED on this hull, and it reproduces the register's figure exactly:
+    asking for 1.0 kg returned a state displacing 4.134 kg, an error of
+    +313.4%, with nothing in the return value to say so. The cause was never
+    the iteration count — `z_lo = z_keel.min() * 0.98` is "nearly dry" and the
+    hull still displaces 4.134 kg there, so a target below that is outside the
+    bracket and bisection cannot reach it however long it runs. Defect class 1:
+    a failure to converge scored as an answer.
+
+    BOTH new refusals are fed the verbatim input they exist to reject, and both
+    are checked against the good case, because a guard proved only on the good
+    case proves nothing about rejection.
+    """
+    h = Hull(mid_params())
+
+    # 1. THE LOW BRACKET. 1.0 kg is the register's own input.
+    with pytest.raises(ValueError, match="floats too high"):
+        solve_to_displacement(h, 1.0)
+    # ...and the message must carry the number that made it impossible, or the
+    # refusal is not diagnosable.
+    try:
+        solve_to_displacement(h, 1.0)
+    except ValueError as exc:
+        assert "4.134" in str(exc)
+    # It is NOT the swamping refusal wearing a new string.
+    with pytest.raises(ValueError, match="swamp"):
+        solve_to_displacement(h, 1e6)
+
+    # The boundary is where it is measured to be: 4.0 kg is unreachable and
+    # 5.0 kg floats, so the guard is not simply rejecting small numbers.
+    with pytest.raises(ValueError, match="floats too high"):
+        solve_to_displacement(h, 4.0)
+    s5, _wl5 = solve_to_displacement(h, 5.0)
+    assert s5.disp_kg == pytest.approx(5.0, rel=1e-3)
+
+    # 2. NON-CONVERGENCE. `tol=0.0` can never be satisfied, so the loop runs
+    #    out — the branch that used to return the midpoint.
+    with pytest.raises(ValueError, match="did not converge"):
+        solve_to_displacement(h, 6000.0, tol=0.0)
+
+    # 3. THE ORDINARY PATH IS UNTOUCHED, at the four targets measured above.
+    for target in (10.0, 100.0, 2000.0, 6000.0):
+        st, _wl = solve_to_displacement(h, target)
+        assert st.disp_kg == pytest.approx(target, rel=1e-3)
+
+
 # ---------------- full ladder ----------------
 
 def test_l1_evaluation_complete_and_fast():
@@ -121,9 +170,19 @@ def test_l1_evaluation_complete_and_fast():
     # real uncertainty the mass model computes (agg.sigma_kg) was discarded —
     # a band that is always 0.30 x value is a decoration, and calling it
     # 'one-sigma' in the provenance DB was the dishonest part.
+    # The vocabulary GREW on 2026-08-12 and it grew in the honest direction:
+    # `energy.wh_per_nm_sigma` names its own basis, and evaluate() now serves
+    # that string instead of re-typing "assumed" beside a sigma it did not
+    # compute. "placeholder" is deliberately NOT in the accepted set here —
+    # it is a legal EnergyReport state, but a badge wearing it means no input
+    # sigma reached the propagation and that is a defect at THIS call site.
+    from navalai.energy import (SIGMA_PLACEHOLDER, SIGMA_PROPAGATED,
+                                SIGMA_PROPAGATED_LOWER_BOUND)
     for _q, (tier, sigma, basis) in ev.badges.items():
         assert tier == "L1" and sigma > 0
-        assert basis in ("measured", "assumed")
+        assert basis in ("measured", "assumed", SIGMA_PROPAGATED,
+                         SIGMA_PROPAGATED_LOWER_BOUND)
+        assert basis != SIGMA_PLACEHOLDER
     assert ev.badges["displacement"][2] == "measured", (
         "displacement sigma must come from the weight model, not a fraction")
     # Gate 1 timing: warm evaluation under 50 ms

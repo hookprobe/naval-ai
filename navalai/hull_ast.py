@@ -71,22 +71,39 @@ class SectionLaw:
         return ["sections: bow deadrise below midship"] if self.beta_bow < self.beta_mid else []
 
 
+# TWO NODES HAVE NO NODE-LOCAL RULE, AND THEY NOW SAY SO BY NOT HAVING THE
+# METHOD (gap E18).
+#
+# `Profile.validate` and `Topside.validate` both read `return []`
+# unconditionally: a guard that cannot fire, which is defect class 3, and worse
+# than an absent guard because `type_check`'s loop calls it and gets a clean
+# answer back. MEASURED 2026-08-12 over 4000 `grammar.sample` vectors (all 4000
+# `grammar.check`-valid): the node layer produced ZERO violations — not just
+# these two, ALL FIVE — so nothing in it moved a single verdict. `Planform`'s
+# `x_mb < 0.3` cannot fire at all while `PARAMS` bounds x_mb at [0.40, 0.68],
+# and `SectionLaw`'s rule is `grammar.check`'s `deadrise.order` a second time.
+#
+# The rules these two nodes WOULD carry already have homes, and putting them
+# here would be a number declared twice: `rocker`, `forefoot` and `sheer_rise`
+# are banded per typology by `TYPOLOGY_RULES` below, `rocker` is relationally
+# checked by `grammar.check`'s `transom.chine`, and every one of the four is
+# bounded by `grammar.PARAMS`. Inventing a node-local threshold to fill the
+# slot is how gap E4's four tautological constraints got written.
+#
+# So `type_check` asks for `validate` and skips a node that does not define it.
+# The removal is deliberate and fenced: `tests/test_constraints_honest.py`
+# refuses any validator whose body is an unconditional empty return, and the
+# fence is aimed at the verbatim text that stood here.
 @dataclass(frozen=True)
 class Profile:
     rocker: float
     forefoot: float
-
-    def validate(self) -> list[str]:
-        return []
 
 
 @dataclass(frozen=True)
 class Topside:
     flare: float
     sheer_rise: float
-
-    def validate(self) -> list[str]:
-        return []
 
 
 # typology -> parameter-subspace allocation + structural limits
@@ -144,7 +161,14 @@ def type_check(design: HullDesign) -> grammar.GateReport:
     v: list[str] = []
     for node in (design.principal, design.planform, design.sections,
                  design.profile, design.topside):
-        v.extend(node.validate())
+        # A node with no node-local rule does not define `validate` (gap E18);
+        # it does NOT define one that returns [] unconditionally. The two look
+        # the same from here and are opposite claims: the first says "this
+        # node's rules live elsewhere", the second says "this node has rules
+        # and they all pass".
+        rule = getattr(node, "validate", None)
+        if rule is not None:
+            v.extend(rule())
 
     rules = TYPOLOGY_RULES[design.typology]
     p = grammar.named(design.to_vector())

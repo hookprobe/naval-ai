@@ -60,15 +60,15 @@ different Gate 2M numbers came to circulate at once (gap J1).
 |---|---|---|
 | Gate 0G | the ladder cannot be talked into passing | `tests/test_gate_integrity.py` (30 tests) |
 | Gate 0R | a missed clause is RED BY RECORD, never prose in a scope | `tests/test_red_by_record.py` (14 tests) |
-| Gate 0 | grammar/geometry/DB | `tests/test_phase0.py` (14 tests) |
-| Gate 1 | L1 physics + Wigley anchor + <50ms | `tests/test_phase1.py` (25 tests) |
+| Gate 0 | grammar/geometry/DB | `tests/test_phase0.py` (15 tests) |
+| Gate 1 | L1 physics + Wigley anchor + <50ms | `tests/test_phase1.py` (26 tests) |
 | Gate 1H | Holtrop-Mennen vs the 1982 worked example | `tests/test_holtrop.py` (56 tests) |
-| Gate 1C | the constraint vector: complete, ordered, finite, and no undefined state reported as ideal | `tests/test_constraints_honest.py` (16 tests) |
+| Gate 1C | the constraint vector: complete, ordered, finite, and no undefined state reported as ideal | `tests/test_constraints_honest.py` (17 tests) |
 | Gate 1P | the L1 physics core says what it actually computed | `tests/test_gapfix_physics.py` (13 tests) |
 | Gate 1b | NSGA-II Pareto front | `tests/test_optimize.py` (8 tests) |
 | Gate 2 | Capytaine BEM (Hulme anchor) | `tests/test_phase2.py` (18 tests) |
 | Gate 2R | CFD reference parity + GCI honesty | `tests/test_cfd_reference_parity.py` (97 tests) |
-| Gate 3 | surrogate spine: GP + co-kriging rho, OOD refusal, batched-EI infill | `tests/test_phase3.py` (17 tests) |
+| Gate 3 | surrogate spine: GP + co-kriging rho, OOD refusal, batched-EI infill | `tests/test_phase3.py` (18 tests) |
 | Gate 4 | generative + slider p95<100ms (raw feasibility: Gate 4F) | `tests/test_phase4.py` (27 tests) |
 | Gate 5 | mission translation + LLM seam | `tests/test_phase5.py` (11 tests) |
 | Gate 6 | rules-as-code mechanics | `tests/test_phase6.py` (6 tests) |

@@ -26,6 +26,38 @@ from scipy.linalg import cho_factor, cho_solve
 from scipy.optimize import minimize, minimize_scalar
 
 
+# ARD lengthscale search box, on the NORMALISED input cube [0, 1]^d, declared
+# once because two places used to need it and only one of them had it: the
+# optimiser bound inside `GP.fit` and the saturation test that reads the
+# fitted result back. When those two disagree the test either never fires or
+# always does, which is this codebase's number-declared-twice defect aimed at
+# the guard rather than at the physics.
+#
+# The BOX ITSELF IS NOT THE DEFECT and it is not being widened here. An upper
+# bound of 10 on a unit cube already means "this axis is effectively flat", and
+# raising it only moves where the optimiser stops. The defect (gap A6c) is that
+# stopping there was SILENT.
+ARD_LENGTHSCALE_BOUNDS = (1e-2, 10.0)
+
+# How close to a bound counts as ON it. L-BFGS-B returns the bound exactly when
+# it clips, so this is a float-equality guard with slack, not a tolerance band.
+_LS_BOUND_REL_TOL = 1e-6
+
+
+class ARDSaturation(UserWarning):
+    """One or more ARD lengthscales stopped on the edge of the search box.
+
+    NOT an error: an upper-bound lengthscale is how ARD says "this input does
+    not matter", which is a legitimate and often correct answer. It is a
+    WARNING because the same state also says the kernel — and therefore the
+    predictive sigma — is blind along that axis, and until 2026-08-12 nothing
+    in this module said so out loud. `_nn_distance` is unweighted precisely
+    because of this (see its docstring), so the support half of the OOD test
+    already survives it; the sigma half does not, and a caller that does not
+    know cannot compensate.
+    """
+
+
 class OODRefusal(RuntimeError):
     """The surrogate was asked for a number it has no support for.
 
@@ -141,6 +173,11 @@ class GP(_Escalates):
     # Radius of the largest hole the training set leaves between neighbouring
     # points, in the normalised input box. Set by fit(); see is_ood().
     d_support: float = field(default=np.inf)
+    # Which ARD lengthscales stopped ON the search box, and which end (gap A6c).
+    # ((dim_index, "upper" | "lower"), ...) — empty when the fit is interior.
+    # A field and not a recomputation, because the bounds that produced it are
+    # the ones that must judge it.
+    ls_at_bound: tuple[tuple[int, str], ...] = field(default=())
 
     @property
     def prior_var(self) -> float:
@@ -178,7 +215,9 @@ class GP(_Escalates):
             return float(0.5 * yc @ a + np.log(np.diag(c[0])).sum())
 
         best, best_v = np.zeros(d + 1), np.inf
-        bounds = [(np.log(1e-2), np.log(10.0))] * d + [(np.log(1e-8), np.log(0.5))]
+        ls_lo, ls_hi = ARD_LENGTHSCALE_BOUNDS
+        bounds = ([(np.log(ls_lo), np.log(ls_hi))] * d
+                  + [(np.log(1e-8), np.log(0.5))])
         for r in range(restarts):
             x0 = (np.append(rng.uniform(np.log(0.05), np.log(2.0), d),
                             np.log(max(nugget, 1e-6))) if r
@@ -203,7 +242,57 @@ class GP(_Escalates):
             d_support = float(np.quantile(dd.min(axis=1), 0.95))
         else:
             d_support = float("inf")
-        return GP(Xn, y, ls, var0, nugget, mu, c, a, x_lo, span, d_support)
+
+        # THE HYPERPARAMETER THAT STOPPED ON ITS BOUND IS NOW REPORTED (gap
+        # A6c). MEASURED 2026-08-12 on the Gate 3 production GP —
+        # `sample_valid(250, MissionSpec(), seed=7)`, log(Wh/NM), seed=1 — ONE
+        # of the fifteen lengthscales, `x_mb`, came back at exactly 10.0000,
+        # the optimiser's ceiling. That is the kernel declaring itself blind to
+        # the max-beam station, and the module printed, returned and recorded
+        # nothing about it: the surrogate's own predictive sigma cannot see a
+        # query that moves only along x_mb, and every caller was told the fit
+        # succeeded. An unmeasured value must never be scored as a passing one;
+        # here the value WAS measured, by the optimiser, and then dropped.
+        at_bound = tuple(
+            (int(i), "upper" if ls[i] >= ls_hi * (1.0 - _LS_BOUND_REL_TOL)
+             else "lower")
+            for i in range(d)
+            if ls[i] >= ls_hi * (1.0 - _LS_BOUND_REL_TOL)
+            or ls[i] <= ls_lo * (1.0 + _LS_BOUND_REL_TOL))
+        gp = GP(Xn, y, ls, var0, nugget, mu, c, a, x_lo, span, d_support,
+                at_bound)
+        if at_bound:
+            warnings.warn(gp.saturation_report(), ARDSaturation, stacklevel=2)
+        return gp
+
+    def saturation_report(self) -> str:
+        """What saturated, which end, and what it costs the caller.
+
+        Returns "" when the fit is interior, so `if gp.saturation_report():`
+        is the whole test. It reports the CONSEQUENCE and not just the fact,
+        because "lengthscale 7 is at 10.0" is not actionable and "sigma is
+        blind along input 7" is.
+        """
+        if not self.ls_at_bound:
+            return ""
+        lo, hi = ARD_LENGTHSCALE_BOUNDS
+        parts = []
+        for i, end in self.ls_at_bound:
+            if end == "upper":
+                parts.append(
+                    f"input {i} lengthscale {self.ls[i]:.4g} == upper bound "
+                    f"{hi:g}: the kernel treats this axis as flat, so the "
+                    f"predictive sigma is blind to it")
+            else:
+                parts.append(
+                    f"input {i} lengthscale {self.ls[i]:.4g} == lower bound "
+                    f"{lo:g}: the kernel has degenerated to noise on this "
+                    f"axis, so predictions along it are the prior mean")
+        return (f"{len(self.ls_at_bound)} of {len(self.ls)} ARD lengthscales "
+                f"stopped on the search box: " + "; ".join(parts)
+                + ". The support half of is_ood() is unaffected "
+                  "(_nn_distance is unweighted, deliberately); the sigma half "
+                  "is not.")
 
     def _norm(self, X: np.ndarray) -> np.ndarray:
         return (np.atleast_2d(np.asarray(X, float)) - self.x_lo) / self.x_hi

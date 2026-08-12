@@ -125,6 +125,72 @@ def test_ood_rejection_separates_error_it_does_not_merely_flag():
     assert gp_full.is_ood(Xq).mean() < 0.15
 
 
+def test_a_saturated_ard_lengthscale_is_reported_and_not_silently_absorbed():
+    """Gap A6c: `GP.fit` pinned the ARD bound at log(10.0) and said nothing
+    when the optimiser stopped there.
+
+    MEASURED 2026-08-12, all three on `sample_valid(250, MissionSpec(),
+    seed=7)` with `GP.fit(..., seed=1)` on log(Wh/NM):
+
+        training set        lengthscales at the 10.0 ceiling
+        full box            1 of 15   x_mb
+        LWL <= 12 m         4 of 15   D, beta_bow, p_bow, sheer_rise
+        beta_mid >= 12 deg  3 of 15   p_stern, x_mb, beta_len
+
+    Every one of those is the kernel declaring itself blind along an axis, and
+    every one of them was invisible: `fit` returned, nothing was recorded, and
+    the predictive sigma the OOD test is built on could not see a query that
+    moved only along a saturated input. Defect class 1 with the roles swapped —
+    the value was measured, by the optimiser, and then discarded.
+
+    The bar is that the report is DERIVED from the fitted lengthscales and the
+    same bounds `fit` searched in, so it cannot drift; the negative control is
+    a fit that does NOT saturate, which must report nothing.
+    """
+    from navalai.evaluate import sample_valid
+    from navalai.surrogate import ARD_LENGTHSCALE_BOUNDS, ARDSaturation
+
+    lo, hi = ARD_LENGTHSCALE_BOUNDS
+    m = MissionSpec()
+    X, y = sample_valid(250, m, seed=7)
+
+    # THE GUARD IS MADE TO FIRE, on the production Gate 3 GP itself.
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        gp = GP.fit(X, np.log(y), seed=1)
+    assert gp.ls_at_bound == ((8, "upper"),), (
+        f"x_mb no longer saturates: {gp.ls_at_bound} — re-measure the table in "
+        f"this docstring rather than loosening the assertion")
+    assert grammar.NAMES[8] == "x_mb"
+    assert gp.ls[8] == pytest.approx(hi, rel=1e-9)
+    assert any(issubclass(w.category, ARDSaturation) for w in caught), (
+        "the fit saturated and nobody was told")
+    rep = gp.saturation_report()
+    assert "x_mb" not in rep and "input 8" in rep   # index, not a name it lacks
+    assert "blind" in rep
+
+    # The restricted fit saturates HARDER, and the report tracks it rather than
+    # carrying a number written down once.
+    inside = X[:, 0] <= 12.0
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", ARDSaturation)
+        gp_r = GP.fit(X[inside], np.log(y[inside]), seed=1)
+    assert [i for i, _e in gp_r.ls_at_bound] == [3, 5, 6, 13]
+    assert all(e == "upper" for _i, e in gp_r.ls_at_bound)
+    assert "4 of 15" in gp_r.saturation_report()
+
+    # NEGATIVE CONTROL: an interior fit reports NOTHING and warns about
+    # nothing. Without this the guard would be a constant.
+    with warnings.catch_warnings(record=True) as quiet:
+        warnings.simplefilter("always")
+        xs = np.linspace(0.0, 1.0, 8)[:, None]
+        gp_ok = GP.fit(xs, np.sin(4.0 * xs[:, 0]))
+    assert gp_ok.ls_at_bound == ()
+    assert gp_ok.saturation_report() == ""
+    assert not [w for w in quiet if issubclass(w.category, ARDSaturation)]
+    assert lo < gp_ok.ls[0] < hi
+
+
 def test_support_distance_catches_what_sigma_alone_misses():
     """The distance term earns its place on an axis the KERNEL has decided to
     ignore. ARD lengthscales saturate — MEASURED on the LWL-restricted GP

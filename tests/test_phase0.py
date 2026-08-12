@@ -299,3 +299,82 @@ def test_the_placeholder_sigma_fraction_is_declared_in_exactly_one_place():
     assert len(re.findall(r"WH_PER_NM_PLACEHOLDER_SIGMA_FRAC\s*=", body)) == 1
     assert not re.search(r"(?<!_)0\.30\s*\*", body), (
         "a second declared 0.30 has appeared in energy.py")
+
+    # THE FENCE SCANNED ONE FILE, AND THE SECOND COPY WAS IN ANOTHER (2026-08-12).
+    # `evaluate.py` badged `"wh_per_nm": ("L1", en.wh_per_nm * 0.30, "assumed")`
+    # for the whole time this test was green, because the test only ever read
+    # `energy.__file__`. That is gap J1's shape applied to a number instead of
+    # to a document: the fence had a hole exactly where the duplicate lived.
+    # The scan is now the whole package, over the AST rather than the text, for
+    # two reasons this repository has already paid for. It must aim at the
+    # QUANTITY and not the digits — `navalai/cfd/case.py:527` legitimately
+    # writes `(1.02 + 0.30 * f) * lwl` for a domain bound, and a fence that
+    # cannot tell a tank length from an uncertainty is a fence that gets
+    # deleted. And it must read CODE and not prose — defect class 8, "the word
+    # was in the comment on the defect": the sentence documenting this very
+    # fix, in energy.py's own docstring, contains the string it forbids.
+    import ast as _ast
+    pkg = pathlib.Path(energy.__file__).parent
+
+    def _is_wh(node) -> bool:
+        if isinstance(node, _ast.Name):
+            return node.id.endswith("wh_per_nm")
+        if isinstance(node, _ast.Attribute):
+            return node.attr.endswith("wh_per_nm")
+        return False
+
+    offenders = []
+    for path in sorted(pkg.rglob("*.py")):
+        for node in _ast.walk(_ast.parse(path.read_text())):
+            if not (isinstance(node, _ast.BinOp)
+                    and isinstance(node.op, _ast.Mult)):
+                continue
+            for a, b in ((node.left, node.right), (node.right, node.left)):
+                if (isinstance(a, _ast.Constant)
+                        and isinstance(a.value, float) and _is_wh(b)):
+                    offenders.append(
+                        f"{path.relative_to(pkg.parent)}:{node.lineno} "
+                        f"{a.value} * wh_per_nm")
+    assert not offenders, (
+        "a badge sigma has gone back to being a declared fraction of its own "
+        "value: " + "; ".join(offenders))
+
+
+def test_the_wh_per_nm_badge_carries_the_propagated_sigma_not_a_declared_one():
+    """Gap H1, the CONSUMER half — the half the energy.py fix did not reach.
+
+    MEASURED 2026-08-12 on `mid_params()` at the default cruise speed, before
+    this fix: `evaluate()` called `energy_report` with NO `resistance_sigma_n`,
+    so the report took its placeholder branch and came back
+    `sigma_basis == "placeholder"`; evaluate() then discarded even that and
+    badged its own inline `en.wh_per_nm * 0.30`. So the propagation machinery
+    committed for H1 was live, tested, and reached by nothing in production.
+
+    The badge must now carry the number `energy` computed and the basis string
+    `energy` chose. Both halves are asserted, because a propagated magnitude
+    under a hard-coded basis string is the same defect wearing the fix.
+    """
+    from navalai.energy import SIGMA_PLACEHOLDER, SIGMA_PROPAGATED_LOWER_BOUND
+    from navalai.evaluate import evaluate
+    from navalai.mission import MissionSpec
+
+    ev = evaluate(mid_params(), MissionSpec())
+    tier, sigma, basis = ev.badges["wh_per_nm"]
+    assert tier == "L1"
+    # the badge IS the report's own sigma, to the bit
+    assert sigma == ev.energy.sigma_wh_per_nm
+    assert basis == ev.energy.sigma_basis
+    # ...and that sigma is PROPAGATED from the resistance band, not declared.
+    assert basis == SIGMA_PROPAGATED_LOWER_BOUND, (
+        f"basis is {basis!r}: the resistance sigma is not reaching energy_report")
+    assert basis != SIGMA_PLACEHOLDER
+    assert sigma == pytest.approx(
+        ev.energy.wh_per_nm * ev.resistance.uncertainty / ev.resistance.total,
+        rel=1e-12)
+    # THE GUARD IS MADE TO FIRE: the old badge is a different number, by more
+    # than a rounding. res.uncertainty/res.total is ~0.17 on this hull against
+    # the flat 0.30, so the old decoration was ~76% too wide.
+    old = 0.30 * ev.energy.wh_per_nm
+    assert abs(sigma - old) > 0.10 * ev.energy.wh_per_nm, (
+        f"propagated {sigma:.1f} vs declared {old:.1f} — indistinguishable, so "
+        f"this test could not tell the fix from the defect")

@@ -346,9 +346,22 @@ def test_slider_eval_p95_under_100ms():
     # from a model or asserted as a fraction of its own value. The audit found
     # every sigma in the UI was the latter — freeboard a constant 0.02,
     # wh_per_nm literally 0.30 x value — which is a decoration, not a band.
+    # 2026-08-12: `wh_per_nm` stopped being "assumed" and became
+    # "propagated-lower-bound", because evaluate() now serves the sigma
+    # `energy.wh_per_nm_sigma` computed from the resistance band instead of its
+    # own inline 0.30. The accepted set widens to the vocabulary `energy`
+    # owns — but NOT to "placeholder", which is the string that means no input
+    # sigma reached the propagation.
+    from navalai.energy import (SIGMA_PLACEHOLDER, SIGMA_PROPAGATED,
+                                SIGMA_PROPAGATED_LOWER_BOUND)
     for q in out["quantities"].values():
         assert set(q) == {"value", "tier", "sigma", "basis"}
-        assert q["basis"] in ("measured", "assumed")
+        assert q["basis"] in ("measured", "assumed", SIGMA_PROPAGATED,
+                             SIGMA_PROPAGATED_LOWER_BOUND)
+        assert q["basis"] != SIGMA_PLACEHOLDER
+    assert out["quantities"]["wh_per_nm"]["basis"] == \
+        SIGMA_PROPAGATED_LOWER_BOUND, (
+            "the UI is back to serving a declared fraction as a one-sigma band")
 
 
 def test_every_interactive_endpoint_meets_the_p95_bar_not_just_eval():

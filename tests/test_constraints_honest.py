@@ -437,6 +437,85 @@ def test_every_relational_l0_constraint_can_actually_fire():
         assert f'_rel("{name}"' not in src, f"{name} came back"
 
 
+def test_no_ast_node_validator_is_dead_and_the_layer_says_what_it_does_not_do():
+    """Gap E18: `Profile.validate` and `Topside.validate` read `return []`.
+
+    A guard that cannot fire is defect class 3, and this pair was worse than an
+    absent guard because `hull_ast.type_check` called it in a loop and got a
+    clean answer back — the layer LOOKED like it was validating two of the five
+    nodes. It is the same finding as `test_every_relational_l0_constraint_can_
+    actually_fire` above, aimed at the AST layer instead of at `grammar.check`,
+    and it is settled the same way E4's four tautological constraints were:
+    measure, then delete rather than invent a threshold to fill the slot.
+
+    MEASURED 2026-08-12 over 4000 `grammar.sample` vectors (all 4000 pass
+    `grammar.check`): the node layer returned ZERO violations in total — not
+    just from these two, from ALL FIVE nodes. `Planform`'s `x_mb < 0.3` cannot
+    fire while `grammar.PARAMS` bounds x_mb at [0.40, 0.68], and
+    `SectionLaw`'s rule is `grammar.check`'s `deadrise.order` a second time.
+    The two surviving rules are kept because each rejects a verbatim input
+    below; the two empty ones are gone, and `type_check` now distinguishes "no
+    node-local rule" (no method) from "rules, all passing" (a method returning
+    []), which are opposite claims that used to look identical.
+    """
+    import ast as _ast
+    from navalai import hull_ast as HA
+
+    # 1. NO VALIDATOR IS UNCONDITIONALLY EMPTY. Aimed at the verbatim body that
+    #    stood in Profile and Topside, so it fires on the defect.
+    src = (_ROOT / "navalai" / "hull_ast.py").read_text()
+    dead = []
+    for node in _ast.walk(_ast.parse(src)):
+        if not (isinstance(node, _ast.FunctionDef) and node.name == "validate"):
+            continue
+        body = [b for b in node.body
+                if not (isinstance(b, _ast.Expr)
+                        and isinstance(b.value, _ast.Constant)
+                        and isinstance(b.value.value, str))]
+        if (len(body) == 1 and isinstance(body[0], _ast.Return)
+                and isinstance(body[0].value, _ast.List)
+                and not body[0].value.elts):
+            dead.append(node.lineno)
+    assert not dead, (
+        f"a validator at line(s) {dead} returns [] unconditionally — say the "
+        f"node has no node-local rule by NOT defining validate()")
+
+    # 2. THE NODES WITH NO RULE REALLY HAVE NONE, and type_check still runs.
+    assert not hasattr(HA.Profile(0.2, 0.5), "validate")
+    assert not hasattr(HA.Topside(8.0, 0.2), "validate")
+    d = HA.HullDesign.from_vector(mid_params(), HA.Typology.SHARP_CHINE)
+    HA.type_check(d)                       # must not raise on the missing method
+
+    # 3. EVERY SURVIVING VALIDATOR IS MADE TO FIRE, on the verbatim input it
+    #    exists to reject. Without this the deletion could have been bought by
+    #    deleting the ones that worked.
+    assert HA.Principal(LWL=0.0, BWL=3.2, T=0.55, D=1.2).validate()
+    assert HA.Planform(p_bow=2.0, p_stern=2.0, x_mb=0.25,
+                       r_transom=0.5).validate()
+    assert HA.SectionLaw(beta_mid=18.0, beta_bow=6.0, beta_len=0.3).validate()
+    # ...and each accepts the good case, so it is a test and not a constant.
+    assert not HA.Principal(LWL=10.0, BWL=3.2, T=0.55, D=1.2).validate()
+    assert not HA.Planform(2.0, 2.0, 0.55, 0.5).validate()
+    assert not HA.SectionLaw(18.0, 24.0, 0.3).validate()
+
+    # 4. THE MEASUREMENT ITSELF, re-derived rather than quoted: the node layer
+    #    moves no verdict on in-bounds hulls. If it ever does, this assertion
+    #    fails and the docstring above is the thing that was wrong.
+    rng = np.random.default_rng(0)
+    X = grammar.sample(4000, rng)
+    fired = 0
+    for x in X:
+        dd = HA.HullDesign.from_vector(x, HA.Typology.SHARP_CHINE)
+        for nd in (dd.principal, dd.planform, dd.sections, dd.profile,
+                   dd.topside):
+            rule = getattr(nd, "validate", None)
+            if rule is not None and rule():
+                fired += 1
+    assert fired == 0, (
+        f"the node layer fired {fired} times on 4000 in-bounds vectors — it "
+        f"now carries information, so re-state the measurement above")
+
+
 def _all_results(prov) -> list[tuple[str, float, float]]:
     """(quantity, value, uncertainty) for every row in the provenance DB."""
     return [(str(q), v, u) for q, v, u in prov.con.execute(

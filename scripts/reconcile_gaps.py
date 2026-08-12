@@ -895,10 +895,31 @@ CHECKS: tuple[Check, ...] = (
                 "grid, not a default the convergence test never exercises)",
           lambda: has_code("navalai/resistance.py",
                       r"CONVERGED_GRID|PRODUCTION_GRID|grid_converged")),
+    # THE PREDICATE WAS STALE, NOT THE CODE (measured 2026-08-12). It matched
+    # `round(float(v), 10)` occurring somewhere AFTER the text `add_hull`, and
+    # it went false for two reasons that are both the FIX: the decimal count is
+    # now the named constant `CANON_DECIMALS`, and the rounding moved OUT of
+    # `add_hull` into the shared `canonical()` that `hull_id` also calls —
+    # which is the entire point of the fix, since the collision came from the
+    # address and the payload rounding in different places. A predicate that
+    # requires the duplicate arrangement in order to report the duplicate
+    # removed is a predicate that can only ever be wrong.
+    #
+    # It now asks the behaviour: ONE canonical form, hashed by `hull_id` and
+    # stored by `add_hull`. Run against the pre-fix tree that reads FALSE
+    # (add_hull stored `json.dumps(params.tolist())`), so it can fail on the
+    # defect. tests/test_phase0.py::test_the_stored_hull_row_is_the_vector_
+    # that_was_hashed is the behavioural fence beside it.
     Check("E9", "db.add_hull stores the SAME canonical rounded params it "
                 "hashes, so two vectors differing by 1e-11 cannot collide",
-          lambda: has_code("navalai/db.py",
-                      r"add_hull.*\n(.|\n)*?round\(float\(v\), 10\)")),
+          lambda: defines("navalai/db.py", "canonical")
+                  and bool(re.search(r"canonical\(params\)",
+                                     func_code("navalai/db.py", "hull_id")))
+                  and bool(re.search(r"json\.dumps\(canonical\(params\)\)",
+                                     func_code("navalai/db.py", "add_hull")))
+                  and defines("tests/test_phase0.py",
+                              "test_the_stored_hull_row_is_the_vector_that_"
+                              "was_hashed")),
     Check("E10", "evaluate.is_real_finite turns a non-finite constraint into a "
                  "violation and INFEASIBLE_G, instead of nan > 0.0 being False",
           lambda: defines("navalai/evaluate.py", "is_real_finite")

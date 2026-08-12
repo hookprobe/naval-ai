@@ -190,15 +190,56 @@ def solve_to_displacement(hull: Hull, target_kg_mass: float,
     """Find the waterline at which displacement matches target mass (bisection).
 
     Returns (state, wl). wl < 0 means floating higher than design WL.
-    Raises if the hull cannot carry the mass with positive freeboard.
+    Raises if the hull cannot carry the mass with positive freeboard, AND if it
+    cannot float that lightly, AND if the bisection does not close on `tol`.
+
+    BOTH ENDS OF THE BRACKET ARE VERIFIED NOW (gap E14). Only `z_hi` was, and
+    the post-loop line returned `solve(hull, rho, 0.5*(lo+hi))` — the midpoint
+    after 80 iterations — with the SAME shape as the converged return, so no
+    caller could tell them apart. The mechanism was never the iteration count:
+    `z_lo = z_keel.min() * 0.98` is commented "nearly dry" and is not dry.
+
+    MEASURED 2026-08-12 on `tests/test_phase0.mid_params`, exactly reproducing
+    the register's figure:
+
+        target kg   returned disp kg      error
+              1.0             4.134    +313.4%
+             10.0            10.003      +0.0%
+            100.0            99.960      -0.0%
+           2000.0          1999.393      -0.0%
+
+    The hull still displaces 4.134 kg at `z_lo`, so any target below that
+    cannot be bracketed, `hi` walks down to `z_lo`, and the loop hands back a
+    waterline whose displacement is four times what was asked for — an
+    unconverged answer returned as an answer, which is defect class 1. It is
+    now a refusal, symmetric with the "hull swamps" one above it, and it is a
+    ValueError because `evaluate()` already catches exactly that and turns it
+    into a `floatation: ...` violation string (navalai/evaluate.py:454-460).
+    A `converged=` flag on `HydroState` was considered and rejected: a flag
+    nobody is forced to read is the same defect with a field added.
     """
-    z_lo = float(hull.z_keel.min()) * 0.98          # nearly dry
+    z_lo = float(hull.z_keel.min()) * 0.98          # nearly dry, NOT dry
     z_hi = float(hull.z_sheer.min()) - 0.02          # just below deck edge
     m_hi = solve(hull, rho, z_hi).disp_kg
     if m_hi < target_kg_mass:
         raise ValueError(
             f"hull swamps: max buoyant mass {m_hi:.0f} kg < target {target_kg_mass:.0f} kg")
+    # The LOW end. `solve` raises when the waterline is below the keel, and
+    # that is the GOOD case: it means the bracket really does reach zero
+    # displacement and any positive target is reachable.
+    try:
+        m_lo = solve(hull, rho, z_lo).disp_kg
+    except ValueError:
+        m_lo = 0.0
+    if m_lo > target_kg_mass:
+        raise ValueError(
+            f"hull floats too high: min buoyant mass {m_lo:.3f} kg at the "
+            f"lowest bracketable waterline {z_lo:.4f} m > target "
+            f"{target_kg_mass:.3f} kg. The bracket does not contain the "
+            f"answer, so bisection cannot find it and the midpoint it would "
+            f"return is not a flotation.")
     lo, hi = z_lo, z_hi
+    m = float("nan")
     for _ in range(80):
         mid = 0.5 * (lo + hi)
         try:
@@ -212,4 +253,9 @@ def solve_to_displacement(hull: Hull, target_kg_mass: float,
             lo = mid
         else:
             hi = mid
-    return solve(hull, rho, 0.5 * (lo + hi)), 0.5 * (lo + hi)
+    raise ValueError(
+        f"solve_to_displacement did not converge: {m:.3f} kg against target "
+        f"{target_kg_mass:.3f} kg after 80 bisections on [{z_lo:.4f}, "
+        f"{z_hi:.4f}] m, still {abs(m - target_kg_mass) / max(target_kg_mass, 1e-9):.1%} "
+        f"out against a {tol:.1%} tolerance. The midpoint is not the answer "
+        f"and must not be returned as one.")

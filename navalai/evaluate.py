@@ -502,7 +502,14 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
             f"speed outside the L1 model: Fn {res.fn:.2f} > {FN_MICHELL_MAX} "
             f"(planing regime — Michell thin-ship has no dynamic lift, trim or "
             f"spray; needs a Savitsky-class method)")
-    en = energy_report(res.total, u, hull.deck_area(), mission.energy)
+    # THE RESISTANCE SIGMA IS HANDED ON (gap H1). `energy_report` has propagated
+    # since the H1 fix landed in energy.py, but this — its ONLY production call
+    # site — passed no input sigma, so it took the placeholder branch every
+    # time and evaluate() then threw even that away for its own inline
+    # `wh_per_nm * 0.30` in the badge dict below. Two copies of 0.30, and the
+    # one that reached the badge was the one nothing could narrow.
+    en = energy_report(res.total, u, hull.deck_area(), mission.energy,
+                       resistance_sigma_n=res.uncertainty)
 
     # hull_lwl_m is carried here too, not just on the returned Evaluation.
     # `iso12217.hull_length_m` prefers the DECLARED LWL and falls back to the
@@ -614,7 +621,20 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
         # A number outside its model's validity is not an L1 quantity.
         "resistance": ("L1" if res.valid else "L1-INVALID",
                        res.uncertainty, "measured"),
-        "wh_per_nm": ("L1", en.wh_per_nm * 0.30, "assumed"),
+        # THE LAST BARE SIGMA, and it was a second copy of a constant that
+        # already lives in energy.py (gap H1). This line read
+        # `en.wh_per_nm * 0.30` — a declared fraction of its own value, which
+        # cannot narrow when the resistance model improves and cannot widen
+        # when the resistance model disowns the answer. MEASURED on the
+        # reference hull at 2.5 m/s: the propagated band is 105.3 Wh/NM against
+        # the 185.5 the flat 0.30 declared (76% too wide), and at 4.6 m/s —
+        # past FN_MICHELL_MAX, where `total_resistance` doubles its own sigma
+        # to the size of the answer — the propagated band follows to 100% while
+        # the flat 0.30 stayed at 0.30. It was MORE confident about a
+        # prediction the resistance module had disowned than about one it stood
+        # behind. The basis string comes from `energy` too, so a placeholder
+        # can never again be served under a badge that does not say so.
+        "wh_per_nm": ("L1", en.sigma_wh_per_nm, en.sigma_basis),
     }
     # THE SAME DEFECT ON THE OTHER SIDE OF THE BADGE (gap E10). A constraint
     # cannot go nan on its own — it goes nan because the quantity it was
