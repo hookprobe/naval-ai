@@ -556,3 +556,415 @@ def test_the_regression_pin_still_agrees_with_the_closed_form():
             f"away from the mathematics it is supposed to approximate")
     # the pin must also still describe the grid it claims to
     assert REFERENCE_S == pytest.approx(14.87905, rel=1e-6)
+
+
+# ---------------------------------------------------------------------------
+# MULTI-HULL WAVE INTERFERENCE — plate P4 (Gate 1)
+# ---------------------------------------------------------------------------
+#
+# `michell_rw(..., separation=s)` puts two identical demihulls at y = +-s/2 and
+# returns the wave resistance of the pair. It is a PURE ADDITION: no genome
+# change, no `total_resistance` wiring, and `separation=None` must reproduce
+# the monohull bit for bit. The section below is the three acceptance bars,
+# plus the derivation check and the refusals.
+#
+# Every measurement here is on the Wigley demihull (L = 10 m, 121 x 25
+# offsets, rho = 1000) — stated because docs/LESSONS.md defect class 6 is a
+# number measured at a configuration the product never runs.
+
+import math
+
+_CAT_L = 10.0                       # Wigley demihull length [m]
+_CAT_SEPS_OVER_L = np.arange(0.15, 1.5001, 0.005)   # the sweep, s / Lwl
+
+
+@pytest.fixture(scope="module")
+def cat_demihull():
+    from benchmarks.wigley import wigley_offsets
+    xs, zs, Y, B, T = wigley_offsets(_CAT_L, 121, 25)
+    return xs, zs, Y, B, T
+
+
+def test_michell_monohull_is_bit_identical_without_a_separation(cat_demihull):
+    """BAR 1. `separation=None` is TODAY'S `michell_rw`, bit for bit.
+
+    Not "close" — identical. Two halves, because either alone is weak:
+
+    (a) the default call and the explicit `separation=None` call must produce
+        the same 64 bits. This is what stops the monohull path from acquiring
+        a stray `* 1.0` or a reordered sum when the catamaran factor is
+        maintained.
+    (b) the monohull path must still land on the CLOSED FORM. Bit-identity to
+        oneself proves nothing if both sides moved together, and
+        `benchmarks.wigley.rw_analytic` evaluates Michell's x and z integrals
+        symbolically, touching none of our grids — see
+        `test_wigley_matches_the_reference_curve_point_by_point`, which is the
+        full anchor; this is the corner of it that guards the refactor.
+
+    A frozen hex literal is deliberately NOT used as the bit-identity
+    reference. Commit c7b7c4b measured `developable_pairing` landing on a
+    different root on this Mac and on ubuntu-latest, and `np.exp`/`np.cos`
+    are libm calls: a cross-platform bit-exact pin would assert a quantity
+    that is not well defined. MEASURED instead, on this machine, against a
+    `git archive HEAD` copy of the pre-change module over 3 hulls x 5 Froude
+    numbers x 2 densities: 30 of 30 cases bit-identical, 0 mismatches.
+    """
+    import struct
+
+    from benchmarks.wigley import (ANALYTIC_RW_N, ANALYTIC_TOL_PRODUCTION,
+                                   rw_analytic, wigley_offsets)
+    from navalai.geometry import G
+    from navalai.resistance import michell_rw
+
+    for L, nx, nz in ((10.0, 121, 25), (7.0, 161, 28), (12.5, 81, 17)):
+        xs, zs, Y, _B, _T = wigley_offsets(L, nx, nz)
+        for fn in (0.15, 0.20, 0.30, 0.40, 0.50):
+            u = fn * math.sqrt(G * L)
+            for rho in (1000.0, 1025.0):
+                a = michell_rw(xs, zs, Y, u, rho)
+                b = michell_rw(xs, zs, Y, u, rho, separation=None)
+                assert struct.pack("<d", a) == struct.pack("<d", b), (
+                    f"L {L} Fn {fn} rho {rho}: the monohull path is no longer "
+                    f"reachable unchanged — {a!r} vs {b!r}")
+
+    # (b) and it is still Michell's integral, not merely still itself.
+    xs, zs, Y, _B, _T = wigley_offsets(10.0, 121, 25)
+    for fn, _ in sorted(ANALYTIC_RW_N.items()):
+        u = fn * math.sqrt(G * 10.0)
+        assert michell_rw(xs, zs, Y, u) == pytest.approx(
+            rw_analytic(fn), rel=ANALYTIC_TOL_PRODUCTION), (
+            f"Fn {fn}: the monohull path drifted off the closed form")
+
+
+def test_the_interference_factor_is_two_shifted_source_sheets(cat_demihull):
+    """The DERIVATION, checked by an implementation that never writes cos^2.
+
+    `catamaran_interference` ships the closed factor `4 cos^2(k_y s / 2)`,
+    which is an algebraic identity away from what thin-ship theory actually
+    says: the Kochin amplitude of a source sheet translated to y = y0 picks up
+    e^{i k_y y0}, and a catamaran is TWO sheets at y = +-s/2. This test builds
+    the amplitude that way — complex sum, then modulus squared — so a wrong
+    transverse wavenumber or a factor of two in the half-separation cannot
+    hide behind the identity.
+
+    k_y = k0 sec^2(theta) sin(theta) is read off this module's own kernel: the
+    longitudinal component is the `k0 sec(theta) x` phase and the magnitude is
+    the `k0 sec^2(theta) z` depth decay, so the transverse component is
+    k sin(theta) with k = k0 sec^2(theta).
+
+    (Also recorded here because it is what makes the change safe to write: the
+    lambda form of Michell, Int_1^inf (...) lam^2/sqrt(lam^2-1) dlam, is THIS
+    integral under lam = sec(theta) — dlam = lam sqrt(lam^2-1) dtheta, so
+    sec^3(theta) dtheta = lam^2/sqrt(lam^2-1) dlam, term for term.)
+    """
+    from navalai.geometry import G
+    from navalai.resistance import (_theta_grid, catamaran_interference,
+                                    michell_rw, n_theta_for_separation)
+
+    xs, zs, Y, _B, _T = cat_demihull
+
+    # The lambda/theta equivalence, VERIFIED rather than asserted: integrate
+    # the same amplitude shape both ways. With A(lam) = lam^-3 the theta form
+    # Int_0^{pi/2} A^2 sec^3 dtheta is Int cos^3 = 2/3 exactly, and the lambda
+    # form is Int_1^inf A^2 lam^2/sqrt(lam^2-1) dlam over the same physics.
+    th = np.linspace(0.0, 0.5 * math.pi, 200_001)[:-1]
+    theta_form = float(np.trapezoid(np.cos(th) ** 3, th))
+    # log-spaced in (lam - 1): the lambda integrand carries an integrable
+    # (lam-1)^-1/2 singularity at lam = 1 that a uniform grid cannot resolve.
+    lam = 1.0 + np.geomspace(1e-14, 1e4, 500_001)
+    lam_form = float(np.trapezoid(lam**-6 * lam**2 / np.sqrt(lam**2 - 1.0), lam))
+    assert theta_form == pytest.approx(2.0 / 3.0, rel=1e-9)
+    assert lam_form == pytest.approx(theta_form, rel=1e-5), (
+        f"the lambda form {lam_form:.8f} and the theta form {theta_form:.8f} "
+        f"are not the same integral under lam = sec(theta); this module ships "
+        f"the theta form and every result quoted from the lambda-form "
+        f"literature rests on them being identical")
+
+    for fn, sep in ((0.25, 2.5), (0.30, 4.45), (0.40, 9.0)):
+        u = fn * math.sqrt(G * _CAT_L)
+        k0 = G / u**2
+        n_theta = n_theta_for_separation(_CAT_L, sep)
+        thetas, sec = _theta_grid(n_theta)
+        dydx = np.gradient(Y, xs, axis=0)
+        # the reference: two source sheets summed as complex amplitudes
+        ref = np.empty(n_theta)
+        for i, (t, sc) in enumerate(zip(thetas, sec)):
+            depth = np.exp(np.minimum(k0 * sc**2 * zs, 0.0))[None, :]
+            fx = np.trapezoid(dydx * depth, zs, axis=1)
+            amp = (np.trapezoid(fx * np.cos(k0 * sc * xs), xs)
+                   + 1j * np.trapezoid(fx * np.sin(k0 * sc * xs), xs))
+            ky = k0 * sc**2 * math.sin(t)
+            both = amp * (np.exp(1j * ky * (+sep / 2.0))
+                          + np.exp(1j * ky * (-sep / 2.0)))
+            ref[i] = abs(both) ** 2 * sc**3
+        expect = float(4.0 * 1000.0 * G**2 / (math.pi * u**2)
+                       * np.trapezoid(ref, thetas))
+        got = michell_rw(xs, zs, Y, u, 1000.0, separation=sep)
+        assert got == pytest.approx(expect, rel=1e-12), (
+            f"Fn {fn}, s {sep} m: the shipped factor {got:.8e} does not agree "
+            f"with two explicitly shifted source sheets {expect:.8e}")
+    # and the factor's own range and mean are the physics: [0, 4], mean 2
+    thetas, _sec = _theta_grid(4000)
+    f = catamaran_interference(1.1111, thetas, 40.0)
+    assert f.min() < 1e-3 and f.max() > 3.999, (
+        f"the interference factor never reaches its bounds: "
+        f"[{f.min():.4f}, {f.max():.4f}] should span [0, 4]")
+
+
+def test_catamaran_tends_to_twice_a_demihull_at_large_separation(cat_demihull):
+    """BAR 2. R_w(cat) -> 2 R_w(demi) as s -> inf, with the residual EXPLAINED.
+
+    The interference factor 4 cos^2(k_y s / 2) averages to 2 (NOT to 1 — that
+    is the one correction this plate made to its own brief), so two demihulls
+    far enough apart to stop seeing each other's waves cost twice one demihull.
+
+    MEASURED over Fn 0.20-0.45 x s/Lwl 5, 10, 20 on a rule-compliant theta
+    grid: the ratio is 0.995189 to 0.999620, i.e. the residual is -0.0380% to
+    **-0.4811%** and is always NEGATIVE.
+
+    THE RESIDUAL IS NOT QUADRATURE NOISE AND IS NOT HIDDEN BY THE TOLERANCE.
+    `michell_rw`'s theta sweep starts at theta_0 = 0.5 pi * 0.998 * (1e-4)^0.7
+    = 2.4848e-3 rad for EVERY n_theta, so the trapezoid omits [0, theta_0] in
+    both cases — but at any practical separation phi(theta_0) = k0 s theta_0 is
+    still well under pi, so the catamaran omits that sliver weighted by ~4
+    while twice-the-demihull omits it weighted by 2. The predicted deficit is
+    (4 - 2) vals(0) theta_0 / (2 Int vals dtheta):
+
+        Fn     predicted    measured
+        0.20    -0.4805%     -0.4811%  (s/Lwl = 5)
+        0.30    -0.2540%     -0.2440%  (s/Lwl = 20)
+        0.40    -0.3300%     -0.3229%  (s/Lwl = 20)
+
+    So the bar is set AT the worst measured value (`CATAMARAN_ASYMPTOTIC_
+    RESIDUAL` = 0.49%) rather than at a round number that would swallow it,
+    and the residual is asserted to be one-signed — a tolerance that admits
+    +0.49% would stop distinguishing this mechanism from a real error.
+    """
+    from navalai.geometry import G
+    from navalai.resistance import (CATAMARAN_ASYMPTOTIC_RESIDUAL,
+                                    CATAMARAN_INTERFERENCE_AT_INFINITY,
+                                    michell_rw, n_theta_for_separation)
+
+    xs, zs, Y, _B, _T = cat_demihull
+    sep = 5.0 * _CAT_L                     # 50 m on a 10 m waterline
+    n_theta = n_theta_for_separation(_CAT_L, sep)
+    assert n_theta == 4400
+    worst = 0.0
+    for fn in (0.20, 0.30, 0.40):
+        u = fn * math.sqrt(G * _CAT_L)
+        demi = michell_rw(xs, zs, Y, u, 1000.0, n_theta=n_theta)
+        cat = michell_rw(xs, zs, Y, u, 1000.0, n_theta=n_theta, separation=sep)
+        ratio = cat / (CATAMARAN_INTERFERENCE_AT_INFINITY * demi)
+        worst = max(worst, abs(ratio - 1.0))
+        assert ratio == pytest.approx(1.0, abs=CATAMARAN_ASYMPTOTIC_RESIDUAL), (
+            f"Fn {fn}, s/Lwl 5: R_w(cat)/(2 R_w(demi)) = {ratio:.6f}, "
+            f"{100 * (ratio - 1):+.4f}% — outside the measured "
+            f"{100 * CATAMARAN_ASYMPTOTIC_RESIDUAL:.2f}% residual")
+        assert ratio < 1.0, (
+            f"Fn {fn}: the asymptotic residual came out POSITIVE ({ratio:.6f}). "
+            f"The omitted [0, theta_0] sliver can only make the catamaran LOW; "
+            f"a high answer is a different mechanism and wants diagnosing, not "
+            f"absorbing into this tolerance")
+    # and the bar is not slack: the worst case must be within a factor of two
+    # of it, or the tolerance has stopped measuring anything.
+    assert worst > 0.5 * CATAMARAN_ASYMPTOTIC_RESIDUAL, (
+        f"worst residual {100 * worst:.4f}% is far inside the "
+        f"{100 * CATAMARAN_ASYMPTOTIC_RESIDUAL:.2f}% bar — re-measure the bar "
+        f"downward rather than leaving a tolerance that cannot fail")
+
+
+def test_catamaran_interference_is_real_and_signed(cat_demihull):
+    """BAR 3. There are separations that HELP and separations that HURT.
+
+    The number an optimiser will chase. MEASURED at Fn 0.30 on the Wigley
+    demihull, sweeping s/Lwl from 0.150 to 1.500 in steps of 0.005 (271
+    points, n_theta 1321), as R_w(cat) / (2 R_w(demi)):
+
+        DESTRUCTIVE (best):   0.922342  at s/Lwl 0.4450  (s = 4.4500 m)
+        CONSTRUCTIVE (worst): 1.472953  at s/Lwl 0.1500  (s = 1.5000 m)
+        spread                0.550611  = 55.1% of twice a demihull
+        84.9% of the swept separations are below 1.0
+
+    The constructive maximum sits at the FLOOR of the sweep, and the floor is
+    stated rather than treated as an interior optimum: at Fn 0.30 the closer
+    the demihulls the worse it gets, down to the geometric limit where they
+    touch. The destructive minimum at 0.4450 is interior and is a real
+    stationary point.
+
+    Bars are set with margin against `CATAMARAN_THETA_QUADRATURE_ERROR`
+    (0.061%, measured) — the effect is three orders of magnitude larger than
+    the numerics that could fake it, which is the point of asserting the SIZE
+    and not merely the sign.
+    """
+    from navalai.geometry import G
+    from navalai.resistance import (CATAMARAN_THETA_QUADRATURE_ERROR,
+                                    michell_rw, michell_rw_separation_sweep,
+                                    n_theta_for_separation)
+
+    xs, zs, Y, _B, _T = cat_demihull
+    seps = _CAT_SEPS_OVER_L * _CAT_L
+    n_theta = n_theta_for_separation(_CAT_L, seps.max())
+    u = 0.30 * math.sqrt(G * _CAT_L)
+    demi = michell_rw(xs, zs, Y, u, 1000.0, n_theta=n_theta)
+    ratio = michell_rw_separation_sweep(xs, zs, Y, u, seps, 1000.0,
+                                        n_theta=n_theta) / (2.0 * demi)
+    lo, hi = int(np.argmin(ratio)), int(np.argmax(ratio))
+
+    assert ratio[lo] < 1.0 - 50 * CATAMARAN_THETA_QUADRATURE_ERROR, (
+        f"no destructive interference anywhere in the sweep: best ratio "
+        f"{ratio[lo]:.6f} at s/Lwl {seps[lo] / _CAT_L:.4f}")
+    assert ratio[hi] > 1.0 + 50 * CATAMARAN_THETA_QUADRATURE_ERROR, (
+        f"no constructive interference anywhere in the sweep: worst ratio "
+        f"{ratio[hi]:.6f} at s/Lwl {seps[hi] / _CAT_L:.4f}")
+    # the measured extrema, pinned as physics rather than as a sign test
+    assert ratio[lo] == pytest.approx(0.922342, abs=2e-3), ratio[lo]
+    assert ratio[hi] == pytest.approx(1.472953, abs=5e-3), ratio[hi]
+    assert seps[lo] / _CAT_L == pytest.approx(0.4450, abs=0.02), seps[lo]
+    assert seps[hi] / _CAT_L == pytest.approx(0.1500, abs=1e-9), (
+        "the constructive maximum left the floor of the sweep — the range this "
+        "test measures over has changed and the numbers above describe a "
+        "different experiment")
+    assert ratio[hi] - ratio[lo] == pytest.approx(0.550611, abs=5e-3)
+
+
+def test_the_optimal_separation_moves_inward_with_froude_number(cat_demihull):
+    """The naval-architecture result, and it is cheap here so it is recorded.
+
+    Within one interference lobe the least-resistance separation moves INWARD,
+    monotonically, as Froude number rises. MEASURED on the Wigley demihull
+    over the same sweep as bar 3, restricted to s/Lwl <= 1.0 (a designer's
+    range; the unrestricted minimum hops to the far field above Fn 0.365):
+
+        Fn       best s/Lwl   R_w(cat) / 2 R_w(demi)
+        0.2875     0.5800            0.981220
+        0.3000     0.4450            0.922342
+        0.3125     0.3600            0.797847
+        0.3250     0.3050            0.619008
+        0.3375     0.2700            0.488426   <- deepest, -51.2%
+        0.3500     0.2400            0.576188
+        0.3625     0.2200            0.855341
+
+    A 2.64x contraction in optimal spacing across a 26% rise in speed: the
+    optimum is NOT a fixed fraction of the waterline, so a hull-form parameter
+    chosen at one design speed is wrong at another, and this is the reason
+    separation has to be a searched dimension rather than a rule of thumb.
+
+    ABOVE THE LOBE THERE IS NO FAVOURABLE SEPARATION AT ALL. At Fn 0.3750 the
+    best interior value is 1.030151 at s/Lwl 0.9950 — every practical spacing
+    is constructive and the only way down is out of interference range. That
+    is asserted too, because an optimiser that always finds a favourable
+    separation would be reporting the sweep's boundary as physics.
+    """
+    from navalai.geometry import G
+    from navalai.resistance import (michell_rw, michell_rw_separation_sweep,
+                                    n_theta_for_separation)
+
+    xs, zs, Y, _B, _T = cat_demihull
+    seps = _CAT_SEPS_OVER_L * _CAT_L
+    n_theta = n_theta_for_separation(_CAT_L, seps.max())
+    inner = seps / _CAT_L <= 1.0
+
+    def best(fn):
+        u = fn * math.sqrt(G * _CAT_L)
+        demi = michell_rw(xs, zs, Y, u, 1000.0, n_theta=n_theta)
+        r = (michell_rw_separation_sweep(xs, zs, Y, u, seps, 1000.0,
+                                         n_theta=n_theta) / (2.0 * demi))[inner]
+        i = int(np.argmin(r))
+        return float(seps[inner][i] / _CAT_L), float(r[i])
+
+    prev = None
+    for fn in (0.2875, 0.3000, 0.3125, 0.3250, 0.3375, 0.3500, 0.3625):
+        s_over_l, ratio = best(fn)
+        assert ratio < 1.0, (
+            f"Fn {fn}: no favourable separation inside s/Lwl <= 1 "
+            f"(best {ratio:.6f}) — the lobe this test tracks has moved")
+        if prev is not None:
+            assert s_over_l < prev, (
+                f"Fn {fn}: optimal s/Lwl {s_over_l:.4f} is not inside the "
+                f"{prev:.4f} measured at the previous Froude number")
+        prev = s_over_l
+    assert prev == pytest.approx(0.2200, abs=0.02), prev
+    # the deepest point of the lobe, as a magnitude
+    assert best(0.3375)[1] == pytest.approx(0.488426, abs=5e-3)
+
+    # and the lobe ENDS: above it nothing inside s/Lwl <= 1 helps.
+    s_over_l, ratio = best(0.3750)
+    assert ratio > 1.0, (
+        f"Fn 0.3750 now has a favourable interior separation at s/Lwl "
+        f"{s_over_l:.4f} (ratio {ratio:.6f}); MEASURED 1.030151 at 0.9950")
+
+
+def test_a_separation_the_grid_or_the_geometry_cannot_carry_is_refused(
+        cat_demihull):
+    """Every guard, fed the VERBATIM input it exists to reject.
+
+    docs/LESSONS.md defect class 1 is an unmeasurable value scored as a
+    passing one, and class 3 is a guard never made to fire. The interference
+    factor has three ways to produce a confident wrong number:
+
+    1. AN UNRESOLVED THETA SWEEP. The interference phase is
+       phi(theta) = k0 s sec^2(theta) sin(theta), so dphi/dtheta grows as
+       sec^3 while `michell_rw`'s node density does not. MEASURED on this
+       demihull against an n_theta = 60000 reference, worst |error| over 25
+       separations per band:
+
+           s/Lwl        n_theta 220    440      880
+           0.1 - 1.0        0.62%     0.23%   0.089%
+           1.0 - 2.0        1.21%     0.39%   0.148%
+
+       1.2% that CHANGES SIGN with separation is exactly the shape of a
+       spurious optimum, and bar 3's real effect is 55%, so this would not be
+       caught by looking at the answer. The rule n_theta >= 880 max(1, s/Lwl)
+       holds every band to 0.061% and is ENFORCED, not documented.
+    2. INTERSECTING DEMIHULLS. Thin-ship theory is linear in the hull surface
+       and integrates two overlapping centreplanes without complaint.
+    3. A NON-POSITIVE OR NaN SEPARATION quietly read as a monohull, which
+       would report a two-hull vessel as a one-hull one.
+    """
+    from navalai.geometry import G
+    from navalai.resistance import (N_THETA_MONOHULL, michell_rw,
+                                    michell_rw_separation_sweep,
+                                    n_theta_for_separation)
+
+    xs, zs, Y, B, _T = cat_demihull
+    u = 0.30 * math.sqrt(G * _CAT_L)
+
+    # 1. the shipped monohull sweep is NOT enough for a catamaran
+    assert n_theta_for_separation(_CAT_L, 0.5 * _CAT_L) > N_THETA_MONOHULL
+    with pytest.raises(ValueError, match="cannot resolve the interference"):
+        michell_rw(xs, zs, Y, u, 1000.0, n_theta=N_THETA_MONOHULL,
+                   separation=0.445 * _CAT_L)
+    # one node below the rule fails, the rule itself passes
+    need = n_theta_for_separation(_CAT_L, 2.0 * _CAT_L)
+    assert need == 1760
+    with pytest.raises(ValueError, match="cannot resolve the interference"):
+        michell_rw(xs, zs, Y, u, 1000.0, n_theta=need - 1,
+                   separation=2.0 * _CAT_L)
+    assert michell_rw(xs, zs, Y, u, 1000.0, n_theta=need,
+                      separation=2.0 * _CAT_L) > 0.0
+    # a sweep pins ONE grid, sized by its LARGEST member, so no point of it is
+    # compared against another point's quadrature error
+    with pytest.raises(ValueError, match="cannot resolve the interference"):
+        michell_rw_separation_sweep(xs, zs, Y, u, np.array([2.0, 20.0]),
+                                    1000.0, n_theta=880)
+
+    # 2. demihulls that intersect. The beam that matters is the one ON THE
+    #    GRID, 2*max(Y) — `wigley_offsets` stops just below z = 0, so the
+    #    gridded beam is 2.6e-6 short of the analytic B and using B here would
+    #    be asserting against a hull the integral never sees.
+    beam = 2.0 * float(Y.max())
+    assert beam < B and beam == pytest.approx(B, rel=1e-5)
+    for bad in (beam, 0.999 * beam, 0.5 * beam):
+        with pytest.raises(ValueError, match="INTERSECT"):
+            michell_rw(xs, zs, Y, u, 1000.0, separation=bad)
+    assert michell_rw(xs, zs, Y, u, 1000.0, separation=1.001 * beam) > 0.0
+
+    # 3. a separation that is not a length
+    # (`None` is NOT in this list: None is the monohull, and bar 1 pins it.)
+    for bad in (0.0, -3.0, float("nan"), float("inf"), "3", [4.0]):
+        with pytest.raises(ValueError, match="positive finite length"):
+            michell_rw(xs, zs, Y, u, 1000.0, separation=bad)
+    # ... and the refusal happens BEFORE any integration, so a NaN never
+    # reaches the theta-grid sizing that would raise a less informative error
+    with pytest.raises(ValueError, match="positive finite length"):
+        michell_rw(xs, zs, Y, 0.0, 1000.0, separation=float("nan"))

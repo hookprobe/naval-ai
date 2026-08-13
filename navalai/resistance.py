@@ -10,6 +10,14 @@ Validity: slender hulls, low-to-moderate Froude; known to overpredict at the
 humps by tens of percent (the literature's standing caveat) — which is why
 every number leaving this module carries tier='L1' and an uncertainty band.
 Friction: ITTC-1957 line with a Watanabe-style form factor.
+
+MULTI-HULL: `michell_rw(..., separation=s)` puts two identical demihulls at
+y = +-s/2 and returns the wave resistance of the pair, including their mutual
+wave interference. It is a pure addition — `separation=None` is the monohull
+and is bit-identical to what this module computed before it existed — and
+nothing in the genome, the grammar or `total_resistance` has been wired to it
+yet. See the derivation and the measured theta-resolution envelope above
+`catamaran_interference`.
 """
 
 from __future__ import annotations
@@ -167,18 +175,133 @@ class ResistanceResult:
     grid: dict = field(default_factory=dict)   # the Michell grid this ran on
 
 
-def michell_rw(xs: np.ndarray, zs: np.ndarray, Y: np.ndarray, speed: float,
-               rho: float = 1000.0, n_theta: int = 220) -> float:
-    """Wave resistance from a half-breadth grid Y[x, z] below the waterline."""
-    if speed <= 0.05:
-        return 0.0
-    k0 = G / speed**2
-    dydx = np.gradient(Y, xs, axis=0)
-    # theta grid dense near pi/2 (integrand peaky), via substitution theta = pi/2 * s^0.7
+# ---------------------------------------------------------------------------
+# MULTI-HULL WAVE INTERFERENCE — two demihulls, one factor, no genome change
+# ---------------------------------------------------------------------------
+#
+# THE LAMBDA FORM AND THE THETA FORM ARE THE SAME INTEGRAL. Stated here because
+# it is what makes the interference factor below safe to write: the literature
+# gives Michell either as
+#
+#     R_w = (4 rho g^2 / (pi U^2)) Int_0^{pi/2} |I(th)|^2 sec^3(th) dth
+# or  R_w = (4 rho g^2 / (pi U^2)) Int_1^{inf} |I|^2 lam^2/sqrt(lam^2-1) dlam
+#
+# (|I|^2 is written (Re I)^2 + (Im I)^2 in some references — the `re**2 + im**2`
+# of the loop below, one complex amplitude, not two independent ones.)
+#
+# and with lam = sec(th): dlam = sec th tan th dth = lam sqrt(lam^2 - 1) dth, so
+# sec^3(th) dth = lam^3 dlam / (lam sqrt(lam^2 - 1)) = lam^2/sqrt(lam^2-1) dlam.
+# Identical, term for term. This module ships the theta form and `michell_rw`
+# implements it verbatim (`vals[i] = (re**2 + im**2) * sc**3`, prefactor
+# `4 rho G^2 / (pi U^2)`), so a result derived in either form transfers.
+#
+# THE DERIVATION, done here rather than cited, because the transverse
+# wavenumber is the one place this can go silently wrong:
+#
+#   A free wave radiated at angle theta from the track has wave vector
+#   (k_x, k_y) = (k0 sec th, k0 sec^2 th sin th) with k = |k| = k0 sec^2 th.
+#   Both components are already IN this file and can be read off the code:
+#   the longitudinal one is the `phase = k0 * sc * xs` factor, and the full
+#   magnitude is the `k0 * sc**2 * zs` depth decay (a free wave decays as
+#   e^{k z} with the SAME k that sets its length). k_y = k sin th then follows,
+#   which is `k0 sec^2 th sin th` — the brief's expression, confirmed.
+#
+#   Thin-ship theory is LINEAR in the hull surface, so the Kochin amplitude of
+#   a source sheet translated to y = y0 picks up exactly e^{i k_y y0}. Two
+#   identical demihulls at y = +-s/2 therefore give
+#
+#       I_cat = I_demi (e^{i k_y s/2} + e^{-i k_y s/2}) = 2 I_demi cos(k_y s/2)
+#       |I_cat|^2 = 4 |I_demi|^2 cos^2(k_y s / 2)
+#
+#   so the whole change is one multiplicative factor under the theta integral.
+#
+# ONE CORRECTION TO THE BRIEF, and it does not change the formula: the factor
+# 4 cos^2(u) averages to **2** over u, not to 1. The brief's conclusion
+# (R_w(cat) -> 2 R_w(demi) as s -> inf) is right; the intermediate sentence
+# "the interference factor averages to 1" is not, and 4 cos^2 is what is
+# implemented.
+CATAMARAN_INTERFERENCE_AT_INFINITY = 2.0   # <4 cos^2(u)>_u, i.e. two demihulls
+
+# THE SHIPPED THETA GRID, AND THE ONE THE INTERFERENCE FACTOR NEEDS.
+#
+# `michell_rw`'s theta grid clusters toward pi/2 (`s**0.7`), which is right for
+# |I|^2 sec^3 and WRONG for the interference factor: the interference phase is
+# phi(th) = k0 s sec^2 th sin th, so dphi/dth = k0 s (1 + sin^2 th)/cos^3 th
+# grows as sec^3 while the node density grows far more slowly. The oscillation
+# is therefore worst-resolved exactly where the grid is coarsest.
+#
+# MEASURED 2026-08-13 on the Wigley demihull (L = 10 m, 121 x 25 offsets),
+# worst |error| over 25-91 separations per band at Fn 0.20 / 0.30 / 0.40 /
+# 0.45, against a converged reference (n_theta 40000 for the fixed-n_theta
+# columns, 60000 for the rule column; the reference itself moves 3e-5% between
+# 40000 and 160000, so it is not the thing being measured):
+#
+#     s / Lwl      n_theta 220   440     880     rule-compliant n_theta
+#     0.1 - 1.0        0.62%    0.23%   0.089%      880  ->  0.058%
+#     1.0 - 2.0        1.21%    0.39%   0.148%     1760  ->  0.061%
+#     2.0 - 5.0          -        -       -        4400  ->  0.021%
+#     5.0 - 10.0         -        -       -        8800  ->  0.026%
+#    10.0 - 20.0         -        -       -       17600  ->  0.018%
+#
+# So the shipped 220 nodes carry up to 1.2% of pure quadrature noise on the
+# interference term at separations an optimiser would sweep — noise that CHANGES
+# SIGN with separation, which is precisely the shape of a spurious optimum. The
+# rule `n_theta >= 880 * max(1, separation / Lwl)` holds every band above to
+# **0.061%**, and it is ENFORCED rather than documented: a separation the grid
+# cannot resolve is REFUSED, never returned (the `${VAR:-0}` defect class, see
+# docs/LESSONS.md — an unmeasurable metric is fatal, not a default).
+N_THETA_MONOHULL = 220
+N_THETA_PER_HULL_LENGTH_OF_SEPARATION = 880
+CATAMARAN_THETA_QUADRATURE_ERROR = 0.00061   # MEASURED worst, in-envelope
+
+# THE ASYMPTOTIC RESIDUAL, MEASURED AND EXPLAINED RATHER THAN TOLERATED.
+#
+# R_w(cat, s -> inf) / (2 R_w(demi)) does NOT reach 1 on the shipped grid; it
+# sits ~0.25-0.46% low, and the deficit does not shrink with n_theta. The cause
+# is the grid's LOWER END: `np.linspace(1e-4, 1.0, n)**0.7` starts at
+# theta_0 = 0.5 pi * 0.998 * (1e-4)^0.7 = 2.484e-3 rad for EVERY n_theta, so
+# the trapezoid omits [0, theta_0] in both cases — but the catamaran omits it
+# weighted by ~4 (phi(theta_0) = k0 s theta_0 is still << pi at any practical
+# separation) where the monohull-doubled reference omits it weighted by 2.
+#
+# PREDICTED deficit = (4 - 2) * vals(0) * theta_0 / (2 * Int vals dtheta):
+#
+#     Fn      predicted    measured (s/Lwl = 20, n_theta 17600)
+#     0.20     -0.4805%     -0.3427%   (-0.4811% at s/Lwl = 5)
+#     0.30     -0.2540%     -0.2440%
+#     0.40     -0.3300%     -0.3229%
+#
+# The prediction is the s -> inf limit of the sliver; the measured value walks
+# back toward zero once phi(theta_0) = k0 s theta_0 approaches pi, which for
+# Fn 0.20 at s/Lwl = 20 is 1.24 rad — hence the two Fn 0.20 entries. The
+# mechanism is IDENTIFIED, so the bar in `tests/test_phase1.py` is set AT the
+# worst measured residual and not at a round number chosen to swallow it.
+# MEASURED worst over Fn 0.20-0.45 x s/Lwl 5/10/20: 0.4811%, at Fn 0.20.
+CATAMARAN_ASYMPTOTIC_RESIDUAL = 0.0049
+
+
+def _theta_grid(n_theta: int) -> tuple[np.ndarray, np.ndarray]:
+    """The shipped theta sweep and its secants. Dense near pi/2 (integrand
+    peaky), via the substitution theta = pi/2 * s^0.7."""
     s = np.linspace(1e-4, 1.0, n_theta) ** 0.7
     thetas = 0.5 * math.pi * s * 0.998
-    sec = 1.0 / np.cos(thetas)
-    vals = np.empty(n_theta)
+    return thetas, 1.0 / np.cos(thetas)
+
+
+def _free_wave_vals(xs: np.ndarray, zs: np.ndarray, Y: np.ndarray,
+                    speed: float, thetas: np.ndarray,
+                    sec: np.ndarray) -> np.ndarray:
+    """|I(theta)|^2 sec^3(theta) for ONE centreplane — the expensive part.
+
+    Factored out of `michell_rw` verbatim so that a separation sweep pays the
+    x-z double integral ONCE instead of once per separation: the interference
+    factor is the only thing that depends on the separation, and it is a
+    multiply. Nothing here is reordered — the monohull result is bit-identical
+    (`tests/test_phase1.py::test_michell_monohull_is_bit_identical_...`).
+    """
+    k0 = G / speed**2
+    dydx = np.gradient(Y, xs, axis=0)
+    vals = np.empty(len(thetas))
     for i, (th, sc) in enumerate(zip(thetas, sec)):
         # zs must be <= 0 (below the actual free surface); clamp defensively
         depth = np.exp(np.minimum(k0 * sc**2 * zs, 0.0))[None, :]
@@ -188,8 +311,161 @@ def michell_rw(xs: np.ndarray, zs: np.ndarray, Y: np.ndarray, speed: float,
         re = np.trapezoid(fx * np.cos(phase), xs)
         im = np.trapezoid(fx * np.sin(phase), xs)
         vals[i] = (re**2 + im**2) * sc**3
+    return vals
+
+
+def catamaran_interference(k0: float, thetas: np.ndarray,
+                           separation: float) -> np.ndarray:
+    """|I_cat|^2 / |I_demi|^2 for two identical demihulls at y = +- s/2.
+
+    THE ONE HOME OF THE INTERFERENCE FACTOR. `4 cos^2(k_y s / 2)` with
+    k_y = k0 sec^2(theta) sin(theta); see the derivation above the constants.
+    Ranges over [0, 4]: 0 is total destructive cancellation of the free-wave
+    system at that radiation angle, 4 is the two demihulls radiating in phase,
+    and the theta average is 2 — two independent demihulls.
+    """
+    ky = k0 * (1.0 / np.cos(thetas)) ** 2 * np.sin(thetas)
+    return 4.0 * np.cos(0.5 * ky * float(separation)) ** 2
+
+
+def _separation_or_raise(Y: np.ndarray, separation) -> float:
+    """The separation as a float, or a refusal naming what is wrong with it."""
+    if not (isinstance(separation, (int, float, np.floating))
+            and math.isfinite(separation) and separation > 0.0):
+        raise ValueError(
+            f"michell_rw: separation = {separation!r} is not a positive finite "
+            f"length. A demihull spacing of zero, negative or NaN is not a "
+            f"degenerate boat, it is an unspecified one — refused rather than "
+            f"quietly treated as a monohull, which would report a two-hull "
+            f"vessel as a one-hull one.")
+    s = float(separation)
+    beam = 2.0 * float(np.max(Y))
+    if s <= beam:
+        raise ValueError(
+            f"michell_rw: separation {s:.4f} m is not greater than the "
+            f"demihull beam {beam:.4f} m, so the two demihull surfaces at "
+            f"y = +-{s / 2:.4f} m INTERSECT. Thin-ship theory is linear in the "
+            f"hull surface and will happily integrate that and return a "
+            f"number; it is not a hull.")
+    return s
+
+
+def n_theta_for_separation(lwl: float, separation: float) -> int:
+    """The theta-sweep size the interference factor needs at this separation.
+
+    `N_THETA_PER_HULL_LENGTH_OF_SEPARATION * max(1, s/Lwl)`, MEASURED — see the
+    table above that constant. Public because a caller sweeping separations
+    must pin ONE grid across the sweep (see `michell_rw_separation_sweep`).
+    """
+    return int(math.ceil(N_THETA_PER_HULL_LENGTH_OF_SEPARATION
+                         * max(1.0, float(separation) / float(lwl))))
+
+
+def _require_theta_resolution(lwl: float, separation: float,
+                              n_theta: int) -> None:
+    need = n_theta_for_separation(lwl, separation)
+    if n_theta < need:
+        raise ValueError(
+            f"michell_rw: n_theta = {n_theta} cannot resolve the interference "
+            f"oscillation at separation {separation:.4f} m on a {lwl:.4f} m "
+            f"waterline; {need} nodes are required "
+            f"(N_THETA_PER_HULL_LENGTH_OF_SEPARATION * max(1, s/Lwl)). "
+            f"MEASURED at 220 nodes over Fn 0.20-0.45: up to 1.2% of "
+            f"quadrature error that CHANGES SIGN with separation, which an "
+            f"optimiser reads as a real optimum. Refused rather than returned.")
+
+
+def michell_rw(xs: np.ndarray, zs: np.ndarray, Y: np.ndarray, speed: float,
+               rho: float = 1000.0, n_theta: int | None = None,
+               separation: float | None = None) -> float:
+    """Wave resistance from a half-breadth grid Y[x, z] below the waterline.
+
+    `separation` is the transverse spacing [m] between the two demihull
+    CENTREPLANES of a catamaran, and `Y` is then ONE demihull's half-breadth
+    grid; the return is the wave resistance of the WHOLE vessel (both
+    demihulls). `separation=None` is a monohull and is this function's
+    behaviour before multi-hull support existed, bit for bit.
+
+    `n_theta=None` resolves to `N_THETA_MONOHULL` (220, unchanged) for a
+    monohull and to the MEASURED rule for a catamaran — see
+    `N_THETA_PER_HULL_LENGTH_OF_SEPARATION`. An explicit `n_theta` below that
+    rule is REFUSED for a catamaran, because the interference term's quadrature
+    error changes sign with separation and would be read as physics.
+
+    WHY THE PHYSICS GETS BETTER, NOT WORSE, WHEN THE ANSWER IS A CATAMARAN:
+    Michell's derivation assumes beam << length. MEASURED 2026-08-13 at commit
+    c7b7c4b over 4000 grammar samples (`grammar.sample(4000, default_rng(0))`,
+    all 4000 L0-feasible; `grammar.L_OVER_B_BAND` is (2.2, 8.5) so the whole
+    admissible band is beamy): median L/B **3.96**, 5th-95th 2.39-7.44, and
+    `tests/test_phase0.mid_params` — the hull most of this repository's
+    measurements are taken on — is L/B **3.13**. Every one of those violates
+    the theory's own slenderness assumption; the model has been running outside
+    its envelope on the monohull path all along. Splitting the same
+    displacement into two demihulls at fixed length roughly halves each
+    demihull's beam, so the reference hull's 3.13 becomes ~6.3 and a genuinely
+    slender demihull (L/B 15, as catamaran practice runs) lands squarely in the
+    regime Michell derived. The interference factor is exact within thin-ship
+    theory, and the theory itself is being asked a fairer question.
+    """
+    # The separation is validated BEFORE anything is integrated: a NaN spacing
+    # must not first be turned into a theta-grid size, and a refusal must not
+    # cost the x-z double integral it is refusing to use.
+    if separation is not None:
+        lwl = float(xs[-1] - xs[0])
+        sep = _separation_or_raise(Y, separation)
+        n_theta = (n_theta_for_separation(lwl, sep) if n_theta is None
+                   else int(n_theta))
+        _require_theta_resolution(lwl, sep, n_theta)
+    else:
+        n_theta = N_THETA_MONOHULL if n_theta is None else int(n_theta)
+    if speed <= 0.05:
+        return 0.0
+    thetas, sec = _theta_grid(n_theta)
+    vals = _free_wave_vals(xs, zs, Y, speed, thetas, sec)
+    if separation is not None:
+        vals = vals * catamaran_interference(G / speed**2, thetas, sep)
     integral = np.trapezoid(vals, thetas)
     return float(4.0 * rho * G**2 / (math.pi * speed**2) * integral)
+
+
+def michell_rw_separation_sweep(xs: np.ndarray, zs: np.ndarray, Y: np.ndarray,
+                                speed: float, separations: np.ndarray,
+                                rho: float = 1000.0,
+                                n_theta: int | None = None) -> np.ndarray:
+    """`michell_rw` over many separations, paying the x-z integral ONCE.
+
+    The demihull free-wave spectrum |I(theta)|^2 sec^3(theta) does not depend on
+    the separation, so a sweep of N separations costs one spectrum plus N
+    multiplies rather than N spectra. MEASURED on the Wigley demihull at
+    n_theta = 880: the spectrum is 14.4 ms and each additional separation is
+    ~0.05 ms, so a 60-point sweep is 17 ms instead of 0.9 s.
+
+    `n_theta` is resolved ONCE, from the LARGEST separation asked for, so every
+    point of the sweep is on one grid and on the right side of the resolution
+    rule — a sweep whose members sat on different grids would compare
+    quadrature errors as if they were interference.
+    """
+    seps = np.asarray(separations, dtype=float)
+    if seps.ndim != 1 or seps.size == 0:
+        raise ValueError("michell_rw_separation_sweep: `separations` must be a "
+                         "non-empty 1-D array of demihull spacings [m]")
+    lwl = float(xs[-1] - xs[0])
+    checked = [_separation_or_raise(Y, s) for s in seps]
+    n_theta = (n_theta_for_separation(lwl, max(checked)) if n_theta is None
+               else int(n_theta))
+    for s in checked:
+        _require_theta_resolution(lwl, s, n_theta)
+    if speed <= 0.05:
+        return np.zeros_like(seps)
+    thetas, sec = _theta_grid(n_theta)
+    vals = _free_wave_vals(xs, zs, Y, speed, thetas, sec)
+    k0 = G / speed**2
+    pre = 4.0 * rho * G**2 / (math.pi * speed**2)
+    out = np.empty_like(seps)
+    for i, s in enumerate(checked):
+        out[i] = pre * np.trapezoid(
+            vals * catamaran_interference(k0, thetas, s), thetas)
+    return out
 
 
 def ittc57_cf(speed: float, lwl: float, nu: float | None = None,
