@@ -15,29 +15,44 @@ other direction ("how far off the hull did the mesh wander") is reported
 separately by `surface_report` as `mesh_to_analytic`, because a voxel remesh
 can inflate a surface outward and a one-sided metric would not see it.
 
-VALIDATED AGAINST THE PUBLISHED STAGE A TABLE rather than asserted. Commit
+~~VALIDATED AGAINST THE PUBLISHED STAGE A TABLE rather than asserted. Commit
 bbf1a47 recorded hull 14's post-fix row as
 
     x/L   0.05  0.15  0.25  0.35  0.45  0.55  0.65  0.75  0.85  0.95
           0.01  0.11  0.36  0.83  1.36 23.53  1.29  2.62  3.03 102.92
 
-and this module reproduces 0.01 / 0.11 / 0.36 / 0.83 / 1.37 / 23.54 / 1.29 /
-2.62 / 3.03 / 102.92 at the shipped 600x120. The 23.54 against 23.53 is the
-x_mb knuckle: the peak is attained exactly at x = x_mb*L and whether a probe
-lands on it depends on the probe count, which read 23.50 / 23.07 / 23.50 at
-801 / 2001 / 4001 stations. `analytic_probe_points` therefore INSERTS x_mb
-into the probe abscissae, after which the bin reads 23.54 at all three
-densities. A metric whose value depends on how finely you sampled it is not a
-metric; the fix is to sample the feature, not to pick a number.
+and this module reproduces 0.01 / 0.11 / 0.36 / 0.83 / 1.37 / 23.54 / ...~~
 
-`tests/test_blender_hull.py` holds that table as a bar.
+**THE STAGE A TABLE IS VOID AS A CALIBRATION, 2026-08-13.** It is a table for
+ONE HULL — `sample_valid(25, MissionSpec(), seed=0)[14]` on the FIFTEEN-
+parameter genome — and plates P1/P2 took the genome to sixteen (`p_bow` and
+`p_stern` dropped; `Cp`, `lcb` and `roundness` added). Index 14 of that call
+is now a different boat, so there is no arithmetic that carries the row
+across; this is `admissibility.CALIBRATION_GENOME_N_PARAMS` in a second
+place, and `tests/test_blender_hull.py` states it as a PROBE on
+`grammar.N_PARAMS` rather than as prose, so it un-asserts itself if the
+genome ever goes back.
+
+What survives the genome change is the METHOD, and it is kept: the peak in
+the x_mb bin is attained exactly at x = x_mb*L, so whether a probe lands on
+it depended on the probe count (23.50 / 23.07 / 23.50 at 801 / 2001 / 4001
+stations). `analytic_probe_points` INSERTS x_mb into the probe abscissae, and
+the bin then reads the same value at all three densities. A metric whose value
+depends on how finely you sampled it is not a metric; the fix is to sample the
+feature, not to pick a number.
+
+The ruler's live fence is therefore a CONVERGENCE statement, which no genome
+can stale: deviation -> 0 as the triangulation is refined toward the analytic
+surface. `tests/test_blender_hull.py` holds it, together with a re-measured
+table for the shipped 600x120 path.
 """
 
 from __future__ import annotations
 
 import numpy as np
 
-from ..geometry import Hull, station_geometry
+from ..geometry import (Hull, design_waterline, sample_section,
+                        station_geometry)
 from ..grammar import named
 
 #: Probe density. 2001 longitudinal stations x 61 section parameters = 242121
@@ -52,16 +67,62 @@ PROBE_NT = 61
 N_BINS = 10
 
 
+def _section_points(hull: Hull, xs: np.ndarray, nt: int) -> np.ndarray:
+    """(len(xs), 2*nt-1, 3) points ON the analytic section at each x in `xs`.
+
+    Delegates the SHAPE to `geometry.sample_section`, which is the one
+    definition of it. See `analytic_probe_points` for why this is not a
+    keel -> chine -> sheer straight-leg walk any more.
+    """
+    zk, yc, zc, ys, zs = station_geometry(hull.params, xs)
+    y_wl = design_waterline(hull.params, xs)
+    rho = hull.roundness
+    out = np.empty((len(xs), 2 * nt - 1, 3))
+    for i in range(len(xs)):
+        out[i, :, 0] = xs[i]
+        out[i, :, 1:] = sample_section((0.0, zk[i]), (yc[i], zc[i]),
+                                       (ys[i], zs[i]), (y_wl[i], 0.0),
+                                       rho, nt - 1, nt - 1)
+    return out
+
+
 def analytic_probe_points(hull: Hull, nx: int = PROBE_NX,
                           nt: int = PROBE_NT) -> np.ndarray:
     """(N, 3) points ON the analytic moulded surface, starboard side.
 
     Evaluates `station_geometry` — the ONE definition of the moulded surface's
-    edge curves — at `nx` abscissae PLUS x_mb*Lwl, and walks each section
-    polyline keel -> chine -> sheer at `nt` parameters per panel. These are
-    points on the hull the grammar defines, not on any mesh of it: the
-    stations are NOT the 41 knots `Hull` samples, so a probe generally falls
-    between two of them and sees the linear-in-x interpolation error too.
+    edge curves — at `nx` abscissae PLUS x_mb*Lwl, and samples the SECTION
+    SHAPE FUNCTION (`geometry.sample_section`) at `nt` parameters per panel.
+    These are points on the hull the grammar defines, not on any mesh of it:
+    the stations are NOT the 41 knots `Hull` samples, so a probe generally
+    falls between two of them and sees the linear-in-x interpolation error too.
+
+    THE PROBES USED TO BE A STRAIGHT-LEG WALK keel -> chine -> sheer, and
+    plate P2 made that the WRONG SURFACE. `roundness` fillets the bilge with a
+    quadratic Bezier, so a probe stepped linearly from the keel point to the
+    chine point lies INSIDE the hull by the depth of the fillet, and the
+    distance from it to the (correct) triangulation is the fillet, not a mesh
+    error.
+
+    MEASURED 2026-08-13 on `sample_valid(25, MissionSpec(), seed=0)[14]`
+    (roundness 0.327, Lwl 13.705 m) at the shipped 600x120, max analytic-to-
+    mesh deviation in mm by x/L bin:
+
+        x/L         0.05  0.15  0.25  0.35  0.45  0.55  0.65  0.75  0.85  0.95
+        straight   28.89 34.70 37.05 37.21 34.99 43.64 34.92 34.92 30.83 21.70
+        sampled     7.09  0.66  1.07  0.79  2.53 33.95  2.04  1.40  2.11  3.04
+
+    A ruler reading 30-40 mm of "error" in EVERY bin on a mesh that is right
+    is defect class 1 turned inside out: a quantity that could not be measured
+    (this ruler had no way to express a radiused bilge) scored as a measured
+    one, and the number it produced was the design gene. The flat ~35 mm floor
+    is the tell — a real triangulation error varies along the hull; a constant
+    one is the metric describing a shape difference it invented.
+
+    At `roundness == 0` `sample_section` IS the old two-segment linear
+    interpolation, bit for bit (its own contract, fenced at 1e-12 by
+    `tests/test_geometry_kernel.py`), so nothing about the hard-chine numbers
+    in `docs/research/BLENDER.md` moves.
 
     Starboard only. The surface is mirror-symmetric and every triangulation
     compared here is built symmetric, so probing both sides doubles the cost
@@ -70,14 +131,7 @@ def analytic_probe_points(hull: Hull, nx: int = PROBE_NX,
     L = float(hull.x[-1])
     xs = np.unique(np.concatenate([np.linspace(0.0, L, nx),
                                    [named(hull.params)["x_mb"] * L]]))
-    zk, yc, zc, ys, zs = station_geometry(hull.params, xs)
-    out = []
-    for t in np.linspace(0.0, 1.0, nt):                 # keel -> chine
-        out.append(np.stack([xs, yc * t, zk + (zc - zk) * t], axis=1))
-    for t in np.linspace(0.0, 1.0, nt)[1:]:             # chine -> sheer
-        out.append(np.stack([xs, yc + (ys - yc) * t, zc + (zs - zc) * t],
-                            axis=1))
-    return np.vstack(out)
+    return _section_points(hull, xs, nt).reshape(-1, 3)
 
 
 def analytic_closed_points(hull: Hull, nx: int = 401, nt: int = 41,
@@ -94,23 +148,25 @@ def analytic_closed_points(hull: Hull, nx: int = 401, nt: int = 41,
     the nearest point on the SHELL. Two different surfaces reading the same
     1.70 m is the signature of measuring the wrong thing.
 
-    The stem cap is not included: at x = Lwl the plan-form `w` is 0, so
-    y_chine and y_sheer are both 0 and the station collapses to a segment of
-    the centreline, which the shell cloud already contains.
+    The stem cap is not included: at x = Lwl the sectional area curve a(x)
+    reaches 0, so y_chine and y_sheer are both 0 and the station collapses to a
+    segment of the centreline, which the shell cloud already contains.
+
+    THE TRANSOM CAP IS SAMPLED FROM `sample_section` TOO, for the same reason
+    `analytic_probe_points` is: it used to be the straight-leg walk, so on a
+    radiused bilge the cap's cloud was cut across the fillet and a legitimate
+    transom vertex read as a wanderer.
     """
     L = float(hull.x[-1])
     xs = np.linspace(0.0, L, nx)
-    zk, yc, zc, ys, zs = station_geometry(hull.params, xs)
+    _zk, _yc, _zc, ys, zs = station_geometry(hull.params, xs)
     out = [analytic_probe_points(hull, nx, nt)]
     # deck lid: flat strip at z_sheer between the two sheer lines
     for s in np.linspace(-1.0, 1.0, ns):
         out.append(np.stack([xs, ys * s, zs], axis=1))
     # transom cap: the x = 0 section, filled laterally
-    z0k, y0c, z0c, y0s, z0s = (v[0] for v in (zk, yc, zc, ys, zs))
-    tl = np.linspace(0.0, 1.0, nt)
-    sec_y = np.concatenate([y0c * tl, y0c + (y0s - y0c) * tl[1:]])
-    sec_z = np.concatenate([z0k + (z0c - z0k) * tl,
-                            z0c + (z0s - z0c) * tl[1:]])
+    sec = _section_points(hull, xs[:1], nt)[0]
+    sec_y, sec_z = sec[:, 1], sec[:, 2]
     for s in np.linspace(-1.0, 1.0, ns):
         out.append(np.stack([np.zeros_like(sec_y), sec_y * s, sec_z], axis=1))
     P = np.vstack(out)
@@ -198,7 +254,29 @@ def chine_dihedral_analytic(hull: Hull, n: int = 600) -> np.ndarray:
     The reference the mesh is judged against. Both panels are straight
     segments in the section plane and ruled in x, so the normal jump across
     the chine is a property of the hull, not of any triangulation.
+
+    IT IS A PROPERTY OF A KNUCKLE, SO IT REFUSES A RADIUSED BILGE — NaN, not a
+    number. Plate P2's `roundness` replaces the corner with a quadratic Bezier
+    whose two control legs are exactly the K -> C and C -> S segments this
+    function differences, so the formula keeps returning the angle of a corner
+    THE SURFACE NO LONGER HAS.
+
+    MEASURED 2026-08-13 on `sample_valid(25, MissionSpec(), seed=0)[14]`
+    (roundness 0.327): this function returned **84.90 deg** while
+    `chine_dihedral_measured` on the correct 600x120 triangulation of the same
+    hull read **0.53 deg** 5 mm off the bilge — and the 0.53 was right. It is
+    the control arm of `tests/test_blender_hull.py::
+    test_a_005_voxel_remesh_destroys_the_chine` that caught it, by asserting
+    the two agree; had that arm not existed, a round-bilge hull would have
+    been reported as a destroyed chine on every surface including the shipped
+    one. Returning the corner angle anyway is defect class 1: a quantity this
+    function cannot measure on this hull, scored as a measurement.
+
+    A round bilge's sharpness is what `chine_dihedral_measured`'s OFFSET SWEEP
+    reports, and that metric needs no analytic corner to be read.
     """
+    if hull.roundness > 0.0:
+        return np.full(int(n), np.nan)
     L = float(hull.x[-1])
     xs = np.linspace(0.0, L, n)
     zk, yc, zc, ys, zs = station_geometry(hull.params, xs)
@@ -277,7 +355,15 @@ def chine_dihedral_measured(hull: Hull, V: np.ndarray, T: np.ndarray,
             "median_at_offset_m": float(offsets_m[0]),
             "sweep_median_deg": [sweep[f"{o:g}"]["median_deg"]
                                  for o in offsets_m],
+            # NaN on a radiused bilge, and the note says why rather than
+            # leaving a reader to guess whether the measurement failed or the
+            # reference does not exist. See `chine_dihedral_analytic`.
             "analytic_median_deg": float(np.median(ref)),
+            "analytic_note": (
+                "knuckle reference REFUSED: roundness "
+                f"{hull.roundness:.4f} > 0, the corner is filleted away"
+                if hull.roundness > 0.0 else "hard chine"),
+            "roundness": float(hull.roundness),
             "n_stations": int(n)}
 
 
