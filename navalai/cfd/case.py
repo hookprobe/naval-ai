@@ -586,8 +586,16 @@ functions {{
   // MEASURED on KCS at t=75.97: forces reported 153.16 N where forceCoeffs,
   // which reads the real rho field, reported 98.03 N — a factor 1.56, all of
   // it in the viscous term. The reference DTCHull case sets rhoInf only.
+  // BOTH HULL PATCHES. The hull surface is split into `hull` and `hull_bow` so
+  // that slamming pressure can be instrumented (see `split_bow_region`), and a
+  // `patches (hull)` left alone here would have silently dropped the forward
+  // 20% of LWL out of every drag this project reports — a change to the
+  // headline number disguised as an unrelated feature. `forces.C` reads this
+  // as a `wordRes` and a regex would work, but the two names are known, so
+  // they are named: a regex that stops matching is silent, a missing patch
+  // name is not.
   forces {{
-    type forces; libs (forces); patches (hull);
+    type forces; libs (forces); patches (hull hull_bow);
     // BIN THE FORCE ALONG THE HULL. A single total tells you the answer is
     // wrong; the distribution tells you WHERE. MEASURED across six runs,
     // viscous drag is consistently right (1.15-1.22x ITTC-57) while pressure
@@ -604,7 +612,7 @@ functions {{
   // post-processing. It caught a double-counting bug in parse_forces that had
   // inflated every drag this project reported.
   forceCoeffs {{
-    type forceCoeffs; libs (forces); patches (hull);
+    type forceCoeffs; libs (forces); patches (hull hull_bow);
     rhoInf {rho_water}; CofR (0 0 0);
     liftDir (0 0 1); dragDir (-1 0 0); pitchAxis (0 1 0);
     magUInf {speed_abs}; lRef {lwl}; Aref {aref:.6f};
@@ -617,6 +625,82 @@ functions {{
   yPlus {{
     type yPlus; libs (fieldFunctionObjects);
     writeControl writeTime;
+  }}
+  // BOW SLAMMING PRESSURE, WHICH THIS PROJECT COULD NOT MEASURE AT ALL
+  // (plate P6). MEASURED 2026-08-13: `grep -c
+  // "surfaceFieldValue\\|hull_bow\\|bowSlam"` over this file returned 0. The
+  // analytic companion is `seakeeping.slam_pressure` / `slam_pressure_band`;
+  // the two are compared, never shared.
+  //
+  // IT IS NAMED `bowSlammingPressure` BECAUSE THAT IS ALL IT IS. The target
+  // vessel is a CATAMARAN, and for a catamaran the governing slam load is
+  // usually CROSS-STRUCTURE (WET-DECK) slamming — the bridge deck between the
+  // demihulls impacting the wave surface in head seas — not bow slamming. A
+  // wave-piercing bow is specifically designed to reduce bow slam and does
+  // nothing whatever for the wet deck. So a comfortable number out of this
+  // function object is NOT evidence that the vessel is safe in a seaway, and
+  // there is no wet-deck instrument in this case at all. The same caveat is
+  // written into every generated `case.info`, because a run directory outlives
+  // the reader who knew what it measured.
+  //
+  // Wiring the wet-deck case later is a second CALL SITE, never a second
+  // implementation (`gate2m.py` shipped a second GCI that returned -27.027%
+  // on a diverging family and printed PASS). It needs: a `wet_deck` region cut
+  // from the cross-structure underside — a HORIZONTAL cut at the underside z,
+  // not a longitudinal cut at the stem, so `split_bow_region` gains a
+  // predicate rather than a copy — the same `surfaceFieldValue` block pointed
+  // at it, and on the analytic side `slam_pressure` called with the wet-deck
+  // deadrise (near zero for a flat bridge deck, which is exactly where
+  // `wagner_impact_cp` blows up) and the RELATIVE vertical velocity between
+  // deck and wave surface rather than a bow entry velocity.
+  //
+  // `max`, NOT `average`, AND THE REASON IS THE SAME ONE THAT WRECKED y+.
+  // CLAUDE.md records it for the `hull` patch: the patch includes the DECK and
+  // the topsides, which sit in AIR, and those dry faces DOMINATE any average
+  // (patch-average y+ read 7508, implying a 177 mm first cell against a 104 mm
+  // local hull cell — a number about air, wearing the units of the wall). The
+  // bow patch carries the same hazard, and worse: the stem region is mostly
+  // topside by area. An area-average of p_rgh over it would be an average of
+  // one wetted impact against a large dry remainder near zero, i.e. a slam
+  // pressure that falls as the impact area shrinks. A MAXIMUM is immune to
+  // that — an air face cannot raise it — and a peak impact pressure is the
+  // quantity the Wagner model predicts anyway. The price is that a max is a
+  // single sample: `docs/LESSONS.md` says a single sample is not a
+  // measurement, so what gets quoted is the DISTRIBUTION of this signal over a
+  // settled record, not one line of the .dat.
+  //
+  // `p_rgh`, NOT `p`. p_rgh = p - rho*g*h, so it is already the DYNAMIC part;
+  // `p` would carry the hydrostatic head and make the reported maximum a
+  // function of how deep the deepest face on the patch is, which is a property
+  // of the draft and not of the impact. It also makes the comparison against
+  // `0.5 rho V^2 C_p` dimensionally like-for-like.
+  //
+  // `writeControl timeStep; writeInterval 10` DELIBERATELY DEVIATES from the
+  // `writeTime` this was specified with. `writeTime` fires with
+  // `purgeWrite`/`writeInterval`, i.e. TEN times over the whole run: a slam
+  // lasts milliseconds, and ten samples of a 20 s record cannot contain a peak.
+  // `forces` above already samples every 10 timesteps for exactly this reason,
+  // and this is a patch reduction, so it costs the same as that one.
+  //
+  // `writeFields false` IS MANDATORY, not decoration: `fieldValue::read` calls
+  // `dict.readEntry("writeFields", ...)`, which FATALs when the entry is
+  // absent. Same shape as the `meshQualityControls/relaxed` sub-dict that
+  // killed a run AFTER the mesh was built.
+  //
+  // If the split failed and there is no `hull_bow` patch, `surfaceFieldValue`
+  // is STRICT by default and raises with "No matching patches" plus the list
+  // of patch names it does know. That is the behaviour we want: an instrument
+  // pointed at nothing must stop the run, not report nothing and let a reader
+  // score the absence as zero pressure.
+  bowSlammingPressure {{
+    type            surfaceFieldValue;
+    libs            (fieldFunctionObjects);
+    regionType      patch;
+    name            {bow_patch};
+    operation       max;
+    fields          ( p_rgh );
+    writeFields     false;
+    writeControl    timeStep; writeInterval 10;
   }}
 }}
 """
@@ -679,7 +763,10 @@ dynamicFvMesh       dynamicMotionSolverFvMesh;
 motionSolverLibs    (sixDoFRigidBodyMotion);
 motionSolver        sixDoFRigidBodyMotion;
 
-patches             (hull);
+// BOTH hull patches move as one rigid body. Naming only `hull` would leave the
+// bow patch behind while the rest of the hull sinks and trims — a torn surface,
+// not a degraded one. `sixDoFRigidBodyMotionSolver` reads this as a wordReList.
+patches             (hull hull_bow);
 // Morphing zone: rigid within innerDistance of the hull, undeformed beyond
 // outerDistance, blended between. Both scale with Lwl so the case is
 // Froude-similar at any hull size.
@@ -730,7 +817,7 @@ boundaryField
     bottom     {{ type fixedValue; value uniform (0 0 0); }}
     {side1_pd_entry}
     side2      {{ type fixedValue; value uniform (0 0 0); }}
-    hull       {{ type calculated; }}
+    "hull.*"   {{ type calculated; }}
 }}
 """
 
@@ -878,10 +965,29 @@ numberOfSubdomains {np};
 method scotch;
 """
 
+# `geometricTestOnly yes` IS LOAD-BEARING, NOT TIDINESS. Its default is NO,
+# and with the default `surfaceFeatures::classifyFeatureAngles` marks EVERY
+# edge whose two triangles belong to different STL regions as a REGION feature
+# edge, before any angle test is applied
+# (src/meshTools/triSurface/surfaceFeatures/surfaceFeatures.C: `if
+# (!geometricTestOnly && surf_[face0].region() != surf_[face1].region())`).
+# Since `split_bow_region` now ships hull.stl as two solids, the default would
+# have written a closed feature LOOP around the hull at the bow cut into
+# hull.eMesh, and snappy snaps to feature edges — inventing a sharp crease
+# across a surface that is smooth there, at exactly the station where the
+# forefoot curvature is highest. That is a fabricated geometric feature, i.e.
+# a DIFFERENT HULL, not a worse mesh.
+#
+# With it set, the extracted feature set is a pure function of the angle test
+# and is therefore BIT-IDENTICAL to what this dict extracted before the split
+# — which is the property that lets the bow patch be called a pure instrument
+# addition. `tests/test_slamming.py` asserts the entry is present; the
+# existing `includedAngle 150` bar (30 deg) is untouched, and
+# `tests/test_stl_forensics.py` still owns it.
 SURFACE_FEATURES = """FoamFile { version 2.0; format ascii; class dictionary; object surfaceFeatureExtractDict; }
 hull.stl {
   extractionMethod extractFromSurface;
-  extractFromSurfaceCoeffs { includedAngle 150; }
+  extractFromSurfaceCoeffs { includedAngle 150; geometricTestOnly yes; }
   writeObj no;
 }
 """
@@ -927,6 +1033,16 @@ simulationType RAS;
 RAS { RASModel kOmegaSST; turbulence on; printCoeffs on; }
 """
 
+# `"hull.*"` IN EVERY FIELD FILE, AND IT IS A SINGLE SOURCE, NOT A SHORTHAND.
+# The hull is two patches now (`hull` and `hull_bow`; see `split_bow_region`),
+# and they are the SAME WALL — same wall functions, same no-slip, same
+# fixedFluxPressure. Writing the entry twice would be this codebase's signature
+# defect applied to boundary conditions, and the drift it invites is silent:
+# the bow keeping `noSlip` while the rest of the hull moves would put a
+# spurious mass flux through the one part of the surface that is slamming.
+# OpenFOAM matches boundaryField keys as regexes, so one entry governs both,
+# and a patch that matches NO entry is a fatal "cannot find patchField entry" —
+# the missing-BC failure is loud, which is why a regex is safe here.
 FIELD_U = """FoamFile {{ version 2.0; format ascii; class volVectorField; object U; }}
 dimensions [0 1 -1 0 0 0 0];
 internalField uniform (-{u} 0 0);
@@ -938,7 +1054,7 @@ boundaryField {{
   bottom     {{ type slip; }}
   side1      {{ type slip; }}
   side2      {{ type slip; }}
-  hull       {{ {hull_u} }}
+  "hull.*"   {{ {hull_u} }}
 }}
 """
 
@@ -963,7 +1079,7 @@ boundaryField {
   bottom     { type fixedFluxPressure; value uniform 0; }
   side1      { type fixedFluxPressure; value uniform 0; }
   side2      { type fixedFluxPressure; value uniform 0; }
-  hull       { type fixedFluxPressure; value uniform 0; }
+  "hull.*"   { type fixedFluxPressure; value uniform 0; }
 }
 """
 
@@ -982,7 +1098,7 @@ boundaryField {
   bottom     { type zeroGradient; }
   side1      { type zeroGradient; }
   side2      { type zeroGradient; }
-  hull       { type zeroGradient; }
+  "hull.*"   { type zeroGradient; }
 }
 """
 
@@ -996,7 +1112,7 @@ boundaryField {{
   bottom     {{ type slip; }}
   side1      {{ type slip; }}
   side2      {{ type slip; }}
-  hull       {{ type kqRWallFunction; value uniform {k_in}; }}
+  "hull.*"   {{ type kqRWallFunction; value uniform {k_in}; }}
 }}
 """
 
@@ -1010,7 +1126,7 @@ boundaryField {{
   bottom     {{ type slip; }}
   side1      {{ type slip; }}
   side2      {{ type slip; }}
-  hull       {{ type omegaWallFunction; value uniform {w_in}; }}
+  "hull.*"   {{ type omegaWallFunction; value uniform {w_in}; }}
 }}
 """
 
@@ -1024,14 +1140,25 @@ boundaryField {
   bottom     { type calculated; value uniform 0; }
   side1      { type calculated; value uniform 0; }
   side2      { type calculated; value uniform 0; }
-  hull       { type nutkWallFunction; value uniform 0; }
+  "hull.*"   { type nutkWallFunction; value uniform 0; }
 }
 """
 
 SNAPPY_STUB = """FoamFile {{ version 2.0; format ascii; class dictionary; object snappyHexMeshDict; }}
 castellatedMesh {castellate}; snap {do_snap}; addLayers {do_layers};
 geometry {{
-  hull.stl {{ type triSurfaceMesh; name hull; }}
+  // TWO REGIONS, ONE SURFACE. hull.stl ships as two named solids (see
+  // `split_bow_region`), and the `regions` sub-dict maps each to a patch name
+  // VERBATIM — searchableSurfaces.C uses the `name` value as the global region
+  // name with no surface prefix, and snappyHexMesh.C then creates one patch
+  // per global region called exactly that. So the aft solid keeps the patch
+  // name `hull` that every other dictionary, script and post-processor in this
+  // project addresses, and only the forward faces become `hull_bow`.
+  // A name here that does not match a solid in the file is FATAL
+  // ("Unknown region name"), which is the failure mode we want.
+  hull.stl {{ type triSurfaceMesh; name hull;
+              regions {{ {stl_main_solid} {{ name {hull_patch}; }}
+                        {stl_bow_solid}  {{ name {bow_patch}; }} }} }}
   freeSurface {{ type searchableBox; min ({fs_x0} {fs_y0} {fs_z0});
                                      max ({fs_x1} {fs_y1} {fs_z1}); }}
 }}
@@ -1060,7 +1187,16 @@ addLayersControls {{
   // the wall-function's valid band -- the GCI then bounds OUTER-flow
   // discretisation with the near-wall treatment fixed, which is the honest
   // reading of it and is stated in case.info.
-  relativeSizes false; layers {{ hull {{ nSurfaceLayers {n_layers}; }} }}
+  // ONE ENTRY, BOTH HULL PATCHES, via a regex — `layerParameters.C` reads each
+  // key as a `wordRe` and expands it through `boundaryMesh.patchSet`, which is
+  // how the motorBike tutorial layers ~60 patches from a single line. Writing
+  // `hull` and `hull_bow` as two entries would be the same number declared
+  // twice, and the failure it invites is the worst kind here: a bow patch left
+  // at zero layers is a PARTIAL layer field, and CLAUDE.md records that partial
+  // stacks — not full ones and not absent ones — are what fold cells.
+  // A regex matching nothing is only an IOWarning in snappy, so
+  // `tests/test_slamming.py` asserts the pattern matches both names.
+  relativeSizes false; layers {{ "hull.*" {{ nSurfaceLayers {n_layers}; }} }}
   expansionRatio {layer_expansion}; firstLayerThickness {first_layer:.6e};
   minThickness {min_thickness:.6e}; nGrow 0;
   // featureAngle is the angle ACROSS WHICH LAYERS ARE ALLOWED TO CONTINUE.
@@ -1224,6 +1360,229 @@ def hull_to_stl(hull: Hull, path: Path, nx: int = 80, nz: int = 16) -> str:
     data = "\n".join(lines).encode()
     path.write_bytes(data)
     return hashlib.sha256(data).hexdigest()
+
+
+# ---------------------------------------------------------------------------
+# THE BOW PATCH — the instrument that makes P_slam MEASURABLE (plate P6)
+#
+# MEASURED 2026-08-13, before this change:
+#     grep -c "surfaceFieldValue\|hull_bow\|bowSlam" navalai/cfd/case.py  ->  0
+# `forces`, `forceCoeffs` and `yPlus` all existed and worked; this one family
+# was simply absent, and it could not be added because the hull was ONE patch
+# and a `surfaceFieldValue` needs something to point at. This is a pure
+# instrument addition: no genome, no hull, no physics parameter changes.
+#
+# PATCH NAMING IS NOT GUESSED. Read out of the v2606 source rather than from
+# memory, because getting it wrong renames the patch every other dictionary in
+# this file addresses:
+#   - src/meshTools/searchableSurfaces/searchableSurfaces/searchableSurfaces.C
+#     builds the GLOBAL region name as the surface `name` when the surface has
+#     exactly ONE region, as "<surface>_<region>" when it has several, and as
+#     the VERBATIM `regions { <local> { name X; } }` value when one is given.
+#   - applications/utilities/mesh/generation/snappyHexMesh/snappyHexMesh.C then
+#     creates one patch per global region, named `regNames[i]` with NO prefix.
+# So `regions { main { name hull; } bow { name hull_bow; } }` yields patches
+# named EXACTLY `hull` and `hull_bow`. The existing `hull` patch keeps its name
+# and every receipt, script and post-processor that addresses it keeps working;
+# only the forward faces move.
+#
+# NOT RUN. No snappyHexMesh has been executed against this split — this change
+# was made under a no-compute constraint, and the source reading above is the
+# evidence, not a mesh. What is owed before the first result is quoted: one
+# mesh-only build (~2 min) confirming `constant/polyMesh/boundary` carries both
+# patches and that the layer table reports the bow patch layered.
+BOW_PATCH_NAME = "hull_bow"
+HULL_PATCH_NAME = "hull"
+# Local region names INSIDE the STL, i.e. the `solid <name>` labels. They are
+# not the patch names; snappy maps them through the `regions` dict above. If a
+# name here stops matching a solid in the file, searchableSurfaces raises
+# "Unknown region name" and FATALs — a loud failure, which is the point.
+_STL_MAIN_SOLID = "main"
+_STL_BOW_SOLID = "bow"
+
+# THE CUT: the forward 20% of the hull, measured back from the stem.
+#
+# It is a FRACTION and not a fixed distance because everything else in this
+# generator is Froude-similar; a fixed metre value would make a 4 m tender and
+# a 20 m barge different experiments.
+#
+# THE FRACTION IS OF THE MESHED SURFACE'S OWN LONGITUDINAL EXTENT, NOT OF THE
+# `lwl` ARGUMENT, AND THAT IS A MEASURED CORRECTION. The first version used
+# `x_stem - fraction * lwl`, which mixes the STL's coordinate system with the
+# caller's length scale, and `tests/test_phase2.py::
+# test_mesh_is_froude_similar_at_any_hull_size` immediately found the hole: it
+# meshes the SAME 7.7165 m KCS model STL at lwl 7.2786, 29.1 and 230.0 to prove
+# the mesh is geometrically similar at constant Froude number, so at k=31.6 the
+# cut landed at x = -38.28 m and the ENTIRE hull fell in the bow solid. The
+# guard caught it (the run refused rather than shipping a one-region hull), but
+# a guard firing on a legitimate call is a wrong rule, not a caught bug.
+# Deriving the plane from the surface's own x-extent is self-consistent by
+# construction and needs no length argument at all.
+#
+# For every hull this project GENERATES the two are identical: `hull_to_stl`
+# writes `closed_mesh` over x in [0, lwl], so the STL extent IS Lwl. They differ
+# only for imported geometry with overhang — on KCS the STL spans 0..7.7165 m
+# against Lpp 7.2786 because the bulb and rudder reach past the perpendiculars,
+# so the patch is 1.5433 m rather than 1.4557 m, 6% longer. `case.info` records
+# the stem, the split plane and the fraction, and `lwl` sits three lines above
+# them, so the reader can form either ratio without either being stored twice.
+#
+# WHY 0.20, stated as a trade rather than as a citation this project cannot
+# check:
+#  - It has to CONTAIN the impact site. A slam happens where the forefoot
+#    re-enters, and `geometry.hull_curves` raises the keel over `x > 0.7 L`
+#    (its `bow_zone`), so 0.20 L sits well inside the forebody that lifts, with
+#    margin for the trim angle moving the contact point aft.
+#  - It has to be SHORT enough that the patch maximum is attributable. The
+#    statistic is a max, so a longer patch cannot dilute it — but it can move
+#    the peak onto a section with a different deadrise, and the analytic
+#    companion (`seakeeping.slam_pressure_band`) then brackets a wider and
+#    less useful range. 0.20 L is inside the deadrise warp zone for every hull
+#    the grammar can sample: `grammar.PARAMS` bounds `beta_len` (the fraction
+#    of LWL over which deadrise warps) at >= 0.15, so the aft edge of the patch
+#    never sits more than 0.05 L abaft the start of the warp.
+#  - It is NOT tuned to a measurement, because there is no measurement yet.
+#    Move it when a run says to, and re-derive nothing else: the value is
+#    recorded in `case.info` as `bow_patch_fraction`, beside the split plane
+#    and the patch's actual aft edge, so a case never has to be
+#    reverse-engineered to learn where its own bow patch ended.
+#
+# WHAT THIS FRACTION IS NOT FOR. It bounds a BOW impact region. The target
+# vessel is a catamaran, whose governing slam is usually cross-structure
+# (wet-deck) impact — see the `bowSlammingPressure` block in CONTROL_DICT for
+# why that is a separate patch with a separate (horizontal) cut, and for why it
+# is a second call site of the same Wagner helper rather than a second model.
+BOW_PATCH_FRACTION = 0.20
+
+
+def split_bow_region(stl_path: str | Path,
+                     fraction: float = BOW_PATCH_FRACTION) -> dict:
+    """Re-emit an ascii STL as TWO named solids, `main` and `bow`, in place.
+
+    The bow solid is every triangle that REACHES forward of the split plane
+    `x_stem - fraction * (x_stem - x_aft)`, i.e. whose largest vertex x is at
+    or ahead of it. Everything is taken from the file's own coordinates and
+    there is deliberately NO length argument: see the constant above for the
+    measurement that removed it — a cut scaled by a caller-supplied `lwl` put
+    the split plane at x = -38.28 m on a legitimate call.
+
+    REACHES, NOT CENTRED, AND THE ASYMMETRY IS THE POINT. A triangle straddling
+    the plane must go wholly to one side (splitting it would retriangulate, and
+    this function is not allowed to move geometry), so the choice is which way
+    to round. It rounds FORWARD, because the statistic the patch exists to feed
+    is a MAXIMUM: a straddling facet wrongly left in `main` can hide the peak,
+    while one wrongly included in `hull_bow` can only widen the region the peak
+    was found in — and `case.info` records the patch's ACTUAL aft edge, so the
+    over-inclusion is visible rather than assumed small. It is exactly one
+    facet row: MEASURED on KCS the split plane is x = 6.1732 m and the patch's
+    aft edge is x = 6.1474 m, i.e. 25.8 mm or 0.33% of the hull's length, and
+    the patch holds 2202 of 10402 facets (21.2%) against a nominal 20%.
+
+    It also makes an EMPTY BOW impossible rather than merely unlikely: the
+    facet attaining `x_stem` reaches the plane by definition, for any fraction
+    in (0, 1). That is why only the empty-MAIN direction is guarded below — a
+    branch that cannot execute is not a guard, it is unreachable code claiming
+    to be one. MEASURED 2026-08-13: the centroid rule this replaces refused
+    `tests/test_stageG.py::test_geometric_scale_buys_no_cpu`, whose fixture is
+    a 4-facet tetrahedron on which no centroid lies in the forward fifth.
+
+    Either way it PARTITIONS: every triangle lands in exactly one solid, so bow
+    and main are disjoint, their union is the whole surface, and each is a
+    strict subset of it. `tests/test_slamming.py` asserts that on real geometry
+    rather than trusting the argument.
+
+    GEOMETRY-PRESERVING BY CONSTRUCTION. The facet text is copied VERBATIM —
+    this function never re-formats a coordinate — so the only bytes that change
+    are the `solid`/`endsolid` lines and the order of the facet blocks. It is
+    therefore impossible for the bow split to move a vertex, which matters
+    because `write_resistance_case_from_stl` exists to mesh a benchmark hull
+    whose shape is the whole point of the comparison. A re-parse-and-rewrite
+    (`post._read_stl_tris` rounds to 7 decimals) would have perturbed it at the
+    100 nm level for no reason at all.
+
+    REFUSES rather than degrades, in three ways, because an instrument that
+    silently points at nothing is worse than no instrument:
+      - a file with no parseable facets, or a facet without exactly three
+        vertices, is a parse failure and NOT an empty hull;
+      - an empty main solid means the fraction swallowed the whole hull, which
+        would give snappy a region with zero faces and, downstream, a patch
+        `surfaceFieldValue` has no data to take a max over.
+
+    Returns the receipt that goes into `case.info`.
+    """
+    path = Path(stl_path)
+    text = path.read_text()
+    frac = float(fraction)
+    if not (0.0 < frac < 1.0):
+        raise ValueError(
+            f"bow patch fraction must be in (0, 1), got {fraction!r}")
+
+    blocks: list[tuple[str, float, float]] = []   # (text, min_x, max_x)
+    cur: list[str] = []
+    verts: list[tuple[float, float, float]] = []
+    for raw in text.splitlines():
+        s = raw.strip()
+        if s.startswith("solid") or s.startswith("endsolid"):
+            continue
+        if s.startswith("facet"):
+            cur, verts = [raw], []
+            continue
+        if not cur:
+            continue
+        cur.append(raw)
+        if s.startswith("vertex"):
+            verts.append(tuple(float(v) for v in s.split()[1:4]))
+        elif s.startswith("endfacet"):
+            if len(verts) != 3:
+                raise ValueError(
+                    f"{path}: facet {len(blocks)} has {len(verts)} vertex "
+                    f"lines, not 3. This is a PARSE FAILURE, not a degenerate "
+                    f"hull, and it is refused rather than defaulted — a bow "
+                    f"patch built from a half-read file would still mesh and "
+                    f"still report a number.")
+            xs = [v[0] for v in verts]
+            blocks.append(("\n".join(cur), min(xs), max(xs)))
+            cur, verts = [], []
+    if not blocks:
+        raise ValueError(
+            f"{path}: no ascii STL facets found, so the bow patch cannot be "
+            f"cut. Every STL reader in this project ({path.name} included) is "
+            f"an ASCII reader; a binary STL reaches here as zero facets and "
+            f"must not be mistaken for an empty hull.")
+
+    x_stem = max(b[2] for b in blocks)
+    x_aft = min(b[1] for b in blocks)
+    x_split = x_stem - frac * (x_stem - x_aft)
+    bow = [b for b in blocks if b[2] >= x_split]
+    main = [b for b in blocks if b[2] < x_split]
+    if not main:
+        raise ValueError(
+            f"{path}: the bow cut at x = {x_split:.4f} m "
+            f"(stem {x_stem:.4f} m minus {frac:g} of the {x_stem - x_aft:.4f} "
+            f"m hull) puts ALL {len(bow)} facet(s) in the bow solid and none "
+            f"in the main solid; the surface spans {x_aft:.4f}..{x_stem:.4f} "
+            f"m. Both solids must be non-empty: an empty region gives snappy a "
+            f"patch with no faces, and a hull that is entirely bow is not a "
+            f"hull with a bow patch. Lower the fraction, or check that this "
+            f"surface really has a longitudinal extent.")
+
+    out = [f"solid {_STL_MAIN_SOLID}"]
+    out += [b[0] for b in main]
+    out.append(f"endsolid {_STL_MAIN_SOLID}")
+    out.append(f"solid {_STL_BOW_SOLID}")
+    out += [b[0] for b in bow]
+    out.append(f"endsolid {_STL_BOW_SOLID}")
+    data = ("\n".join(out) + "\n").encode()
+    path.write_bytes(data)
+    return {"fraction": frac, "x_stem": x_stem, "x_split": x_split,
+            "hull_length": x_stem - x_aft,
+            # The patch's ACTUAL aft edge, which is at or abaft the nominal
+            # plane because a straddling facet rounds forward. Recorded so the
+            # over-inclusion is a measured number in the case directory rather
+            # than an assumption in a docstring.
+            "x_aftmost": min(b[1] for b in bow),
+            "n_bow": len(bow), "n_main": len(main), "n_total": len(blocks),
+            "sha256_shipped": hashlib.sha256(data).hexdigest()}
 
 
 def stl_watertight_report(path: Path) -> dict:
@@ -1580,6 +1939,15 @@ def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
     # before). A case directory has to be re-runnable.
     (out / "0.orig").mkdir(parents=True, exist_ok=True)
 
+    # THE BOW PATCH IS CUT HERE, IN THE ONE PLACE BOTH ENTRY POINTS PASS
+    # THROUGH, so a generated hull and an imported benchmark get the same
+    # instrument. It happens before `stl_wetted_area` reads the file below
+    # (that reader is vertex-line based, so the two solids are invisible to it)
+    # and after both callers have hashed the geometry AS DELIVERED — see the
+    # `stl_sha256_shipped` receipt in case.info for why those are two different
+    # hashes and why neither may be dropped.
+    bow = split_bow_region(out / "constant" / "triSurface" / "hull.stl")
+
     # Domain: towing-tank box around the hull (hull x in [0, L]), split at the
     # waterline. Depth 0.6L and air 0.25L replace the old 1.5L/0.75L: the tank
     # only has to be deep-water for the generated wave (lambda/2 = pi*U^2/g,
@@ -1766,7 +2134,14 @@ def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
         # (-2.0L, 0.35L) sat ABOVE the new tank roof and off a round multiple
         # of the cell size; both are mesh-generation failures.
         loc_x=-1.97 * lwl, loc_z=0.137 * lwl,
-        loc_y=0.31 * lwl if symmetric else 0.0)
+        loc_y=0.31 * lwl if symmetric else 0.0,
+        # Patch and STL-region names, from the module constants rather than
+        # inlined into the templates: the same four words appear in
+        # snappyHexMeshDict, controlDict, dynamicMeshDict and the field files,
+        # and a name that drifts between them is a mesh that builds and a
+        # function object that FATALs three hours later.
+        hull_patch=HULL_PATCH_NAME, bow_patch=BOW_PATCH_NAME,
+        stl_main_solid=_STL_MAIN_SOLID, stl_bow_solid=_STL_BOW_SOLID)
 
     # TURBULENCE INLET. The length scale is 1% of the BOUNDARY LAYER, not 1% of
     # the ship. MEASURED against the Wolf Dynamics KCS reference (k 7.233e-4,
@@ -1830,7 +2205,7 @@ def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
         CONTROL_DICT.format(
             end_time=end_time, dt=1 if lts else 0.001, write_int=write_int,
             speed_abs=abs(speed), lwl=lwl, aref=max(aref, 1e-6),
-            rho_water=f"{_RHO_WATER:.6g}",
+            rho_water=f"{_RHO_WATER:.6g}", bow_patch=BOW_PATCH_NAME,
             time_control=TIME_CONTROL_LTS if lts else TIME_CONTROL_TRANSIENT))
     sysd.joinpath("blockMeshDict").write_text(BLOCKMESH.format(**dom))
     # Two passes: snap first (needs cubic cells), layers last (must not be
@@ -1932,6 +2307,37 @@ def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
         # case now says what it is, from the STL hash the checksum record
         # pins, so the gate can refuse a hull it has no experiment for.
         f"benchmark={benchmark_of_sha(stl_sha) or 'unknown'}\n"
+        # THE BOW PATCH, AND THE TWO HASHES, BOTH OF WHICH ARE NEEDED.
+        # `stl_sha256` above is the identity of the geometry AS DELIVERED — it
+        # is what `benchmark_of_sha` matches against CHECKSUMS.json, so it must
+        # keep meaning "the file the benchmark ships". `split_bow_region` then
+        # regroups the SAME facets into two named solids, which changes the
+        # bytes on disk and therefore the hash of the file actually meshed.
+        # Recording only one of them would make a reader who runs sha256sum on
+        # `constant/triSurface/hull.stl` disagree with the case's own receipt
+        # and have no way to tell which is lying. The split moves no vertex:
+        # the facet text is copied verbatim.
+        f"stl_sha256_shipped={bow['sha256_shipped']}\n"
+        f"bow_patch={BOW_PATCH_NAME}\n"
+        f"bow_patch_fraction={bow['fraction']:.4f}\n"
+        f"bow_patch_hull_length_m={bow['hull_length']:.4f}\n"
+        f"bow_patch_stem_x_m={bow['x_stem']:.4f}\n"
+        f"bow_patch_x_split_m={bow['x_split']:.4f}\n"
+        f"bow_patch_x_aftmost_m={bow['x_aftmost']:.4f}\n"
+        f"bow_patch_facets={bow['n_bow']} of {bow['n_total']}"
+        f" ({100.0 * bow['n_bow'] / bow['n_total']:.1f}%)\n"
+        "  # instrument: functions/bowSlammingPressure -> max(p_rgh) over the\n"
+        "  # bow patch, in postProcessing/bowSlammingPressure/. MAX, not\n"
+        "  # average: the patch includes dry topsides, which dominate an\n"
+        "  # average and cannot raise a maximum. Analytic companion:\n"
+        "  # navalai.seakeeping.slam_pressure_band(beta_mid, beta_bow, V),\n  # which BRACKETS rather than predicting a point, because the\n  # deadrise varies across the patch and the FO does not say where\n  # its maximum occurred.\n"
+        "  # THIS IS BOW IMPACT ONLY, AND IT IS PROBABLY NOT THE GOVERNING\n"
+        "  # SLAM. The target vessel is a CATAMARAN, and a catamaran's\n"
+        "  # governing slam is usually CROSS-STRUCTURE (WET-DECK) slamming --\n"
+        "  # the bridge deck between the demihulls hitting the wave surface in\n"
+        "  # head seas. A wave-piercing bow is designed to reduce BOW slam and\n"
+        "  # does nothing for the wet deck, so this number is NOT evidence\n"
+        "  # about seaway safety. There is no wet-deck patch in this case.\n"
         f"free_motion={bool(free_motion)}\n"
         f"nx={dom['nx']}\nny={dom['ny']}\n"
         f"nz_total={dom['nz_deep'] + dom['nz_hull'] + dom['nz_wave'] + dom['nz_air']}\n"

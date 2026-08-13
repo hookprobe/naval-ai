@@ -1,20 +1,47 @@
-"""L2 seakeeping: Capytaine BEM wrapper (BuildPlan Phase 2).
+"""Seakeeping: the ship's response to a seaway.
 
-Research-flagged traps handled here (NREL/OMAE 2024 accuracy study):
-  - mesh sensitivity is mandatory -> convergence_sweep() is part of the API
-  - forward speed is approximate  -> this tier reports zero-speed seakeeping
-    quantities only; resistance stays with L1/L3
-Results carry tier='L2' and a convergence-derived uncertainty.
+Two tiers live here, and they are separate by construction:
+
+  - **L2, Capytaine BEM** (BuildPlan Phase 2). Research-flagged traps handled:
+    mesh sensitivity is mandatory -> convergence_sweep() is part of the API;
+    forward speed is approximate -> this tier reports zero-speed seakeeping
+    quantities only, resistance stays with L1/L3. Results carry tier='L2' and
+    a convergence-derived uncertainty.
+  - **L0, closed-form slamming** (`wagner_impact_cp` and below). Wagner
+    wedge-entry impact pressure. No solver, no mesh, microseconds. It takes an
+    ANGLE and a VELOCITY and knows nothing about which part of a boat they
+    belong to — the bow patch is its first call site, not its subject. The
+    target vessel is a catamaran, whose governing slam is usually the WET DECK
+    rather than the bow, and that case is meant to be a second call site here
+    rather than a second implementation anywhere.
+
+WHY SLAMMING LIVES HERE and not in `waves.py`, `cfd/case.py` or `limits.py`.
+`waves.py` owns the SEAWAY (JONSWAP spectra, encounter frequency, sea-state
+presets) — the environment, not the ship. `cfd/case.py` writes OpenFOAM case
+DICTIONARIES; it is a code generator and has no analytic physics in it, which
+is the property that keeps it reviewable. `limits.py` owns BARS the design must
+clear, and an impact pressure is a computed quantity, not a bar. What is left
+is this module, which is the one that already owns "what the hull DOES in a
+wave" — and slamming is the same question as heave, one derivative harder. The
+CFD instrument that measures the same quantity at L3 (the `hull_bow` patch and
+the `bowSlammingPressure` function object in `navalai/cfd/case.py`) is
+deliberately its own artefact: one computes, one measures, and they are
+compared rather than sharing an implementation.
+
+The L0 half imports nothing from capytaine, so it is usable in an environment
+where the BEM stack is not installed (every capytaine import in this file is
+function-local, and stays that way).
 """
 
 from __future__ import annotations
 
 import logging
+import math
 from dataclasses import dataclass
 
 import numpy as np
 
-from .geometry import G, Hull
+from .geometry import G, RHO_WATER, Hull
 
 logging.getLogger("capytaine").setLevel(logging.ERROR)
 
@@ -266,3 +293,196 @@ def hemisphere_added_mass_lowfreq(radius: float = 1.0, n_theta: int = 26,
     res = solver(method=method).solve(pb, keep_details=False)
     disp = (2.0 / 3.0) * np.pi * rho * radius**3
     return float(res.added_masses["Heave"]) / disp
+
+
+# ---------------------------------------------------------------------------
+# L0 SLAMMING: Wagner wedge entry (plate P6)
+#
+# The companion to the `bowSlammingPressure` function object in
+# `navalai/cfd/case.py`. Before P6, `P_slam` could not be obtained at ANY tier:
+# there was no analytic model here and no instrument there —
+#     grep -c "surfaceFieldValue\|hull_bow\|bowSlam" navalai/cfd/case.py  ->  0
+# — so the quantity was not merely unmeasured, it was unmeasurABLE.
+#
+# THESE FUNCTIONS ARE NOT ABOUT THE BOW, AND THAT IS DELIBERATE.
+# Wagner wedge entry is a general result: a wedge of half-angle beta meeting a
+# water surface at velocity V. Nothing in it knows what part of a boat the
+# wedge belongs to. So the API is `wagner_impact_cp(beta)` and
+# `slam_pressure(beta, V, rho)` — an angle, a velocity and a density — rather
+# than a bow routine, and a second impact site is a second CALL SITE.
+#
+# There is a specific second site already known, and it matters more than the
+# first. THE TARGET VESSEL IS A CATAMARAN, and for a catamaran the governing
+# slam is usually CROSS-STRUCTURE (WET-DECK) SLAMMING — the bridge deck
+# between the demihulls impacting the wave surface in head seas — not bow
+# slamming. A wave-piercing bow is specifically designed to reduce bow slam and
+# does nothing at all for the wet deck. `bowSlammingPressure` therefore answers
+# a NARROWER question than "is this hull safe in a seaway", and a green bow
+# number is not evidence about the wet deck. That caveat is repeated at every
+# artefact a future session might read alone: here, in `cfd/case.py` beside the
+# function object, and in each generated `case.info`.
+#
+# A second IMPLEMENTATION of this physics for the wet deck would be this
+# repository's signature defect — `gate2m.py` shipped a second GCI that
+# returned -27.027% on a diverging family and printed PASS. What the wet-deck
+# case needs is wiring, not arithmetic: a wet-deck patch (a horizontal cut of
+# the cross-structure underside rather than a longitudinal cut at the stem),
+# the RELATIVE vertical velocity between the wet deck and the wave surface as
+# V_entry rather than the bow's entry velocity, and the local wet-deck
+# deadrise, which for a flat bridge deck is near zero — i.e. exactly where
+# `wagner_impact_cp` blows up, which is the physics saying what it always says
+# about flat panels meeting water.
+# ---------------------------------------------------------------------------
+
+# The valid deadrise domain, in DEGREES, and both ends are refused rather than
+# extrapolated.
+#
+# beta -> 0 is a FLAT bottom, where wedge-entry theory has no finite answer:
+# the wetted-line velocity is unbounded, the impact becomes an air-cushioned
+# compressible problem and the model is simply not about that flow any more.
+# Returning `inf` would be a number a caller can carry into an arithmetic
+# expression; raising is not.
+#
+# beta > 90 deg is a RE-ENTRANT section, not a wedge, and the expression below
+# does not merely become inaccurate there — it changes SIGN. At beta = 100 deg
+# it evaluates to -0.505, i.e. a NEGATIVE impact pressure coefficient, and
+# `0.5 rho V^2 C_p` would then report a slam that SUCKS. That is this repo's
+# defect class 1 in its purest form (an unmeasurable value scored as a good
+# one), so the domain is a guard and `tests/test_slamming.py` feeds it the
+# verbatim inputs it must reject.
+DEADRISE_MIN_DEG = 0.0      # exclusive
+DEADRISE_MAX_DEG = 90.0     # inclusive: 90 deg is a vertical wall, C_p = 0
+
+
+def wagner_impact_cp(deadrise_deg: float) -> float:
+    """Wagner wedge-entry impact pressure coefficient, dimensionless.
+
+        C_p(beta) = pi * cot(beta) + (pi^2 / 2) * (pi / (2 beta) - 1)^2
+
+    with beta in RADIANS inside; the ARGUMENT is in DEGREES because that is
+    the unit the rest of this project carries deadrise in (`grammar.PARAMS`
+    declares `beta_mid` and `beta_bow` in deg, and `geometry.hull_curves`
+    converts them). A function that silently took radians while every caller
+    holds degrees is a factor-57 error waiting to be committed.
+
+    Structure, which is what the gate tests assert (they are the properties
+    that make it a slamming model at all, and they hold exactly):
+
+      - STRICTLY DECREASING in beta. Both terms are: cot is decreasing on
+        (0, pi/2], and pi/(2 beta) - 1 is decreasing and NON-NEGATIVE there,
+        so squaring preserves the direction. A sharp wave-piercing entry is
+        always gentler than a blunt one; nothing in between can invert.
+      - C_p(90 deg) = 0 in exact arithmetic — cot(pi/2) = 0 and
+        pi/(2 * pi/2) - 1 = 0, so both terms vanish. A vertical wall does not
+        slam, it shears. MEASURED in float it returns 1.92e-16, because
+        `math.radians(90)` is the nearest double to pi/2 and `tan` of it is
+        1.633e16 rather than infinite. That residue is stated rather than
+        special-cased to a hard zero: a hand-placed 0.0 at one endpoint would
+        hide whether the expression really goes there, and the gate asserts
+        < 1e-15 with the value named.
+      - C_p -> +inf as beta -> 0, at rate 1/beta^2 (the second term dominates:
+        at 0.1 deg it is 3.99e6 against 1.80e3 for the first).
+
+    WHAT THIS IS NOT, said out loud because the magnitude invites the mistake.
+    This is not the classical Wagner PEAK, C_p = 1 + (pi / (2 tan beta))^2.
+    Evaluated at beta = 10 deg the classical peak is 80.4 and this expression
+    is 333.6 — 4.1x larger — because it is an integrated/asymptotic form
+    including the flat-plate-limit correction rather than the pressure at the
+    single instant and point of the spray-root maximum. So treat it as a
+    CONSERVATIVE design value, and note that the P6 gate tests deliberately
+    assert STRUCTURE (monotonicity, both limits, sign) and not calibration:
+    calibration is what `bowSlammingPressure` is being built to supply, and
+    this project does not score a number it has not measured.
+    """
+    beta = float(deadrise_deg)
+    if not math.isfinite(beta):
+        raise ValueError(
+            f"deadrise must be finite, got {deadrise_deg!r}. A non-finite "
+            f"deadrise propagates as a non-finite pressure, which is honesty "
+            f"rule 1's 'no bare numbers' failing in the worst direction.")
+    if not (DEADRISE_MIN_DEG < beta <= DEADRISE_MAX_DEG):
+        raise ValueError(
+            f"deadrise {beta} deg is outside ({DEADRISE_MIN_DEG}, "
+            f"{DEADRISE_MAX_DEG}] deg, where Wagner wedge entry is defined. "
+            f"At beta <= 0 the wetted-line velocity is unbounded and the "
+            f"impact is an air-cushioned compressible problem this model does "
+            f"not describe; at beta > 90 deg the section is re-entrant and "
+            f"the expression returns a NEGATIVE coefficient (-0.505 at 100 "
+            f"deg), i.e. a slam that sucks. Refused rather than extrapolated.")
+    b = math.radians(beta)
+    return (math.pi / math.tan(b)
+            + 0.5 * math.pi ** 2 * (math.pi / (2.0 * b) - 1.0) ** 2)
+
+
+def slam_pressure(deadrise_deg: float, v_entry: float,
+                  rho: float = RHO_WATER) -> float:
+    """Wagner slamming pressure [Pa]: 0.5 * rho * V_entry^2 * C_p(beta).
+
+    `rho` defaults to `geometry.RHO_WATER` — the ONE water density this project
+    owns — rather than to a literal. `docs/LESSONS.md` records a NINTH copy of
+    water density that was dividing every C_T the gate printed; this function
+    does not add a tenth.
+
+    `v_entry` is the RELATIVE vertical velocity of the section at the moment it
+    meets the surface, so it is signed by convention only and enters squared. A
+    negative value is therefore accepted and gives the same pressure; a
+    non-finite one is not.
+
+    Tier L0. It costs microseconds and it consumes no geometry beyond one
+    angle, which is exactly why it is a COMPANION to the CFD instrument and not
+    a replacement for it: it knows nothing about the three-dimensionality of a
+    real impacting surface, about air entrapment, or about how much of the
+    section is already wet when the impact starts.
+
+    IT IS ALSO NOT BOW-SPECIFIC. `beta` is a local deadrise and `v_entry` a
+    local relative velocity, so a wet-deck (cross-structure) slam on the
+    catamaran this project targets is this same function at a different angle
+    and a different velocity — a second call site, never a second
+    implementation. See the section header above for what that wiring needs.
+    """
+    v = float(v_entry)
+    r = float(rho)
+    if not math.isfinite(v) or not math.isfinite(r):
+        raise ValueError(
+            f"v_entry and rho must be finite, got {v_entry!r} and {rho!r}")
+    if r <= 0.0:
+        raise ValueError(f"rho must be positive, got {rho!r}")
+    return 0.5 * r * v * v * wagner_impact_cp(deadrise_deg)
+
+
+def slam_pressure_band(deadrise_a_deg: float, deadrise_b_deg: float,
+                       v_entry: float,
+                       rho: float = RHO_WATER) -> tuple[float, float]:
+    """(low, high) Pa bracketing the Wagner pressure over a REGION.
+
+    THE POINT OF THIS FUNCTION, AND WHY IT IS NOT `slam_pressure` CALLED ONCE.
+    A CFD impact instrument reports ONE number — the maximum of p_rgh over a
+    patch — and it does not report WHERE on the patch that maximum occurred.
+    The deadrise is not constant over a patch of any size, so a single analytic
+    value would be a comparison against a section the impact may not have
+    happened on.
+
+    What IS true is that the local deadrise lies between the region's two
+    extreme values and that `wagner_impact_cp` is strictly decreasing, so the
+    analytic pressure over the region lies between the two endpoint
+    evaluations. That is a BAND, and a band is the honest companion to a patch
+    maximum. Reporting a point value here would be this repo's "single sample
+    quoted as a measurement" (docs/LESSONS.md, Physics and compute) with extra
+    steps.
+
+    THE ENDPOINTS ARE JUST ANGLES. For the `hull_bow` patch they are the
+    grammar's `beta_mid` and `beta_bow`, because `geometry`'s section law warps
+    deadrise QUADRATICALLY between them over the forward part of the hull. For
+    the wet-deck (cross-structure) case this project still owes, they are the
+    two extreme deadrise values across the cross-structure underside. Same
+    function, second call site — see the section header above.
+
+    Endpoint ORDER is not assumed: `grammar.check` enforces
+    `beta_bow >= beta_mid` (the `deadrise.order` constraint) but this function
+    is reachable from a hand-written array, and returning a reversed interval
+    for an L0-infeasible hull would be a silent wrong answer, so the band is
+    sorted rather than trusted.
+    """
+    a = slam_pressure(deadrise_a_deg, v_entry, rho)
+    b = slam_pressure(deadrise_b_deg, v_entry, rho)
+    return (min(a, b), max(a, b))

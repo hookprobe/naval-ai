@@ -223,6 +223,17 @@ GATES = [
     Gate("Gate 2", "Capytaine BEM (Hulme anchor)", "tests/test_phase2.py"),
     Gate("Gate 2R", "CFD reference parity + GCI honesty",
          "tests/test_cfd_reference_parity.py"),
+    # Split out from Gate 2R for the reason Gate 1H and Gate 1C were: the
+    # ladder should show WHICH clause is covered by what, and this one is not a
+    # parity clause — it is a CAPABILITY clause. MEASURED 2026-08-13:
+    # `grep -c "surfaceFieldValue\|hull_bow\|bowSlam" navalai/cfd/case.py`
+    # returned 0, so P_slam had no instrument at L3 and no closed form at L0.
+    # It was unmeasurABLE, which is a different and worse state than unmeasured,
+    # and a gate row is what makes its disappearance visible.
+    Gate("Gate 2P", "slamming pressure is measurable: a bow patch that "
+         "partitions the hull, a function object that refuses to point at "
+         "nothing, and a Wagner C_p guarded at both limits",
+         "tests/test_slamming.py"),
     # Scope re-read against the suite 2026-08-06. It is no longer "Forrester +
     # an L1 GP": test_phase3.py also holds OOD refusal that separates error
     # rather than merely flagging it, the KOH rho estimator and its degeneracy
