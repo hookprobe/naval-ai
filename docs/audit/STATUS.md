@@ -21,3 +21,6 @@ re-inspected (agent prompts are reconstructable from AUDIT doc section list).
 - hydrostatics-loading.md (agent C) — ARRIVED
 - grammar-typology-mission.md (agent B) — ARRIVED
 - geometry-representation.md (agent A) — ARRIVED
+- tests-docs-deadcode.md (agent G) — ARRIVED
+
+Still pending: optimization/generative (agent F), pytest baseline.
