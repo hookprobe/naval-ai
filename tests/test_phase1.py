@@ -968,3 +968,162 @@ def test_a_separation_the_grid_or_the_geometry_cannot_carry_is_refused(
     # reaches the theta-grid sizing that would raise a less informative error
     with pytest.raises(ValueError, match="positive finite length"):
         michell_rw(xs, zs, Y, 0.0, 1000.0, separation=float("nan"))
+
+
+def test_the_free_wave_spectrum_is_the_integrand_of_the_resistance(
+        cat_demihull):
+    """`free_wave_spectrum` must BE `michell_rw`'s integrand, not a copy of it.
+
+    A number declared twice is this codebase's recurring defect, and a second
+    path to the wave resistance is the most expensive shape it takes. So the
+    bar is not "close": integrating the spectrum over theta must reproduce
+    `michell_rw` to within the trapezoid's own reassociation, monohull and
+    catamaran alike.
+
+    The spectrum is exposed because it is the honest half of the wet-deck
+    question: any calculation of the wave elevation between two demihulls has
+    to start here, and this is the piece the module can supply exactly.
+    """
+    from navalai.geometry import G
+    from navalai.resistance import (free_wave_spectrum, michell_rw,
+                                    n_theta_for_separation)
+
+    xs, zs, Y, _B, _T = cat_demihull
+    for fn in (0.20, 0.30, 0.45):
+        u = fn * math.sqrt(G * _CAT_L)
+        th, spec = free_wave_spectrum(xs, zs, Y, u, 1000.0)
+        assert float(np.trapezoid(spec, th)) == pytest.approx(
+            michell_rw(xs, zs, Y, u, 1000.0), rel=1e-12)
+        sep = 0.445 * _CAT_L
+        n_theta = n_theta_for_separation(_CAT_L, sep)
+        th, spec = free_wave_spectrum(xs, zs, Y, u, 1000.0, n_theta=n_theta,
+                                      separation=sep)
+        assert float(np.trapezoid(spec, th)) == pytest.approx(
+            michell_rw(xs, zs, Y, u, 1000.0, n_theta=n_theta, separation=sep),
+            rel=1e-12)
+    # the spectrum is an energy density: non-negative everywhere, and the
+    # catamaran factor can only redistribute it between 0 and 4x
+    th, mono = free_wave_spectrum(xs, zs, Y, 2.97, 1000.0, n_theta=1760)
+    th, cat = free_wave_spectrum(xs, zs, Y, 2.97, 1000.0, n_theta=1760,
+                                 separation=2.0 * _CAT_L)
+    assert (mono >= 0.0).all() and (cat >= 0.0).all()
+    ratio = cat[mono > 1e-12] / mono[mono > 1e-12]
+    assert ratio.min() >= -1e-9 and ratio.max() <= 4.0 + 1e-9, (
+        f"the interference factor left [0, 4]: [{ratio.min():.6f}, "
+        f"{ratio.max():.6f}]")
+    # and a speed below the cut-off returns a grid with a ZERO spectrum, not a
+    # short array a caller would have to special-case
+    th0, spec0 = free_wave_spectrum(xs, zs, Y, 0.01, 1000.0)
+    assert len(th0) == len(spec0) and not spec0.any()
+
+
+def test_wet_deck_clearance_is_a_constraint_row_with_a_number_in_it():
+    """The wet-deck clearance term, and the thing this module REFUSES.
+
+    An optimiser handed demihull separation as a free variable and no clearance
+    term will pick a spacing for wave interference and say nothing about the
+    bridge deck that spacing implies — and wet-deck slamming, not bow slamming,
+    is what typically destroys catamarans.
+
+    IT WAS PROPOSED THAT THE BOW WAVE AMPLITUDE COME OUT OF THE KOCHIN
+    MACHINERY. It cannot, and the refusal is the finding:
+
+      - `michell_rw`'s integrand is the FAR-FIELD free-wave spectrum. Michell
+        keeps only the radiating disturbance and discards the local
+        non-radiating near field, which is the part that makes the stem wave.
+      - the far-field elevation is not one amplitude: the Kelvin pattern decays
+        as R^-1/2, so "the amplitude" depends on where you stand.
+      - |I(theta)| has dimensions of AREA. Supplying a constant to make it a
+        height would be inventing the answer.
+
+    WHAT IS SHIPPED INSTEAD IS EXACT WHERE IT APPLIES: at a stagnation point
+    the whole dynamic head converts to elevation, so zeta_bow = U^2/(2g) =
+    Fn^2 Lwl / 2, an upper bound for any hull with a finite entrance angle and
+    a length in metres at a stated speed. On a 10 m waterline that is 0.450 m
+    at Fn 0.30, 0.613 m at Fn 0.35 and 0.800 m at Fn 0.40 — the number a
+    genome-wirer needs, rather than an intention.
+
+    The row is `bow_wave_rise(speed) - clearance_m`, metres, POSITIVE WHEN
+    VIOLATED, which is the sign and the units `evaluate`'s `"freeboard"` row
+    already uses, so it appends to `CONSTRAINT_NAMES` without a convention
+    change.
+    """
+    from navalai.geometry import G
+    from navalai.resistance import bow_wave_rise, wet_deck_clearance_g
+
+    # the closed form, and its Froude-scaled twin — two ways to the same metre
+    for fn in (0.30, 0.35, 0.40):
+        u = fn * math.sqrt(G * _CAT_L)
+        assert bow_wave_rise(u) == pytest.approx(fn**2 * _CAT_L / 2.0, rel=1e-12)
+    assert bow_wave_rise(0.30 * math.sqrt(G * _CAT_L)) == pytest.approx(0.450,
+                                                                       abs=5e-4)
+    assert bow_wave_rise(0.35 * math.sqrt(G * _CAT_L)) == pytest.approx(0.6125,
+                                                                       abs=5e-4)
+    assert bow_wave_rise(0.40 * math.sqrt(G * _CAT_L)) == pytest.approx(0.800,
+                                                                       abs=5e-4)
+    # it IS the stagnation head: 0.5 rho U^2 expressed as a head of water
+    rho, u = 1025.0, 4.0
+    assert bow_wave_rise(u) == pytest.approx(0.5 * rho * u**2 / (rho * G),
+                                             rel=1e-12)
+    assert bow_wave_rise(0.0) == 0.0
+    assert bow_wave_rise(6.0) > bow_wave_rise(3.0)
+
+    # the constraint row: sign, units, and the boundary
+    u = 0.35 * math.sqrt(G * _CAT_L)
+    rise = bow_wave_rise(u)
+    assert wet_deck_clearance_g(rise + 0.10, u) == pytest.approx(-0.10, abs=1e-9)
+    assert wet_deck_clearance_g(rise - 0.10, u) == pytest.approx(+0.10, abs=1e-9)
+    assert wet_deck_clearance_g(rise, u) == pytest.approx(0.0, abs=1e-12)
+    assert wet_deck_clearance_g(0.30, u) > 0.0, (
+        "a 0.30 m wet deck at Fn 0.35 on a 10 m boat must be a VIOLATION: the "
+        "ship's own bow wave stands 0.613 m above the still waterline")
+
+    # an unmeasured clearance is refused, never scored as satisfied
+    for bad in (float("nan"), float("inf"), "0.5", None):
+        with pytest.raises(ValueError, match="finite height"):
+            wet_deck_clearance_g(bad, u)
+    for bad in (float("nan"), -1.0, "3"):
+        with pytest.raises(ValueError, match="non-negative finite"):
+            bow_wave_rise(bad)
+
+
+def test_destructive_interference_also_shrinks_the_wet_deck_wave_field(
+        cat_demihull):
+    """The coupling between the two, MEASURED rather than assumed.
+
+    The worry that motivated the clearance term was that an optimiser chasing
+    destructive wave interference would drive the wet deck into trouble. On the
+    CALM-WATER term the two are ALIGNED: the interference ratio is a ratio of
+    radiated wave ENERGY, so a spacing that cuts R_w cuts the wave field
+    between the hulls by the same factor.
+
+    MEASURED at Fn 0.30 on the Wigley demihull: the destructive optimum at
+    s/Lwl 0.4450 radiates 0.9223 of two independent demihulls; the
+    constructive worst case at s/Lwl 0.1500 radiates 1.4730. The wet deck sees
+    the largest wave field at exactly the spacings the resistance objective
+    already rejects, so the two constraints do not pull against each other.
+
+    THIS IS NOT A SLAMMING RESULT. It says the ship's own steady wave field
+    scales with its own radiated energy. Wet-deck slamming in a seaway is
+    driven by relative motion against the INCIDENT wave, which is
+    `navalai/seakeeping.py`'s question; nothing here bounds it.
+    """
+    from navalai.geometry import G
+    from navalai.resistance import (free_wave_spectrum,
+                                    n_theta_for_separation)
+
+    xs, zs, Y, _B, _T = cat_demihull
+    u = 0.30 * math.sqrt(G * _CAT_L)
+    n_theta = n_theta_for_separation(_CAT_L, 1.5 * _CAT_L)
+    _th, mono = free_wave_spectrum(xs, zs, Y, u, 1000.0, n_theta=n_theta)
+    energy = {}
+    for tag, s_over_l in (("destructive", 0.4450), ("constructive", 0.1500)):
+        _th, spec = free_wave_spectrum(xs, zs, Y, u, 1000.0, n_theta=n_theta,
+                                       separation=s_over_l * _CAT_L)
+        energy[tag] = float(np.trapezoid(spec, _th)
+                            / (2.0 * np.trapezoid(mono, _th)))
+    assert energy["destructive"] == pytest.approx(0.9223, abs=2e-3)
+    assert energy["constructive"] == pytest.approx(1.4730, abs=5e-3)
+    assert energy["destructive"] < 1.0 < energy["constructive"], (
+        f"the two spacings no longer straddle the no-interference case: "
+        f"{energy}")

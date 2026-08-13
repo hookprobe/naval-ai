@@ -468,6 +468,190 @@ def michell_rw_separation_sweep(xs: np.ndarray, zs: np.ndarray, Y: np.ndarray,
     return out
 
 
+def free_wave_spectrum(xs: np.ndarray, zs: np.ndarray, Y: np.ndarray,
+                       speed: float, rho: float = 1000.0,
+                       n_theta: int | None = None,
+                       separation: float | None = None
+                       ) -> tuple[np.ndarray, np.ndarray]:
+    """(thetas, dR_w/dtheta) — the radiated wave energy BY RADIATION ANGLE.
+
+    `np.trapezoid(spectrum, thetas)` is exactly `michell_rw` on the same
+    arguments (asserted in `tests/test_phase1.py`), so this is the same object
+    the resistance is an integral of, not a second computation of it.
+
+    Exposed because it is the honest half of the wet-deck question below: any
+    calculation of the wave ELEVATION between two demihulls has to start from
+    this spectrum, and it is the piece this module can supply exactly.
+    """
+    if separation is not None:
+        lwl = float(xs[-1] - xs[0])
+        sep = _separation_or_raise(Y, separation)
+        n_theta = (n_theta_for_separation(lwl, sep) if n_theta is None
+                   else int(n_theta))
+        _require_theta_resolution(lwl, sep, n_theta)
+    else:
+        n_theta = N_THETA_MONOHULL if n_theta is None else int(n_theta)
+    thetas, sec = _theta_grid(n_theta)
+    if speed <= 0.05:
+        return thetas, np.zeros(n_theta)
+    vals = _free_wave_vals(xs, zs, Y, speed, thetas, sec)
+    if separation is not None:
+        vals = vals * catamaran_interference(G / speed**2, thetas, sep)
+    return thetas, vals * (4.0 * rho * G**2 / (math.pi * speed**2))
+
+
+# ---------------------------------------------------------------------------
+# WET-DECK CLEARANCE — and one thing this module REFUSES to compute
+# ---------------------------------------------------------------------------
+#
+# A catamaran has a third consequence of demihull separation beyond resistance
+# and stability, and for a real boat it is often the governing one: the bridge
+# deck (wet deck) spanning the two hulls slams. An optimiser handed separation
+# as a free variable and no clearance term will find a spacing it likes for
+# wave interference and say nothing about the structure that spacing implies.
+#
+# THE THING THIS MODULE REFUSES. It was proposed that the bow wave amplitude
+# be computed "from the same Kochin machinery". It cannot be, and saying so is
+# more useful than a number:
+#
+#   1. `michell_rw`'s integrand is the FAR-FIELD free-wave spectrum. Michell's
+#      integral keeps only the radiating part of the disturbance and discards
+#      the local, non-radiating near field — which is exactly the part that
+#      makes the bow wave at the stem.
+#   2. The far-field elevation is not a single amplitude at all. By stationary
+#      phase the Kelvin pattern decays as R^-1/2, so "the amplitude" is a
+#      function of where you stand; there is no station-independent metre
+#      value in the spectrum to extract.
+#   3. |I(theta)| has dimensions of AREA (it integrates dy/dx over dz dx).
+#      Turning it into a wave height needs Havelock's elevation kernel and a
+#      field point, neither of which is in this module. Supplying a constant
+#      to make the units work would be inventing the answer — the defect class
+#      docs/LESSONS.md calls "an unmeasurable value scored as a passing one".
+#
+# WHAT IS RIGOROUS, AND IS SHIPPED INSTEAD. In steady flow the free surface
+# rises at the stem by the Bernoulli head, and at a stagnation point that rise
+# is EXACT: the whole dynamic head converts, so
+#
+#     zeta_bow = U^2 / (2 g) = Fn^2 * Lwl / 2
+#
+# It is an UPPER bound for any hull with a finite entrance angle (a fine bow
+# never fully stagnates), it needs no empirical constant, and it is a length
+# in metres at a stated speed — which is what a constraint row needs. On a
+# 10 m waterline: 0.450 m at Fn 0.30, 0.613 m at Fn 0.35, 0.800 m at Fn 0.40.
+#
+# THE COUPLING TO THE INTERFERENCE TERM, MEASURED rather than assumed. The
+# worry motivating this section was that chasing destructive interference
+# would drive the wet deck into trouble. On the CALM-WATER term the two are
+# ALIGNED, not opposed: the interference ratio is the ratio of radiated wave
+# ENERGY, so a spacing that cuts R_w cuts the wave field between the hulls by
+# the same factor. MEASURED at Fn 0.30 on the Wigley demihull, s/Lwl 0.150 to
+# 1.500: the destructive optimum at s/Lwl 0.4450 radiates 0.9223 of two
+# independent demihulls while the constructive worst case at s/Lwl 0.1500
+# radiates 1.4730 — so the wet deck sees the LARGEST wave field at exactly the
+# spacings the resistance objective already rejects.
+#
+# The mechanism that is NOT covered here is the seaway one: wet-deck slamming
+# in head seas is driven by relative motion between the bridge deck and the
+# incident wave, which is `navalai/seakeeping.py`'s question, not this
+# module's. `wet_deck_clearance_g` therefore covers the ship's OWN wave only,
+# and says so in its name and its docstring rather than in a comment a caller
+# will not read.
+
+
+def bow_wave_rise(speed: float) -> float:
+    """Stem wave rise [m] above the still waterline: U^2 / (2 g).
+
+    The steady-Bernoulli stagnation rise — EXACT at a stagnation point, and an
+    upper bound for a hull with a finite entrance angle. It carries no
+    empirical constant and no hull shape, which is both its honesty and its
+    limit: it is the speed's contribution to wet-deck clearance and nothing
+    else. A hull-form correction would need the near-field solution Michell
+    discards (see the section above).
+    """
+    if not (isinstance(speed, (int, float, np.floating))
+            and math.isfinite(speed) and speed >= 0.0):
+        raise ValueError(
+            f"bow_wave_rise: speed = {speed!r} is not a non-negative finite "
+            f"velocity; refused rather than returning a rise for it")
+    return float(speed) ** 2 / (2.0 * G)
+
+
+def wet_deck_clearance_g(clearance_m: float, speed: float) -> float:
+    """Constraint value for wet-deck clearance against the ship's OWN bow wave.
+
+    `bow_wave_rise(speed) - clearance_m`, in METRES, POSITIVE WHEN VIOLATED —
+    the same shape and sign as `evaluate`'s `"freeboard": FREEBOARD_FLOOR_M -
+    hs.freeboard_min`, so it can be appended to `CONSTRAINT_NAMES` /
+    `Evaluation.g` as a row without any convention change. NOT wired here: the
+    genome has no clearance parameter yet and `grammar.py` is another agent's
+    file.
+
+    `clearance_m` is the height of the wet deck above the still waterline.
+
+    SCOPE, and it is half the problem: this covers the ship's own steady bow
+    wave. Wet-deck slamming in a seaway is driven by relative motion against
+    the incident wave and belongs to `navalai/seakeeping.py`; a design that
+    satisfies this row is not thereby slam-free, and the row must not be
+    described as if it were.
+    """
+    if not (isinstance(clearance_m, (int, float, np.floating))
+            and math.isfinite(clearance_m)):
+        raise ValueError(
+            f"wet_deck_clearance_g: clearance_m = {clearance_m!r} is not a "
+            f"finite height above the waterline. An unmeasured clearance is "
+            f"REFUSED, not scored as satisfied — a wet deck whose height "
+            f"nobody recorded is the case this row exists to catch.")
+    return bow_wave_rise(speed) - float(clearance_m)
+
+
+# THE VALIDATION ANCHOR FOR THE INTERFERENCE TERM, AND IT IS PUBLISHED.
+#
+# NOTHING BELOW IS IN THIS REPOSITORY. No data file, no transcribed table, no
+# digitised curve — these are CITATIONS, checked against the literature record
+# on 2026-08-13 and not against any measurement of ours. The `s -> inf` test in
+# `tests/test_phase1.py` proves the interference term is SELF-CONSISTENT; only
+# one of these would prove it is RIGHT, and until one is transcribed this
+# module has no experimental anchor for a catamaran at all.
+#
+#   Bailey, D. (1976). "The NPL High Speed Round Bilge Displacement Hull
+#     Series: Resistance, Propulsion, Manoeuvring and Seakeeping Data."
+#     RINA Maritime Technology Monograph No. 4, London.
+#     The parent series. Envelope as given to this plate: Fn 0.3-1.2,
+#     L/B 3.33-7.50, B/T 1.75-10.77 — which OVERLAPS this project's design box
+#     (`grammar.L_OVER_B_BAND` (2.2, 8.5), `B_OVER_T_BAND` (1.8, 12.0)), so a
+#     comparison would be interpolation rather than extrapolation. Note the
+#     Froude floor: NPL starts at 0.3 and `FN_MICHELL_MAX` here is 0.45, so the
+#     usable overlap is a narrow Fn 0.30-0.45 window.
+#
+#   Insel, M. and Molland, A.F. (1992). "An Investigation into the Resistance
+#     Components of High Speed Displacement Catamarans." Trans. RINA, Vol. 134.
+#     THE DIRECTLY RELEVANT ONE: a Wigley hull plus three NPL-derived round
+#     bilge forms, tested as monohulls and as catamarans, and compared against
+#     THIN SHIP THEORY — the same theory this module implements. It is the
+#     source of the standard catamaran resistance decomposition into a wave
+#     interference factor and a viscous form interference factor.
+#
+#   Molland, A.F., Wellicome, J.F. and Couser, P.R. (1996). "Resistance
+#     experiments on a systematic series of high speed displacement catamaran
+#     forms: variation of length-displacement ratio and breadth-draught ratio."
+#     Trans. RINA, Vol. 138, pp. 55-71. Open-access as University of
+#     Southampton Ship Science Report No. 71/127,
+#     https://eprints.soton.ac.uk/46409/1/127ShipScience_Report.pdf
+#     The Southampton catamaran series, NPL round-bilge sections, tested at
+#     demihull separation ratios S/L and as a monohull. This is the shape of
+#     data this plate's bar 3 produces — an interference ratio as a function of
+#     S/L and Froude number — and is therefore the transcription to do first.
+#
+# WHAT A TRANSCRIPTION WOULD HAVE TO RESPECT, because getting this wrong would
+# compare two different quantities: the published catamaran interference factor
+# is usually defined on the WAVE component C_W (or on residuary resistance with
+# a form factor removed), not on total resistance, and the demihulls are free
+# to sink and trim. `michell_rw` gives the wave component of a FIXED hull, so
+# the comparison quantity is C_W(cat)/C_W(2 x demi) at matched Fn and S/L —
+# which is exactly the ratio bar 3 measures, and is why bar 3 is expressed as a
+# ratio rather than as newtons.
+
+
 def ittc57_cf(speed: float, lwl: float, nu: float | None = None,
               rho: float = 1000.0) -> float:
     """ITTC-1957 friction line. `nu` defaults to the water `rho` describes."""
