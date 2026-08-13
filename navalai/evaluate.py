@@ -41,12 +41,13 @@ from .energy import (EnergyReport, WeightBudget, energy_report, shell_area_m2,
 from .geometry import RHO_WATER, Hull
 from .holtrop import envelope_violations as holtrop_envelope_violations
 from .holtrop import particulars_from_floated
-from .hydrostatics import (HydroState, gm, gm_long, solve,
-                           solve_to_displacement)
+from .hydrostatics import (HydroState, gm, gm_long,
+                           multihull_stability_refusal, solve,
+                           solve_to_displacement, vessel_terms)
 from .limits import (FREEBOARD_FLOOR_M, LCB_BAND_PCT_LWL, LIST_LIMIT_DEG,
                      TRIM_LIMIT_DEG, gm_floor, min_bend_radius_m)
-from .mission import MissionSpec
-from .resistance import (FN_MICHELL_MAX, ResistanceResult,
+from .mission import EVALUABLE_TOPOLOGIES, Manning, MissionSpec
+from .resistance import (FN_MICHELL_MAX, ResistanceResult, bow_wave_rise,
                          total_resistance)
 from .rules import report as rules_report
 from .rules.iso12215 import assess as scantling_rules
@@ -247,6 +248,22 @@ class Evaluation:
     params: np.ndarray | None = field(default=None, repr=False, compare=False)
     eval_ms: float = 0.0
     badges: dict = field(default_factory=dict)   # quantity -> (tier, sigma)
+    # WHAT VESSEL this evaluation is of, and the derived quantities that only
+    # exist for a multihull: hull count, demihull spacing, overall waterline
+    # beam, and the wet-deck clearance the ship's OWN bow wave demands. A
+    # REPORT, not a constraint vector — the genome declares no wet-deck height,
+    # and `resistance.wet_deck_clearance_g` refuses an unmeasured clearance
+    # rather than scoring it as satisfied. Empty for nothing: a monohull fills
+    # it in too, saying n_hulls 1, so a reader never has to infer the
+    # configuration from a missing key.
+    vessel: dict = field(default_factory=dict)
+    # AXIS 3's receipts: every L1 model that is outside its SUPPORT at this
+    # size and speed. Distinct from `violations` on purpose — a model inside
+    # its validity flag but outside the band it was correlated on (ITTC-57 in
+    # the laminar-turbulent transition) is information a reader needs and is
+    # not, today, a bar. Same shape and the same reason as
+    # `holtrop_envelope_violations` below.
+    resistance_envelope: tuple[str, ...] = ()
     # WHICH resistance model answered, and why the other one did not (gap E1b).
     # A METHOD RECEIPT, not a quantity: it gets its own field rather than a
     # `badges` entry, because a badge is `(tier, sigma, basis)` about a NUMBER
@@ -396,6 +413,45 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
     hull = Hull(params)
     p = grammar.named(params)
 
+    # HOW MANY HULLS, AND HOW FAR APART — resolved ONCE, here, and handed to
+    # both halves of the physics. `hydrostatics.vessel_terms` is the single
+    # home of the derivation (`mission.VesselConfig.separation_m` is the single
+    # home of the ratio -> metres conversion inside it); the stability term and
+    # the wave-interference term must be given the same spacing or they
+    # describe different vessels while sharing one Evaluation.
+    #
+    # `getattr` rather than `mission.vessel`: `translate.sanitize` and
+    # `ui/server.py`'s `MissionSpec(**body)` build spec-like objects, and a
+    # caller holding an older one must get the monohull it has always got
+    # rather than an AttributeError from inside the ladder.
+    vessel_cfg = getattr(mission, "vessel", None)
+    try:
+        # AXIS 1 has values this project can DECLARE and cannot EVALUATE. A
+        # trimaran's amas are not copies of its centre hull and this genome
+        # carries one moulded surface; refusing by name keeps the gap visible,
+        # where silently summing three copies would report a vessel nobody
+        # would build.
+        if vessel_cfg is not None and not vessel_cfg.is_evaluable:
+            raise ValueError(
+                f"topology {vessel_cfg.topology.value!r} is NOT IMPLEMENTED. "
+                f"`grammar.PARAMS` carries exactly one moulded surface and "
+                f"`resistance.catamaran_interference` derives its factor from "
+                f"two IDENTICAL translated hulls, so a centre hull that "
+                f"differs from its amas cannot be built from this genome. "
+                f"Evaluable topologies: "
+                f"{[t.value for t in EVALUABLE_TOPOLOGIES]}.")
+        n_hulls, separation_m, _d = vessel_terms(hull, vessel_cfg)
+    except (ValueError, TypeError, AttributeError, KeyError) as e:
+        # An unbuildable VESSEL is an L0 refusal, not a floatation failure: it
+        # is decided by the configuration and the moulded surface, before a
+        # drop of water is involved. It is CAUGHT rather than allowed to
+        # propagate for the same reason `_apply_policy` uses `route_report` —
+        # one bad design must not abort a whole NSGA-II population.
+        return Evaluation(False, "L0", (f"vessel: {e}",),
+                          params=np.asarray(params),
+                          hull_lwl_m=_declared_lwl_m(params),
+                          eval_ms=(time.perf_counter() - t0) * 1e3)
+
     # Weight model first: the boat must float AT its real weight, not a wish.
     # The POSITIONED model is the one truth (weights.MassAggregate) — it used to
     # exist only in tests while the ladder read a separate scalar budget, so an
@@ -431,7 +487,21 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
     # -15.4% on average, and it was wrong in a way that varied systematically
     # with exactly the parameters NSGA-II is free to move. The optimiser was
     # scoring structure mass over that error.
-    shell = shell_area_m2(hull)                 # computed once, not twice
+    # TWO DEMIHULLS ARE TWO SHELLS. This is counting, not modelling: the same
+    # moulded surface is built n_hulls times, so the plywood in it is n_hulls
+    # times as much. `1 * shell` is exact, so the monohull is untouched.
+    #
+    # WHAT IS NOT COUNTED, AND IT FLATTERS THE CATAMARAN — said out loud rather
+    # than left to be found. `deck` stays ONE demihull's deck, so the BRIDGE
+    # DECK spanning the tunnel contributes neither structure mass (which would
+    # hurt the design) nor solar area (which would help it), and `weight_items`
+    # places every item at a single-hull height, so a bridge deck and its
+    # superstructure — which sit ABOVE the demihull sheer — do not raise KG.
+    # KG is the lever GM is measured from, so a catamaran's GM here is an
+    # UPPER estimate. Closing this needs a bridge-deck geometry the grammar
+    # does not carry and an arrangement model (tier E); inventing a height
+    # would be the `${VAR:-0}` pattern with a boat on top of it.
+    shell = n_hulls * shell_area_m2(hull)       # computed once, not twice
     deck = hull.deck_area()
     wb = weight_budget(p["LWL"], p["D"], shell, deck, mission.energy, t_ply)
     items = weight_items(p["LWL"], p["D"], shell, deck, mission.energy,
@@ -463,7 +533,11 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
     target = max(agg.total_kg, mission.displacement_target_kg)
     unaccounted_frac = gap_kg / max(target, 1e-9) if gap_kg > 0.0 else 0.0
     try:
-        hs, wl = solve_to_displacement(hull, target, rho)
+        # The VESSEL floats to `target`, so a two-hull vessel puts half the
+        # mass in each demihull and floats higher than the same genome would as
+        # a monohull. Draft is what KB, the waterplane beam and every
+        # proportion downstream are measured at, so this is not bookkeeping.
+        hs, wl = solve_to_displacement(hull, target, rho, vessel=vessel_cfg)
     except ValueError as e:
         return Evaluation(False, "L1", (f"floatation: {e}",), weights=wb,
                           ply_thickness_m=t_ply, params=np.asarray(params),
@@ -503,16 +577,24 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
     # and 0.550 m against a floated 3.252 m and 0.374 m — a 47% error on the
     # draft, entering as sqrt(B/T). Passing them from `hs` makes the four
     # arguments describe the same boat at the same waterline.
+    # AND THE SEPARATION REACHES THE WAVE TERM. `hs.wetted` is already the
+    # VESSEL's (both demihulls) while `hs.cb`, `hs.b_wl_max` and `hs.draft`
+    # stay ONE demihull's, which is exactly the split `total_resistance`
+    # documents and Watanabe's regression needs.
     res = total_resistance(hull, u, hs.wetted, hs.cb, rho, wl,
-                           beam_wl=hs.b_wl_max, draft=hs.draft)
+                           beam_wl=hs.b_wl_max, draft=hs.draft,
+                           separation=(separation_m if n_hulls > 1 else None))
     early: list[str] = []
     if not res.valid:
-        # Reported as a violation, not buried in a badge: at Fn > 0.45 the
-        # thin-ship model is answering a different question than the mission.
-        early.append(
-            f"speed outside the L1 model: Fn {res.fn:.2f} > {FN_MICHELL_MAX} "
-            f"(planing regime — Michell thin-ship has no dynamic lift, trim or "
-            f"spray; needs a Savitsky-class method)")
+        # Reported as a violation, not buried in a badge: outside its envelope
+        # the L1 model is answering a different question than the mission.
+        # THE REASON COMES FROM AXIS 3 rather than being spelled out here,
+        # because validity now has TWO causes — Fn above `FN_MICHELL_MAX` and
+        # Re below the transition — and a message that names only the Froude
+        # one would misreport a slow 1 m hull as a planing boat.
+        for why_env in (res.flow.envelope if res.flow is not None else
+                        (f"Fn {res.fn:.2f} > {FN_MICHELL_MAX}",)):
+            early.append(f"speed/size outside the L1 model: {why_env}")
     # THE RESISTANCE SIGMA IS HANDED ON (gap H1). `energy_report` has propagated
     # since the H1 fix landed in energy.py, but this — its ONLY production call
     # site — passed no input sigma, so it took the placeholder branch every
@@ -563,9 +645,69 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
         ok=True, tier="L1", hydro=hs, wl=wl, weights=wb, masses=agg,
         gm_m=gm_m, gm_l_m=gm_l_m, ply_thickness_m=t_ply,
         hull_lwl_m=float(p["LWL"]))
-    findings = (stability_rules(ev_for_rules, mission.design_category,
-                                mission.crew, 2.0 * float(hull.y_chine.max()))
-                + scantling_rules(hs.disp_kg, t_ply * 1e3))
+    # THE OFFSET-LOAD LEVER IS THE VESSEL'S BEAM, NOT ONE DEMIHULL'S.
+    # `iso12217.assess` uses `beam_m` for exactly one thing: R-OLH's crew
+    # offset, `b = 0.40 * beam`. The crew of a catamaran crowd to the outboard
+    # edge of the BRIDGE DECK, which is s further out than a demihull's own
+    # side, so passing the demihull beam would understate the heeling moment by
+    # the whole separation — the flattering direction, and the same error class
+    # as judging a demihull by a monohull GM floor. Overall beam is the
+    # separation plus one demihull's moulded beam; for a monohull
+    # `separation_m` is 0.0 and this is the identical expression it always was.
+    beam_for_offset_load = separation_m + 2.0 * float(hull.y_chine.max())
+
+    # AXIS 2 — MANNING SELECTS THE RULE SET, and this is where it selects it.
+    #
+    # UNCREWED IS NOT CREWED WITH ZERO PEOPLE. The RCD (Directive 2013/53/EU)
+    # governs recreational craft; an uncrewed vehicle is outside its scope, so
+    # ISO 12217-1 — harmonised UNDER that directive, and whose whole assessment
+    # is built out of crew mass, accommodation and escape — does not apply.
+    # `limits.CREW_MASS_KG` and `iso12217.OFFSET_FRACTION` are crewed-only
+    # concepts, and running them on a drone would produce a heel angle from a
+    # crew that is not aboard, under a header naming a standard that does not
+    # cover the craft. That is the `gate2m.py` printing KCS's EFD figure over a
+    # Wigley hull defect, in the rules tier.
+    #
+    # So the assessment is NOT RUN, and its absence is a REFUSAL rather than a
+    # silence: nothing in this repository implements a stability rule set for
+    # uncrewed craft, and an uncrewed hull must not come back blessed by the
+    # scantling half alone.
+    manning = getattr(vessel_cfg, "manning", Manning.CREWED)
+    # Two lists on purpose: `rules_not_implemented` is the REPORT of every rule
+    # set that did not run, and `manning_refusals` is the subset that is also a
+    # VIOLATION. A whole missing rule set (uncrewed) is a refusal; a missing
+    # half of a rule set that did run (liveaboard) is a recorded gap, because a
+    # habitable monohull is not thereby unsafe and inventing a bar for it would
+    # be the mirror of the defect this file exists to prevent.
+    rules_not_implemented: list[str] = []
+    manning_refusals: list[str] = []
+    if manning is Manning.UNCREWED:
+        findings = list(scantling_rules(hs.disp_kg, t_ply * 1e3))
+        manning_refusals.append(
+            f"manning=uncrewed: ISO 12217-1 was NOT ASSESSED and NOTHING was "
+            f"assessed in its place. The RCD does not govern uncrewed craft, "
+            f"so a harmonised standard under it cannot answer for this "
+            f"vehicle, and this repository implements no stability rule set "
+            f"that can. `mission.crew` = {mission.crew} was IGNORED: crew "
+            f"mass and the offset-load crowding fraction are crewed-only "
+            f"concepts. This hull therefore has NO stability assessment of any "
+            f"kind — which is a refusal, not a pass.")
+        rules_not_implemented.extend(manning_refusals)
+    else:
+        findings = list(stability_rules(ev_for_rules, mission.design_category,
+                                        mission.crew, beam_for_offset_load)
+                        + scantling_rules(hs.disp_kg, t_ply * 1e3))
+    if manning is Manning.LIVEABOARD:
+        # A recorded gap and NOT a violation for a monohull: ISO 12217-1 does
+        # cover habitable craft and is assessed above, so the missing piece is
+        # the habitability/escape half rather than the whole rule set. For a
+        # habitable MULTIHULL the missing piece is inversion and escape, and
+        # that is exactly what the multihull refusal below already fails on —
+        # so it is not counted twice.
+        rules_not_implemented.append(
+            "manning=liveaboard: ISO 12217-1's habitability, downflooding-"
+            "opening and ESCAPE provisions are not implemented; only the "
+            "numeric bars in `rules/iso12217.py` were assessed.")
     rules_rep = rules_report(findings)
     # One continuous margin so NSGA-II can descend it: 0 when every rule
     # passes, else the worst RELATIVE shortfall. A boolean would give the
@@ -645,6 +787,30 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
             viol.append(why[k])
     viol.extend(early)
 
+    # AXIS 1's SAFETY HALF, and it is the reason this whole feature is not a
+    # regression. The parallel-axis term above just made every catamaran's GM
+    # enormous; without this, that lands as "catamarans now sail through the
+    # stability gate" on a criterion that does not apply to them. See
+    # `hydrostatics.multihull_stability_refusal` for the mechanism (a
+    # catamaran is stable INVERTED and cannot self-right), for the criterion
+    # that governs, and for exactly which of its clauses cannot be computed
+    # here. Empty tuple for a monohull, so the monohull path is untouched.
+    #
+    # A VIOLATION AND NOT A CONSTRAINT ROW, deliberately. `CONSTRAINT_NAMES`
+    # feeds NSGA-II's G matrix, and a row that is a large constant for every
+    # multihull and satisfied for every monohull carries no gradient while
+    # occupying a dimension — the E4 defect. It also would have changed the
+    # vector's SHAPE for monohulls. This is the same mechanism the ladder
+    # already uses for `early`, the "speed outside the L1 model" refusal.
+    viol.extend(multihull_stability_refusal(
+        hs, gm_m, offset_load_assessed=manning is not Manning.UNCREWED))
+    viol.extend(manning_refusals)
+    # AXIS 3's receipts. A model out of its SUPPORT but still inside its
+    # validity flag (the transition band) is reported and not counted as a
+    # violation; a model outside its VALIDITY has already produced `early`
+    # above via `res.valid`.
+    flow_envelope = tuple(res.flow.envelope) if res.flow is not None else ()
+
     # Sigmas that are DERIVED carry it; sigmas that are still a declared
     # fraction say so. The mass model computes a real sigma (`agg.sigma_kg`,
     # 178 kg / 6.4% on the reference hull, and much larger once the unaccounted
@@ -701,6 +867,49 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
                 f"value to badge")
             badges[name] = (f"{tier_b.split('-')[0]}-INVALID", sigma, basis)
 
+    # THE DERIVED VESSEL QUANTITIES. `bridge_deck_clearance_required_m` is the
+    # ship's own steady bow wave, U^2/(2g) — an exact stagnation rise and an
+    # upper bound for a finite entrance angle. It is REQUIRED clearance, not
+    # achieved clearance: the genome declares no wet-deck height, so there is
+    # nothing to subtract it from and no constraint row is added. Reporting the
+    # bar without a measurement is honest; scoring an unmeasured clearance as
+    # satisfied is the defect class `wet_deck_clearance_g` refuses outright.
+    # It says nothing about slamming in a seaway, which is relative motion
+    # against the incident wave and belongs to `seakeeping`.
+    vessel_report = {
+        "topology": (vessel_cfg.topology.value if vessel_cfg is not None
+                     else "monohull"),
+        "manning": manning.value,
+        "n_hulls": n_hulls,
+        "separation_m": separation_m,
+        "separation_over_lwl": (separation_m / max(float(p["LWL"]), 1e-9)
+                                if n_hulls > 1 else 0.0),
+        "beam_demihull_wl_m": hs.b_wl_max,
+        "beam_overall_wl_m": hs.beam_overall_m,
+        "i_t_m4": hs.i_t,
+        "bridge_deck_clearance_required_m": (bow_wave_rise(u) if n_hulls > 1
+                                             else 0.0),
+        # AXIS 3, derived and reported beside the axes that were declared.
+        "fn": res.flow.fn if res.flow is not None else res.fn,
+        "re": res.flow.re if res.flow is not None else float("nan"),
+        "models_admitted": ("michell" if res.flow is None or res.flow.michell_ok
+                            else "") + ("+ittc57" if res.flow is None
+                                        or res.flow.ittc57_ok else ""),
+        # Every rule set that was NOT run, and every criterion that has no
+        # implementation. A reader must never have to infer an absence.
+        "rules_not_implemented": tuple(rules_not_implemented),
+        "stability_criterion": (
+            "ISO 12217-1 metacentric floor (a MONOHULL proxy)" if n_hulls == 1
+            else "NOT IMPLEMENTED — see violations; GM does not establish "
+                 "multihull safety"),
+        "caveats": (() if n_hulls == 1 else (
+            "KG is a single-hull KG: the bridge deck and anything on it are "
+            "not in the weight model, so GM here is an UPPER estimate",
+            "deck area, and therefore solar area, is ONE demihull's — the "
+            "bridge deck contributes none, so range is an UNDER estimate",
+            "viscous form interference between the demihulls is not modelled",
+        )),
+    }
     ev = Evaluation(
         ok=len(viol) == 0, tier="L1", violations=tuple(viol), hydro=hs, wl=wl,
         weights=wb, masses=agg, gm_m=gm_m, gm_l_m=gm_l_m,
@@ -708,7 +917,12 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
         ply_thickness_m=t_ply, unaccounted_frac=unaccounted_frac,
         hull_lwl_m=float(p["LWL"]), rules=rules_rep, params=np.asarray(params),
         eval_ms=(time.perf_counter() - t0) * 1e3, badges=badges,
-        resistance_method="michell+ittc57",
+        vessel=vessel_report, resistance_envelope=flow_envelope,
+        resistance_method=("michell+ittc57" if n_hulls == 1 else
+                           "michell+ittc57 (catamaran: wave interference "
+                           "exact in thin-ship theory, viscous form "
+                           "interference NOT modelled, no experimental "
+                           "anchor)"),
         holtrop_envelope_violations=holtrop_env,
     )
 

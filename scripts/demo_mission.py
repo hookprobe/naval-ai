@@ -40,7 +40,7 @@ def main() -> None:
     p = grammar.named(x)
     print(f"front size {len(res.X)}; selected lowest-energy hull:")
     print(f"  LWL {p['LWL']:.2f} m · BWL {p['BWL']:.2f} m · T {p['T']:.2f} m · "
-          f"deadrise {p['beta_mid']:.1f}°\n")
+          f"deadrise {p['beta_mid']:.1f}°  Cp {p['Cp']:.3f}\n")
 
     print("L1 physics (tier-badged):")
     print(f"  displacement {ev.hydro.disp_kg:.0f} kg | GM {ev.gm_m:.2f} m | "

@@ -657,11 +657,29 @@ CHECKS: tuple[Check, ...] = (
                 "instead of maximising -GM",
           lambda: imports("navalai/optimize.py", ".limits", "GM_OVER_BEAM_MAX")
                   and has_code("navalai/optimize.py", r"gm_mid")),
-    Check("B7", "resistance.FN_MICHELL_MAX + Rt.valid, reported by evaluate() "
-                "as a violation naming the planing regime",
+    # RE-AIMED 2026-08-14, and for the second time this predicate family has
+    # reported a REGRESSION ON AN IMPROVEMENT. It required the literal string
+    # "planing regime" in evaluate.py. That wording was REMOVED ON PURPOSE when
+    # the vessel work gave `valid` a second cause: an out-of-envelope result can
+    # now mean Fn above FN_MICHELL_MAX **or** Reynolds below the turbulent
+    # floor, and naming both "the planing regime" would misreport a slow 1 m
+    # hull as a planing boat -- a 1.0 m hull at 3 kn is Fn 0.493 AND Re 1.3e6,
+    # out of envelope at both ends while planing at neither.
+    #
+    # So the predicate now asks for the PROPERTY: the bound exists in the one
+    # module that owns it, evaluate() imports that same bound rather than
+    # keeping a copy, and the refusal it emits NAMES THE MEASURED Fn against
+    # it -- which is what makes the violation checkable by a reader. Matching
+    # prose was always the weaker test; it pinned an English sentence when the
+    # claim is about a number.
+    Check("B7", "resistance.FN_MICHELL_MAX is the one envelope bound, evaluate() "
+                "imports it rather than copying it, and an out-of-envelope "
+                "result is a violation that names the measured Fn against it",
           lambda: has_code("navalai/resistance.py", r"FN_MICHELL_MAX")
-                  and has_code("navalai/evaluate.py", r"FN_MICHELL_MAX")
-                  and has_code("navalai/evaluate.py", r"planing regime")),
+                  and has_code("navalai/evaluate.py",
+                               r"from \.resistance import \([^)]*FN_MICHELL_MAX")
+                  and has_code("navalai/evaluate.py",
+                               r'f"Fn \{res\.fn[^"]*\{FN_MICHELL_MAX\}')),
     Check("B8", "limits.LCB_BAND_PCT_LWL is an entry in the constraint vector",
           lambda: has_code("navalai/limits.py", r"LCB_BAND_PCT_LWL")
                   and has_code("navalai/evaluate.py", r'"lcb":')),
@@ -1158,11 +1176,36 @@ CHECKS: tuple[Check, ...] = (
                               "test_hypar_negative_control_fails_developability")
                   and defines("tests/test_manufacturing.py",
                               "test_true_developables_have_zero_ruling_twist")),
-    Check("G6", "export lofts the VALIDATED discretisation (n_stations defaults "
-                "to hull.n_stations) and writes an export_receipt",
+    # RE-AIMED 2026-08-13. THIS PREDICATE TESTED AN IMPLEMENTATION AND THE
+    # IMPLEMENTATION IMPROVED, so the fence reported a regression on a fix.
+    # It required the literal `n_stations = hull.n_stations if n_stations is
+    # None` — i.e. "loft at the ladder's station count". MEASURED: matching the
+    # count does NOT make the loft the ladder's boat. `_section_at_rows` lerps
+    # control points between `Hull.x`, so `Hull.n_stations` fixes the surface
+    # and resampling at the same count cannot recover it; the loft-vs-ladder
+    # gap is unchanged to four decimals at 41/81/161/321 export stations.
+    # Lofting DENSER converges it: worst-of-7 volume error -0.0372% at 41
+    # stations against +0.0461% at 641, the sign flip marking the point where
+    # the loft stops being coarse and the residual becomes the ladder's own
+    # trapezoid. `_LOFT_STATIONS = 161` (station-aligned, 4x40+1) is bounded at
+    # +0.046%.
+    #
+    # So the gap's PROPERTY is "the exported solid is the validated hull",
+    # and the predicate now asks for the two things that make that checkable —
+    # a receipt, and an instrument that can DISAGREE with the loft. The second
+    # matters: `_displaced_volume_of` sampled only at the loft's own stations
+    # and therefore read 0.0000% at the shipped count, a cross-check sharing
+    # its answer with the thing being checked. `measure_lofted_displacement`
+    # sub-samples BETWEEN stations, reads -0.0129% on the reference hull, and
+    # is negative on every hull as convexity requires.
+    Check("G6", "the exported solid is the validated hull: export writes an "
+                "export_receipt, lofts at a converged station count, and "
+                "measures displacement with an instrument that sub-samples "
+                "between stations so it CAN disagree with the loft",
           lambda: defines("navalai/export.py", "export_receipt")
-                  and has_code("navalai/export.py",
-                          r"n_stations = hull\.n_stations if n_stations is None")),
+                  and defines("navalai/export.py",
+                              "measure_lofted_displacement")
+                  and has_code("navalai/export.py", r"_LOFT_STATIONS\s*=\s*\d+")),
     Check("G7", "ES-TRIN exists as executable checkers -- the Solar Liveaboard "
                 "(Danube) SKU requires it",
           lambda: any(has(str(p.relative_to(_BASE)), r"(?i)es-?trin")

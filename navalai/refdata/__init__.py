@@ -113,7 +113,20 @@ class Absent:
 #
 # `test_every_edition_defect_has_a_purchase_row` is the fence.
 PURCHASE_QUEUE = (
-    "ISO 12217-1:2022 — Small craft, stability and buoyancy assessment and "
+    # BUY THE 2015 EDITION, NOT THE 2022 ONE, AND THIS ROW SAID 2022.
+    # MEASURED 2026-08-13 against the Commission's own "Summary list of
+    # harmonised standards" for 2013/53/EU (free xlsx, generated 17/03/2026,
+    # 62 references in force): the harmonised reference is **EN ISO
+    # 12217-1:2017**, and the ISO edition INSIDE it is **ISO 12217-1:2015**.
+    # The EN year is the ADOPTION date, not the edition — which is also why an
+    # earlier read of this tree wrongly concluded that R-DFH and R-OLH had been
+    # confirmed against a superseded text. They had not; `review.py` holding
+    # 2015 is correct.
+    # ISO 12217-1:2022 DOES exist and is NOT harmonised, so buying it would buy
+    # a text that confers no presumption of conformity under the RCD — money
+    # spent moving AWAY from the legally operative document.
+    "ISO 12217-1:2015 (harmonised as EN ISO 12217-1:2017, 1865 SEK) — "
+    "Small craft, stability and buoyancy assessment and "
     "categorization, Part 1: non-sailing boats of hull length >= 6 m. CLOSES "
     "HALF OF GATE 6R (RED). Needed: the four design-category rows behind "
     "iso12217.CATEGORY_TABLE — downflooding height, GM floor, offset-load heel "
@@ -128,6 +141,25 @@ PURCHASE_QUEUE = (
     "stand-in), the k2 aspect-ratio table, the kC curvature correction, and the "
     "plywood design bending stress sigma_d (15.0 N/mm^2 for okoume is the "
     "stand-in and it sets scantlings directly)",
+    # PRICED AND SCOPED 2026-08-13: this is TWO SIS products, not one —
+    # EN ISO 8666:2020 (1937 SEK) plus amendment /A11:2021 (687 SEK) = 2624
+    # SEK. Buying only the base document leaves the amendment's changes
+    # unheld, and the harmonised reference is the pair.
+    "ISO 8666:2020 + /A11:2021 (2624 SEK, TWO products) — "
+    "Small craft, PRINCIPAL DATA. The measurand behind hull length "
+    "L_H, waterline length L_WL, breadth B_H, draught and loaded displacement "
+    "mass mLDC. MEASURED 2026-08-13: it appeared in NEITHER this queue nor "
+    "`absent()`, and it is the only genuinely NEW absence the EU regulatory "
+    "audit turned up. It is not a nice-to-have. SIX thresholds in Directive "
+    "2013/53/EU are keyed to a length ISO 8666 defines, and one of them is a "
+    "CUBIC (the L.B.T >= 100 m3 limb of the ES-TRIN scope test), so a "
+    "measurand error is cubed before it decides whether a standard applies at "
+    "all. `estrin.hull_length_m` and `iso12217.hull_length_m` are today TWO "
+    "DIFFERENT stand-ins for it, deliberately unshared and both documented as "
+    "approximations, and mLDC — which sets every ISO 12215-5 design pressure "
+    "through mLDC^0.33 — has no sourced definition of its loading condition. "
+    "Buying this makes the scope calls and the pressure base defensible; "
+    "without it every downstream bar rests on our own definition of length",
     "ISO 12217-2 — sailing craft 6-24 m, including WIND-HEELING criteria. Not "
     "an edition defect (nothing implements it), but it BLOCKS THE WINDWING SKU: "
     "a kite-rigged craft must EXTEND R-SCP rather than bypass it, and the rules "

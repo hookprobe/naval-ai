@@ -21,10 +21,10 @@ from navalai.cfd.case import (layer_spec, motion_from_geometry,
 from navalai.geometry import Hull
 
 REFERENCE = {
-    "LWL": 10.0, "BWL": 3.2, "T": 0.55, "D": 1.55, "beta_mid": 8.0,
-    "beta_bow": 30.0, "p_bow": 2.2, "p_stern": 3.0, "x_mb": 0.55,
-    "r_transom": 0.75, "rocker": 0.15, "forefoot": 0.85, "flare": 10.0,
-    "sheer_rise": 0.18, "beta_len": 0.35,
+    "LWL": 10.0, "BWL": 3.2, "T": 0.55, "D": 1.55,
+    "Cp": 0.60, "lcb": -1.0, "x_mb": 0.55, "r_transom": 0.30,
+    "beta_mid": 8.0, "beta_bow": 30.0, "beta_len": 0.35, "roundness": 0.0,
+    "rocker": 0.15, "forefoot": 0.60, "flare": 10.0, "sheer_rise": 0.18,
 }
 
 

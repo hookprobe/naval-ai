@@ -1,15 +1,49 @@
-"""Geometry kernel: parameters -> stations -> sections -> integral properties.
+"""Geometry kernel: DESIGN CURVES -> stations -> sections -> integral properties.
 
-Sections are two straight segments (keel->chine, chine->sheer): every hull the
-grammar emits is a pair of near-developable ruled panels per side, buildable
-from sheet material. All quantities here are deterministic and fast (vectorised
-numpy); this is the geometry substrate for L1 physics and the L2 mesh.
+THE PARAMETRISATION IS INVERTED (plate P1, 2026-08-13), AND THE SECTION IS NO
+LONGER THREE POINTS (plate P2).
+
+MEASURED at commit c7b7c4b on 200 draws of `evaluate.sample_valid(200,
+MissionSpec(), seed=0)`, with Cp and LCB integrated off the delivered geometry:
+
+    Cp      0.386 .. 0.832    only 18.0% inside the 0.55-0.62 band
+    LCB   -10.02 .. +13.88    only 46.5% inside +-3 %LWL
+
+Cp, LCB and the half-angle of entrance were EMERGENT OUTPUTS of fifteen
+unrelated shape knobs. A naval architect CHOOSES Cp for the design Froude
+number, CHOOSES LCB for balance, then finds a surface that satisfies them; that
+generator could not aim. So:
+
+  * `sac_ordinate` / `sectional_area` make the SECTIONAL AREA CURVE A(x) a
+    first-class design curve. Its two shape exponents are SOLVED from the
+    `Cp` and `lcb` genes (`sac_exponents`), so Cp and LCB are inputs and the
+    exponents are outputs — the exact inverse of the old arrangement.
+  * `design_waterline` makes the DESIGN WATERLINE y_wl(x) a first-class curve
+    with a closed form, so `Hull.alpha_e_deg()` is a measured property of a
+    named curve instead of an accident of the chine plan-form times a flare
+    times a stem taper.
+  * `_stations` SOLVES the chine half-breadth at every station, in closed
+    form, so that the delivered immersed area IS A(x). The chine plan-form
+    `0.5 * BWL * w(x)` is gone: a plan-form is what you get, not what you ask
+    for.
+
+THE SECTION IS A SHAPE FUNCTION, NOT A POLYLINE. `Hull.section` used to return
+exactly three points — keel, chine, sheer — so every hull the grammar could
+express was a hard chine BY CONSTRUCTION: round bilge was not untried, it was
+inexpressible, and a polyline has no curvature, so surface fairness was
+identically zero. `roundness` fillets the bilge with a quadratic Bezier whose
+area is closed-form, and `roundness == 0` reproduces the old three-point
+section EXACTLY (fenced by `tests/test_geometry_kernel.py`).
+
+Coordinates: x = 0 at the transom, x = LWL at the stem; z = 0 at the design
+waterline, z negative down; y is the starboard half-breadth.
 """
 
 from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
+from functools import lru_cache
 
 import numpy as np
 
@@ -17,6 +51,445 @@ from . import grammar
 
 RHO_WATER = 1000.0  # fresh water (Danube); pass 1025 for salt
 G = 9.80665
+
+# Sectional-area-curve shape exponents. The SOLVER may only return values in
+# this band, and a (Cp, lcb) pair it cannot reach inside it is REFUSED by
+# `grammar.check` rather than approximated — an unreachable design target
+# scored as a reachable one is defect class 1 (an unmeasurable value scored as
+# a passing one) applied to a design intent.
+#
+# THE FAMILY IS TWO-SIDED, and the first version of it was not — which cost
+# five sixths of the search box. MEASURED on 4000 uniform in-bounds vectors
+# with the one-sided shape `h(s) = s**p, p in [1, 8]`: `sac.target` refused
+# 66.4% of them and the L0 feasible fraction fell from 20.69% to 4.00%. The
+# mechanism is that `int h` only reaches (0, 1/2] for p >= 1, so the family
+# could make a run FINER than a straight line but never FULLER, and the
+# transom-area gene then fought the Cp gene over a range neither could give up.
+#
+#     h(s; p) = s**p                  p >= 1   (fine;  int h = 1/(p+1))
+#     h(s; p) = 1 - (1-s)**(2-p)      p <= 1   (full;  int h = (2-p)/(3-p))
+#
+# The two branches agree in value AND first derivative at p = 1, so `int h` is
+# a C1 monotone decreasing function of p over the whole band and the bisection
+# below is bracketed on a continuous residual. Neither branch has an unbounded
+# derivative anywhere in [SAC_P_MIN, SAC_P_MAX], which is why the band is
+# closed at 2 - SAC_P_MAX rather than run to -inf.
+SAC_P_MAX = 8.0
+SAC_P_MIN = 2.0 - SAC_P_MAX
+
+# Points sampled along each half of the section by `Hull.section` when
+# `roundness > 0`.
+#
+# THIS RESOLUTION DOES NOT SET THE AREA. `immersed_section` integrates the
+# section in CLOSED FORM off five control points, so displacement, waterplane
+# and KB carry no sampling error at all (that is what meets plate P2's 1e-6
+# bar; see `_immersed`). What this number sets is the GIRTH and the
+# half-breadth table — `wetted_surface` and `offsets_grid` — which are
+# piecewise-linear readings of the same shape function.
+#
+# MEASURED over `grammar.sample(20, rng(0))`, worst relative error against
+# n = 4096:
+#
+#         n     wetted_surface    offsets_grid
+#        16          6.24e-03        3.00e-03
+#        32          2.01e-03        1.18e-03
+#        64          6.01e-04        4.69e-04
+#       128          4.45e-04        1.29e-04   <- SHIPPED
+#       256          3.36e-04        2.91e-05
+#
+# 128 sits where the curve flattens: doubling it again buys 25% on the wetted
+# surface, which is four orders below the friction-line uncertainty it feeds.
+SECTION_FILLET_SAMPLES = 128
+
+
+class GeometryError(ValueError):
+    """A design target this shape family cannot realise.
+
+    Raised rather than clamped. A hull whose sectional area curve asks for
+    more area than the deadrise and draft can enclose is not a slightly-wrong
+    hull, it is an unbuildable request, and `grammar.check` turns this into a
+    named violation.
+    """
+
+
+# --------------------------------------------------------------------------
+# The sectional area curve: A(x) = A_mid * a(x), with a(x)'s exponents SOLVED
+# from Cp and LCB.
+# --------------------------------------------------------------------------
+
+
+def _shape(s: np.ndarray, p: float) -> np.ndarray:
+    """The two-sided fullness shape h(s) on [0, 1]: h(0) = 0, h(1) = 1."""
+    if p >= 1.0:
+        return s ** p
+    return 1.0 - (1.0 - s) ** (2.0 - p)
+
+
+def _shape_moments(p: float) -> tuple[float, float]:
+    """(int_0^1 h ds, int_0^1 s h ds) in closed form, both branches."""
+    if p >= 1.0:
+        return 1.0 / (p + 1.0), 1.0 / (p + 2.0)
+    q = 2.0 - p
+    return q / (q + 1.0), 0.5 - 1.0 / ((q + 1.0) * (q + 2.0))
+
+
+def _sac_terms(L: float, xm: float, R: float, pf: float, pa: float):
+    """Closed-form 0th and 1st moments of a(x).
+
+    a(x) = R + (1-R) h(x/xm; pa)               for x <  xm
+    a(x) = 1 - h((x-xm)/(L-xm); pf)            for x >= xm
+
+    S = int a dx and M = int x a dx, both exact. Cp = S / L and the
+    longitudinal centre of buoyancy is M / S, so the two design targets are
+    two equations in (pf, pa) — which is the whole point of writing them in
+    closed form: the solve below is cheap enough to sit inside `grammar.check`.
+    """
+    lf = L - xm
+    h1a, h2a = _shape_moments(pa)
+    h1f, h2f = _shape_moments(pf)
+    S = xm * (R + (1.0 - R) * h1a) + lf * (1.0 - h1f)
+    M = (xm * xm * (0.5 * R + (1.0 - R) * h2a)
+         + lf * (xm * (1.0 - h1f) + lf * (0.5 - h2f)))
+    return S, M
+
+
+@lru_cache(maxsize=8192)
+def sac_exponents(lwl: float, x_mb: float, r_transom: float,
+                  cp: float, lcb_pct: float) -> tuple[float, float]:
+    """Solve the SAC shape exponents (pf, pa) for a target (Cp, LCB).
+
+    Returns (pf, pa). Raises `GeometryError` when the target lies outside what
+    the family can reach with both exponents in [SAC_P_MIN, SAC_P_MAX].
+
+    THE SOLVE IS TWO NESTED BISECTIONS, NOT A NEWTON STEP, and the reason is
+    monotonicity rather than taste. S = int a dx is strictly increasing in pf
+    (a fuller forebody) and strictly decreasing in pa (a finer run), so the
+    inner solve for pf at fixed pa is a bracketed monotone root. With S pinned
+    at Cp*L, raising pa removes aft area and forces pf up to replace it, so the
+    LCB of the constrained family is monotone increasing in pa and the outer
+    solve is bracketed too. Bisection cannot leave the bounds, cannot diverge,
+    and needs no fallback — and a Newton iteration that walked outside
+    [1, 8] would have to be clamped, which is where a solver quietly starts
+    returning the nearest reachable target instead of the one asked for.
+
+    COST, measured on the reference hull: 78 us, memoised per (design curve)
+    tuple. `grammar.check` goes 88.8 us -> 186 us against its 1 ms bar.
+    """
+    L = float(lwl)
+    xm = float(x_mb) * L
+    R = float(r_transom)
+    S_t = float(cp) * L
+    x_t = L * (0.5 + float(lcb_pct) / 100.0)
+
+    def S_of(pf: float, pa: float) -> float:
+        return _sac_terms(L, xm, R, pf, pa)[0]
+
+    def pf_for(pa: float) -> float | None:
+        lo, hi = SAC_P_MIN, SAC_P_MAX
+        if not (S_of(lo, pa) <= S_t <= S_of(hi, pa)):
+            return None
+        for _ in range(60):
+            mid = 0.5 * (lo + hi)
+            if S_of(mid, pa) < S_t:
+                lo = mid
+            else:
+                hi = mid
+        return 0.5 * (lo + hi)
+
+    # The pa values for which an admissible pf exists form an interval: S is
+    # decreasing in pa, so S(P_MAX, pa) >= S_t bounds pa above and
+    # S(P_MIN, pa) <= S_t bounds it below. Find both edges by bisection.
+    def _edge(feasible_at_low: bool, test) -> float:
+        lo, hi = SAC_P_MIN, SAC_P_MAX
+        for _ in range(60):
+            mid = 0.5 * (lo + hi)
+            if test(mid) == feasible_at_low:
+                lo = mid
+            else:
+                hi = mid
+        return 0.5 * (lo + hi)
+
+    ok_lo = S_of(SAC_P_MIN, SAC_P_MIN) <= S_t
+    ok_hi = S_of(SAC_P_MAX, SAC_P_MIN) >= S_t
+    if S_of(SAC_P_MIN, SAC_P_MAX) > S_t or S_of(SAC_P_MAX, SAC_P_MIN) < S_t:
+        raise GeometryError(
+            f"sac: Cp {cp:.4f} unreachable at x_mb {x_mb:.3f}, "
+            f"r_transom {r_transom:.3f} with exponents in "
+            f"[{SAC_P_MIN}, {SAC_P_MAX}]")
+    pa_lo = SAC_P_MIN if ok_lo else _edge(False, lambda p: S_of(SAC_P_MIN, p) <= S_t)
+    pa_hi = SAC_P_MAX if ok_hi else _edge(True, lambda p: S_of(SAC_P_MAX, p) >= S_t)
+    if pa_hi < pa_lo:
+        raise GeometryError(f"sac: no exponent pair reaches Cp {cp:.4f}")
+
+    def lcb_res(pa: float) -> float:
+        pf = pf_for(pa)
+        if pf is None:                       # numerical edge of the interval
+            pf = SAC_P_MIN if pa < 0.5 * (pa_lo + pa_hi) else SAC_P_MAX
+        S, M = _sac_terms(L, xm, R, pf, pa)
+        return M - x_t * S
+
+    r_lo, r_hi = lcb_res(pa_lo), lcb_res(pa_hi)
+    if r_lo > 0.0 or r_hi < 0.0:
+        raise GeometryError(
+            f"sac: LCB {lcb_pct:+.3f} %LWL unreachable at Cp {cp:.4f}, "
+            f"x_mb {x_mb:.3f} (bracket {100.0 * (r_lo / max(S_t, 1e-12)) / L:+.3f} "
+            f".. {100.0 * (r_hi / max(S_t, 1e-12)) / L:+.3f} %LWL)")
+    lo, hi = pa_lo, pa_hi
+    for _ in range(60):
+        mid = 0.5 * (lo + hi)
+        if lcb_res(mid) < 0.0:
+            lo = mid
+        else:
+            hi = mid
+    pa = 0.5 * (lo + hi)
+    pf = pf_for(pa)
+    if pf is None:
+        raise GeometryError("sac: inner solve lost its bracket")
+    return float(pf), float(pa)
+
+
+def sac_ordinate(params: np.ndarray, x: np.ndarray) -> np.ndarray:
+    """a(x) in [0, 1]: sectional area / maximum sectional area."""
+    p = grammar.named(params)
+    L, xm = p["LWL"], p["x_mb"] * p["LWL"]
+    R = p["r_transom"]
+    pf, pa = sac_exponents(p["LWL"], p["x_mb"], p["r_transom"],
+                           p["Cp"], p["lcb"])
+    x = np.asarray(x, dtype=float)
+    a = np.empty_like(x)
+    fwd = x >= xm
+    a[fwd] = 1.0 - _shape((x[fwd] - xm) / (L - xm), pf)
+    aft = ~fwd
+    a[aft] = R + (1.0 - R) * _shape(x[aft] / xm, pa)
+    return np.clip(a, 0.0, 1.0)
+
+
+# --------------------------------------------------------------------------
+# The station solve: design curves -> the three moulded edge curves.
+# --------------------------------------------------------------------------
+
+
+def _keel(p: dict, x: np.ndarray) -> np.ndarray:
+    """Keel z: flat middle, quadratic forefoot rise (bow) and rocker (stern)."""
+    L, T = p["LWL"], p["T"]
+    zk = np.full_like(x, -T)
+    bow = x > 0.7 * L
+    zk[bow] += T * p["forefoot"] * ((x[bow] - 0.7 * L) / (0.3 * L)) ** 2
+    st = x < 0.3 * L
+    zk[st] += T * p["rocker"] * ((0.3 * L - x[st]) / (0.3 * L)) ** 2
+    return zk
+
+
+def _deadrise(p: dict, x: np.ndarray) -> np.ndarray:
+    """Bottom-panel deadrise [rad], warped toward the bow over beta_len*L."""
+    L = p["LWL"]
+    beta = np.full_like(x, math.radians(p["beta_mid"]))
+    warp0 = L - p["beta_len"] * L
+    wz = x > warp0
+    frac = (x[wz] - warp0) / (p["beta_len"] * L)
+    beta[wz] += (math.radians(p["beta_bow"])
+                 - math.radians(p["beta_mid"])) * frac ** 2
+    return beta
+
+
+def _fillet_coeffs(rho: float) -> tuple[float, float]:
+    """(c1, c2) of the section-area quadratic, from the bilge roundness.
+
+    The fillet is the quadratic Bezier with control points C + rho*(K - C),
+    C, C + rho*(W - C), where K is the keel point, C the chine and W the
+    section's design-waterline point. Archimedes: the area between a parabolic
+    arc and its chord is 2/3 of the triangle on that chord and the tangent
+    intersection, so cutting the corner removes exactly 1/3 of the control
+    triangle, whose area is rho**2 times the (K, C, W) triangle. That is where
+    the rho**2 / 3 comes from and it is why the round-bilge section's area is
+    CLOSED FORM rather than quadrature — the acceptance bar (1e-6) is met by
+    construction and the sampled polygon is what has to converge to it.
+    """
+    return 2.0 - rho * rho / 3.0, 1.0 - rho * rho / 3.0
+
+
+def _stations(params: np.ndarray, x: np.ndarray) -> dict:
+    """Every moulded curve at `x`, solved from the design curves.
+
+    THE ONE PLACE THE SECTION IS SOLVED. Given the keel depth d, the deadrise
+    beta, the topside flare phi and the target sectional area A, the chine
+    half-breadth is the root of a quadratic:
+
+        A = K*yc*(c1*d - c2*m*yc) + d**2 * f
+        m = tan(beta), f = tan(phi), K = 1 - m*f, (c1, c2) from the roundness
+
+    written in the numerically stable form below so that beta -> 0 (a flat
+    bottom, which `beta_mid` is allowed to be) degrades to the linear root
+    instead of 0/0. The discriminant going negative is the statement that the
+    requested area exceeds what a section of that draft and deadrise can
+    enclose (A <= d**2 / tan(beta) at roundness 0, i.e. the chine reaching the
+    waterline); that is a REFUSAL, not a clamp.
+
+    The one clamp here is yc >= 0, and it is a geometric floor rather than a
+    fudge: a flared topside encloses d**2*tan(phi) of area even with the chine
+    on the centreline, so a station whose target area is below that floor
+    cannot be met. It bites only where a(x) -> 0, i.e. inside the last station
+    interval at the stem. MEASURED on the reference hull: the floor raises the
+    displacement by 0.0087% and moves Cp by 6e-5, against a +-0.01 bar.
+    """
+    p = grammar.named(params)
+    L, B, T, D = p["LWL"], p["BWL"], p["T"], p["D"]
+    x = np.asarray(x, dtype=float)
+    c1, c2 = _fillet_coeffs(p["roundness"])
+
+    zk = _keel(p, x)
+    d = -zk
+    beta = _deadrise(p, x)
+    m = np.tan(beta)
+
+    # THE FLARE CLOSES INTO THE STEM, and it has to, or the design waterline
+    # does not close. A topside leaning out at a constant angle encloses
+    # d**2 * tan(flare) of section area even with the chine on the centreline,
+    # so a station whose target area is zero cannot be met. MEASURED on hull 27
+    # of `grammar.sample(30, rng(0))` before this envelope: 0.4260 m of
+    # waterline half-breadth AT THE STEM (0.85 m of blunt bow) and 0.3938 m^2
+    # of sectional area against a target of ZERO — the largest single error in
+    # the delivered area curve, at the one station whose target is exact. The
+    # old kernel carried the same 0.426 m; it simply had no area curve to be
+    # wrong against, and closed the DECK with a `w**0.15` envelope while
+    # leaving the waterline open.
+    #
+    # The envelope is one-sided: full flare over the run and the midbody,
+    # closing forward of the max-area station. Tapering it aft as well would
+    # quietly reduce the transom flare by a sixth for no reason anyone asked
+    # for. It is also what now closes the DECK at the stem, so `y_sheer` no
+    # longer carries a second envelope of its own — that was the same taper
+    # declared twice.
+    a = sac_ordinate(params, x)
+    xm_val = p["x_mb"] * L
+    env = np.where(x <= xm_val, 1.0, np.maximum(a, 0.0))
+    f = math.tan(math.radians(p["flare"])) * env
+    K = 1.0 - m * f
+
+    # A_mid from the DESIGN WATERLINE BEAM. `BWL` is the half-breadth of the
+    # section at z = 0 at the max-area station, doubled — which is what the
+    # symbol has always claimed and, until this commit, was not: it used to
+    # scale the CHINE plan-form and the waterline came out wherever the flare
+    # put it.
+    xm = np.array([xm_val])
+    f_mid = math.tan(math.radians(p["flare"]))   # env == 1 at the max-area station
+    m_mid = float(np.tan(_deadrise(p, xm))[0])
+    d_mid = float(-_keel(p, xm)[0])          # == T; x_mb is inside the flat run
+    K_mid = 1.0 - m_mid * f_mid
+    yc_mid = (0.5 * B - d_mid * f_mid) / K_mid
+    if not (yc_mid > 0.0):
+        raise GeometryError(
+            f"section: flare {p['flare']:.1f} deg consumes the whole "
+            f"{0.5 * B:.3f} m half-beam at the max-area station")
+    A_mid = (K_mid * yc_mid * (c1 * d_mid - c2 * m_mid * yc_mid)
+             + d_mid ** 2 * f_mid)
+    if not (A_mid > 0.0):
+        raise GeometryError("section: non-positive maximum sectional area")
+
+    A = A_mid * a
+
+    # Solve the section quadratic, stable branch.
+    rhs = A - d * d * f
+    disc = (K * c1 * d) ** 2 - 4.0 * K * c2 * m * rhs
+    if np.any(disc < 0.0):
+        i = int(np.argmin(disc))
+        raise GeometryError(
+            f"section: area {A[i]:.4f} m^2 unreachable at x = {x[i]:.3f} m "
+            f"(draft {d[i]:.3f} m, deadrise "
+            f"{math.degrees(float(beta[i])):.1f} deg)")
+    if np.any(rhs < -1e-12 * max(A_mid, 1.0)):
+        i = int(np.argmin(rhs))
+        raise GeometryError(
+            f"section: the flare encloses {d[i] ** 2 * f[i]:.4f} m^2 at "
+            f"x = {x[i]:.3f} m against a target of {A[i]:.4f} m^2 — the "
+            f"topside is wider than the area curve asked for")
+    den = K * c1 * d + np.sqrt(disc)
+    yc = np.where(den > 1e-12, 2.0 * rhs / np.maximum(den, 1e-12), 0.0)
+    yc = np.maximum(yc, 0.0)
+    zc = zk + yc * m
+    y_wl = K * yc + d * f
+
+    # Sheer: freeboard at mid, rising toward the bow. The topside is ONE
+    # straight run from the chine at the (enveloped) flare, so the sheer
+    # half-breadth is the chine plus that flare over the topside height and
+    # the deck closes at the stem because both terms do.
+    fb = D - T
+    zs = np.full_like(x, fb)
+    fwd = x >= xm_val
+    zs[fwd] *= 1.0 + p["sheer_rise"] * (
+        (x[fwd] - xm_val) / (L - xm_val)) ** 2 * (D / fb)
+    ys = yc + (zs - zc) * f
+    # A NEGATIVE SHEER HALF-BREADTH IS REFUSED, NOT CLAMPED. The old kernel
+    # wrote `np.maximum(ys, 0.0)`, and `admissibility` already reported that
+    # clamp as a defect ("station_geometry replaced a NEGATIVE sheer
+    # half-breadth"). It is worse than cosmetic here: clamping moves the
+    # topside off the line through the design waterline point, so the section
+    # no longer passes through `y_wl` and the closed-form area the kernel is
+    # solved against stops describing the shape. MEASURED on hull 3 station 10
+    # of `grammar.sample(20, rng(0))`: the exact immersed area read 6.4230e-3
+    # m^2 against the algebra's 6.2426e-3 — 2.9% out, at one station, silently.
+    if np.any(ys < -1e-12):
+        i = int(np.argmin(ys))
+        raise GeometryError(
+            f"section: tumblehome closes the sheer past the centreline at "
+            f"x = {x[i]:.3f} m (half-breadth {ys[i]:+.4f} m)")
+    y_sheer = np.maximum(ys, 0.0)
+    return {"x": x, "z_keel": zk, "d": d, "beta": beta, "m": m, "f": f, "K": K,
+            "y_chine": yc, "z_chine": zc, "y_wl": y_wl,
+            "y_sheer": y_sheer, "z_sheer": zs, "a": a, "A": A, "A_mid": A_mid,
+            "c1": c1, "c2": c2}
+
+
+# THE SECTION SOLVE IS A CONTINUOUS CONDITION AND THE L0 GATE SAMPLES IT.
+#
+# MOTIVATING INCIDENT, MEASURED 2026-08-13. `grammar.check` built a 41-station
+# `Hull` and passed; `resistance.total_resistance` then rebuilt THE SAME vector
+# at its Michell station count and `_stations` raised
+# `section: area 0.1594 m^2 unreachable at x = 15.335 m` — an x the 41-point
+# grid steps straight over. `scripts/make_baseline.py`, `test_optimize` and
+# `test_policy` all died on that traceback, and each of them had already been
+# told by L0 that the hull was fine. A refusal that depends on the station
+# count is not a statement about the boat.
+#
+# MEASURED over 20,000 uniform in-bounds vectors, of which 11,909 build at 41
+# stations. Of those 11,909, the number that FAIL when re-solved on a denser
+# grid:
+#
+#       241 stations   113      <- the Michell production grid
+#       481 stations   116      <- the Michell converged grid
+#       801 stations   116
+#      1921 stations   117      <- SHIPPED
+#      3841 stations   117
+#      7681 stations   117
+#
+# 1921 is the count for two reasons and the second is the load-bearing one.
+# It is dense enough that doubling and quadrupling it find nothing further
+# (117, 117, 117). And 1920 = 48 x 40 = 8 x 240 = 4 x 480, so the probe grid
+# CONTAINS the 41-station hydrostatic grid, the 241-station Michell production
+# grid and the 481-station converged grid EXACTLY, rather than merely being
+# finer than them — a probe that is 3.3x denser but misaligned can still step
+# over a station its consumer lands on. (The first version of this constant was
+# 801, chosen when the Michell grid was 161; 800 is not a multiple of 240 and
+# it stopped containing the production grid the moment that grid moved.)
+#
+# It is still a dense SAMPLE of a continuous condition, not a proof, and a
+# refusal found later by a still-denser consumer is a loud `GeometryError`,
+# never a wrong hull.
+#
+# Cost, measured on the reference hull: `grammar.check` 59.3 us -> 138 us
+# against `tests/test_phase0`'s 1 ms bar.
+FEASIBILITY_PROBE_STATIONS = 1921
+
+
+def section_probe(params: np.ndarray) -> None:
+    """Raise `GeometryError` if the section solve fails ANYWHERE on the hull.
+
+    The L0 gate's buildability question, asked once on a grid denser than any
+    consumer's. Returns nothing: the answer is the exception, and an exception
+    is what `grammar.check` turns into a named violation.
+    """
+    lwl = float(grammar.named(params)["LWL"])
+    _stations(params, np.linspace(0.0, lwl, FEASIBILITY_PROBE_STATIONS))
 
 
 def station_geometry(params: np.ndarray, x: np.ndarray):
@@ -30,43 +503,100 @@ def station_geometry(params: np.ndarray, x: np.ndarray):
     non-station x would be defect class 2 (a number — here a whole curve —
     declared twice) with the two copies free to drift.
     """
-    p = grammar.named(params)
-    L, B, T, D = p["LWL"], p["BWL"], p["T"], p["D"]
-    xm = p["x_mb"] * L
-    x = np.asarray(x, dtype=float)
+    s = _stations(params, x)
+    return (s["z_keel"], s["y_chine"], s["z_chine"],
+            s["y_sheer"], s["z_sheer"])
 
-    # keel profile: flat middle, quadratic forefoot rise (bow) and rocker (stern)
-    zk = np.full_like(x, -T)
-    bow_zone = x > 0.7 * L
-    zk[bow_zone] += T * p["forefoot"] * ((x[bow_zone] - 0.7 * L) / (0.3 * L)) ** 2
-    st_zone = x < 0.3 * L
-    zk[st_zone] += T * p["rocker"] * ((0.3 * L - x[st_zone]) / (0.3 * L)) ** 2
 
-    # chine plan-form: fullness exponents fore/aft of max-beam station
-    w = np.empty_like(x)
-    fwd = x >= xm
-    w[fwd] = 1.0 - ((x[fwd] - xm) / (L - xm)) ** p["p_bow"]
-    aft = ~fwd
-    w[aft] = p["r_transom"] + (1.0 - p["r_transom"]) * (x[aft] / xm) ** p["p_stern"]
-    w = np.clip(w, 0.0, 1.0)
-    y_chine = 0.5 * B * w
+def design_waterline(params: np.ndarray, x: np.ndarray) -> np.ndarray:
+    """Half-breadth of the moulded surface AT z = 0, in closed form.
 
-    # deadrise warp toward the bow over beta_len*L
-    beta = np.full_like(x, math.radians(p["beta_mid"]))
-    warp0 = L - p["beta_len"] * L
-    wz = x > warp0
-    frac = (x[wz] - warp0) / (p["beta_len"] * L)
-    beta[wz] += (math.radians(p["beta_bow"]) - math.radians(p["beta_mid"])) * frac**2
-    z_chine = zk + y_chine * np.tan(beta)
+    The design waterline is a first-class curve of this kernel, not something
+    read off a section: `y_wl = (1 - tan(beta) tan(flare)) * y_chine
+    + d * tan(flare)` is where the topside run crosses z = 0, and it is
+    independent of the bilge roundness because the fillet never touches the
+    topside line.
+    """
+    return _stations(params, x)["y_wl"]
 
-    # sheer: freeboard at mid, rising toward bow; half-breadth from flare
-    fb = D - T
-    zs = np.full_like(x, fb)
-    zs[fwd] *= 1.0 + p["sheer_rise"] * ((x[fwd] - xm) / (L - xm)) ** 2 * (D / fb)
-    ys = y_chine + (zs - z_chine) * math.tan(math.radians(p["flare"]))
-    # taper the topside to a stem: sheer half-breadth follows w^0.15 envelope
-    y_sheer = np.maximum(ys, 0.0) * np.maximum(w, 0.0) ** 0.15
-    return zk, y_chine, z_chine, y_sheer, zs
+
+def sectional_area(params: np.ndarray, x: np.ndarray) -> np.ndarray:
+    """The sectional area curve A(x) [m^2], full section, at the DWL."""
+    return _stations(params, x)["A"]
+
+
+# --------------------------------------------------------------------------
+# The section shape function
+# --------------------------------------------------------------------------
+
+
+def _bezier(p0: np.ndarray, p1: np.ndarray, p2: np.ndarray,
+            s: np.ndarray) -> np.ndarray:
+    s = s[:, None]
+    return (1.0 - s) ** 2 * p0 + 2.0 * s * (1.0 - s) * p1 + s * s * p2
+
+
+def sample_section(keel: np.ndarray, chine: np.ndarray, sheer: np.ndarray,
+                   wl: np.ndarray, rho: float,
+                   n_lo: int, n_hi: int) -> np.ndarray:
+    """The section shape function, sampled to n_lo + n_hi + 1 (y, z) points.
+
+    Point `n_lo` is the BILGE FEATURE: the chine itself at rho = 0, the
+    mid-point of the fillet arc otherwise. Everything that needs a row index
+    for the bilge (`Hull.chine_row`, `closed_mesh`,
+    `admissibility.surface_grid`) reads that one convention.
+
+    AT rho = 0 THIS IS THE OLD THREE-POINT SECTION, BIT FOR BIT: the lower
+    parameter interval [0, 1-rho] collapses to [0, 1] on the keel->chine leg
+    and the upper one to the chine->sheer leg, so `sample_section(..., 0.0,
+    1, 1)` is `[keel, chine, sheer]` with no arithmetic in between.
+    `tests/test_geometry_kernel.py::test_roundness_zero_is_the_old_polyline`
+    is the fence, at 1e-12.
+
+    The fillet's upper control point runs toward the WATERLINE point, not the
+    sheer. Both lie on the same topside line so the tangent is identical, but
+    anchoring on the waterline keeps the whole arc strictly below z = 0 for
+    every rho in [0, 1] — which is what makes the immersed area closed-form
+    instead of a case analysis on whether the fillet crosses the surface.
+    """
+    K, C, S, W = (np.asarray(v, float) for v in (keel, chine, sheer, wl))
+    if rho <= 0.0:
+        lo = K + np.linspace(0.0, 1.0, n_lo + 1)[:, None] * (C - K)
+        hi = C + np.linspace(0.0, 1.0, n_hi + 1)[1:, None] * (S - C)
+        return np.vstack([lo, hi])
+    P0 = C + rho * (K - C)
+    P2 = C + rho * (W - C)
+    m = max(128, 2 * max(n_lo, n_hi))
+    s = np.linspace(0.0, 1.0, 2 * m + 1)
+    arc = _bezier(P0, C, P2, s)
+    lo = np.vstack([K[None, :], arc[:m + 1]])
+    hi = np.vstack([arc[m:], S[None, :]])
+    return np.vstack([_resample(lo, n_lo + 1), _resample(hi, n_hi + 1)[1:]])
+
+
+def _resample(poly: np.ndarray, n: int) -> np.ndarray:
+    """`n` points spaced uniformly in ARC LENGTH along a dense polyline.
+
+    THE SPACING HAS TO BE UNIFORM, and the first version of `sample_section`
+    split the parameter interval by the roundness instead — which put a STEP
+    in the segment length at the joint between the straight leg and the fillet
+    arc. MEASURED: `Hull.fairness` then DIVERGED on a round bilge exactly as
+    it does on a knuckle (2.7e3 -> 2.6e6 over nz 32 -> 1024 at roundness 1),
+    because a jump of dh in spacing puts an O(dh) term into the second
+    difference where a fair curve has O(h**2), and the estimator divides by
+    h**3. The fairness of the SURFACE was fine; the sampling of it was not,
+    and an artefact of the sampler read as a property of the hull.
+
+    At roundness 0 this function is not called: the two legs are straight, and
+    uniform arc length along a straight leg IS the old linear interpolation.
+    """
+    d = np.linalg.norm(np.diff(poly, axis=0), axis=1)
+    cum = np.concatenate([[0.0], np.cumsum(d)])
+    if cum[-1] <= 1e-15:
+        return np.repeat(poly[:1], n, axis=0)
+    t = np.linspace(0.0, cum[-1], n)
+    return np.stack([np.interp(t, cum, poly[:, 0]),
+                     np.interp(t, cum, poly[:, 1])], axis=1)
 
 
 @dataclass
@@ -82,12 +612,26 @@ class Hull:
     z_chine: np.ndarray = field(init=False)
     y_sheer: np.ndarray = field(init=False)
     z_sheer: np.ndarray = field(init=False)
+    y_wl: np.ndarray = field(init=False)       # design-waterline half-breadth
+    A_sac: np.ndarray = field(init=False)      # target sectional area [m^2]
+    _f: np.ndarray = field(init=False, repr=False)   # enveloped tan(flare)
+    _m: np.ndarray = field(init=False, repr=False)   # tan(deadrise)
+    _sections: dict = field(init=False, repr=False, default_factory=dict)
 
     def __post_init__(self) -> None:
         x = np.linspace(0.0, grammar.named(self.params)["LWL"], self.n_stations)
+        s = _stations(self.params, x)
         self.x = x
-        (self.z_keel, self.y_chine, self.z_chine,
-         self.y_sheer, self.z_sheer) = station_geometry(self.params, x)
+        self.z_keel, self.y_chine, self.z_chine = (s["z_keel"], s["y_chine"],
+                                                   s["z_chine"])
+        self.y_sheer, self.z_sheer = s["y_sheer"], s["z_sheer"]
+        self.y_wl, self.A_sac = s["y_wl"], s["A"]
+        self._f, self._m = s["f"], s["m"]
+        self._sections = {}
+
+    @property
+    def roundness(self) -> float:
+        return float(grammar.named(self.params)["roundness"])
 
     # ---- the three edge curves, at ARBITRARY x ------------------------------
 
@@ -104,10 +648,10 @@ class Hull:
         through the 41 stations, and against the closed form that spline is
         0.16 mm off on the keel, 4.9 mm on the chine and **94.95 mm on the
         SHEER** — twenty times the 5 mm refold bar, before any developability
-        question is asked. The sheer carries a `w**0.15` taper to the stem
-        whose x-derivative is unbounded there, so a cubic interpolant
-        overshoots it badly. A refold measured against an interpolant is a
-        refold measured against the wrong hull.
+        question is asked. The sheer carries a taper to the stem whose
+        x-derivative is unbounded there, so a cubic interpolant overshoots it
+        badly. A refold measured against an interpolant is a refold measured
+        against the wrong hull.
         """
         t = self.x if x is None else np.atleast_1d(np.asarray(x, dtype=float))
         zk, yc, zc, ys, zs = station_geometry(self.params, t)
@@ -117,15 +661,61 @@ class Hull:
 
     # ---- section machinery -------------------------------------------------
 
+    def _section_points(self, i: int, n_lo: int, n_hi: int) -> np.ndarray:
+        return sample_section(
+            (0.0, self.z_keel[i]),
+            (self.y_chine[i], self.z_chine[i]),
+            (self.y_sheer[i], self.z_sheer[i]),
+            (self.y_wl[i], 0.0),
+            self.roundness, n_lo, n_hi)
+
+    def section_control(self, i: int) -> tuple[np.ndarray, ...]:
+        """(K, P0, P1, P2, S): the section as two legs and ONE quadratic arc.
+
+        This is the section's EXACT description — five points, no sampling —
+        and `immersed_section` integrates it in closed form off these. At
+        `roundness == 0` the three arc controls collapse onto the chine and the
+        description degenerates to the old keel/chine/sheer polyline.
+        """
+        rho = self.roundness
+        K = np.array([0.0, self.z_keel[i]])
+        C = np.array([self.y_chine[i], self.z_chine[i]])
+        S = np.array([self.y_sheer[i], self.z_sheer[i]])
+        W = np.array([self.y_wl[i], 0.0])
+        return K, C + rho * (K - C), C, C + rho * (W - C), S
+
     def section(self, i: int) -> np.ndarray:
-        """Section polyline, keel -> chine -> sheer, as (3,2) array of (y, z)."""
-        return np.array(
-            [
-                [0.0, self.z_keel[i]],
-                [self.y_chine[i], self.z_chine[i]],
-                [self.y_sheer[i], self.z_sheer[i]],
-            ]
-        )
+        """Section polyline, keel -> bilge -> sheer, as (N, 2) array of (y, z).
+
+        N is 3 for a hard chine (`roundness == 0`) — the old shape, exactly —
+        and 2 * SECTION_FILLET_SAMPLES + 1 for a radiused bilge.
+
+        MEMOISED per hull. The section does not depend on the waterline, and
+        `hydrostatics.solve_to_displacement` bisects on draft: MEASURED, ten
+        `evaluate()` calls built 7842 sections where 410 are distinct, and
+        `wetted_surface` alone accounted for 0.53 s of a 0.87 s profile.
+        """
+        cached = self._sections.get(i)
+        if cached is None:
+            n = 1 if self.roundness <= 0.0 else SECTION_FILLET_SAMPLES
+            cached = self._section_points(i, n, n)
+            self._sections[i] = cached
+        return cached
+
+    def section_area(self, i: int) -> float:
+        """CLOSED-FORM immersed half-area of section i at z = 0 [m^2].
+
+        The analytic value the sampled section has to reproduce (plate P2's
+        acceptance bar). It is A(x)/2 by construction wherever the geometric
+        floor did not bite, which is what makes the bar meaningful: it tests
+        the SAMPLING, not the target.
+        """
+        d = float(-self.z_keel[i])
+        yc = float(self.y_chine[i])
+        f, m = float(self._f[i]), float(self._m[i])
+        K = 1.0 - m * f
+        c1, c2 = _fillet_coeffs(self.roundness)
+        return 0.5 * (K * yc * (c1 * d - c2 * m * yc) + d * d * f)
 
     def immersed_section(self, i: int, wl: float = 0.0):
         """Clip section at waterline wl. Returns (area_half, b_wl, zc_half).
@@ -134,33 +724,7 @@ class Hull:
         b_wl:      waterline half-breadth [m]
         zc_half:   z-centroid of immersed half-section [m]
         """
-        pts = self.section(i)
-        if pts[0, 1] >= wl:  # keel above water: dry station
-            return 0.0, 0.0, 0.0
-        poly = [(0.0, pts[0, 1])]
-        prev = pts[0]
-        for kk in range(1, 3):
-            cur = pts[kk]
-            if prev[1] < wl <= cur[1]:  # segment crosses WL going up
-                f = (wl - prev[1]) / (cur[1] - prev[1])
-                yw = prev[0] + f * (cur[0] - prev[0])
-                poly.append((yw, wl))
-                break
-            if cur[1] < wl:
-                poly.append((cur[0], cur[1]))
-            prev = cur
-        else:
-            # section fully submerged up to the sheer (deck edge under water):
-            # close the polygon at sheer level and report sheer as waterline
-            poly.append((pts[2, 0], pts[2, 1]))
-            poly.append((0.0, pts[2, 1]))
-            area, _yc, zc = _polygon(poly + [poly[0]])
-            return area, float(pts[2, 0]), zc
-
-        b_wl = poly[-1][0]
-        poly.append((0.0, wl))
-        area, _yc, zc = _polygon(poly + [poly[0]])
-        return area, b_wl, zc
+        return _immersed(*self.section_control(i), wl)
 
     # ---- integral properties ------------------------------------------------
 
@@ -172,24 +736,121 @@ class Hull:
             a[i], b[i], zc[i] = self.immersed_section(i, wl)
         return a, b, zc
 
+    def form_coefficients(self, n: int = 401) -> dict:
+        """Cp, LCB, Cwp, LCF and Cm of the DELIVERED surface.
+
+        Measured on a dense resample of the closed form that INCLUDES x_mb, so
+        the maximum sectional area is the true continuous maximum. It matters:
+        a(x) touches 1 only at x_mb, and 41 linspace stations miss it by up to
+        half a spacing, which reads Cp about 1.7% HIGH — 0.010 on a Cp of 0.6,
+        the whole of plate P1's +-0.01 bar spent on a sampling artefact.
+
+        LCB is returned as % of LWL forward of midships, the same convention
+        the `lcb` gene uses.
+        """
+        p = grammar.named(self.params)
+        L = p["LWL"]
+        xs = np.union1d(np.linspace(0.0, L, n), np.array([p["x_mb"] * L]))
+        s = _stations(self.params, xs)
+        yc, d, m, f, K = s["y_chine"], s["d"], s["m"], s["f"], s["K"]
+        c1, c2 = s["c1"], s["c2"]
+        A = K * yc * (c1 * d - c2 * m * yc) + d * d * f    # delivered, not target
+        A = np.where(d > 0.0, A, 0.0)
+        vol = float(np.trapezoid(A, xs))
+        a_max = float(A.max())
+        yw = 2.0 * s["y_wl"]
+        awp = float(np.trapezoid(yw, xs))
+        return {
+            "volume_m3": vol,
+            "Cp": vol / (a_max * L) if a_max > 0 else float("nan"),
+            "lcb_pct": 100.0 * (float(np.trapezoid(A * xs, xs)) / vol - 0.5 * L) / L
+            if vol > 0 else float("nan"),
+            "Cm": a_max / (p["BWL"] * p["T"]),
+            "Cwp": awp / (p["BWL"] * L),
+            "lcf_pct": 100.0 * (float(np.trapezoid(yw * xs, xs)) / awp - 0.5 * L) / L
+            if awp > 0 else float("nan"),
+            "A_max_m2": a_max,
+        }
+
+    def alpha_e_deg(self, frac: float = 0.02) -> float:
+        """Half-angle of entrance of the DESIGN WATERLINE [deg].
+
+        THE CHORD OVER THE FORWARD `frac` OF LWL, not a tangent, and the
+        method is part of the number. The tangent at the stem is not usable:
+        the geometric floor on the chine half-breadth (see `_stations`) makes
+        y_wl flatten inside the last fraction of a percent of LWL, so a
+        one-sided derivative there measures the floor rather than the hull. A
+        chord over a stated length is reproducible and is what a lines plan is
+        read with.
+        """
+        L = grammar.named(self.params)["LWL"]
+        yw = design_waterline(self.params, np.array([L * (1.0 - frac), L]))
+        return math.degrees(math.atan2(float(yw[0] - yw[1]), frac * L))
+
+    def fairness(self, nx: int = 41, nz: int = 64) -> float:
+        """Transverse bending energy of the moulded surface, int ||d2p/ds2||^2.
+
+        WHY THIS EXISTS: a polyline has no curvature, so on the old
+        three-point section this integral was identically zero and a fairness
+        objective had nothing to descend (plate P2). It is the discrete
+        second difference along each section, normalised by the local chord
+        so it estimates the continuous integral and therefore CONVERGES on a
+        filleted section while DIVERGING like 1/h on a knuckle — which is the
+        honest distinction between a fair surface and a creased one, and is
+        the acceptance bar.
+        """
+        p = grammar.named(self.params)
+        L = p["LWL"]
+        xs = np.linspace(0.0, L, nx)
+        s = _stations(self.params, xs)
+        rho = self.roundness
+        # THE STEM IS EXCLUDED, on the same rule and for the same reason as
+        # `panel_twist_rate`'s >10% mask: the section shrinks to a point there,
+        # so the bilge fillet's radius goes to zero with it and int kappa**2
+        # genuinely diverges — a property of every hull that comes to a point,
+        # not of an unfair one. MEASURED without the mask on a roundness-1.0
+        # hull: 34.2 -> 88.8 over nz 16 -> 1024, i.e. RISING, because each
+        # refinement resolves more of the near-stem singularity.
+        half = np.maximum(s["y_wl"], s["y_sheer"])
+        keep = half > 0.10 * float(half.max())
+        tot = 0.0
+        for i in range(nx):
+            if not keep[i]:
+                continue
+            dense = sample_section((0.0, s["z_keel"][i]),
+                                   (s["y_chine"][i], s["z_chine"][i]),
+                                   (s["y_sheer"][i], s["z_sheer"][i]),
+                                   (s["y_wl"][i], 0.0), rho, 8 * nz, 8 * nz)
+            # ONE uniform-arc-length resample over the WHOLE section, not one
+            # per half. The two halves have different girths, so giving each
+            # nz/2 points puts a step in the spacing at the bilge — and the
+            # estimator then reads that step as a crease: MEASURED, the round
+            # bilge diverged 3.2e2 -> 9.0e3 over nz 16 -> 1024, the same slope
+            # as the knuckle it is supposed to be distinguished from.
+            pts = _resample(dense, nz + 1)
+            seg = np.linalg.norm(np.diff(pts, axis=0), axis=1)
+            if seg.min() <= 0.0:
+                continue
+            d2 = pts[:-2] - 2.0 * pts[1:-1] + pts[2:]
+            h = 0.5 * (seg[:-1] + seg[1:])
+            tot += float(np.sum(np.sum(d2 * d2, axis=1) / h ** 3)) * (L / nx)
+        return tot
+
     def wetted_surface(self, wl: float = 0.0) -> float:
         """Wetted surface [m^2], strip sum of immersed girth x dx (both sides)."""
         girth = np.empty(self.n_stations)
         for i in range(self.n_stations):
             pts = self.section(i)
-            g = 0.0
-            prev = pts[0]
-            for kk in range(1, 3):
-                cur = pts[kk]
-                if prev[1] >= wl:
-                    break
-                if cur[1] > wl:
-                    f = (wl - prev[1]) / (cur[1] - prev[1])
-                    cur = prev + f * (cur - prev)
-                    g += float(np.hypot(*(cur - prev)))
-                    break
-                g += float(np.hypot(*(cur - prev)))
-                prev = cur
+            if pts[0, 1] >= wl:
+                girth[i] = 0.0
+                continue
+            k = int(np.count_nonzero(pts[:, 1] < wl))   # z monotone
+            seg = np.linalg.norm(np.diff(pts[:k], axis=0), axis=1)
+            g = float(seg.sum())
+            if k < len(pts):
+                prev, cur = pts[k - 1], pts[k]
+                fr = (wl - prev[1]) / (cur[1] - prev[1])
+                g += float(np.hypot(*((prev + fr * (cur - prev)) - prev)))
             girth[i] = g
         return 2.0 * float(np.trapezoid(girth, self.x))
 
@@ -246,9 +907,7 @@ class Hull:
         zs = np.sort(wl + (z0 - wl) * s**2)
         Y = np.zeros((self.n_stations, nz))
         for i in range(self.n_stations):
-            pts = self.section(i)
-            for j, z in enumerate(zs):
-                Y[i, j] = _halfbreadth_at(pts, z)
+            Y[i, :] = _halfbreadth_at(self.section(i), zs)
         return self.x, zs, Y
 
     def panel_mesh(self, nx: int = 30, nz: int = 8, wl: float = 0.0):
@@ -262,8 +921,9 @@ class Hull:
             pts = self._section_at(xv)
             zk = pts[0, 1]
             zt = np.linspace(min(zk, wl - 1e-9), wl, nz + 1)
-            for z in zt:
-                verts.append((xv, _halfbreadth_at(pts, z), z))
+            yv = _halfbreadth_at(pts, zt)
+            for z, y in zip(zt, yv):
+                verts.append((xv, y, z))
         verts = np.array(verts)
         faces = []
         for i in range(nx - 1):
@@ -286,7 +946,7 @@ class Hull:
         Returns (verts (N,3), tris (M,3) int). Degenerate slivers at the stem
         are skipped by area.
 
-        THE CHINE IS A ROW OF THE GRID (`chine_row`), not something the
+        THE BILGE IS A ROW OF THE GRID (`chine_row`), not something the
         z-sampling straddles. It used to be the latter: `z` ran uniformly from
         `z_keel` to `z_sheer` over nz+1 levels, so the chine KNUCKLE — the one
         hard feature every hull this grammar emits has — fell strictly inside a
@@ -304,24 +964,19 @@ class Hull:
         one, on both sides of a spurious edge.
 
         The rows are apportioned between the two panels ONCE per hull, by mean
-        girth, so the row index of the chine is the same at every station and
+        girth, so the row index of the bilge is the same at every station and
         the quad connectivity below is unchanged. Row count stays nz+1: this
         redistributes rows, it does not add any.
+
+        SINCE PLATE P2 the rows come from `sample_section`, so a filleted
+        bilge is resolved by the same grid rather than chorded: at roundness 0
+        the sampler is the old two-segment linear interpolation, bit for bit.
         """
         xs = np.linspace(float(self.x[0]), float(self.x[-1]), nx)
         jc = self.chine_row(nz)
-        t_lo = np.linspace(0.0, 1.0, jc + 1)
-        t_hi = np.linspace(0.0, 1.0, nz - jc + 1)[1:]
         S = np.zeros((nx, nz + 1, 3))
         for i, xv in enumerate(xs):
-            pts = self._section_at(xv)
-            zk = pts[0, 1]
-            yc, zc = pts[1, 0], pts[1, 1]
-            ys, zsh = pts[2, 0], pts[2, 1]
-            S[i, :jc + 1, 1] = yc * t_lo
-            S[i, :jc + 1, 2] = zk + (zc - zk) * t_lo
-            S[i, jc + 1:, 1] = yc + (ys - yc) * t_hi
-            S[i, jc + 1:, 2] = zc + (zsh - zc) * t_hi
+            S[i, :, 1:] = self._section_at_rows(xv, jc, nz - jc)
             S[i, :, 0] = xv
         P = S * np.array([1.0, -1.0, 1.0])
 
@@ -374,7 +1029,7 @@ class Hull:
         return np.array(verts), np.array(tris, dtype=int)
 
     def chine_row(self, nz: int) -> int:
-        """Row index of the CHINE in an (nz+1)-row section grid.
+        """Row index of the BILGE in an (nz+1)-row section grid.
 
         ONE definition, because `closed_mesh` and `admissibility.surface_grid`
         both need it and a second copy would be defect class 2 — which is
@@ -398,11 +1053,27 @@ class Hull:
         frac = 0.5 if tot <= 1e-12 else g_lo / tot
         return int(min(max(int(round(nz * frac)), 1), max(nz - 1, 1)))
 
-    def _section_at(self, xv: float) -> np.ndarray:
+    def _section_at_rows(self, xv: float, n_lo: int, n_hi: int) -> np.ndarray:
+        """(n_lo+n_hi+1, 2) section at arbitrary x, bilge on row n_lo."""
         i = np.searchsorted(self.x, xv)
         i = min(max(i, 1), self.n_stations - 1)
         f = (xv - self.x[i - 1]) / (self.x[i] - self.x[i - 1])
-        return self.section(i - 1) * (1 - f) + self.section(i) * f
+
+        def lerp(lo, hi):
+            return (1 - f) * lo + f * hi
+
+        return sample_section(
+            (0.0, lerp(self.z_keel[i - 1], self.z_keel[i])),
+            (lerp(self.y_chine[i - 1], self.y_chine[i]),
+             lerp(self.z_chine[i - 1], self.z_chine[i])),
+            (lerp(self.y_sheer[i - 1], self.y_sheer[i]),
+             lerp(self.z_sheer[i - 1], self.z_sheer[i])),
+            (lerp(self.y_wl[i - 1], self.y_wl[i]), 0.0),
+            self.roundness, n_lo, n_hi)
+
+    def _section_at(self, xv: float) -> np.ndarray:
+        n = 1 if self.roundness <= 0.0 else SECTION_FILLET_SAMPLES
+        return self._section_at_rows(xv, n, n)
 
     def min_bend_radius(self) -> float:
         """Smallest 3-D bend radius [m] along the keel and chine curves.
@@ -461,31 +1132,125 @@ class Hull:
         return float(rate[seg].max()) if seg.any() else 0.0
 
 
+def _split_at_z(P0: np.ndarray, P1: np.ndarray, P2: np.ndarray, z: float):
+    """de Casteljau split of the bilge arc where it crosses height z.
+
+    Returns the sub-arc's controls (P0, Q1, X) from the keel end up to z. The
+    arc's z is monotone (z(P0) <= z(P1) <= z(P2) by construction), so the
+    quadratic B_z(s) = z has exactly one root in [0, 1].
+    """
+    a = P0[1] - 2.0 * P1[1] + P2[1]
+    b = 2.0 * (P1[1] - P0[1])
+    c = P0[1] - z
+    if abs(a) < 1e-14:
+        s = -c / b if abs(b) > 1e-14 else 0.0
+    else:
+        disc = max(b * b - 4.0 * a * c, 0.0)
+        r = math.sqrt(disc)
+        s1, s2 = (-b + r) / (2.0 * a), (-b - r) / (2.0 * a)
+        s = s1 if 0.0 <= s1 <= 1.0 else s2
+    s = min(max(s, 0.0), 1.0)
+    Q1 = (1.0 - s) * P0 + s * P1
+    X = (1.0 - s) ** 2 * P0 + 2.0 * s * (1.0 - s) * P1 + s * s * P2
+    return P0, Q1, X
+
+
+def _immersed(K, P0, P1, P2, S, wl: float):
+    """Immersed half-area, waterline half-breadth and z-centroid, EXACTLY.
+
+    NO SAMPLING. The immersed region is a polygon on the section's control
+    points plus (or minus) the parabolic segment between the arc's chord and
+    the arc, and both have closed forms: the segment's area is 2/3 of its
+    control triangle (Archimedes) and its centroid is
+    (2/5)(P0 + P2) + (1/5)P1.
+
+    THIS EXISTS BECAUSE THE SAMPLED POLYGON COULD NOT MEET PLATE P2's 1e-6
+    AREA BAR AT ANY AFFORDABLE RESOLUTION. An inscribed polygon under-reads a
+    convex arc by (2/3)T/n^2, and with the section sampled uniformly in ARC
+    LENGTH — which the fairness estimator requires — only the arc's share of
+    the girth lands on the fillet. MEASURED on the roundest hull of
+    `grammar.sample(20, rng(0))` (roundness 0.995, closed-form half-area
+    0.77065390 m^2): 4.80e-4 relative at 32 samples per half, 9.71e-6 at 256,
+    2.43e-6 at 512, 6.08e-7 at 1024 — so the bar needed ~1000 points per
+    section, which is 12 ms per `hydro_arrays` inside a draft bisection. The
+    closed form is exact at five points and is cross-checked against BOTH the
+    quadratic-coefficient algebra in `Hull.section_area` and a dense sampled
+    polygon in `tests/test_geometry_kernel.py`.
+    """
+    zk = float(K[1])
+    if zk >= wl:                                    # keel above water: dry
+        return 0.0, 0.0, 0.0
+
+    def leg_cut(A, B):
+        t = (wl - A[1]) / (B[1] - A[1])
+        return A + t * (B - A)
+
+    seg = None                                      # (P0, P1, P2) of the arc
+    if wl <= P0[1]:
+        pts = [K, leg_cut(K, P0)]
+    elif wl <= P2[1]:
+        q0, q1, q2 = _split_at_z(P0, P1, P2, wl)
+        pts, seg = [K, P0, q2], (q0, q1, q2)
+    elif wl <= S[1]:
+        pts, seg = [K, P0, P2, leg_cut(P2, S)], (P0, P1, P2)
+    else:
+        pts, seg = [K, P0, P2, S], (P0, P1, P2)
+        wl = float(S[1])
+    b_wl = float(pts[-1][0])
+    poly = np.vstack(pts + [np.array([0.0, wl])])
+    a_p, gy, gz = _signed_polygon(poly)
+    a_s, sy, sz = 0.0, 0.0, 0.0
+    if seg is not None:
+        q0, q1, q2 = seg
+        a_s = (2.0 / 3.0) * 0.5 * float((q1[0] - q0[0]) * (q2[1] - q0[1])
+                                        - (q2[0] - q0[0]) * (q1[1] - q0[1]))
+        g = 0.4 * (q0 + q2) + 0.2 * q1
+        sy, sz = float(g[0]), float(g[1])
+    tot = a_p + a_s
+    if abs(tot) < 1e-15:
+        return 0.0, b_wl, 0.0
+    return abs(tot), b_wl, (a_p * gz + a_s * sz) / tot
+
+
+def _signed_polygon(pts) -> tuple[float, float, float]:
+    """Signed area and centroid of a closed polygon (shoelace), open vertices."""
+    p = np.asarray(pts, dtype=float)
+    y1, z1 = p[:, 0], p[:, 1]
+    y2, z2 = np.roll(y1, -1), np.roll(z1, -1)
+    cross = y1 * z2 - y2 * z1
+    a = 0.5 * float(cross.sum())
+    if abs(a) < 1e-15:
+        return 0.0, 0.0, 0.0
+    return (a, float(((y1 + y2) * cross).sum()) / (6.0 * a),
+            float(((z1 + z2) * cross).sum()) / (6.0 * a))
+
+
 def _polygon(pts) -> tuple[float, float, float]:
-    """Area (abs), y-centroid, z-centroid of a closed polygon (shoelace)."""
-    a = 0.0
-    cy = 0.0
-    cz = 0.0
-    for (y1, z1), (y2, z2) in zip(pts[:-1], pts[1:]):
-        cross = y1 * z2 - y2 * z1
-        a += cross
-        cy += (y1 + y2) * cross
-        cz += (z1 + z2) * cross
-    a *= 0.5
+    """Area (abs), y-centroid, z-centroid of a closed polygon (shoelace).
+
+    `pts` is an OPEN vertex list, (N, 2); the closing edge back to pts[0] is
+    supplied here. It used to take the closed list and loop in Python, which
+    was affordable at three points per section and is not at the hundreds the
+    bilge fillet needs.
+    """
+    p = np.asarray(pts, dtype=float)
+    y1, z1 = p[:, 0], p[:, 1]
+    y2, z2 = np.roll(y1, -1), np.roll(z1, -1)
+    cross = y1 * z2 - y2 * z1
+    a = 0.5 * float(cross.sum())
     if abs(a) < 1e-12:
         return 0.0, 0.0, 0.0
+    cy = float(((y1 + y2) * cross).sum())
+    cz = float(((z1 + z2) * cross).sum())
     return abs(a), cy / (6.0 * a), cz / (6.0 * a)
 
 
-def _halfbreadth_at(pts: np.ndarray, z: float) -> float:
-    """Half-breadth of a keel->chine->sheer polyline at height z."""
-    if z <= pts[0, 1]:
-        return 0.0
-    prev = pts[0]
-    for kk in range(1, 3):
-        cur = pts[kk]
-        if prev[1] <= z <= cur[1] and cur[1] > prev[1]:
-            f = (z - prev[1]) / (cur[1] - prev[1])
-            return float(prev[0] + f * (cur[0] - prev[0]))
-        prev = cur
-    return float(pts[2, 0])
+def _halfbreadth_at(pts: np.ndarray, z) -> float | np.ndarray:
+    """Half-breadth of a keel->bilge->sheer section polyline at height(s) z.
+
+    z increases monotonically along a section (keel -> bilge -> sheer), so
+    this is `np.interp` and not a scan: below the keel it clamps to the keel's
+    own half-breadth, which is 0, and above the sheer to the sheer's.
+    """
+    y = np.interp(z, pts[:, 1], pts[:, 0])
+    return float(y) if np.isscalar(z) or np.ndim(z) == 0 else y

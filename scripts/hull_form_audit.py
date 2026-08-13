@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Measure the CURRENT parameter box against the hull-form rules drawn in
-`downloads/hull-example-*.png` and `downloads/hull-designs*.png`.
+`downloads/hull-examples/*.png`.
 
 This exists because `docs/research/HULL-FORM-RULES.md` states how far the
 current batch sits from each drawn rule, and a document that states a distance
@@ -11,8 +11,16 @@ numbers in that document are reproduced or refuted.
 MEASURED 2026-08-13 on commit 10a255a. Every number quoted in
 HULL-FORM-RULES.md §"how far the current batch is" comes from this script.
 
-It reads ONLY: grammar.py, geometry.py, hydrostatics.py, resistance.py.
-It writes nothing and runs no solver.
+PATHS MOVED, AND THAT IS ITSELF AN INSTANCE OF THE DEFECT. The drawings were
+at `downloads/hull-example-*.png` when the first pass of this script and of
+HULL-FORM-RULES.md was written; they are now under
+`downloads/hull-examples/`, and six more sheets joined them. A citation that
+names a path is only as good as the path, so `check_drawings_on_disk()` below
+resolves every named sheet and REFUSES rather than warning — an audit that
+cites a file it cannot open is quoting evidence it has not seen.
+
+It reads ONLY: grammar.py, geometry.py, hydrostatics.py, resistance.py, and
+(optionally, if present) formlib.py. It writes nothing and runs no solver.
 
     python scripts/hull_form_audit.py [--n 200] [--seed 0]
 """
@@ -21,6 +29,7 @@ from __future__ import annotations
 
 import argparse
 import math
+import pathlib
 
 import numpy as np
 
@@ -28,6 +37,10 @@ from navalai import grammar
 from navalai.geometry import Hull, station_geometry
 
 G = 9.80665
+KNOT_MS = 0.514444
+
+_REPO = pathlib.Path(__file__).resolve().parents[1]
+DRAWINGS_DIR = _REPO / "downloads" / "hull-examples"
 
 # The demihull the mission actually asks for: L=12, B=0.8, T=0.6 (m).
 # Stated by the project owner alongside the drawings; NOT a grammar default.
@@ -37,6 +50,100 @@ TARGET_LBT = (12.0, 0.8, 0.6)
 CAT_DEMIHULL_L_OVER_B_MIN = 12.0   # hull-example-001, "L/B_h > 12"
 DEEP_V_DEADRISE_DEG = 24.0         # hull-designs-gemini, "DEEP-V (24 DEADRISE)"
 MODIFIED_V_DEADRISE_DEG = 18.0     # hull-designs-gemini, "MODIFIED-V (18 DEADRISE)"
+
+# The two DIMENSIONED solar catamarans in the set. Every field is a label read
+# off the sheet; nothing here is derived by this script except the columns
+# `drawn_solar_cats()` computes and prints.
+#
+#   (sheet, LWL m, B_overall m, L/B_h as printed, tunnel clearance m,
+#    entry half-angle ceiling deg, PV area m2, PV peak kWp)
+DRAWN_SOLAR_CATS = (
+    ("hull-example-008.png", 12.0, 4.0, 15.3, 0.65, 10.0, 35.0, (6.0, 8.0)),
+    ("hull-example-009.png", 16.0, 4.5, 17.8, 0.80, 9.0, 55.0, (10.0, 14.0)),
+)
+
+# The title block those two sheets share with 004, 005 and 006.
+DRAWN_KNOT_BAND = (7.0, 12.0)
+DRAWN_FN_BAND = (0.20, 0.35)
+
+# The mission's own ceiling, which is BELOW the drawn band's. Carried so the
+# clearance sweep reports the Froude number the design is actually judged at
+# and not only the two the sheet prints — the whole point of the sweep is that
+# the drawn clearance passes at one and fails at the other.
+MISSION_FN_MAX = 0.30
+
+# Every sheet the library and the rules document cite. Named here so ONE list
+# is checked against the disk.
+DRAWINGS = tuple(f"hull-example-{i:03d}.png" for i in range(10)) + (
+    "hull-designs.png", "hull-designs-gemini.png")
+
+
+def check_drawings_on_disk() -> list[str]:
+    """Resolve every sheet this audit and the rules document cite, or REFUSE.
+
+    An audit that cites a file it cannot open is quoting evidence it has not
+    seen (LESSONS.md #5), and this project has already paid for that once: the
+    sheets moved from `downloads/` to `downloads/hull-examples/` between the
+    first pass of this script and the second, and six more joined them. A
+    warning would have been ignored. This raises.
+    """
+    if not DRAWINGS_DIR.is_dir():
+        raise SystemExit(
+            f"the drawings directory does not exist: {DRAWINGS_DIR}. Every "
+            f"number this script prints about a DRAWN rule is unverifiable "
+            f"without it — refusing rather than printing them anyway.")
+    missing = [d for d in DRAWINGS if not (DRAWINGS_DIR / d).is_file()]
+    if missing:
+        raise SystemExit(
+            f"cited but not on disk under {DRAWINGS_DIR}: {missing}")
+    extra = sorted({p.name for p in DRAWINGS_DIR.glob("*.png")} - set(DRAWINGS))
+    lines = [f"{len(DRAWINGS)} cited sheets all resolve under {DRAWINGS_DIR}"]
+    if extra:
+        # NOT fatal, but said out loud: a sheet nobody cites is a sheet whose
+        # content was dropped, which is the silent half of the same defect.
+        lines.append(f"  WARNING: {len(extra)} sheet(s) on disk that this "
+                     f"script cites nowhere: {extra}")
+    return lines
+
+
+def drawn_solar_cats() -> list[str]:
+    """The two DIMENSIONED solar catamarans, and what their own numbers imply.
+
+    Nothing here is an opinion about the drawings. Each row prints the labels
+    as read, then the two quantities the labels DETERMINE but the sheets never
+    state: the demihull separation ratio `s/L`, and whether the drawn tunnel
+    clearance covers the steady bow-wave rise at each end of the title block's
+    Froude band. Both are the sheet being checked against itself.
+    """
+    lines = ["THE TWO DIMENSIONED SOLAR CATAMARANS, CHECKED AGAINST THEMSELVES"]
+    for (sheet, lwl, boa, lob_h, clear, ae_max, pv_m2, kwp) in DRAWN_SOLAR_CATS:
+        b_h = lwl / lob_h                    # demihull waterline beam
+        s = boa - b_h                        # demihull centreline separation
+        lines += [
+            f"  {sheet}  LWL {lwl} m  B_oa {boa} m  L/B_h {lob_h} "
+            f"(=> B_h {b_h:.3f} m)",
+            f"    entry half-angle ceiling {ae_max:g} deg   PV {pv_m2:g} m2 "
+            f"at {kwp[0]:g}-{kwp[1]:g} kWp",
+            f"    IMPLIED separation s = B_oa - B_h = {s:.3f} m  ->  "
+            f"s/L = {s / lwl:.3f}",
+        ]
+        for fn in sorted({DRAWN_FN_BAND[0], MISSION_FN_MAX, DRAWN_FN_BAND[1]}):
+            u = fn * math.sqrt(G * lwl)
+            rise = bow_wave_rise(u)
+            tag = "  <- mission ceiling" if fn == MISSION_FN_MAX else ""
+            lines.append(
+                f"    Fn {fn:.2f}  U {u:5.3f} m/s  bow-wave rise {rise:.3f} m  "
+                f"vs drawn clearance {clear:.2f} m  -> "
+                f"{'clears' if clear >= rise else 'FAILS'}{tag}")
+        for kn in DRAWN_KNOT_BAND:
+            lines.append(f"    title-block {kn:g} kn on this LWL is "
+                         f"Fn {kn * KNOT_MS / math.sqrt(G * lwl):.3f}")
+    lines.append(
+        f"  the title block reads '{DRAWN_KNOT_BAND[0]:g}-"
+        f"{DRAWN_KNOT_BAND[1]:g} knots, Fn {DRAWN_FN_BAND[0]:.2f}-"
+        f"{DRAWN_FN_BAND[1]:.2f}'; the two halves above do not describe the "
+        f"same boat, and the Fn half is the one adopted")
+    return lines
 
 
 def bow_wave_rise(speed: float) -> float:
@@ -134,6 +241,65 @@ def target_verdict() -> list[str]:
     return lines
 
 
+def formlib_crosscheck() -> list[str]:
+    """Check the drawn numbers THIS script owns against `navalai.formlib`.
+
+    The two files necessarily restate a few of the same figures — the drawn
+    catamaran L/B rule, the deep-V and modified-V deadrise angles, the 12 m
+    demihull. That is a second copy, so it gets a fence rather than a comment
+    (LESSONS.md #2). Optional because `formlib` is data and this script must
+    keep running against an archived tree that predates it; ABSENCE is
+    reported, never silently treated as agreement.
+    """
+    try:
+        from navalai import formlib as F
+    except Exception as exc:
+        return [f"formlib cross-check: NOT RUN ({type(exc).__name__}: {exc})"]
+
+    lines = ["FORMLIB CROSS-CHECK (the figures both files carry)"]
+    bad: list[str] = []
+
+    tgt = F.target()
+    lob = tgt.band("l_over_b")
+    lines.append(f"  target family {tgt.key!r}  L/B {lob}  "
+                 f"(drawn rule > {CAT_DEMIHULL_L_OVER_B_MIN})")
+    if lob is None:
+        bad.append("formlib's target family carries no l_over_b band")
+    else:
+        if lob.low < CAT_DEMIHULL_L_OVER_B_MIN:
+            bad.append(f"formlib target L/B band {lob} does not respect the "
+                       f"drawn rule L/B_h > {CAT_DEMIHULL_L_OVER_B_MIN}")
+        for sheet, _lwl, _boa, lob_h, *_rest in DRAWN_SOLAR_CATS:
+            if not lob.contains(lob_h):
+                bad.append(f"{sheet} prints L/B_h {lob_h}, outside the target "
+                           f"family's band {lob}")
+
+    mission_lbt = (F.MISSION.hull_lwl_m, F.MISSION.hull_bwl_m,
+                   F.MISSION.hull_draft_m)
+    if mission_lbt != TARGET_LBT:
+        bad.append(f"TARGET_LBT {TARGET_LBT} disagrees with formlib.MISSION "
+                   f"{mission_lbt}")
+    else:
+        lines.append(f"  demihull {TARGET_LBT[0]} x {TARGET_LBT[1]} x "
+                     f"{TARGET_LBT[2]} m agrees with formlib.MISSION")
+
+    for key, drawn in (("deep_v_planing", DEEP_V_DEADRISE_DEG),
+                       ("modified_v_planing", MODIFIED_V_DEADRISE_DEG)):
+        band = F.BY_KEY[key].band("deadrise_deg")
+        ok = band is not None and band.contains(drawn)
+        lines.append(f"  {key:<20} drawn {drawn:g} deg inside {band}: "
+                     f"{'yes' if ok else 'NO'}")
+        if not ok:
+            bad.append(f"{key} deadrise band {band} excludes the drawn "
+                       f"{drawn} deg")
+
+    if bad:
+        raise SystemExit("formlib cross-check FAILED:\n  - " +
+                         "\n  - ".join(bad))
+    lines.append("  all agree")
+    return [ln for ln in lines if ln]
+
+
 def pct(a: np.ndarray, q: float) -> float:
     return float(np.nanpercentile(a, q))
 
@@ -144,9 +310,17 @@ def main() -> int:
     ap.add_argument("--seed", type=int, default=0)
     args = ap.parse_args()
 
+    for line in check_drawings_on_disk():
+        print(line)
     print("bow_wave_rise:", check_bow_wave_rise_matches_production())
     print()
     for line in target_verdict():
+        print(line)
+    print()
+    for line in drawn_solar_cats():
+        print(line)
+    print()
+    for line in formlib_crosscheck():
         print(line)
     print()
 

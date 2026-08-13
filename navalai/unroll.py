@@ -120,6 +120,7 @@ import re as _re
 
 import numpy as np
 
+from . import grammar
 from .geometry import Hull
 from .limits import PLY_THICKNESS_M
 
@@ -739,6 +740,24 @@ def hull_panels(hull: Hull, rulings: str = "developable") -> list[FlatPanel]:
     """
     if rulings not in ("developable", "constant-x", "strakes"):
         raise ValueError(f"unknown ruling family {rulings!r}")
+    # A ROUND BILGE IS REFUSED HERE, NOT APPROXIMATED (plate P2).
+    #
+    # `_PANEL_EDGES` and every caller below assume the shell is exactly TWO
+    # panels meeting at a chine, which was true of every hull the old kernel
+    # could draw. With `roundness > 0` the bilge is a fillet: there is no
+    # crease to cut on, and the filleted strip is doubly curved and therefore
+    # NOT developable from flat sheet — that is a fact about sheet material,
+    # not a limitation of this unroller. Developing it anyway would return a
+    # `refold_deviation_mm` computed against the chine curve of a hull that has
+    # no chine, which is Gate 6D measuring the wrong surface and reporting a
+    # number. Gate 6D and Gate F keep operating on hard-chine hulls, where the
+    # kernel reproduces the old geometry exactly.
+    rho = float(grammar.named(hull.params)["roundness"])
+    if rho > 0.0:
+        raise ValueError(
+            f"unroll: roundness {rho:.3f} — a radiused bilge is not a "
+            f"two-panel developable shell. Set roundness = 0 for a "
+            f"sheet-built hull, or take this hull to a mould, not a cutter.")
     if rulings == "strakes":
         out: list[FlatPanel] = []
         for name, ia, ib in (("bottom-stbd", 0, 1), ("topside-stbd", 1, 2)):

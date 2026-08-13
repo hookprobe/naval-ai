@@ -115,16 +115,41 @@ def test_revalidate_promotes_to_l2_and_records_it(tmp_path):
     prov = db.Provenance(tmp_path / "p.sqlite3")
 
     ev1 = evaluate(x, m, provenance=prov)
-    # THIS USED TO READ `ev1.tier == "L1" and ev1.ok`, AND THE `ok` HALF IS NOW
-    # FALSE — recorded, not softened (honesty rule 6). Gap B8 added an LCB
-    # constraint (`limits.LCB_BAND_PCT_LWL`, +-3 %LWL) and the hand-picked
-    # reference hull floats with LCB 4.35 m on a 9.50 m waterline, i.e.
-    # -5.36 %LWL from midships (-4.19 until 2026-08-12, when the wet-station
-    # truncation in `lwl_eff` was corrected — the old figure flattered the hull;
-    # see hydrostatics._waterline_ends). It is out of band and it always was;
-    # nothing in the ladder had ever looked. LCB is its ONLY violation, which is
-    # why it is asserted exactly rather than loosened to "not ok" — if the hull
-    # starts failing something else too, that is a regression and this catches it.
+    # THIS USED TO READ `ev1.tier == "L1" and ev1.ok`, AND THE `ok` HALF IS
+    # STILL FALSE — recorded, not softened (honesty rule 6). WHICH constraint
+    # holds it there changed on 2026-08-13, and both halves of the change are
+    # information:
+    #
+    #   LCB, which used to be the single violation, now PASSES. Gap B8 added
+    #   the +-3 %LWL band (`limits.LCB_BAND_PCT_LWL`) and the reference hull
+    #   floated at -5.36 %LWL, out of band, because LCB was an emergent output
+    #   of fifteen shape knobs. Plate P1 made `lcb` a GENE the sectional area
+    #   curve is solved to deliver; the hull asks for -1.0 and floats at -1.68.
+    #   See tests/test_constraints_honest.py, which carries the measurement.
+    #
+    #   BEND RADIUS now fails, at 0.954 m against the 1.68 m cold-bend limit
+    #   for the rule-derived 21 mm bottom. **THE BAR IS NOT THE QUESTIONABLE
+    #   PART — THE METRIC IS**, and it is recorded here because this is where
+    #   it first bites. `Hull.min_bend_radius()` takes a central-difference
+    #   curvature along the keel and chine, and the chine has a TANGENT BREAK
+    #   at the max-area station (the sectional area curve's two branches meet
+    #   there with different slopes, and so does the flare envelope). A central
+    #   difference straddling a corner measures the corner divided by the step,
+    #   so the number DIVERGES as the station count rises. MEASURED on the
+    #   reference hull, stations 21 -> 641:
+    #
+    #       plate-P1/P2 kernel   1.777  0.954  0.515  0.277  0.148  0.078
+    #       pre-rebuild kernel   4.184  2.239  1.147  0.578  0.289  0.145
+    #
+    #   Both halve with every doubling. The pre-rebuild hull ALSO fails the
+    #   1.2 m limit from 81 stations up; it passed at the shipped 41 only
+    #   because the sampling was coarse enough to blur the corner. So this is
+    #   not a regression the rebuild introduced — it is a pre-existing
+    #   ill-posed metric (docs/LESSONS.md defect class 1: a quantity that is a
+    #   function of its sampling, scored against a bar in metres) that the
+    #   rebuild's sharper knuckle pushed across the line at the configuration
+    #   the product actually runs. It is REPORTED, not worked around: neither
+    #   `min_bend_radius` nor `limits.min_bend_radius_m` is touched here.
     #
     # What this test is FOR is escalation, and escalation does not require
     # feasibility: an infeasible design that a user asks to re-validate must
@@ -132,8 +157,10 @@ def test_revalidate_promotes_to_l2_and_records_it(tmp_path):
     # least. What the test does assert is that the L1 verdict SURVIVES the
     # promotion unchanged (`ev2.ok == ev1.ok` below).
     assert ev1.tier == "L1"
-    assert len(ev1.violations) == 1 and "LCB" in ev1.violations[0], ev1.violations
-    assert ev1.hydro.lcb_pct_lwl == pytest.approx(-5.36, abs=0.05)
+    assert len(ev1.violations) == 1 and "bend radius" in ev1.violations[0], \
+        ev1.violations
+    assert ev1.hydro.lcb_pct_lwl == pytest.approx(-1.68, abs=0.05)
+    assert ev1.g["lcb"] < 0.0
     ev2 = revalidate(ev1, m, "L2", provenance=prov)
 
     assert tier_rank(ev2.tier) > tier_rank(ev1.tier)

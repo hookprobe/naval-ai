@@ -23,8 +23,19 @@ returns numbers; `auc` and `family_wise_p` score them; the interpretation lives
 in `docs/research/STL.md`. No threshold in this file is enforced anywhere.
 
 CONFIGURATION, SAID OUT LOUD (docs/LESSONS.md defect class 6): the triangulation
-a metric is measured on is an argument, never an assumption. `hull_to_stl`'s
-DEFAULT is nx=80, nz=16 (5244 triangles) and the SHIPPED case is whatever
+a metric is measured on is an argument, never an assumption. This module
+measures at nx=80, nz=16 (5244 triangles) because that is where the observation
+above was made, and it takes both as ARGUMENTS (`nx_default`, `nz_default`) so
+the configuration travels with the number.
+
+`hull_to_stl`'S BARE DEFAULT IS NO LONGER 80x16, AND THIS PARAGRAPH SAID IT WAS
+UNTIL 2026-08-13. The girth default is now derived from the hull's bilge shape
+(`case.stl_girth_resolution`): 16 for a hard chine, 96 for a fillet. A fixed 16
+under-enclosed a filleted hull by 0.71% against the 0.35% bar that
+`tests/test_end_to_end_flow.py` applies to it. The 5244 figure is therefore a
+HISTORICAL observation at a named triangulation, not a description of what the
+function returns today — which is exactly the distinction this paragraph exists
+to enforce, and it had drifted in its own file. The SHIPPED case is whatever
 `stl_resolution` returns for that hull — at scale 1.0 that is nx=600, nz=120
 (288956 triangles), because the unclamped request is 811 for every hull and the
 600 ceiling binds. Those are different surfaces and a finding on one is not a
@@ -600,9 +611,16 @@ def study(n: int = 25, seed: int = 0, speed: float = 2.57, scale: float = 1.0,
     """Phase 1-3: measure every seed-`seed` hull's STL and score it.
 
     Measures at TWO triangulations — the one the case writes
-    (`stl_resolution`, nx=600/nz=120 at scale 1.0) and `hull_to_stl`'s bare
-    default (80x16) — because the observation that started this pass was made
-    at the default and the pipeline does not use it.
+    (`stl_resolution`, nx=600/nz=120 at scale 1.0) and the 80x16 grid the
+    observation that started this pass was made on, which the pipeline does not
+    use.
+
+    80x16 WAS `hull_to_stl`'s bare default when this was written and is not any
+    more (see the module header): the girth count is now derived from the
+    hull's bilge shape. Both are still ARGUMENTS here, so this function keeps
+    measuring the grid the finding belongs to rather than silently following a
+    default that has moved underneath it — pass `nz_default` explicitly to
+    measure anything else.
     """
     from .admissibility import _pipeline_scales
     from .evaluate import sample_valid

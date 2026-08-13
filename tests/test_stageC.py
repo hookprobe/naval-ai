@@ -4,10 +4,13 @@ trail; builder emits parameters only; engineer numbers sane; STEP exports."""
 import numpy as np
 import pytest
 
-from navalai import grammar
+from navalai import engineer, export, grammar
+from navalai import hydrostatics as H
 from navalai.agents import run_plm
 from navalai.engineer import assess
+from navalai.evaluate import sample_valid
 from navalai.geometry import Hull
+from navalai.mission import MissionSpec
 from tests.test_phase0 import mid_params
 
 MISSION = ("6 tonne solar-electric liveaboard, 10 m, Danube river, "
@@ -80,6 +83,160 @@ def test_iges_export():
     p = export_iges(Hull(mid_params()), "data/exports/hull.iges")
     assert p.stat().st_size > 50_000
     assert "S0000001" in p.read_text(errors="ignore")[:100]
+
+
+# ---------------------------------------------------------------------------
+# Gate F: the exported solid IS the boat the ladder validated
+# ---------------------------------------------------------------------------
+
+def test_the_export_reads_the_section_by_meaning_and_not_by_index():
+    """THE MOTIVATING INCIDENT, MEASURED 2026-08-13, and it shipped a sliver.
+
+    `Hull.section()` returned exactly three points — keel, chine, sheer — for
+    every hull the pre-plate-P2 kernel could draw, so `pts[0]`, `pts[1]`,
+    `pts[2]` WERE the three moulded corners and `export._station_wires` and
+    `export.moulded_volume_m3` both read them that way. Plate P2 made the
+    section a shape function: at `roundness > 0` it returns 257 points and the
+    first three sit a few millimetres apart at the keel. VERIFIED on
+    `sample_valid(3, MissionSpec(), seed=0)[0]` (roundness 0.981):
+
+        section() shape                (257, 2)
+        first three points span         0.00862 m
+        full section span               1.90618 m
+        ladder validated volume        11.172241 m^3
+        export.moulded_volume_m3        0.000650 m^3     -99.994%
+
+    Read by MEANING — the whole polyline, with `Hull.chine_row` giving the
+    bilge row for any sampling — the same hull's exported displacement is
+    within 0.032% of the ladder's.
+    """
+    X, _ = sample_valid(3, MissionSpec(), seed=0)
+    h = Hull(np.asarray(X[0], dtype=float))
+    assert h.roundness > 0.5, "this test needs a hull with a radiused bilge"
+    assert h.section(20).shape[0] > 3, "the section is not a shape function"
+
+    rec = export.export_receipt(h, export._LOFT_STATIONS)
+    assert abs(rec["displacement_error_pct"]) < 0.1, rec
+
+    ref = export.export_receipt(Hull(mid_params()), export._LOFT_STATIONS)
+    assert abs(ref["displacement_error_pct"]) < 0.1, ref
+    assert ref["section_rows"] == 2          # hard chine: keel, chine, sheer
+    assert ref["n_stations_exported"] == 161
+    assert ref["n_stations_validated"] == 41
+
+
+def test_the_receipt_can_see_the_between_station_term_it_used_to_sample_past():
+    """A RECEIPT THAT SAMPLES ONLY AT THE STATIONS IS BLIND TO THE LOFT.
+
+    `_displaced_volume_of` evaluated at the loft's own stations trapezoids the
+    EXACT section areas there — arithmetically the ladder's own integral — so
+    at `n_stations == hull.n_stations` it read **0.0000%** and could not see
+    the surface between them at all. That is the same shape of defect as the
+    `volume_error_pct` it replaced: a cross-check that shares its answer with
+    the thing being checked.
+
+    The term it was missing is real and its SIGN is forced. A ruled loft is
+    linear in the control points between stations, area is CONVEX in those
+    control points, so `A(lerp p) <= lerp(A p)` and the loft can only ever
+    enclose LESS than the trapezoid the ladder integrates. MEASURED at a
+    41-station loft once the receipt sub-samples: -0.0129% on the reference
+    hull and -0.0419% on the worst of `sample_valid(6, seed=0)` — negative on
+    every hull, as convexity requires.
+
+    `measure_lofted_displacement` sub-samples between the stations, and
+    `_LOFT_STATIONS` (161) is what closes the term rather than merely
+    reporting it.
+    """
+    h = Hull(mid_params())
+    coarse = export.export_receipt(h, 41)["displacement_error_pct"]
+    shipped = export.export_receipt(h, export._LOFT_STATIONS)[
+        "displacement_error_pct"]
+    # the term exists, is negative, and is no longer invisible
+    assert coarse < 0.0, (
+        f"a 41-station loft reads {coarse:+.4f}% — convexity says the loft "
+        f"under-encloses, so a non-negative reading means the receipt is "
+        f"sampling at the stations again and is blind")
+    assert coarse == pytest.approx(-0.0129, abs=0.005)
+    # and the shipped loft has converged past it
+    assert abs(shipped) < abs(coarse) + 0.05
+    assert abs(shipped) < 0.05
+
+    # THE SIGN IS NOT AN ACCIDENT OF ONE HULL. Every hull must under-enclose at
+    # a coarse loft, or the mechanism named above is not the mechanism.
+    X, _ = sample_valid(6, MissionSpec(), seed=0)
+    for i, x in enumerate(X):
+        e = export.export_receipt(Hull(np.asarray(x, float)),
+                                  41)["displacement_error_pct"]
+        assert e <= 0.0, f"hull {i} lofts LARGER than the ladder at 41: {e:+.4f}%"
+
+
+def test_the_export_receipt_can_fail_and_refuses_the_verbatim_defect():
+    """THE RECEIPT COULD NOT FAIL, WHICH IS WHY IT DID NOT.
+
+    `volume_error_pct` divided the lofted solid by `moulded_volume_m3`, and
+    both read the section through the SAME index — so when the index read
+    collapsed to a sliver, both sides collapsed together and the receipt
+    reported a fraction of a percent on a 99.994% error. A cross-check between
+    two readings that share a code path is the same number printed twice.
+
+    The receipt's reference is now `hydrostatics.solve`, which derives the
+    displacement from `Hull.immersed_section`'s closed-form control points and
+    shares nothing with the loft but the hull. THE GUARD IS FED THE VERBATIM
+    INPUT IT MUST REJECT: the pre-plate-P2 three-index section, reconstructed
+    here rather than described.
+    """
+    X, _ = sample_valid(3, MissionSpec(), seed=0)
+    h = Hull(np.asarray(X[0], dtype=float))
+    xs = np.linspace(float(h.x[0]), float(h.x[-1]), h.n_stations)
+
+    # the defect, verbatim: the first three points of the section, read as
+    # keel / chine / sheer
+    sliver = [np.asarray(h._section_at(float(xv)), dtype=float)[:3] for xv in xs]
+    bad = export._displaced_volume_of(xs, sliver, 0.0)
+    good = float(H.solve(h, 0.0).volume)
+    err = 100.0 * (bad - good) / good
+    assert err < -99.0, f"the defect no longer reproduces ({err:.4f}%)"
+    assert abs(err) > export.EXPORT_DISPLACEMENT_BAR_PCT
+
+    with pytest.raises(ValueError, match="not the boat that passed the gates"):
+        export.refuse_wrong_solid(
+            {"displacement_error_pct": err,
+             "displaced_volume_m3": bad,
+             "ladder_displaced_volume_m3": good}, "STEP")
+
+    # ...and it ACCEPTS the honest one, or it is a refusal and not a bar. The
+    # bar sits between measurements: 0.758% is the worst legitimate value over
+    # seven hulls (a deliberately coarse 12-station loft) and 99.994% is the
+    # defect.
+    ok = export.export_receipt(h, h.n_stations)
+    export.refuse_wrong_solid(ok, "STEP")
+    coarse = export.export_receipt(h, 12)
+    assert abs(coarse["displacement_error_pct"]) > \
+        abs(ok["displacement_error_pct"]), \
+        "a coarser loft must cost something, or the receipt is not measuring it"
+    export.refuse_wrong_solid(coarse, "STEP")
+
+
+def test_the_engineer_refuses_a_round_bilge_as_a_round_bilge():
+    """A refusal reported as the WRONG refusal is defect class 1's cousin.
+
+    `unroll.hull_panels` refuses `roundness > 0` because a filleted bilge is
+    doubly curved and not developable from flat sheet — a fact about the
+    material, not a limitation of the unroller. `engineer.assess` swallowed
+    every `ValueError` in its strake search, so on
+    `sample_valid(3, MissionSpec(), seed=0)[0]` (roundness 0.981) the unroller's
+    own sentence — "take this hull to a mould, not a cutter" — came out as
+    "no feasible nesting layout for this hull", which sends the reader to look
+    at sheet sizes for a problem that has nothing to do with packing.
+    """
+    X, _ = sample_valid(3, MissionSpec(), seed=0)
+    h = Hull(np.asarray(X[0], dtype=float))
+    assert h.roundness > 0.5
+    with pytest.raises(ValueError, match="radiused bilge"):
+        engineer.assess(h)
+    # the negative control: a hard chine still nests, so the refusal is about
+    # the bilge and not about this module having stopped working
+    assert engineer.assess(Hull(mid_params())).panel_count >= 8
 
 
 # ---------------------------------------------------------------------------

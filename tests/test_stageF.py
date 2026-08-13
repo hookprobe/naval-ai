@@ -148,7 +148,12 @@ def test_pareto_endpoint_serves_designs():
     assert len(d["points"]) >= 1, "the endpoint served no designs at all"
     for p in d["points"]:
         assert set(p) == {"params", "wh_per_nm", "build_area_m2", "gm_m"}
-        assert len(p["params"]) == 15
+        # NOT A LITERAL. 15 until the plate-P1/P2 genome, and a served payload
+        # that is short by a gene is a payload the ladder cannot re-evaluate —
+        # which is what the next two lines do. `grammar.N_PARAMS` is the one
+        # home of the count; a second copy here is what made this test fail
+        # for a reason unconnected to the endpoint.
+        assert len(p["params"]) == grammar.N_PARAMS
         x = np.array([p["params"][n] for n in grammar.NAMES], float)
         ev = evaluate(x, _mission_default)
         assert ev.ok, f"a served design fails the ladder: {ev.violations}"

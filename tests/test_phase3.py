@@ -96,32 +96,68 @@ def test_surrogate_on_l1_physics(l1_gp, seed):
 
 
 def test_the_l1_error_bar_is_measured_across_seeds_and_it_misses_the_bar(l1_gp):
-    """Gap D10: Gate 3's error bar sat on ONE query seed, and that seed was the
-    only one of five that cleared it.
+    """Gap D10: Gate 3's error bar sat on ONE query seed, and that seed did not
+    agree with the model.
 
-    MEASURED 2026-08-12 — same training draw (seed 7, n=250), same fit
-    (GP.fit(seed=1)), five held-out draws of 35:
+    RE-MEASURED TWICE ON 2026-08-13 — same training draw (seed 7, n=250), same
+    fit (GP.fit(seed=1)), five held-out draws of 35. First after the geometry
+    kernel went 15 -> 16 parameters, then after the Michell quadrature grid went
+    161x28 -> 241x44:
 
-        query seed   kept    median rel err   within 2-sigma
-              991    27/35        0.1056           0.963
-              992    33/35        0.1830           0.879
-              993    31/35        0.2222           0.968
-              994    34/35        0.1798           0.824
-              995    33/35        0.2340           0.818
+        query seed   kept    median rel err                      within 2-sigma
+                             15-par   16-par   16-par/241x44     (latest)
+              991    26/35   0.1056   0.1940   0.1710             0.846
+              992    28/35   0.1830   0.1523   0.1471             0.857
+              993    28/35   0.2222   0.1693   0.1296             0.893
+              994    29/35   0.1798   0.1238   0.0938             0.897
+              995    24/35   0.2340   0.1055   0.1849             0.958
 
-        across-seed median   0.1830     spread 2.22x (0.1056 - 0.2340)
+        across-seed median   0.1830   0.1523   0.1471
+        spread               2.22x    1.84x    1.97x
 
-    991 is the seed the test pinned and it is the MINIMUM. Every other honest
-    draw lands 0.18-0.23 against a <=0.15 bar, so the gate was reading a
-    favourable draw as a property of the model.
+    MECHANISM, first move: the rebuild dropped `p_bow`/`p_stern` and added
+    `Cp`, `lcb` and `roundness`, so prismatic coefficient and LCB are sampled
+    DIRECTLY instead of emerging from two plan-form exponents; the Wh/NM
+    manifold is smoother in those coordinates. Second move: the coarse Michell
+    grid was carrying up to 0.9% of quadrature error across the sectional-area
+    tangent break, and removing it removed noise the GP had been fitting.
 
-    THE BAR IS NOT MOVED. 0.15 is what Gate 3 claims and it stands; what
-    changes is that the shortfall is now MEASURED, asserted honestly here, and
-    carried as `Gate 3E` — a typed RED row with a watermark, an owner and a
-    review_by in data/gate-ledger.json. That is the Gate 4F treatment applied
-    to the same shape: a suite that passes everything it asserts while the
-    clause it is named for is missed. The watermark is NOT restated in this
-    file; the ledger is its one home.
+    THE DIRECTION OF THE D10 OUTLIER FLIPPED AND THE FINDING SURVIVED IT. 991
+    was the seed the test pinned and it was the MINIMUM of the five; it is now
+    near the top. What D10 is about is not which way the pinned seed leans — it
+    is that a single query draw is not a property of the model, and that is
+    still measured here: 0.0938 to 0.1849 across five honest draws.
+
+    THE BAR IS NOT MOVED. 0.15 is what Gate 3 claims and it stands.
+
+    *** THIS TEST IS NOW FAILING ON PURPOSE, AND IT IS GOOD NEWS. ***
+
+    The across-seed median is 0.1471 against the 0.15 bar, so Gate 3's clause
+    is MET and the `Gate 3E` RED row that records the shortfall has met its own
+    stated clearing condition — `data/gate-ledger.json` says in as many words:
+    "do not delete this entry until the bar is MET, and delete it the moment it
+    is -- a GREEN gate still listed here is itself a failure."
+
+    RETIRING IT SPANS THREE FILES AND ONLY ONE OF THEM IS THIS ONE:
+
+      1. `data/gate-ledger.json`  — delete the `Gate 3E` row (its watermark,
+         0.183, is stale in any case; the measurement is now 0.1471).
+      2. `navalai/gates.py`       — delete the `Gate 3E` RED row, and the two
+         references to it at the Gate 3 entry.
+      3. THIS TEST                — re-point from "assert the shortfall EXISTS"
+         to "assert the bar is MET", and rename it.
+
+    Doing (3) alone would leave the tree asserting Gate 3 is met while the gate
+    runner prints Gate 3E RED against a stale watermark — two artifacts
+    disagreeing about one measured fact, which is the defect this repository
+    names most often. So this test is deliberately left RED, announcing the
+    improvement, until (1) and (2) land with it in ONE change.
+
+    A CAUTION FOR WHOEVER LANDS IT: the margin is 2%, on a five-draw median
+    whose draws span 1.97x. "Met" here means met by less than the seed noise.
+    Consider recording the new watermark and widening the ensemble before
+    deleting the row outright — that is a judgement call for the row's owner
+    (`ml-engineer`), and this test does not make it.
     """
     gp, m = l1_gp
     meds = [_l1_draw(gp, m, s)[0] for s in L1_QUERY_SEEDS]
@@ -131,9 +167,17 @@ def test_the_l1_error_bar_is_measured_across_seeds_and_it_misses_the_bar(l1_gp):
     # for raw feasibility: it asserts the shortfall EXISTS, so the day the
     # model improves this test fails and the ledger row must be retired.
     assert across > 0.15, (
-        f"the across-seed median error bar is {across:.4f}, i.e. Gate 3's "
-        f"0.15 bar is now MET across seeds. Delete the Gate 3E row and its "
-        f"ledger entry — a GREEN gate still listed in the ledger is a failure.")
+        f"GOOD NEWS, AND THIS IS THE DESIGNED WAY TO HEAR IT: the across-seed "
+        f"median error bar is {across:.4f}, so Gate 3's 0.15 bar is now MET "
+        f"across seeds and the Gate 3E RED row has met its own clearing "
+        f"condition. Retire it in ONE change across three files — "
+        f"data/gate-ledger.json (delete the row; its 0.183 watermark is stale), "
+        f"navalai/gates.py (delete the RED row and the two Gate 3 references), "
+        f"and THIS test (re-point to asserting the bar is met, and rename it). "
+        f"See this test's docstring for why doing only the third is worse than "
+        f"leaving it red. Margin is 2% on a 5-draw median spanning "
+        f"{max(meds) / min(meds):.2f}x, so consider re-watermarking rather than "
+        f"deleting — the row's owner decides.")
     # ...and it must not have got worse than the recorded watermark, which the
     # ledger owns. This is the local sanity band, not the watermark.
     assert 0.15 < across < 0.25, f"across-seed median {across:.4f}"
@@ -142,9 +186,18 @@ def test_the_l1_error_bar_is_measured_across_seeds_and_it_misses_the_bar(l1_gp):
     assert min(meds) < 0.15 < across, (
         "the single-seed reading no longer differs from the across-seed one, "
         "so D10's finding has changed shape — re-measure the table above")
-    assert max(meds) / min(meds) > 2.0, (
-        f"seed spread collapsed to {max(meds) / min(meds):.2f}x; the table "
-        f"above is the thing that is now wrong")
+    # The spread is a RECEIPT for the table, not a gate bar, and it is fenced
+    # in BOTH directions so the docstring cannot go stale in either. RE-MEASURED
+    # 2026-08-13: 2.22x -> 1.84x on the rebuilt genome, then 1.84x -> 1.97x
+    # after the Michell grid refinement. The genome move tightened the spread
+    # (Cp and lcb sampled directly rather than inferred); the grid move widened
+    # it slightly again while lowering every draw. It can still fail: a
+    # degenerate ensemble reads 1.00x and pinning the bar at one draw reads 1.00x
+    # too, both of which are outside this band.
+    spread = max(meds) / min(meds)
+    assert spread == pytest.approx(1.97, abs=0.15), (
+        f"seed spread moved to {spread:.2f}x; the table above is the thing "
+        f"that is now wrong — re-measure it rather than widening this")
 
 
 def test_calibration_is_measured_as_a_curve_with_sharpness_beside_it(l1_gp):
@@ -158,18 +211,57 @@ def test_calibration_is_measured_as_a_curve_with_sharpness_beside_it(l1_gp):
     already shipped one bar a degenerate answer passed (`gci <= 5.0` is true of
     -27%), so sharpness is measured beside coverage, always.
 
-    MEASURED 2026-08-12 on the Gate 3 GP, held-out draw seed 991, 27 in-support
-    hulls, in log(Wh/NM) space:
+    RE-MEASURED 2026-08-13 on the Gate 3 GP, held-out draw seed 991, in
+    log(Wh/NM) space, twice: once on the rebuilt 16-parameter genome and again
+    after the Michell grid refinement (161x28 -> 241x44). The in-support count
+    fell with each, 27 -> 29 -> 26:
 
-        nominal   0.500   0.800   0.900   0.9545   0.990
-        empirical 0.667   0.815   0.926   0.963    1.000
+        nominal            0.500   0.800   0.900   0.9545   0.990
+        15-par/161x28 (27) 0.667   0.815   0.926   0.963    1.000
+        16-par/161x28 (29) 0.414   0.759   0.897   0.897    0.966
+        16-par/241x44 (26) 0.423   0.615   0.808   0.846    0.885
 
-        calibration_error 0.0452   sharpness 0.2462   PIT KS 0.2268
-        PIT mean 0.4048
+        calibration_error  0.0452 -> 0.0427 -> 0.1135
+        sharpness          0.2462 -> 0.2180 -> 0.1832
+        PIT KS             0.2268 -> 0.1332 -> 0.1663
+        PIT mean           0.4048 -> 0.4635 -> 0.4572
 
-    The model is UNDER-confident at the middle of the curve (0.667 against a
-    nominal 0.50) — which the single 2-sigma assertion could not have shown,
-    because at 2 sigma it reads 0.963 and passes anything above 0.75.
+    THE SIGN OF THE MISCALIBRATION FLIPPED AND THEN THE MAGNITUDE GREW. The
+    model WAS under-confident at the middle of the curve (0.667 against a
+    nominal 0.50); it is now OVER-confident across the WHOLE curve, and the
+    2-sigma band that should hold 95.45% of the points holds 84.6%.
+
+    MECHANISM, and it is the same one twice: the band keeps tightening faster
+    than the error it has to contain. Sharpness has fallen 26% over the two
+    changes (0.2462 -> 0.1832) while the residuals have not fallen as far, so
+    calibration_error nearly TRIPLED (0.0427 -> 0.1135) in the same step that
+    made the model more ACCURATE — the across-seed median error fell 0.1523 ->
+    0.1471 (see the error-bar test above). Accuracy and honesty moved in
+    opposite directions, which is exactly the pair this test exists to hold
+    apart and exactly what a single coverage assertion cannot show.
+
+    NO BAR FIRES ON THIS and none is invented here (see below), but it is the
+    clearest open finding in this file: the Gate 3 GP's uncertainty is now
+    materially optimistic and nothing in the ladder is gated on that yet.
+
+    AND IT HAS A CONSEQUENCE THAT IS WORTH STATING ON ITS OWN, BECAUSE IT
+    WEAKENS ANY TEST THAT USES `calibration_error` AS A DISCRIMINATOR. MEASURED
+    below on the same 26 hulls: scaling this model's sigma by 2.0 — a
+    deliberately over-hedged model, four times too vague in variance — scores
+    `calibration_error` 0.0557 against the production model's 0.1135. THE
+    BROKEN MODEL IS TWICE AS WELL CALIBRATED AS THE SHIPPED ONE. That is not a
+    quirk of the metric; it is what over-confidence means, and widening a
+    too-narrow band moves it towards calibration before it overshoots.
+
+    So `calibration_error` cannot separate "honest" from "over-hedged" any more
+    than it can see the SIGN of a miscalibration, and a poisoning or
+    regression test that leans on it as its discriminator is weaker than it
+    looks. Sharpness is what still separates them — it scales exactly with the
+    width that bought the coverage — which is the whole reason this test
+    measures the two together and refuses to report either alone.
+
+    The single 2-sigma assertion could not have shown any of it: it read 0.963,
+    then 0.897, then 0.846, and passes anything above 0.75 all three times.
 
     NO BAR IS ASSERTED on these numbers, and that is deliberate. A threshold
     interpolated from the 0.75 that is already known to be the wrong statistic
@@ -191,19 +283,24 @@ def test_calibration_is_measured_as_a_curve_with_sharpness_beside_it(l1_gp):
     Xt, yt = sample_valid(35, m, seed=991)
     keep = ~gp.is_ood(Xt, 0.5)
     Xk, yk = Xt[keep], np.log(yt[keep])
-    assert keep.sum() == 27, "the measured table above is for 27 in-support hulls"
+    assert keep.sum() == 26, "the measured table above is for 26 in-support hulls"
 
     rep = calibration(gp, Xk, yk)
-    assert rep["n"] == 27 and rep["levels"] == COVERAGE_LEVELS
+    assert rep["n"] == 26 and rep["levels"] == COVERAGE_LEVELS
     curve = rep["coverage_curve"]
-    for lv, want in ((0.50, 0.667), (0.80, 0.815), (0.90, 0.926),
-                     (0.9545, 0.963), (0.99, 1.000)):
+    for lv, want in ((0.50, 0.423), (0.80, 0.615), (0.90, 0.808),
+                     (0.9545, 0.846), (0.99, 0.885)):
         assert curve[lv] == pytest.approx(want, abs=0.02), (
             f"coverage at nominal {lv} moved to {curve[lv]:.3f}; re-measure "
             f"the table above rather than widening this")
-    assert rep["calibration_error"] == pytest.approx(0.0452, abs=0.005)
-    assert rep["sharpness"] == pytest.approx(0.2462, rel=0.02)
-    assert rep["pit_ks"] == pytest.approx(0.2268, abs=0.02)
+    assert rep["calibration_error"] == pytest.approx(0.1135, abs=0.005)
+    assert rep["sharpness"] == pytest.approx(0.1832, rel=0.02)
+    assert rep["pit_ks"] == pytest.approx(0.1663, abs=0.02)
+    # the curve is OVER-confident at every level, which the aggregate above
+    # cannot say and which is the direction that matters for a consumer
+    assert all(curve[lv] < lv for lv in (0.80, 0.90, 0.9545, 0.99)), (
+        f"the model is no longer over-confident across the curve: {curve} — "
+        f"that is good news and the docstring's finding must be re-measured")
 
     # The curve and the standalone helpers cannot disagree about what the
     # model said — they are one computation, not two.
@@ -224,16 +321,61 @@ def test_calibration_is_measured_as_a_curve_with_sharpness_beside_it(l1_gp):
             return mu, sg * self.f
 
     tight = calibration(_Scaled(gp, 0.25), Xk, yk)
-    assert tight["calibration_error"] > 8 * rep["calibration_error"]
-    assert tight["coverage_curve"][0.9545] == pytest.approx(0.481, abs=0.02)
+    # THE RATIO BAR WAS 8x AND IS NOW 4x, AND THE CONTROL DID NOT GET WEAKER —
+    # THE BASELINE GOT WORSE. Measured across the two changes:
+    #
+    #     quarter-width model calibration_error  0.5944 -> 0.5904   (-0.7%)
+    #     honest model        calibration_error  0.0427 -> 0.1135   (+166%)
+    #     ratio                                    13.9x ->   5.2x
+    #
+    # The numerator is essentially unmoved; the denominator nearly tripled
+    # because the honest fit is itself now over-confident (see the docstring).
+    # So the deliberately-broken model is refused just as hard in ABSOLUTE
+    # terms, which is what the second assertion pins — a ratio alone would
+    # have quietly rewarded a worsening baseline.
+    assert tight["calibration_error"] > 4.0 * rep["calibration_error"]
+    assert tight["calibration_error"] == pytest.approx(0.590, abs=0.03), (
+        "the miscalibrated control's absolute error moved; it is the anchor "
+        "that keeps the ratio above from being satisfied by a bad baseline")
+    # RE-MEASURED: the quarter-width model's 2-sigma coverage went
+    # 0.481 -> 0.241 -> 0.346.
+    assert tight["coverage_curve"][0.9545] == pytest.approx(0.346, abs=0.02)
     assert tight["sharpness"] < 0.3 * rep["sharpness"]
 
+    # THE "TOO VAGUE" CONTROL NO LONGER SEPARATES ON calibration_error, AND
+    # THAT IS THE SHARPEST FINDING IN THIS FILE. It used to read
+    # `vague["calibration_error"] > 3 * rep["calibration_error"]`. MEASURED
+    # 2026-08-13 on the post-grid GP, same 26 in-support hulls:
+    #
+    #     sigma scale   calibration_error   ratio to honest   sharpness   cov@0.9545
+    #     x0.25              0.5904             5.20x           0.0458      0.346
+    #     HONEST             0.1135             1.00x           0.1832      0.846
+    #     x2.0               0.0557             0.49x           0.3665      0.962
+    #     x3.0               0.1326             1.17x           0.5497      1.000
+    #     x4.0               0.1480             1.30x           0.7329      1.000
+    #
+    # A MODEL WITH DELIBERATELY DOUBLED SIGMA IS TWICE AS WELL CALIBRATED AS
+    # THE PRODUCTION ONE. The honest GP is over-confident at every level of the
+    # curve, so widening it moves it TOWARDS calibration before it overshoots;
+    # 4x only just gets back to 1.30x the honest error. The old assertion did
+    # not break because the control got weaker — it broke because the baseline
+    # it was a ratio against became the miscalibrated model.
+    #
+    # So the control is re-stated on the two quantities that DO see it, and the
+    # finding is asserted instead of the broken ratio. All three can fail: fix
+    # the over-confidence and the x2.0 clause breaks and demands a re-measure.
     vague = calibration(_Scaled(gp, 4.0), Xk, yk)
-    assert vague["calibration_error"] > 3 * rep["calibration_error"]
     assert vague["coverage_curve"][0.9545] == pytest.approx(1.0)
-    assert vague["sharpness"] > 3 * rep["sharpness"], (
+    assert vague["sharpness"] == pytest.approx(4.0 * rep["sharpness"], rel=1e-9), (
         "sharpness is what stops a coverage target being bought by widening "
-        "the band, and it did not move")
+        "the band, and it must scale exactly with the width that bought it")
+    doubled = calibration(_Scaled(gp, 2.0), Xk, yk)
+    assert doubled["calibration_error"] < rep["calibration_error"], (
+        f"a 2x-too-wide model is no longer better calibrated than the "
+        f"production GP ({doubled['calibration_error']:.4f} vs "
+        f"{rep['calibration_error']:.4f}). That is GOOD NEWS — the GP has "
+        f"stopped being over-confident — and it means the table above and the "
+        f"docstring's open finding must be re-measured, not re-worded.")
 
     # AN UNMEASURABLE CALIBRATION POINT IS REFUSED, never scored as 0.5.
     class _NoBand:
@@ -314,19 +456,48 @@ def test_a_saturated_ard_lengthscale_is_reported_and_not_silently_absorbed():
     """Gap A6c: `GP.fit` pinned the ARD bound at log(10.0) and said nothing
     when the optimiser stopped there.
 
-    MEASURED 2026-08-12, all three on `sample_valid(250, MissionSpec(),
-    seed=7)` with `GP.fit(..., seed=1)` on log(Wh/NM):
+    RE-MEASURED 2026-08-13 on the 16-parameter genome AND AGAIN after the
+    Michell grid refinement (`resistance.PRODUCTION_GRID` 161x28 -> 241x44), all
+    three on `sample_valid(250, MissionSpec(), seed=7)` with `GP.fit(..., seed=1)`
+    on log(Wh/NM). BEFORE is the 15-parameter measurement of 2026-08-12:
 
-        training set        lengthscales at the 10.0 ceiling
-        full box            1 of 15   x_mb
-        LWL <= 12 m         4 of 15   D, beta_bow, p_bow, sheer_rise
-        beta_mid >= 12 deg  3 of 15   p_stern, x_mb, beta_len
+        training set        BEFORE                     16-par/161x28   16-par/241x44 (AFTER)
+        full box            1 of 15  x_mb              4 of 16         3 of 16  D, beta_len,
+                                                                                sheer_rise
+        LWL <= 12 m         4 of 15  D, beta_bow,      5 of 16         5 of 16  D, lcb, beta_mid,
+                                     p_bow, sheer_rise                          rocker, flare
+        beta_mid >= 12 deg  3 of 15  p_stern, x_mb,    6 of 16         6 of 16  lcb, r_transom,
+                                     beta_len                                   beta_bow, beta_len,
+                                                                                flare, sheer_rise
+
+    MECHANISM, first move: `p_bow`/`p_stern` are gone and `Cp`, `lcb` and
+    `roundness` are new, so there is one more axis to saturate on and the axes
+    themselves are different quantities. Cp and lcb now carry the displacement
+    information the two plan-form exponents used to spread across D, x_mb and
+    beta_len, so those axes have less left to explain and the optimiser
+    flattens them.
+
+    MECHANISM, second move: refining the Michell quadrature across the
+    sectional-area tangent break removed a ~0.9% numerical error that varied
+    with x_mb, and x_mb STOPPED saturating on the full box — the kernel found
+    real signal along it once the noise that was masking the signal went. That
+    is the one axis of the four that moved, and it moved in the direction the
+    grid change predicts.
 
     Every one of those is the kernel declaring itself blind along an axis, and
     every one of them was invisible: `fit` returned, nothing was recorded, and
     the predictive sigma the OOD test is built on could not see a query that
     moved only along a saturated input. Defect class 1 with the roles swapped —
     the value was measured, by the optimiser, and then discarded.
+
+    THE ASSERTIONS BELOW NAME AXES, NOT COLUMN INDICES, AND THAT IS THE OTHER
+    HALF OF WHAT THIS RE-MEASUREMENT COST. The previous version read
+    `gp.ls_at_bound == ((8, "upper"),)` beside `grammar.NAMES[8] == "x_mb"`;
+    column 8 is now `beta_mid`, so a genome that changed LENGTH silently
+    changed what the assertion was about. That is the same positional read of a
+    reordered genome that turned up in the exporter, and a test is exactly the
+    wrong place for it. `grammar.NAMES` is the single source and the indices
+    are looked up through it.
 
     The bar is that the report is DERIVED from the fitted lengthscales and the
     same bounds `fit` searched in, so it cannot drift; the negative control is
@@ -339,30 +510,45 @@ def test_a_saturated_ard_lengthscale_is_reported_and_not_silently_absorbed():
     m = MissionSpec()
     X, y = sample_valid(250, m, seed=7)
 
+    def saturated(gp):
+        """The saturated axes BY NAME. Never by column index — see the
+        docstring: column 8 meant `x_mb` under the 15-parameter genome and
+        means `beta_mid` under this one."""
+        return {grammar.NAMES[i] for i, _edge in gp.ls_at_bound}
+
     # THE GUARD IS MADE TO FIRE, on the production Gate 3 GP itself.
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         gp = GP.fit(X, np.log(y), seed=1)
-    assert gp.ls_at_bound == ((8, "upper"),), (
-        f"x_mb no longer saturates: {gp.ls_at_bound} — re-measure the table in "
-        f"this docstring rather than loosening the assertion")
-    assert grammar.NAMES[8] == "x_mb"
-    assert gp.ls[8] == pytest.approx(hi, rel=1e-9)
+    assert saturated(gp) == {"D", "beta_len", "sheer_rise"}, (
+        f"the saturating axes moved to {sorted(saturated(gp))} — re-measure the "
+        f"table in this docstring rather than loosening the assertion")
+    assert all(e == "upper" for _i, e in gp.ls_at_bound)
+    assert gp.ls[grammar.NAMES.index("D")] == pytest.approx(hi, rel=1e-9)
     assert any(issubclass(w.category, ARDSaturation) for w in caught), (
         "the fit saturated and nobody was told")
     rep = gp.saturation_report()
-    assert "x_mb" not in rep and "input 8" in rep   # index, not a name it lacks
+    # The report speaks in INDICES, not in names it does not have — it is a
+    # property of the kernel, which has never been told what its columns mean.
+    # Checked on a multi-character name: `D` and `T` are single letters and a
+    # substring test on them says nothing about anything.
+    assert "sheer_rise" not in rep and "beta_len" not in rep
+    assert f"input {grammar.NAMES.index('sheer_rise')}" in rep
     assert "blind" in rep
+    assert f"3 of {grammar.N_PARAMS}" in rep
 
     # The restricted fit saturates HARDER, and the report tracks it rather than
     # carrying a number written down once.
-    inside = X[:, 0] <= 12.0
+    inside = X[:, grammar.NAMES.index("LWL")] <= 12.0
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", ARDSaturation)
         gp_r = GP.fit(X[inside], np.log(y[inside]), seed=1)
-    assert [i for i, _e in gp_r.ls_at_bound] == [3, 5, 6, 13]
+    assert saturated(gp_r) == {"D", "lcb", "beta_mid", "rocker", "flare"}
     assert all(e == "upper" for _i, e in gp_r.ls_at_bound)
-    assert "4 of 15" in gp_r.saturation_report()
+    assert f"5 of {grammar.N_PARAMS}" in gp_r.saturation_report()
+    assert len(gp_r.ls_at_bound) > len(gp.ls_at_bound), (
+        "the restricted fit no longer saturates harder than the full-box one, "
+        "so this pair has stopped demonstrating anything")
 
     # NEGATIVE CONTROL: an interior fit reports NOTHING and warns about
     # nothing. Without this the guard would be a constant.
@@ -378,33 +564,92 @@ def test_a_saturated_ard_lengthscale_is_reported_and_not_silently_absorbed():
 
 def test_support_distance_catches_what_sigma_alone_misses():
     """The distance term earns its place on an axis the KERNEL has decided to
-    ignore. ARD lengthscales saturate — MEASURED on the LWL-restricted GP
-    above, two of the fifteen sat exactly on the optimiser's upper bound (10.0)
-    — and sigma is computed through those same lengthscales, so it is blind
-    there. A support test that also divided by them would inherit the blindness,
-    which is why `_nn_distance` is unweighted.
+    ignore. ARD lengthscales saturate — MEASURED on this very fit, six of the
+    sixteen sit exactly on the optimiser's upper bound (10.0) — and sigma is
+    computed through those same lengthscales, so it is blind there. A support
+    test that also divided by them would inherit the blindness, which is why
+    `_nn_distance` is unweighted.
 
-    MEASURED, training restricted to beta_mid >= 12 deg, 200 queries:
-        sigma only        58/200 rejected, kept 0.200, rejected 0.354, recall 0.47
-        sigma + distance  82/200 rejected, kept 0.180, rejected 0.354, recall 0.63
+    THIS TEST READ `X[:, 4]` AND CALLED IT `beta_mid`. Column 4 is `Cp` under
+    the rebuilt genome, whose whole range is 0.525-0.71, so `X[:, 4] >= 12.0`
+    selected ZERO training rows and the failure arrived as "zero-size array to
+    reduction operation minimum" from inside `GP.fit` — a genome-shaped defect
+    surfacing as a numpy error three frames away. The axis is now looked up
+    through `grammar.NAMES`, which is the single source.
+
+    RE-MEASURED 2026-08-13, training restricted to beta_mid >= 12 deg (109 of
+    250 rows), 200 queries of which 117 are outside the restriction. BEFORE is
+    the 15-parameter measurement:
+
+        BEFORE  sigma only        58/200 rejected, kept 0.200, rej 0.354, recall 0.47
+                sigma + distance  82/200 rejected, kept 0.180, rej 0.354, recall 0.63
+        AFTER   sigma only        78/200 rejected, kept 0.171, rej 0.254, recall 0.67
+                sigma + distance  88/200 rejected, kept 0.166, rej 0.254, recall 0.72
+
+    THE MARGIN COLLAPSED FROM +0.16 RECALL TO +0.05, AND THE REASON IS THAT THE
+    SIGMA HALF GOT BETTER, NOT THAT THE DISTANCE HALF GOT WORSE. sigma-only
+    recall went 0.47 -> 0.67, so there are only 39 missed rows left for the
+    distance term to find where there were 62, and a +0.10 improvement on a
+    0.67 base is a third of the remaining headroom.
+
+    THE BAR IS +0.10 AND IT STAYS AT +0.10. THIS ASSERTION WAS BRIEFLY LOWERED
+    TO `approx(0.051, abs=0.03)` ON 2026-08-13 AND THAT WAS WRONG — it is the
+    clearing condition of gap register row A6b, so lowering it does not record
+    a smaller improvement, it silently CLOSES A6b on a bar the code does not
+    meet. Honesty rule 6: never soften a failing threshold to make it pass, a
+    failing gate is information. The measurement is kept in this docstring and
+    A6b stays OPEN with +0.0513 recorded against its +0.10 condition. If the
+    right answer is that +0.10 was never the right condition, that is a
+    re-verdict of the REGISTER ROW, argued on its own terms and dated — not a
+    number quietly edited in the fence that enforces it.
+
+    An independent read-only audit on 2026-08-13 reached the same conclusion
+    from the other side, and found something worse in the process: the
+    reconcile predicate for A6b matches this test's ASSERTION TEXT, never an
+    executed measurement, so at HEAD — where `X[:, 4]` selects zero rows and
+    `GP.fit` dies — it scored A6b CLOSED on a test that CANNOT RUN. The
+    positional-genome defect had landed inside the fence rather than the code.
+    The `grammar.NAMES` lookup below is the fix for that half and it stays.
+
+    The guard still FIRES, which is the separate question from whether the bar
+    is met: deleting `_nn_distance` from `is_ood` makes both criteria identical
+    and the delta exactly 0.000, which the `r_new > r_old` assertion refuses.
+    Measured at the LWL <= 12 m and LWL <= 10 m restrictions the delta is 0.000
+    in both, with sigma-only recall already at 0.96 and 0.99 — those probes
+    have no headroom left at all and are not usable as evidence either way.
     """
     from navalai.evaluate import sample_valid
     m = MissionSpec()
     X, y = sample_valid(250, m, seed=7)
     Xq, yq = sample_valid(200, m, seed=901)
 
-    inside = X[:, 4] >= 12.0                       # index 4 is beta_mid
+    i_beta = grammar.NAMES.index("beta_mid")
+    inside = X[:, i_beta] >= 12.0
+    assert inside.sum() >= 20, (
+        f"only {int(inside.sum())} training rows survive the beta_mid "
+        f"restriction; this probe needs a fit, not an empty matrix")
     gp = GP.fit(X[inside], np.log(y[inside]), seed=1)
     pred, sig = gp.predict(Xq)
     rel = np.abs(np.exp(pred) - yq) / yq
-    out = Xq[:, 4] < 12.0
+    out = Xq[:, i_beta] < 12.0
 
     sigma_only = sig > 0.6 * np.sqrt(gp.var)
     both = gp.is_ood(Xq)
     r_old = (sigma_only & out).sum() / out.sum()
     r_new = (both & out).sum() / out.sum()
-    assert r_new >= r_old + 0.10, (
+    assert r_new > r_old, (
         f"the distance term adds nothing: recall {r_old:.2f} -> {r_new:.2f}")
+    # Gap register A6b's clearing condition. RESTORED after being briefly
+    # lowered to approx(0.051, abs=0.03) — see the docstring. This is EXPECTED
+    # TO FAIL at +0.0513, and that failure is the honest state of A6b, not a
+    # broken test. Do not widen it; either close the gap or re-verdict the row.
+    assert r_new >= r_old + 0.10, (
+        f"support-distance recall gain is {r_new - r_old:+.4f} "
+        f"({r_old:.4f} -> {r_new:.4f}) against gap A6b's +0.10 clearing "
+        f"condition. A6b is OPEN. The sigma half improved (0.47 -> 0.67), so "
+        f"the headroom shrank — that is an argument for RE-VERDICTING A6b on "
+        f"the register with a dated measurement, and it is NOT a licence to "
+        f"lower this number, which is the only thing enforcing the row.")
     # and it must not buy that recall by keeping worse hulls
     assert np.median(rel[~both]) <= np.median(rel[~sigma_only]) + 1e-9
 

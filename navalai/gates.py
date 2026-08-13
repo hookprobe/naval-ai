@@ -195,6 +195,115 @@ GATES = [
     # for a day and nothing could have failed on it (gap D11).
     Gate("Gate 0R", "a missed clause is RED BY RECORD, never prose in a scope",
          "tests/test_red_by_record.py"),
+    # THE GENERATOR COULD NOT AIM, AND THIS ROW IS WHAT PROVES IT NOW CAN.
+    # MEASURED before the kernel rebuild, over 200 `sample_valid` draws: the
+    # three quantities a naval architect DESIGNS were all emergent outputs of
+    # fifteen unrelated shape knobs —
+    #
+    #     Cp      0.386 .. 0.832    18.0% inside the 0.55-0.62 band
+    #     LCB   -10.02 .. +13.88    46.5% inside +-3 %LWL
+    #     alpha_e 10.6 .. 60.5 deg  1 of 74 inside 7-12 deg
+    #
+    # A designer CHOOSES Cp for the design Froude number and CHOOSES LCB for
+    # balance, then finds a surface satisfying them. The old kernel sampled
+    # knobs and reported what fell out, which is the whole explanation for
+    # hulls that looked arbitrary: they were. The sectional area curve and the
+    # design waterline are now the design curves and Cp/lcb are GENES; measured
+    # after, on the same 200 draws, Cp lands within +-0.01 of its target on
+    # 96.5% and LCB within +-0.3 %LWL on 100.0%.
+    #
+    # The section is also no longer three points, which is what made every hull
+    # a hard chine BY CONSTRUCTION and made surface fairness identically zero.
+    Gate("Gate 0K", "geometry kernel: SAC/DWL design curves + N-point section",
+         "tests/test_geometry_kernel.py"),
+    # NINE STAGES, AND NOTHING HAD EVER ASSERTED THAT TWO OF THEM AGREE. Every
+    # other gate tests ONE stage; this one tests the HANDOFFS, and the audit
+    # that produced it (docs/research/FLOW-AUDIT.md) found the class of defect
+    # that only a handoff test can see:
+    #
+    #   * the exported STEP solid was never compared to the displacement the
+    #     ladder validated — the geometry rebuild made that a -99.994% error
+    #     with a receipt that scored the sliver against the sliver and printed
+    #     ~0%, because both sides read the section through the same broken index
+    #   * `resistance.py` reads `hull.x[-1]`, the DESIGN length, while
+    #     `hs.lwl_eff` — the FLOATED length gap E7 already fixed — sits in the
+    #     same object: worst -15.0% on length, +2.575% on total resistance
+    #   * one geometry LAW, five independent DISCRETISATIONS; the L2 BEM panel
+    #     mesh solves a body 1.98% smaller than the mass it is handed
+    #
+    # Its bars are MEASURED, not chosen, and each names the defect it refuses.
+    Gate("Gate 1E", "the stages agree with each other: one geometry, one "
+         "resistance, one ply, tier+sigma across every handoff",
+         "tests/test_end_to_end_flow.py"),
+    # Before designing a hull the system should know what hull forms EXIST and
+    # what makes each efficient. It knew two typologies. `formlib` is that
+    # memory, as committed data with a provenance on every band — and the
+    # judgement that matters is which families are NOT candidates for a
+    # solar-electric displacement catamaran at Fn 0.2-0.3, since a library
+    # implying all forty are options sends the optimiser hunting in the wrong
+    # space.
+    Gate("Gate 0F", "the hull-form library: bands ordered, every band carries "
+         "its basis, no family contradicts its own Froude regime",
+         "tests/test_formlib.py"),
+    # MEASURED 2026-08-13, and the row exists because the suite settled two
+    # questions this project had been answering from intuition. (1) "Sharper
+    # bow = better" is FALSE: R_t span over each lever's full gene range is
+    # Cp 26.35% / lcb 16.86% / bow shape 1.36% at Fn 0.45 — volume
+    # distribution dominates bow shape by 19.4x, and at Fn >= 0.40 the
+    # SHARPEST bow is measurably worse than mid-range. (2) The catamaran
+    # interference phase is k0.sec^2(theta).sin(theta) — sec SQUARED — verified
+    # against an independent complex superposition at 0.0 relative difference,
+    # where the plausible-but-wrong sec^1 form differs by 3.99.
+    Gate("Gate 0X", "the experiment suite: controlled sweeps hold their "
+         "controlled quantities, out-of-envelope points are refused, and the "
+         "Michell interference phase matches an independent superposition",
+         "tests/test_experiments.py"),
+    # MEASURED 2026-08-14. The parallel-axis term takes the reference hull from
+    # GM 0.6688 m to 54.39 m at s/L 0.60 — 121x the category-C floor — while
+    # `total_resistance` had never once passed `separation` to `michell_rw`, so
+    # every catamaran this project ever evaluated was scored as one isolated
+    # demihull. The dangerous half is the FIRST number, not the second: a
+    # catamaran clears a monohull GM floor trivially and remains capsizable,
+    # because its righting moment peaks when the windward hull lifts and it is
+    # then STABLE INVERTED. So this row also fences the refusal — a multihull
+    # gets no safety verdict from a criterion that does not govern it.
+    Gate("Gate 1M", "the vessel: topology/manning/regime, the parallel-axis "
+         "I_T, separation in the PRODUCTION wave term, and no multihull safety "
+         "verdict from a monohull GM floor", "tests/test_multihull.py"),
+    # MEASURED 2026-08-14: `grammar.check` refused this project's OWN target —
+    # a 12.0 x 0.8 m catamaran demihull — on three clauses at once
+    # (`bound[BWL] 0.8 outside [1.2, 6.0]`, `L/B 15.00 outside [2.2, 8.5]`,
+    # `B/T 1.33 outside [1.8, 12.0]`). Every one is a CORRECT MONOHULL BAND
+    # applied to an object that is not a monohull. The fix conditions the bands
+    # on topology rather than loosening them: the same dimensions as a MONOHULL
+    # are still refused, and the demihull's draft is still refused because
+    # B/T 1.33 sits below the sourced series floor — out of EVIDENCE, not out
+    # of physics, and the message says so.
+    Gate("Gate PV-B", "vessel-conditional proportion bands, the sourced size "
+         "box, and the multihull stability refusal",
+         "tests/test_vessel_bands.py"),
+    # MEASURED 2026-08-14, and it OVERTURNED THE RECOMMENDATION THIS PROJECT
+    # WAS ABOUT TO ACT ON. A four-paper read named area-averaged Gaussian
+    # curvature the single most adoptable manufacturing metric available.
+    # Experiment 5 measured it over ten candidate objectives on 898 feasible
+    # hulls and it is the WORST column: it scores the inflated hull 2.9x better
+    # while that hull costs 3.35x the plywood (34 -> 114 counted sheets) and
+    # +28.7% Wh/NM. Adopted as advised it would have been the most inflating
+    # term in the vector.
+    #
+    # The mechanism generalises past that one metric, and it is the point of
+    # this row: the partition is NOT between good and bad denominators, it is
+    # between RATIOS and ABSOLUTES. C_T normalised by WETTED AREA -- the fix the
+    # literature's own diagnosis implies -- still picks the same inflated hull
+    # (2.318e-3 against 3.075e-3, a 25% "better" coefficient on a boat burning
+    # 28.7% more energy per mile), because the optimiser inflates the
+    # DENOMINATOR. Changing what you divide by does not fix it. Dividing at all
+    # is the defect. So buildability is priced in absolute m^2, never in a
+    # ratio, and this row fences that.
+    Gate("Gate 0B", "buildability metrics are PROXIES that refuse rather than "
+         "default, are grid-converged by a measured residual, and price "
+         "manufacturing in ABSOLUTE m^2 — never in a ratio an optimiser can "
+         "inflate", "tests/test_buildability.py"),
     Gate("Gate 0", "grammar/geometry/DB", "tests/test_phase0.py"),
     Gate("Gate 1", "L1 physics + Wigley anchor + <50ms", "tests/test_phase1.py"),
     # Gate 1's own bar names Holtrop-Mennen, and `grep -rin holtrop` used to hit

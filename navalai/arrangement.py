@@ -256,7 +256,9 @@ class Trunk:
 
     The hull grammar emits a flush deck at the sheer — `Hull` has `y_sheer` and
     `z_sheer` and no superstructure — so on a 10 m hull with D = 1.55 m and
-    T = 0.55 m the whole interior is 1.5 m tall and NOTHING can stand up in it.
+    T = 0.55 m the whole interior is 1.333 m tall (MEASURED: sheer 1.000 m,
+    sole -0.333 m) and NOTHING can stand up in it: that is 572 mm under
+    `HEADROOM_COMPROMISE_MIN_MM`.
     Standing headroom on such a boat comes from a coachroof, which is a real
     part of the vessel that this platform does not yet generate.
 
@@ -324,13 +326,17 @@ class Envelope:
 
         The first attempt defined the sole instead as the lowest plane at least
         `SOLE_MIN_CLEAR_WIDTH_MM` wide, which is what the constant literally
-        says. MEASURED on the reference hull it put the sole at z = -0.509 m,
-        160 mm below the chine and 20 mm off the keel, where the section is
-        680 mm across: a criterion satisfied deep inside the bilge, and every
-        space fitted to it came out 0.68 m wide because an axis-aligned box in
-        a V section is only as wide as its floor. The clear-width constant is
-        the wrong tool for placing the plane; it is used below for what it can
-        actually decide — where the accommodation ENDS.
+        says. RE-MEASURED 2026-08-13 on the rebuilt hull, and the defect
+        reproduces on it: the sole would sit at z = -0.504 m, **171 mm below
+        the chine and 46 mm off the keel**, where the section is 621 mm across
+        — a criterion satisfied deep inside the bilge, and every space fitted
+        to it comes out 0.62 m wide because an axis-aligned box in a V section
+        is only as wide as its floor. (On the pre-rebuild hull the same
+        experiment gave -0.509 m, 160 mm below the chine, 680 mm across; the
+        numbers moved with the section shape, the conclusion did not.) The
+        clear-width constant is the wrong tool for placing the plane; it is
+        used below for what it can actually decide — where the accommodation
+        ENDS.
         """
         z_lo = float(hull.z_keel.min())
         z_hi = float(hull.z_sheer.max())
@@ -395,7 +401,8 @@ class Envelope:
         returns the sheer half-breadth for ever upward, and the real vessel has
         only the coachroof up there. L0-A must ask
         `available_half_breadth` instead; it did not, and the reference
-        saloon protruded 435 mm through the side of the coachroof.
+        saloon protruded 435 mm through the side of the coachroof (MEASURED
+        2026-08-07, on the pre-rebuild hull and its layout).
         """
         col = self._half_breadth_column(z)
         inner = col[(self.x >= x0) & (self.x <= x1)]
@@ -419,8 +426,9 @@ class Envelope:
         because that is what a box has to fit under. Nothing else may reuse it
         as "the top of the interior": `bounds()` did, and the result was an
         upper bound of 1.000 m on a boat whose own reference layout puts the
-        saloon ceiling at 1.735 m under the coachroof — a search box that
-        excluded the very layout it was supposed to contain.
+        saloon ceiling at 1.727 m under the coachroof (1.735 m before the
+        geometry-kernel rebuild) — a search box that excluded the very layout
+        it was supposed to contain.
         """
         return float(self._overhead_profile().max())
 
@@ -431,14 +439,24 @@ class Envelope:
         AND IS NOT: its height is decided by `Trunk.spans(x)`, a yes/no.
 
         This used to interpolate the STEPPED profile at the run's two ends, and
-        the smearing was measured, not theoretical. The reference layout's head
-        runs 1.35-2.15 m and the coachroof starts at 1.30 m, so the head is
+        the smearing was measured, not theoretical.
+
+        MEASURED 2026-08-07, on the pre-rebuild hull and layout: the head ran
+        1.35-2.15 m against a coachroof starting at 1.30 m, so the head was
         50 mm INSIDE the trunk from end to end; interpolating between station
         1.25 (no trunk, 1.000 m) and station 1.50 (trunk, 1.735 m) returned
-        1.294 m. The head then reported a height of 1619 mm against the
+        **1.294 m**. The head then reported a height of 1619 mm against the
         1905 mm compromise-headroom floor and L0-A failed the reference layout
         on an overhead that exists at no point of the vessel — neither the
         sheer nor the coachroof, but 40% of the way between them.
+
+        RE-MEASURED 2026-08-13 on the re-drawn layout (head 3.10-3.90 m,
+        coachroof from 3.05 m), because a defect nobody can still reproduce is
+        a defect nobody can still test: the broken implementation returns
+        **1.291 m** over the head's run against a correct 1.727 m, which is a
+        head 1624 mm tall. Same defect, same order, different boat. The
+        coachroof's aft edge is deliberately held 50 mm off the station grid to
+        keep it reproducible — see `_TRUNK_X0`.
         """
         z = float(np.interp(x, self.x, self.z_sheer))
         t = self.trunk
@@ -488,12 +506,18 @@ class Envelope:
         against a hull that does not exist there, at the one level the check
         never looked at anyway.
 
-        MEASURED 2026-08-07 on the reference layout, which L0-A passed: the
-        saloon, the galley and the head all stand 735 mm above the sheer, and
-        their half-beams are 1.399 / 1.248 / 1.128 m against a coachroof
-        half-width of 0.964 m. The saloon protruded 435 mm through the side of
-        the coachroof, each side, over the full height of it. The gate fixture
-        was not a buildable boat.
+        MEASURED 2026-08-07, on the pre-rebuild hull and its layout, which L0-A
+        passed: the saloon, the galley and the head all stood 735 mm above the
+        sheer, and their half-beams were 1.399 / 1.248 / 1.128 m against a
+        coachroof half-width of 0.964 m. The saloon protruded 435 mm through
+        the side of the coachroof, each side, over the full height of it. The
+        gate fixture was not a buildable boat.
+
+        The four figures are that hull's and are kept as the record of the
+        defect; on the re-drawn layout the coachroof is 0.895 m half-width and
+        the three spaces are capped at it by `standing_half`. The RULE is what
+        carried over, and it is the rule that refused the old boxes on the new
+        hull rather than a person noticing.
         """
         col = self._half_breadth_column(z)
         sheer = self.z_sheer
@@ -553,11 +577,13 @@ class Envelope:
         (`lowest_z_for_half_breadth`), which is exactly how the forepeak of a
         real boat is built.
 
-        MEASURED on the 10 m reference hull: **(0.00, 8.50) m** — 1.50 m off
+        MEASURED on the 10 m reference hull: **(0.00, 8.75) m** — 1.25 m off
         the bow and nothing off the stern, the transom being wide. (The
-        docstring said (0.00, 9.20) until it was run: a document beats an
-        intention, a measurement beats a document, and this one had never been
-        measured. `tests/test_arrangement.py` now asserts it.)
+        docstring said (0.00, 9.20) until it was run, then 8.50 until the
+        geometry kernel was rebuilt: a document beats an intention, a
+        measurement beats a document, and the first of those three had never
+        been measured at all. `tests/test_arrangement.py` asserts it, which is
+        why the rebuild moved it in a diff instead of silently.)
         """
         col = self._half_breadth_column(self.sole_z)
         wide = col >= 0.5 * _mm(E.SOLE_MIN_CLEAR_WIDTH_MM)
@@ -1204,16 +1230,17 @@ def reference_hull_params() -> np.ndarray:
     """The 10 m Solar-Liveaboard hull, from `tests/test_phase0.mid_params`.
 
     Re-declared here so `arrangement` has a reference vessel without importing
-    a test module — and it is the SAME fifteen numbers, which is a duplication
+    a test module — and it is the SAME sixteen numbers, which is a duplication
     this module would rather not have. It is confined to the reference-layout
     demo; nothing in the grammar or the gate reads it.
     """
     from . import grammar
     return grammar.vector({
         "LWL": 10.0, "BWL": 3.2, "T": 0.55, "D": 1.55,
-        "beta_mid": 8.0, "beta_bow": 30.0, "p_bow": 2.2, "p_stern": 3.0,
-        "x_mb": 0.55, "r_transom": 0.75, "rocker": 0.15, "forefoot": 0.85,
-        "flare": 10.0, "sheer_rise": 0.18, "beta_len": 0.35,
+        "Cp": 0.60, "lcb": -1.0, "x_mb": 0.55, "r_transom": 0.30,
+        "beta_mid": 8.0, "beta_bow": 30.0, "beta_len": 0.35,
+        "roundness": 0.0, "rocker": 0.15, "forefoot": 0.60,
+        "flare": 10.0, "sheer_rise": 0.18,
     })
 
 
@@ -1241,25 +1268,87 @@ def reference_trunk(hull: Hull) -> Trunk:
 # They are the AUTHOR'S, not derived from anything, which is what
 # "hand-authored" means in Gate V2.1 — and they are named rather than inlined
 # so the plan is readable as a plan.
-_TRUNK_X0, _TRUNK_X1 = 0.13, 0.70
+#
+# RE-DRAWN 2026-08-13 against the rebuilt geometry kernel (plates P1/P2). The
+# genome went 15 -> 16 parameters and the SECTION became a shape function, so
+# `reference_hull_params()` is a different boat: `forefoot` 0.85 -> 0.60 and
+# `r_transom` 0.75 -> 0.30, the latter because that symbol changed meaning from
+# a half-BEAM ratio to a sectional-AREA ratio. Wetted surface fell 30.579 ->
+# 25.639 m^2 and shell area 51.616 -> 46.707 m^2: the hull is FINER at both
+# ends, and every station the old layout was hand-fitted to has moved. L0-A
+# refused the old boxes on this hull and it was right to — the numbers below
+# are the layout re-drawn to the hull that exists, not the bars moved to admit
+# the layout that does not. Every station in the old set is recorded beside its
+# replacement so the diff is readable as a design change.
+#
+# The measurement that drove the whole re-draw, at the sole (z = -0.333 m):
+#
+#     x [m]      0.15   1.35   3.00   3.95   5.50   7.00   8.25   8.75
+#     y_sole     0.450  0.593  0.884  1.103  1.465  1.105  0.649  0.324
+#     y_sheer    0.700  0.843  1.134  1.353  1.776  1.304  0.954  0.830
+#
+# 1.19 m of interior beam at station 1.35 is the number that ends the old
+# layout: a 0.95 m quarter berth and a 0.95 m head cannot sit either side of it
+# (they need 1.90 m and L0-A reported them sharing 0.800x0.841x0.950 m).
+_TRUNK_X0, _TRUNK_X1 = 0.305, 0.700
+# The coachroof's AFT end moved 0.13 -> 0.305 LWL, and this is the single
+# change the rest of the layout hangs off. `reference_trunk` sizes the
+# half-width from the NARROWEST deck station over the trunk's whole run, so a
+# coachroof that reaches back into a fine stern is narrow for its entire
+# length:
+#
+#     trunk x0/LWL   0.13    0.20    0.25    0.305   0.35
+#     half_width     0.586   0.694   0.782   0.895   0.996  [m]
+#
+# At 0.13 the coachroof is 1.17 m wide — and it is the whole standing-headroom
+# volume of the boat, so head, galley and saloon all live inside it. A 0.60 m
+# head plus a 0.72 m galley plus any passage at all does not fit in 1.17 m.
+# At 0.305 it is 1.79 m and it does. The cost is that the head can no longer
+# sit opposite the quarter berth at 0.135-0.215 LWL — there is no coachroof
+# over that station any more, and 1.333 m of bare hull height is 572 mm under
+# the 1905 mm compromise-headroom floor. The head moved aft-to-forward instead;
+# see `_HEAD_X0`.
+#
+# 0.305 rather than the round 0.300 for a reason that is about the GATE, not
+# the boat: `hull.x` is 41 stations over 10 m, so 0.300 LWL lands EXACTLY on
+# station 3.00 m. `_overhead_at`'s whole defect — interpolating a vertical step
+# — is only observable when the trunk's edge falls BETWEEN two stations, and
+# with the edge on a station two of the three assertions in
+# `test_the_trunk_is_a_step_and_is_never_interpolated_across` return the right
+# answer under the broken implementation as well as the fixed one. A guard that
+# cannot fire is not a guard (LESSONS defect class 3), so the coachroof's aft
+# edge is held 50 mm off the station grid to keep it firing. The cost is 11 mm
+# of coachroof half-width, in the layout's favour.
 # Side deck each side of the coachroof [m]. It was 0.42, which is a lovely
-# side deck and, on a 3.2 m BWL hull, leaves a coachroof only 1.93 m wide —
-# and the coachroof is the whole standing-headroom volume of the boat, so the
-# saloon, galley and head all have to fit inside it (see `standing_half`). At
-# 0.42 the saloon came out 1.83 m wide with the head and the quarter berth
-# unable to sit side by side under it; at 0.25 the coachroof is 2.27 m and the
-# side deck is still twice the 120 mm ISO 15085 cat-C floor L0-A checks it
-# against. Wide side decks and a wide saloon are the same 3.2 m of beam, and
-# this is the author's split of it.
+# side deck and leaves a coachroof only 1.449 m wide on this hull (it was
+# 1.93 m on the pre-rebuild one) — and the coachroof is the whole
+# standing-headroom volume of the boat, so the saloon, galley and head all have
+# to fit inside it (see `standing_half`). At 0.25 the coachroof is 1.789 m and
+# the side deck is still twice the 120 mm ISO 15085 cat-C floor L0-A checks it
+# against. Wide side decks and a wide saloon are the same beam, and this is the
+# author's split of it. UNCHANGED by the re-draw: it is the one dimension that
+# already had no slack, since 0.24 m is the "twice the floor" the layout claims.
 _SIDE_DECK_M = 0.25
-_COCKPIT_X0, _COCKPIT_X1 = 0.01, 0.125
-_MACHINERY_X0, _MACHINERY_X1 = 0.015, 0.13
+# The cockpit was 0.010-0.125 LWL, which ended 50 mm short of a coachroof that
+# started at 0.13. With the coachroof now starting at 0.30 the same rectangle
+# would leave 1.75 m of deck belonging to no zone at all, so the cockpit runs
+# aft-deck-to-coachroof instead. 2.60 m of cockpit on a 10 m liveaboard is a
+# design decision, not a derivation; L0-A checks it against the 610 mm footwell
+# floor (it measures 1.393 m in its short plan dimension, which is its BEAM —
+# the deck half-breadth at station 0.10 m, twice) and against the deck plan.
+_COCKPIT_X0, _COCKPIT_X1 = 0.010, 0.270
+_MACHINERY_X0, _MACHINERY_X1 = 0.015, 0.130
 _AFT_BERTH_X0, _AFT_BERTH_X1 = 0.135, 0.345
-_HEAD_X0, _HEAD_X1 = 0.135, 0.215
-_GALLEY_X0, _GALLEY_X1 = 0.355, 0.475
-_NAV_X0, _NAV_X1 = 0.355, 0.435
-_SALOON_X0, _SALOON_X1 = 0.485, 0.660
-_FWD_BERTH_X0, _FWD_BERTH_X1 = 0.670, 0.870
+# The head was 0.135-0.215 LWL, opposite the quarter berth. It is now forward
+# of it, at the aft end of the coachroof, overlapping the berth's last 0.40 m
+# on the OTHER side of the boat. Both moves are forced: it needs the coachroof
+# for its 1905 mm headroom, and the coachroof cannot reach 0.135 LWL and still
+# be wide enough to stand a head and a passage side by side.
+_HEAD_X0, _HEAD_X1 = 0.310, 0.390
+_GALLEY_X0, _GALLEY_X1 = 0.395, 0.505
+_NAV_X0, _NAV_X1 = 0.395, 0.475
+_SALOON_X0, _SALOON_X1 = 0.510, 0.610
+_FWD_BERTH_X0, _FWD_BERTH_X1 = 0.620, 0.830
 _FOREPEAK_X0, _FOREPEAK_X1 = 0.880, 0.950
 # The foredeck stops SHORT of the stem. A rectangle that runs to x = LWL is
 # 2 * y_sheer(LWL) = 0 m wide, because the deck outline closes there — see
@@ -1267,37 +1356,76 @@ _FOREPEAK_X0, _FOREPEAK_X1 = 0.880, 0.950
 _FOREDECK_X1 = 0.950
 _FOREPEAK_MIN_HALF_M = 0.12   # narrowest half-breadth worth calling a locker
 
-# MEASURED 2026-08-07, and the first three fractions above are the SECOND set
-# this layout has had. The first put the V-berth at 0.705-0.915 LWL and the
-# forepeak at 0.925-0.985, and `reference_layout()` raised
-# "this hull is too fine forward to carry a V-berth" on the reference hull it
-# is written for — the module had never been executed. The berth is a BOX, so
-# its width is the hull's half-breadth at its FORWARD-most station, and at
-# 0.915 LWL that is 0.617 m against the 0.8125 m a double needs. Measured
-# platform level and inscribed width against the forward station:
+# Quarter-berth and head widths [m]. They were BOTH the literal 0.95 typed
+# twice, beside a third 0.95 that is the berth's HEIGHT — three quantities
+# wearing one number, which is this repository's standing defect with the
+# arithmetic left out. They are named now, and they are named because the
+# re-draw had to move them: at station 1.35 the interior is 1.186 m across, and
+# the head's own width is capped by the coachroof at 0.835 m half-width, so
 #
-#     berth x1/LWL   z_platform    box width   double floor 1.525 m
-#          0.850       -0.184 m      1.704 m   ok
-#          0.870       -0.138 m      1.558 m   ok  <- chosen
-#          0.880       +0.273 m      1.529 m   ok, but the platform has
-#                                              climbed 0.60 m above the sole
-#          0.890       +0.867 m      1.525 m   platform 0.18 m under the sheer
+#     berth width + head width <= 0.533 + 0.835 = 1.368 m
 #
-# So the berth ends at 0.870 LWL, which costs the saloon 0.30 m of length
-# (0.690 -> 0.660; it is still 1.75 m fore-and-aft and 2.80 m wide). Widening
-# the berth by moving it aft is the trade a naval architect would make and it
-# is the author's to make; what is NOT available is the original layout.
+# where the two spaces overlap in x (3.10-3.45 m). 0.70 + 0.60 = 1.30 m leaves
+# a 68 mm bulkhead between them. Both clear their own floors —
+# BERTH_WIDTH_HEAD_MM is 560 mm and HEAD_BOWL_TO_DOOR_MIN_MM is 560 mm — and
+# NEITHER was shrunk to reach them: the head's 0.60 m is 40 mm of margin on a
+# sourced bar, not a bar moved.
+_AFT_BERTH_W_M = 0.70
+_HEAD_W_M = 0.60
+
+# MEASURED 2026-08-13 on the rebuilt hull, and the V-berth stations are the
+# THIRD set this layout has had. The first put it at 0.705-0.915 LWL and
+# `reference_layout()` raised "this hull is too fine forward to carry a
+# V-berth" on the reference hull it was written for; the second, 0.670-0.870,
+# fitted the pre-rebuild hull. On THIS hull 0.670-0.870 puts the platform at
+# +0.913 m — 0.129 m under the overhead, a coffin — and L0-A refused it
+# verbatim, with the coachroof still at its old 0.13 LWL aft station:
+# "[L0A-ENVELOPE-Y] berth.fwd: reaches y=0.763 m at its ceiling z=1.042 m where
+# 0.586 m half-breadth is available". The berth is a BOX, so its width is the
+# hull's half-breadth at its FORWARD-most station, and this bow is much finer:
+#
+#     berth x1/LWL   z_platform   box width   headroom   double floor 1.525 m
+#          0.800       -0.321 m     1.631 m    1.364 m   ok
+#          0.820       -0.276 m     1.563 m    1.318 m   ok
+#          0.830       -0.230 m     1.533 m    1.272 m   ok  <- chosen
+#          0.840       -0.001 m     1.531 m    1.043 m   ok, platform now 0.33 m
+#                                                        above the sole
+#          0.850       +0.227 m     1.525 m    0.815 m   at the floor exactly,
+#                                                        and you cannot sit up
+#          0.870       +0.913 m     1.526 m    0.129 m   the refused layout
+#
+# So the berth ends at 0.830 LWL and is 2.10 m long, 1.533 m wide with 1.272 m
+# over the platform. It is MOVED, not shrunk: 1.525 m is DOUBLE_BERTH_WIDTH_MIN
+# and the layout declares this berth a double, so trimming it to fit further
+# forward would have been softening a sourced dimension to preserve a station.
+# What it costs is the saloon, which goes 0.485-0.660 -> 0.510-0.610 LWL:
+# 1.00 m fore-and-aft instead of 1.75, and 1.689 m across under the coachroof.
+# This hull is 4.94 m^2 of wetted surface finer than the one that carried the
+# old layout and it does not have the accommodation length the old one had.
+#
+# NOTE the berth now ends ABAFT the accommodation run (0.830 LWL vs the
+# measured 8.75 m), where on the old hull it ended forward of it. That is not a
+# rule being dodged: `accommodation_x` says where the SOLE stops being wide
+# enough to stand on, and a berth on a platform was always allowed forward of
+# it. On this bow there is simply no platform level forward of 0.840 LWL that a
+# 1.525 m box fits on with room to sit up. Only the forepeak reaches past it.
 
 
 def reference_layout(hull: Hull | None = None) -> Arrangement:
     """The hand-authored Solar-Liveaboard reference layout — Gate V2.1's fixture.
 
-    Aft to forward: machinery under the cockpit, a quarter berth to port with
-    the head opposite, galley and nav station amidships, saloon, a V-berth
-    forward on the platform the forefoot forces, and a forepeak locker. On
-    deck: cockpit (Z1), a side deck each side of the coachroof (Z2) and the
-    foredeck (Z3), which is where anchor work happens and is therefore the
-    zone whose access condition is 'nearly stationary'.
+    Aft to forward: machinery under the cockpit, a quarter berth to port, the
+    head to starboard at the aft end of the coachroof, galley to port with the
+    nav station opposite, saloon, a V-berth forward on the platform the
+    forefoot forces, and a forepeak locker. On deck: cockpit (Z1), a side deck
+    each side of the coachroof (Z2) and the foredeck (Z3), which is where
+    anchor work happens and is therefore the zone whose access condition is
+    'nearly stationary'.
+
+    The head used to sit OPPOSITE the quarter berth, sharing its aft bulkhead.
+    It moved forward when the hull was rebuilt (plates P1/P2) because the two
+    of them need 1.90 m of beam side by side and station 1.35 m now offers
+    1.19 m; the block comment above the layout constants carries the numbers.
 
     The x-stations are the author's. The WIDTHS and the two floor levels are
     read off the envelope, because a hull's half-breadth at a station is not a
@@ -1325,9 +1453,15 @@ def reference_layout(hull: Hull | None = None) -> Arrangement:
         A space with standing headroom stands above the sheer, and above the
         sheer this hull has no topsides — only the coachroof. So its width is
         the trunk's, not the hull's, and the three spaces that use this were
-        authored against the hull: the saloon came out 1.399 m half-beam
-        against a 0.964 m coachroof and protruded 435 mm through the side of
-        it, each side, over the whole 735 mm the coachroof stands.
+        authored against the hull: MEASURED 2026-08-07 on the pre-rebuild boat,
+        the saloon came out 1.399 m half-beam against a 0.964 m coachroof and
+        protruded 435 mm through the side of it, each side, over the whole
+        735 mm the coachroof stood.
+
+        It is load-bearing on THIS hull too, and by more: the saloon's own
+        stations offer 1.363 m of hull half-breadth at sole level against a
+        0.895 m coachroof, so the cap is now removing 468 mm a side rather
+        than 435.
         """
         hb = clear_half(x0, x1, z, margin)
         t = env.trunk
@@ -1349,12 +1483,14 @@ def reference_layout(hull: Hull | None = None) -> Arrangement:
                    ("berth.aft", Adjacency.AVOID),
                    ("saloon", Adjacency.AVOID))))
 
-    # --- quarter berth to port, head to starboard, sharing the aft bulkhead.
+    # --- quarter berth to port; the head to starboard, overlapping its forward
+    # end on the other side of the boat and under the coachroof, which is the
+    # only volume on this vessel tall enough for a head.
     x0, x1 = _AFT_BERTH_X0 * L, _AFT_BERTH_X1 * L
     hb = clear_half(x0, x1, sole, 0.06)
     spaces.append(Space(
         "berth.aft", Function.BERTH,
-        Box(x0, x1, -hb, -hb + 0.95, sole, sole + 0.95),
+        Box(x0, x1, -hb, -hb + _AFT_BERTH_W_M, sole, sole + 0.95),
         mass_kg=85.0, sigma_kg=17.0,
         tags=("sea-berth", "lee-cloth"),
         adjacency=(("head", Adjacency.PREFER),
@@ -1364,7 +1500,7 @@ def reference_layout(hull: Hull | None = None) -> Arrangement:
     hb = standing_half(x0, x1, sole, 0.06)
     spaces.append(Space(
         "head", Function.HEAD,
-        Box(x0, x1, hb - 0.95, hb, sole, env.overhead_z(x0, x1)),
+        Box(x0, x1, hb - _HEAD_W_M, hb, sole, env.overhead_z(x0, x1)),
         mass_kg=70.0, sigma_kg=15.0,
         tags=("wet", "standing"),
         adjacency=(("berth.aft", Adjacency.PREFER),

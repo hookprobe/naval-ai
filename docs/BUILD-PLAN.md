@@ -39,6 +39,7 @@ two documents can disagree about the same thing.
 | **`docs/research/*`**, `docs/GATE-6R-REVIEW.md` | **RESEARCH / EVIDENCE** — dated measurement records, literature, sourced constants, refutations | any forward plan; any gate verdict |
 | **`README.md`** gate table | **GENERATED** — regenerated from `navalai/gates.py` by `python -m navalai.gates --readme --write` | a hand edit. A hand-maintained copy of a generated table is the defect it exists to prevent |
 | `navalai/gates.py` + `data/gate-ledger.json` | **THE STATUS** | prose verdicts |
+| `navalai/experiments.py` (Gate 0X), run by `python -m navalai.experiments` | **THE HYDRODYNAMIC MEASUREMENT SUITE** — the controlled sweeps behind the 2026-08-13 findings (lever comparison, bow sharpness, catamaran separation, the Michell phase convention). It is CODE, so it re-measures on demand instead of ageing | a plan, an order, or a verdict about anything it did not sweep |
 | `ALIGNMENT.md`, `MACBOOK.md` | the original-plan audit; the Mac runbook. Both are read by `scripts/reconcile_gaps.py` predicates | — |
 
 **The law this table encodes, which is the existing law one level up:**
@@ -70,6 +71,7 @@ Part or an old filename should be read through this table.
 | Part V.d (gap closure, R0–R8) | eliminations → `docs/research/CFD.md` §3; the rest is landed or in §16 |
 | Part V.e (stage plan, S0–S7) | §17 (dependencies) |
 | Part V.f (CFD blocker brief) | `docs/research/CFD.md` §4 |
+| `docs/VESSEL-KERNEL-DIRECTION.md` (2026-08-13, deleted) | thesis → §1.5; ordering and work items → §16 "PV"; anchor candidate → §11.4; unaccounted debts → §15.2 items 8–9. Its measurements were NOT copied here: they live in `navalai/experiments.py`, `docs/research/HULL-FORM-RULES.md` and `docs/research/HULL-GAN-PAPERS.md`. **Several of its premises were stale against the code and are corrected at the point of absorption — see §16's "already built" table** |
 
 ---
 
@@ -228,6 +230,64 @@ user would be right to point at all of it.
 (b) mission → quote → build → operate as one governed chain, and (c) if RUN
 lands, a fleet of instrumented hulls in the SKU family.
 
+### 1.5 The vessel kernel — inverse design, not generate-then-measure
+
+Absorbed 2026-08-13 from the project owner's direction note (which is deleted;
+§0's migration table records where each of its parts went).
+
+> NavalAI is a **performance-constrained inverse-design system that generates a
+> buildable vessel from mission requirements** — not a hull generator that
+> measures what it happened to produce.
+
+**This is a sharpening of §1.4, not a replacement of it.** The differentiator is
+NOT that the tools do not exist: CAD, hydrostatics, resistance codes and CFD all
+exist and are better than ours (§1.4, "where it is behind"). It is that **no
+accessible integrated physics-aware workflow takes a MISSION to a safe,
+efficient, structurally realisable vessel with a traceable evidence trail.** The
+evidence trail is the thing this repository is already unusually good at, and
+the direction treats it as the moat rather than as overhead — which is the same
+conclusion §1.4 reached from the competitive side.
+
+**The kernel already runs in the inverse direction where it matters most, and
+that is a measurement rather than an aspiration.** `geometry.py`'s parametrisation
+was inverted on 2026-08-13: `Cp` and `lcb` are genes the sectional-area curve is
+SOLVED to deliver (`geometry.sac_exponents`), not emergent outputs of unrelated
+shape knobs. The before/after and the acceptance bar are in
+`tests/test_geometry_kernel.py::test_the_kernel_delivers_the_prismatic_and_lcb_it_was_asked_for`
+and in `navalai/geometry.py`'s module docstring; they are not restated here.
+
+**Two canonical end-to-end cases** are the direction's acceptance shape, and
+they are chosen because they exercise different halves of the platform:
+
+| Case | What it forces that the other does not |
+|---|---|
+| **A solar recreational vessel** | PV area as the binding constraint (§16 P2), standing headroom and interior (§16 P6), RCD/ISO scope (§16 P7), and the slender-demihull stability problem the objective keeps meeting (PV-1) |
+| **An autonomous marine drone** | no crew and therefore no ergonomics floor, a payload rather than a passenger mass model, RUN as a first-class consumer (§16 P8), and a regulatory frame that is **not** the RCD — which this tree does not model and must not assume |
+
+**Neither case is scheduled as a phase, and deliberately.** A canonical case is
+an ACCEPTANCE ARTIFACT: it is the end-to-end run that proves the phases below
+compose. Filing it as work would put a second copy of every phase's content in
+one row. What it does change is §16's ordering rule, extended by one clause:
+
+> Anything that makes the machinery lie comes before anything that uses the
+> machinery — **and a vessel-level quantity the ladder does not model at all
+> ranks with the lies, not with the improvements.** A monohull stability floor
+> applied to a demihull, and a catamaran scored as one isolated demihull, are
+> the same defect class as `gate2m.py` printing KCS's EFD figure over a Wigley
+> hull. The number is not imprecise; it is a number for a different vessel.
+
+**The drone case also names a scope hole this file did not have.** §1.4 scopes
+the product to "4–24 m plywood-native recreational craft under RCD 2013/53/EU
+and ISO 12217/12215", and the whole rules tier is written to that frame. Whether
+an uncrewed vessel falls inside the RCD's subject matter at all is **UNVERIFIED**
+— `docs/research/EU-REGULATORY.md` records only the adjacent negative result,
+that ES-TRIN 2025/1 has zero hits for any autonomous provision — and
+`navalai/rules/` has no second frame to fall back on. So: **the drone case may
+be run for PHYSICS and must not be run for a compliance verdict** until the
+frame is established. The determination itself is §16 P7's scope work, where
+`rules/review.py`'s own law applies — a rule missing from both `confirmed` and
+`unconfirmed` is an oversight, a rule present in one is a decision.
+
 ---
 
 ## 2 · System architecture
@@ -366,6 +426,36 @@ check:
 
 `.github/workflows/gates.yml` judges against the ledger, and `.githooks/pre-push`
 refuses a push on a failing suite or a newly-red gate.
+
+### 2.6 The contract this architecture is missing: there is no VESSEL
+
+Recorded 2026-08-13, verified by grep, because it is a structural gap rather
+than a defect in any one module and §16 PV is built on it.
+
+**Every contract in §2.3 describes a HULL.** `Genome` is one parameter vector,
+`Hull` is one lofted surface, `hydrostatics.solve` floats one of them, and
+`CONSTRAINT_NAMES` measures one of them. **The word `separation` appears in
+`navalai/grammar.py`, `navalai/mission.py`, `navalai/limits.py` and
+`navalai/evaluate.py` exactly zero times**, and so does any hull count.
+
+The consequence is not that catamarans are computed badly. It is that **a
+catamaran cannot be expressed**, and the ladder therefore answers a question
+about a different vessel without any mechanism able to notice:
+
+- `resistance.michell_rw` accepts `separation` and is verified for it, and the
+  single production caller cannot supply one (PV-2).
+- `hydrostatics` has no transverse-separation term at all, so `limits.gm_floor`
+  — a MONOHULL floor — is applied to what the brief intends as a demihull
+  (PV-1).
+
+**The fix is a contract, not a formula.** A seventh row belongs in §2.3's table:
+a vessel-level descriptor that says how many hulls there are and where they are,
+sitting between `Genome` and `Hull`, read by `hydrostatics` and `resistance`
+through the SAME value — because the alternative is a separation declared once
+for stability and once for resistance, which is law 2 at platform scale and the
+exact defect §2.3 exists to prevent. It is deliberately NOT specified here:
+specifying it is PV-1's first act, and a plan that designs the type before the
+physics needs it would be writing the code in prose.
 
 ---
 
@@ -1088,6 +1178,7 @@ teaches is hull-agnostic and all of it transfers.
 | **KCS** (tank) | free-surface capture, wall treatment and y+, force integration, grid convergence, AND — via published sinkage and trim — the mass/inertia/CoG/6-DOF chain every boat needs. The only hull we have with published truth | keeps the full workload |
 | **DSYHS** | 9–14 m displacement/semi-displacement yachts. Directly the liveaboard SKU | **OWED** |
 | **Fridsma / Series 62** | hard-chine planing: chine, immersed transom, spray, dynamic lift. Directly the dayboat and tender | **OWED** |
+| **NTUA Series** | double-chine semi-displacement, with model-test resistance, CG rise and trim. **A CANDIDATE for the row above, surfaced 2026-08-13** — its bands are transcribed in `docs/research/HULL-FORM-RULES.md` §7, and unlike KCS it is in the SKU size band and it is chined | **CANDIDATE, not adopted.** Caveat that decides it: it is a *planing* series and `resistance.FN_MICHELL_MAX` is 0.45, so part of the series is outside the L1 model it would anchor. Adopting it means declaring which subset of the series L1 is allowed to be judged on |
 
 **Reading a green KCS gate as small-craft validation is forbidden.** The same
 root cause one tier down: Michell thin-ship applied at Fn 1.09 on a tender case
@@ -1864,6 +1955,29 @@ if it were forgotten. Measured 2026-08-11; re-derive before working it.
    **before** writing the code.
 7. **A second benchmark anchor** (§11.4) is recorded as owed in three documents
    and in no gap row.
+8. **The catamaran interference term has no experimental anchor, and the
+   citation looks like one.** `navalai/resistance.py` cites Insel & Molland
+   (1992) and Molland, Wellicome & Couser (1996) in a comment block; neither is
+   TRANSCRIBED, so no measured number from either enters the code. The Michell
+   multihull superposition is internally verified — the phase convention is
+   `k_y = k0·sec²(θ)·sin(θ)`, checked against an independent complex
+   superposition and against the `s → ∞` limit, in `navalai/experiments.py` and
+   `tests/test_phase1.py` — but **self-consistency is not validation**, and a
+   named citation beside an unvalidated model is the strongest available
+   invitation to read it as one. This is item 7 one tier down: §11.4's owed
+   anchor is for RESISTANCE; this one is for INTERFERENCE, and neither DSYHS nor
+   Fridsma supplies it. No gate row, no register row, no predicate.
+9. **The design-pressure formula matches no standard, and the layer above it
+   does.** `rules/iso12215.py::design_pressure_bottom` is
+   `max(10, 2.4·mLDC^0.33 + 20)`; ISO 12215-5's bottom pressure is
+   `P_bm = P_bm_base · k_AR · k_L`, a function of beam, `L_WL`, design category
+   and the vertical acceleration `n_CG` — not a simplification of ours, unrelated
+   to it. The THICKNESS formula immediately downstream **is** ISO equation (39)
+   term for term. `rules/review.py` and `refdata/__init__.py` both record the
+   mismatch in prose; nothing fails because of it. **The consequence for the
+   plan is a sequencing one:** any item of the form "structure follows from
+   pressure" is blocked on the PRESSURE side, not on the scantling side, and
+   §16 PV-7 is written to that.
 
 ### 15.3 Bars that exist only in prose
 
@@ -1957,9 +2071,11 @@ run the reconciler.
 ## 16 · Roadmap
 
 Ordering rule: **anything that makes the machinery lie comes before anything
-that uses the machinery.** Gap ids name rows in `docs/GAP-REGISTER.md`; their
-text and their current state come from `python scripts/reconcile_gaps.py`, never
-from here.
+that uses the machinery**, extended 2026-08-13 by one clause: **a vessel-level
+quantity the ladder does not model at all ranks with the lies, not with the
+improvements** (§1.5). Gap ids name rows in `docs/GAP-REGISTER.md`; their text
+and their current state come from `python scripts/reconcile_gaps.py`, never from
+here.
 
 ### P0 — Stop the machinery lying (days)
 
@@ -2073,6 +2189,87 @@ its 12-rule L0-A at a measured 0.44 ms median, Blender's non-authority stated in
 its own package contract, and the whole manufacturing chain down to DXF and
 nesting. The recurring defect here is a thing declared twice; a roadmap that
 re-proposes them would be that defect at plan scale.
+
+### The 2026-08-13 vessel-kernel direction, and what it re-ordered
+
+§1.5 carries the thesis. This is its scheduling consequence. **Every claim below
+was re-verified against the code on 2026-08-13 before it entered this file**,
+because the direction note was written against commit `c7b7c4b` and the geometry
+rebuild landed after it — so several of its premises describe a tree that no
+longer exists, and scheduling them would send someone to rebuild working code.
+That is the defect this repository has already paid for once: four documents each
+claimed the governance kernel and the arrangement grammar did not exist, and all
+four were false.
+
+**ALREADY BUILT — not scheduled, and the symbol that proves it.** Read this
+table before working any row of PV.
+
+| The note proposed | The state of the code | Proof |
+|---|---|---|
+| "Replace the current three-point section model" | **Built, and the premise is stale.** `Hull.section()` is ADAPTIVE: 3 points at `roundness == 0` (the old shape, exactly) and `2·SECTION_FILLET_SAMPLES + 1 = 257` above it. `section_control()` returns quadratic-Bézier controls whose immersed area is CLOSED FORM | `geometry.Hull.section`, `geometry.section_control`, `geometry.SECTION_FILLET_SAMPLES`; fenced by `tests/test_geometry_kernel.py` |
+| "P0: SAC + DWL + a section law" | **Largely built.** `sectional_area(params, x)` is closed form at the DWL, `design_waterline(params, x)` gives `y_WL(x)`, and `Cp`/`lcb` are GENES the area curve is SOLVED to deliver rather than emergent outputs | `geometry.sectional_area`, `geometry.design_waterline`, `geometry.sac_exponents`; acceptance bar and before/after in `tests/test_geometry_kernel.py::test_the_kernel_delivers_the_prismatic_and_lcb_it_was_asked_for` |
+| "P0: a validity-aware resistance ladder" | **Built.** `FN_MICHELL_MAX = 0.45`, enforced, with an `L1-INVALID` badge that `evaluate.tier_rank` ranks at −1, BELOW L0 — so an out-of-envelope number can never win a `>=` comparison against a valid one | `resistance.FN_MICHELL_MAX`, `evaluate.tier_rank`, `evidence.L1_INVALID` |
+| "the 15-parameter genome" | **Wrong count: it is SIXTEEN.** `grammar.PARAMS` is `LWL, BWL, T, D, Cp, lcb, x_mb, r_transom, beta_mid, beta_bow, beta_len, roundness, rocker, forefoot, flare, sheer_rise`. "Fifteen" is the PRE-rebuild genome and survives in `geometry.py`'s docstring as history, correctly labelled | `len(grammar.PARAMS) == 16` |
+| "P0: multi-condition hydrostatics (light ship / design / full payload)" | **Genuinely absent from the code — and already SCHEDULED, at P3-2, with a bar (Gate 9L, five conditions, worst-case governing) and a stated prerequisite (P3-1).** It is not re-filed here | §16 P3 |
+| "P1: active learning" | **Already the shape of P8**, which widens `flywheel` past its own `evaluate()`. Not re-filed | §16 P8, §1.3 |
+| "P2: generative models LAST" | **Already the plan's position**, argued from the competitive side rather than the ordering side: §1.4 says *do not compete on generative hull modelling*. The direction's ordering argument — geometry → physics → validation → dataset → surrogate → active learning → generation, because *a diffusion model on a wrong manifold makes many excellent wrong hulls* — is the stronger form of the same conclusion and is adopted as PV's closing note | §1.4 |
+
+**Two of the note's five P0 items were therefore already built.** What follows is
+the remainder, in the order the measurements justify.
+
+### PV — The vessel kernel: the ladder evaluates the vessel it was asked for
+
+**Where this sits: after P0, before P1.** Its first three items are P0's defect
+class — the machinery reporting a number for a vessel it is not evaluating — but
+they are not P0's effort class, so they are not crammed into a table headed
+"(days)". PV-4 onward is P1-class and runs alongside P1.
+
+The measurements that justify this ordering were taken on 2026-08-13 and are
+**not restated here**. They live in `navalai/experiments.py` (Gate 0X; reproduce
+with `python -m navalai.experiments`), `docs/research/HULL-FORM-RULES.md` and
+`docs/research/HULL-GAN-PAPERS.md`.
+
+| # | Item | Gate | Done when |
+|---|---|---|---|
+| PV-1 | **Multihull hydrostatics: `I_T = Σ_j [ I_T,j + A_wp,j · d_j² ]`.** It does not exist — `navalai/hydrostatics.py` has no separation, no demihull and no hull count, so a slender demihull is judged by a MONOHULL stability floor and rejected for being what the brief asks it to be. The suite's feasibility and GM distribution, and the one design that floats at a NEGATIVE GM, are in `navalai/experiments.py`. **This is the largest single unlock in the tree** | **new Gate 11H** | `hydrostatics` returns a transverse metacentre for a declared multihull, `gm_floor` is applied to the VESSEL and not to one demihull, and a test feeds it the negative-GM design and gets a feasible catamaran and an infeasible monohull from the same demihull |
+| PV-2 | **A vessel declares its hull count and separation, and `total_resistance` uses them.** `michell_rw(..., separation=s)` already exists and its phase convention is verified three ways (`k_y = k0·sec²(θ)·sin(θ)`), but the ONE production call site — `resistance.py:782` — passes no separation, so every catamaran this project has evaluated was scored as one isolated demihull. **CORRECTION to the note, and it changes the size of the job: this is not "one call site".** There is no `separation` to pass: `grammar`, `mission`, `limits` and `evaluate` contain the word nowhere. The genome must carry the variable, or the mission must, before the call site can be fixed | **Gate 11H** | a genome or mission declares `n_hulls`/`separation`, `evaluate()` reports a catamaran's resistance and its demihull's separately, and the interference is a swept quantity rather than a constant. The badge must still refuse: PV-2 makes the term LIVE, and §15.2 item 8 records that it is UNVALIDATED |
+| PV-3 | **An objective that cannot be gamed by growing the boat.** **CORRECTION to the note, verified in `optimize.py`: wetted area IS already in the objective.** `HullProblem` minimises three things — `wh_per_nm` (which is `R_w + R_f`, so both resistance components are already priced), `build_area = wetted_surface(sheer) + deck_area()`, and distance from the middle of the GM band. What is genuinely absent is a **curvature / double-curvature / panel-count** term: `engineer.assess` computes `panel_count` and `panel_area_m2`, and `grammar` C43 measures bottom-panel twist per metre, and **none of them enters `F`** | **new Gate 12O** | the objective tuple is READ from one place (P1-3 already requires that), and a hull that halves `R_w` while doubling panel count or double-curvature area is measurably worse on `F`, proven by a test that constructs one |
+| PV-4 | **A multi-chine section law.** The grammar reaches **two of the five standard body plans** and has ONE chine; the two it cannot draw are the double-chine forms (`docs/research/HULL-FORM-RULES.md`). Multi-chine is the plywood answer to a round bilge, and it is the honest replacement for the `roundness = 0` pin now applied to sheet-built typologies — that pin is a STOPGAP correct for the unroller we have, **not a principle** | **new Gate 13C** | the grammar draws all five body plans, and `hull_ast.Pin(roundness)` is retired against a section law rather than against a tolerance |
+| PV-5 | **Non-uniform, feature-aware stations** — dense at the bow, maximum beam, chine and transom; sparse through the parallel midbody. 41 uniform today. **Sequenced deliberately AFTER PV-1..PV-4**, because a station change moves every number in the tree and the cost is measured: 41 → 81 is +51 % on `evaluate()` and 161 breaks Gate 1's 50 ms bar. The one home of that measurement is the comment block at `navalai/export.py:112`, where a proposal to raise `Hull.n_stations` was declined and the export path was fixed instead (`export._LOFT_STATIONS = 161`, station-aligned) | **Gate 1** (unchanged bar) | a feature-aware distribution beats 41 uniform on the same accuracy metric at **no more** wall-clock, or the item is retired with the measurement that retired it |
+| PV-6 | **Buildability and cost as an objective, not a report.** Panel count, unique parts, double-curvature area, seam length, waste and build hours. This is PV-3's second half and it is what makes PV-3's bar reachable; it also feeds P1-5's quote | **Gate 12O** + P1-5's `Q1`/`Q2` | a cost objective is on `F`, sourced from `engineer.assess` rather than from a second table |
+| PV-7 | **The structural chain, blocked on the PRESSURE side.** "Structure downstream of pressure" cannot be built until §15.2 item 9 is resolved: our design pressure matches no standard while the thickness formula immediately downstream is ISO equation (39) term for term. Free sources that deliver numbers are catalogued in `docs/research/standards/` | **Gate 6R** | the pressure formula either cites a standard or is labelled in code as a placeholder that the thickness formula must not be read as validating |
+| PV-8 | **A physics fingerprint** (`Φ_H`, including moments of the SAC derivative). Cheap once PV-3 is fixed, and it has an independent derivation worth reading first: `docs/research/HULL-GAN-PAPERS.md` §1.4 records that the p-th moment of `S'(x)` **is** `−p` times the `(p−1)`-order longitudinal geometric moment, and that the same source states the limit honestly — moments capture the wave-making side, not the viscous side | **Gate 12O** (fingerprint clause) | the fingerprint is computed, and the quantity it is NOT predictive of is named in the same place |
+
+**The warning PV-3 exists to answer, stated at the confidence the evidence
+supports.** The direction note reports that performance-guided optimisation
+elsewhere cut wave drag dramatically while total surface area rose ~2.1×,
+bottom-half surface ~4.4× and Gaussian curvature ~1.51×.
+
+- **Those three figures are UNVERIFIED.** They are attributed to ShipHullGAN and
+  they do not appear in `docs/research/HULL-GAN-PAPERS.md`'s read of that paper.
+  Do not quote them.
+- **The mechanism, however, is CONFIRMED from the paper itself and by its own
+  authors.** `docs/research/HULL-GAN-PAPERS.md` §1.9 records that only WAVE
+  resistance was optimised, that the authors state the optimised designs "possess
+  a larger wetted surface, increasing the frictional resistance component", and
+  that the solver used to score them is stated to be unreliable exactly on the
+  unconventional designs the model exists to produce.
+- **So the risk is real and our exposure is PARTIAL, not total** — `wh_per_nm`
+  already prices `R_f` and `build_area` already prices wetted area (PV-3). The
+  uncovered surface is curvature and panel count, and that is what PV-3's bar
+  measures. **A test written to the confirmed mechanism is worth more than a
+  figure copied from a summary**, which is the whole reason this row is phrased
+  as a bar rather than as a number.
+
+**Generative models stay LAST, and the ordering argument is now sharper than the
+competitive one.** §1.4 says do not compete on generative hull modelling; the
+direction adds why the ORDER matters independently of that: geometry → physics →
+validation → dataset → surrogate → active learning → generation, because a
+generative model trained on a wrong manifold produces many excellent wrong hulls.
+`docs/research/HULL-GAN-PAPERS.md` §1.2 supplies the specific reason the nearest
+competitor's representation would not close our measured gap even if adopted
+wholesale: it is a smooth-loft encoding with no chine anywhere in the work, and
+the two body plans PV-4 needs are exactly the ones it is least equipped for.
 
 ### P1 — The mission becomes a profile, and SELL becomes a product (weeks)
 
@@ -2236,6 +2433,11 @@ is kept struck through.
 ```
 P0 stop the machinery lying     ← BLOCKING. Nothing below is trustworthy until done.
      │
+PV vessel kernel                ← PV-1..PV-3 are P0's DEFECT class at P1's EFFORT
+   (multihull hydrostatics,       class. The ladder must evaluate the vessel it was
+    separation, objective)        asked for before anything optimises against it.
+     │                            PV-4..PV-8 run alongside P1.
+     │
 P1 mission becomes a profile    ← everything downstream is evaluated AT the mission
      │
      ├──────────────┬───────────────┬──────────────────────┐
@@ -2254,6 +2456,13 @@ P6 interior solver            │
 
 - **P0 is blocking** for the same reason it always was: while a check can be
   edited to green, every subsequent claim of progress is unverifiable.
+- **PV-1..PV-3 are blocking for the optimiser, not for the suite.** They are
+  ordered above P1 because P1 changes what the objective INTEGRATES and PV-3
+  changes what the objective CONTAINS; doing P1 first means writing the speed
+  integral against an objective that is about to gain terms. PV-1 and PV-2 are
+  independent of both and can start immediately. **PV-5 must not start before
+  PV-1..PV-4 land** — it moves every number in the tree and the phases above
+  need a stable baseline to be measured against.
 - **P1 is newly blocking for the physics phases**, and that is the 2026-08-12
   audit's structural change. `E_mission` is an integral over a speed
   distribution; until the mission carries one, every objective, every energy
@@ -2368,7 +2577,7 @@ silent:
 
 | Retired | Kept | Lost |
 |---|---|---|
-| BuildPlan 1 | the literature sweep and its verdicts | Phases 0–7 as a schedule; the "49 constraints" (built: 9 live) and "45–90 params" (built: 15) |
+| BuildPlan 1 | the literature sweep and its verdicts | Phases 0–7 as a schedule; the "49 constraints" (built: 9 live) and "45–90 params" (built: **16** — corrected 2026-08-13 from 15, which was the pre-rebuild genome; `len(grammar.PARAMS)` is the one home of the count) |
 | BuildPlan 2 | the sourced ergonomics and flotation constants | V2.0–V2.6 as a schedule; its bars are in §15.3 until gated |
 | BuildPlan 3 (mission→order) | the governance argument and the regulatory research | V3.x as a schedule; its §0 summary of RCD Art. 20 for category D, which `policy/legal.py::DISCREPANCIES` records as wrong with a passing test |
 | BuildPlan 3 (gap closure) | the eliminated-hypothesis record | R0–R7 as a schedule, largely landed; R5.5's headline framing, superseded by the 2026-08-07 re-measurement |
@@ -2376,6 +2585,7 @@ silent:
 | HLD | §1–§8, which are §2 of this file | §9–§11, which were second copies of state the runners own; §11 described a repository crisis in the present tense after it had ended |
 | APSE, pressure-oscillation, end-to-end audit, CFD blocker brief | everything, as `docs/research/*` and §4 | nothing |
 | PLM §5–§6 | — | the gate registry restatement and the roadmap board; §1–§4 are narrowed and kept |
+| `docs/VESSEL-KERNEL-DIRECTION.md` (2026-08-13) | the thesis (§1.5), the ordering argument and the work items (§16 PV), the anchor candidate (§11.4), the two debts it surfaced (§15.2 items 8–9) | its measurements, which were NOT copied — they live in `navalai/experiments.py`, `docs/research/HULL-FORM-RULES.md` and `docs/research/HULL-GAN-PAPERS.md`; and **four stale premises**, refuted against the code at absorption and recorded in §16's "already built" table rather than deleted |
 
 ### Corrections owed to files this plan must not edit on its own say-so
 
@@ -2411,6 +2621,29 @@ re-grade requests recorded elsewhere — §16's note on C9 is the worked example
 - **Most of the code-state readings above were not executed.** They are static
   reading plus the greps quoted, dated 2026-08-11 at `b5002be`. No gate's colour
   is asserted anywhere in this file.
+
+  **Second exception, 2026-08-13, and it is why §16's "already built" table
+  exists.** The vessel-kernel absorption pass (§1.5, §2.6, §16 PV) DID execute
+  what it schedules: `len(grammar.PARAMS)`, `resistance.FN_MICHELL_MAX` and
+  `geometry.SECTION_FILLET_SAMPLES` were imported and printed; `optimize.py`'s
+  objective tuple, `resistance.py`'s single `michell_rw` call site,
+  `hydrostatics.py`'s absent multihull term and the zero hits for `separation`
+  in `grammar`/`mission`/`limits`/`evaluate` were read directly. **Four premises
+  of the source note did not survive** — the three-point section, the SAC/DWL
+  work, the validity-aware ladder and the parameter count — and a fifth ("the
+  objective does not include wetted area") was refuted at `optimize.py:108`. The
+  pattern named in the first exception held again: **every correction came from
+  RUNNING something, and every error came from reading.**
+
+- **What that pass did NOT verify.** The population statistics behind PV-1's
+  ordering (feasibility fraction, the GM distribution, the negative-GM design)
+  were taken on trust from `navalai/experiments.py`'s own output and not re-run
+  here; re-run `python -m navalai.experiments` before quoting any of them. The
+  ShipHullGAN surface-area and curvature figures are **UNVERIFIED and marked so
+  in PV-3** — the qualitative mechanism is confirmed in
+  `docs/research/HULL-GAN-PAPERS.md` §1.9, the numbers are not. Whether an
+  uncrewed vessel falls inside the RCD's subject matter (§1.5) was not
+  determined.
 
   **Exception, and it is why several claims above changed.** The 2026-08-11
   re-audit pass at `e5942d7` DID execute what it corrected: the `Check`-row

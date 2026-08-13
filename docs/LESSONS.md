@@ -244,3 +244,67 @@ And one claim of mine that an agent correctly overturned: I stated a mesh guard
 when that mesh was built. **An absent receipt is evidence about the code's
 absence, not evidence the code ran and failed.** Do not state an inferred
 mechanism as a measurement.
+
+## AN AGENT THAT HAS NOT WRITTEN A FILE HAS PRODUCED NOTHING (2026-08-13)
+
+**Every long-running agent must create its output file as soon as it has its
+first real finding, mark it IN PROGRESS, and append after every source.** Put
+the instruction in the prompt WITH its reason. Never let an agent hold findings
+in context until a final write.
+
+MEASURED, and it cost the project owner real money. Asked to "pause all
+agents", the lead used `TaskStop` — which KILLS, it does not pause. Seven
+agents died. THREE had no transcript and could not be resumed at all
+(`SendMessage` returns "No transcript found"), so they restarted from zero. A
+fourth later died at a session limit one step before writing its file, at the
+literal words "I have everything I need. Writing the document now." Four
+agents' work was paid for twice, and the owner said so.
+
+The control is in the same session: the relaunched agents were told to write
+incrementally, and `docs/research/standards/` now holds 9,000+ lines across
+four files that would otherwise have died with them. Same task, same model, one
+instruction different, opposite outcome.
+
+Three rules follow:
+- `TaskStop` is not a pause. If agents must be stopped, expect to lose their
+  in-context reasoning; only what is on disk survives.
+- TRY RESUME BEFORE RELAUNCHING. `SendMessage` to a stopped agent resumes it
+  from its transcript when one exists — four of seven resumed this way and kept
+  everything. Say explicitly which agents resumed and which restarted.
+- A resumed agent should be told what changed under it while it was stopped.
+  One agent's final run overlapped a file edit by the lead; it verified
+  independence by import graph rather than trusting the lead's assurance, and
+  that was the right instinct.
+
+## MEASURE BEFORE YOU CALL SOMETHING BROKEN (2026-08-13)
+
+A confident-sounding diagnosis in this repo is usually wrong until measured.
+Seven of the lead's own, each refuted by roughly one command:
+
+- "Eleven gap regressions." The columns of `scripts/reconcile_gaps.py` had been
+  read BACKWARDS — column 3 is the live predicate, column 4 a stale gitignored
+  journal last written two days earlier. Nothing had regressed.
+- "The Michell input reads a legacy 3-point section." `Hull.section()` is
+  ADAPTIVE: 3 points only at `roundness == 0`, 257 above it. The offsets grid
+  integrates to within 0.004% of the closed form. One step from reporting a
+  defect that does not exist.
+- "The 50% `unaccounted` mass drives the feasibility collapse." Closing it to
+  0% moved feasibility 4/30 -> 5/30. Refuted by the sweep.
+- Compared moulded volume (to the sheer) against displaced volume (at the
+  waterline) and got 240% — **the same mistake made earlier in the same session
+  on a -99.994% export figure.** Two quantities, one name.
+- "Two ISO rules rest on a superseded edition." `EN ISO 12217-1:2017` IS
+  `ISO 12217-1:2015`; the EN year is the ADOPTION date, not the edition.
+- Handed an agent the catamaran phase as `k0.sec(t).sin(t)`. Deriving it from
+  the code gives `k0.sec^2(t).sin(t)`. The owner had explicitly warned against
+  copying a remembered formula instead of deriving it from the wavevector the
+  code uses. A later verification put the wrong form 3.99 away from the right
+  one on a range of 4.
+- Set `_STL_NZ_FILLETED = 48` claiming a "3.15x margin" — calibrated on ONE
+  hull. On the population the margin was **1.04x**: the identical error to the
+  original author's fixed `nz=16`, committed while fixing it.
+
+Two of these were caught by other agents refuting the lead, and one by the
+owner. **When you correct a teammate, verify first** — a teammate's refusal of
+a claim about `unroll.py` was correct, and so was an audit's refusal of the
+regression count.

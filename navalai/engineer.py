@@ -172,9 +172,18 @@ def assess(hull: Hull, wl: float = 0.0,
     # bulkheads: solid ply, cut from a blank the size of the section they close
     xs = np.linspace(0.0, lwl, bulkheads + 2)[1:-1]
     for k, xv in enumerate(xs, start=1):
-        sec = hull._section_at(float(xv))
-        b = max(2.0 * float(max(sec[1, 0], sec[2, 0])), 1e-3)
-        d = max(float(sec[2, 1] - sec[0, 1]), 1e-3)
+        sec = np.asarray(hull._section_at(float(xv)), dtype=float)
+        # BY MEANING, NOT BY INDEX. This read `sec[1]` and `sec[2]` as the
+        # chine and the sheer, which they were for as long as every section had
+        # exactly three points. Plate P2 made the section a shape function —
+        # 257 points on a radiused bilge — so `sec[1]` and `sec[2]` became two
+        # samples a few millimetres up from the keel and a bulkhead blank came
+        # out ~1 mm wide, which `nest()` then refuses as "no feasible layout".
+        # The widest half-breadth and the keel-to-sheer depth are what the
+        # blank is, and for a hard chine these are arithmetically the old
+        # expressions. Same defect, same day, as `export._station_wires`.
+        b = max(2.0 * float(sec[:, 0].max()), 1e-3)
+        d = max(float(sec[:, 1].max() - sec[:, 1].min()), 1e-3)
         fixed += rect_parts(f"bulkhead-{k}", b, d, t_other,
                             note=f"station x={xv:.2f} m; blank, corners waste")
 
@@ -182,6 +191,20 @@ def assess(hull: Hull, wl: float = 0.0,
     # and fewest sheets pull in opposite directions. Search it and keep the
     # best layout, so the reported sheet count cannot be inflated by an
     # arbitrary first guess any more than it could be deflated by a factor.
+    # A ROUND BILGE IS NOT A NESTING FAILURE, AND SAYING SO WAS A LIE OF
+    # CATEGORY (2026-08-13). `unroll.hull_panels` REFUSES `roundness > 0` —
+    # a filleted bilge is doubly curved and not developable from flat sheet,
+    # which is a fact about the material and not a limitation of the unroller.
+    # That refusal is a `ValueError`, this loop swallowed every `ValueError`,
+    # and the hull came out the other end as "no feasible nesting layout for
+    # this hull", i.e. as a PACKING problem. MEASURED on
+    # `sample_valid(3, MissionSpec(), seed=0)[0]` (roundness 0.981): the
+    # unroller's own sentence — "take this hull to a mould, not a cutter" —
+    # was replaced by one that sends the reader to look at sheet sizes.
+    # The refusal is raised where it is made.
+    from .unroll import hull_panels as _hp                     # noqa: F401
+    if hull.roundness > 0.0:
+        _hp(hull)                                              # raises, with the reason
     parts, layout = None, None
     for extra in range(STRAKE_TRIALS):
         try:

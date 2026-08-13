@@ -25,8 +25,23 @@ from navalai.evaluate import evaluate, sample_valid
 from navalai.generative import (DecodeInfo, HullFamilyModel, HullGenerator,
                                 make_generator)
 from navalai.mission import MissionSpec
+from tests.test_phase0 import mid_params
 
 KINDS = ("gmm", "ppca")
+
+# THE REFERENCE HULL, FROM ITS ONE HOME. Three tests below built their slider
+# payload as `zip(grammar.NAMES, (15 literal values))`. The geometry-kernel
+# rebuild took the genome to 16 parameters and REORDERED it, so `zip` silently
+# truncated to the first 15 names and dropped `sheer_rise` from the dict, while
+# every remaining value landed under a name that no longer meant it: 8 and 30
+# were written for beta_mid/beta_bow and arrived as `Cp = 8.0`, `lcb = 30.0`.
+# The payload evaluated to tier L0 (grammar-refused), which is how a genome
+# change surfaced as `assert 'L0' == 'L1'` and as `KeyError: 'sheer_rise'`.
+#
+# A hull spelled out in a test is a hull declared twice. `tests/test_phase0.py`
+# already owns the reference hull and eleven modules import it from there; this
+# file now does too, so the next genome change moves ONE literal.
+_REF = grammar.named(mid_params())
 
 
 @pytest.fixture(scope="module")
@@ -334,9 +349,7 @@ def _p95(fn, n=30):
 
 def test_slider_eval_p95_under_100ms():
     from ui.server import eval_payload
-    p = {n: v for n, v in zip(grammar.NAMES,
-                              (10.0, 3.2, 0.55, 1.55, 8, 30, 2.2, 3.0, 0.55,
-                               0.75, 0.15, 0.85, 10, 0.18, 0.35))}
+    p = dict(_REF)
     out = eval_payload(p, None)  # warm
     p95 = _p95(lambda: eval_payload(p, None))
     assert p95 < 100.0, f"slider p95 {p95:.1f} ms"
@@ -421,11 +434,10 @@ def test_http_server_smoke():
         with urllib.request.urlopen(f"http://127.0.0.1:{port}/bounds", timeout=10) as r:
             spec = json.loads(r.read())
         assert len(spec) == grammar.N_PARAMS
-        body = json.dumps({"params": {"LWL": 10, "BWL": 3.2, "T": 0.55, "D": 1.55,
-                                      "beta_mid": 8, "beta_bow": 30, "p_bow": 2.2,
-                                      "p_stern": 3.0, "x_mb": 0.55, "r_transom": 0.75,
-                                      "rocker": 0.15, "forefoot": 0.85, "flare": 10,
-                                      "sheer_rise": 0.18, "beta_len": 0.35}}).encode()
+        # the reference hull over the wire, from its one home. Spelled out here
+        # it was a fourth copy of the genome, and the only one of the four that
+        # the rebuild happened to leave correct.
+        body = json.dumps({"params": _REF}).encode()
         req = urllib.request.Request(f"http://127.0.0.1:{port}/eval", data=body)
         with urllib.request.urlopen(req, timeout=30) as r:
             d = json.loads(r.read())
@@ -454,22 +466,30 @@ def test_every_mass_line_carries_a_tier_and_a_sigma():
     in quadrature. Honesty rule 1 is "every quantity carries {value, tier,
     sigma}", and the weight panel was the one place that ignored it.
 
-    MEASURED on the reference hull after the fix: total 6000 kg +/- 1432 kg,
-    a 24% band the panel simply did not show.
+    MEASURED on the reference hull after the fix, and RE-MEASURED 2026-08-13 on
+    the rebuilt geometry kernel: total 6000 kg +/- 1432 -> 1520 kg, a 24% -> 25%
+    band the panel simply did not show.
 
     The second arm is the one that actually cost something. `ev.weights` is the
     five-bucket BUDGET; the hull is floated at `ev.masses.total_kg`, which
-    includes the DECLARED `unaccounted` item — MEASURED at 2826 kg, 47% of
-    displacement on the 6 t mission. The panel showed the budget's total right
-    next to `displacement_kg` — two numbers that are supposed to be the same
-    mass, differing by half the boat, with nothing saying why. The positioned
-    model is the one truth, so the lines now sum to the displacement above them.
+    includes the DECLARED `unaccounted` item — MEASURED at 2826 kg (47% of
+    displacement) on the 15-parameter genome and 3011 kg (50.2%) on this one.
+    MECHANISM: the reference hull's five real buckets total 2989 kg against an
+    unchanged 6 t mission displacement, and `structure` fell as the rebuilt
+    kernel re-derived the plating area, so the declared gap grew by what
+    structure lost. The panel showed the budget's total right next to
+    `displacement_kg` — two numbers that are supposed to be the same mass,
+    differing by half the boat, with nothing saying why. The positioned model is
+    the one truth, so the lines now sum to the displacement above them.
+
+    THE UNACCOUNTED ITEM IS NOW MORE THAN HALF THE BOAT. That is not this
+    test's finding to fix and it is not softened here: the assertion is that the
+    panel DECLARES it, which is the honesty rule. It is worth someone's
+    attention that the declared gap crossed 50%.
     """
     from ui.server import eval_payload
 
-    p = {n: v for n, v in zip(grammar.NAMES,
-                              (10.0, 3.2, 0.55, 1.55, 8, 30, 2.2, 3.0, 0.55,
-                               0.75, 0.15, 0.85, 10, 0.18, 0.35))}
+    p = dict(_REF)
     out = eval_payload(p, None)
     w = out["weights_kg"]
     assert set(w) >= {"structure", "battery", "panels", "outfit", "payload",
@@ -499,9 +519,7 @@ def test_the_mass_sigmas_are_the_models_own_not_retyped_in_the_server():
     from navalai.mission import MissionSpec
     from ui.server import eval_payload
 
-    p = {n: v for n, v in zip(grammar.NAMES,
-                              (10.0, 3.2, 0.55, 1.55, 8, 30, 2.2, 3.0, 0.55,
-                               0.75, 0.15, 0.85, 10, 0.18, 0.35))}
+    p = dict(_REF)
     ev = evaluate(grammar.vector(p), MissionSpec())
     served = eval_payload(p, None)["weights_kg"]
     assert ev.masses.items and len(ev.masses.items) == ev.masses.n_items

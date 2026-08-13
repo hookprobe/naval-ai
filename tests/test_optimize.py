@@ -236,21 +236,45 @@ def test_the_policy_rows_constrain_the_front_and_exclude_a_ladder_ok_hull():
     cp = reference_policy()
     m = _GOV_MISSION
 
+    # HALF 1 IS NOW A POPULATION CLAIM, FOR THE REASON HALF 2 ALREADY WAS.
+    #
+    # It read `assert len(governed.X) >= 3` on seed 3 alone, under a comment
+    # admitting it was "KNOWN FRAGILE" and that the front is under 3 members on
+    # eight of seeds 1-20. It duly broke on 2026-08-13 — 2 members — for
+    # exactly the documented reason and NOT because the governed search
+    # collapsed: the plate-P1/P2 kernel and the re-converged Michell grid moved
+    # every objective by a fraction of a percent, and ten NSGA-II generations
+    # of discrete domination decisions turn that into a different trajectory.
+    # (Re-measured after those changes, seed 3 gives 3 again. Restoring the
+    # single-seed assertion on that basis would be pinning a coin toss.)
+    #
+    # The honest guard is the one this file's own docstring argues for two
+    # paragraphs up: take the claim off the trajectory. MEASURED over seeds
+    # 1-6 at pop 24 x 10 — front sizes 0, 9, 3, 4, 8, 5, so 29 members over
+    # 5 non-empty fronts, and ZERO of the 29 violate a policy row or the
+    # ladder. That checks the actual claim ("every member of the governed front
+    # satisfies every policy row") on 29 designs instead of 3, and it cannot be
+    # moved by a last-bit difference in one sort.
+    seeds = (1, 2, 3, 4, 5, 6)
+    members = non_empty = 0
+    for s in seeds:
+        front = pareto_front(m, pop=24, gens=10, seed=s, policy=cp)
+        members += len(front.X)
+        non_empty += len(front.X) > 0
+        for x in front.X:
+            ev = ev_(x, m, policy=cp)
+            assert ev.g_names == cp.constraint_names()
+            for row in cp.rows:
+                assert ev.g[row] <= 0.0, (
+                    f"seed {s}: {row} violated on a returned design")
+            assert ev.ok, (s, ev.violations)
+    assert members >= 15, (
+        f"the governed search returned {members} front members over seeds "
+        f"{seeds}, measured 29 — under 15 it has collapsed, and that is a "
+        f"different finding from one seed's trajectory")
+    assert non_empty >= 4, f"{non_empty} of {len(seeds)} fronts were non-empty"
+
     governed = pareto_front(m, pop=24, gens=10, seed=3, policy=cp)
-    # KNOWN FRAGILE, kept because it is measured to hold at THIS seed on both
-    # platforms and because lowering a bar that is passing is not a fix: over
-    # seeds 1-20 the governed front is under 3 members on eight of them. If
-    # this ever fails, it is the same trajectory chaos described above and not
-    # a collapse of the governed search — re-measure across seeds before
-    # touching it, and read what it actually guards (the loop below is vacuous
-    # on an empty front).
-    assert len(governed.X) >= 3, "governed front collapsed"
-    for x in governed.X:
-        ev = ev_(x, m, policy=cp)
-        assert ev.g_names == cp.constraint_names()
-        for row in cp.rows:
-            assert ev.g[row] <= 0.0, f"{row} violated on a returned design"
-        assert ev.ok, ev.violations
 
     def excluded(front):
         """Designs the ladder accepts and the constitution does not."""

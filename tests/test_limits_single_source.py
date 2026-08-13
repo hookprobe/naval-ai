@@ -193,8 +193,14 @@ def test_the_ladder_and_the_engineer_plank_the_same_boat():
 
     # the defect itself, verbatim: 1.6 * the waterline area is refused
     old = hull.wetted_surface(0.0) * 1.6
-    assert old == pytest.approx(48.927, abs=0.01)
-    assert shell_in_budget == pytest.approx(51.616, abs=0.01)
+    # 48.927 / 51.616 UNTIL 2026-08-13, on the pre-plate-P1 reference hull.
+    # Both are properties of THIS hull and the hull was re-solved by the new
+    # kernel (`tests/test_phase0.mid_params`), so both moved; the margin
+    # between them — which is the whole subject of this test — is 13.9%
+    # against the 5% bar below, where it used to be 5.5%. The defect is
+    # refused by MORE now, not less.
+    assert old == pytest.approx(41.023, abs=0.01)
+    assert shell_in_budget == pytest.approx(46.707, abs=0.01)
     assert abs(shell_in_budget - old) / old > 0.05, (
         "the ladder is back on the 1.6 factor (or the hull moved) — "
         f"budget shell {shell_in_budget:.3f} m^2 vs literal {old:.3f} m^2")
@@ -205,3 +211,103 @@ def test_the_ladder_and_the_engineer_plank_the_same_boat():
               for r in X]
     assert min(ratios) < 1.35 and max(ratios) > 3.0, (
         f"ratio spread {min(ratios):.3f}-{max(ratios):.3f}")
+
+
+# ===========================================================================
+# THE PROPORTION BANDS AND THE SIZE BOX, ADDED 2026-08-14.
+#
+# The band that refused this project's own 12.0 x 0.8 m demihull was correct
+# and correctly declared ONCE — `grammar.L_OVER_B_BAND`. What was declared
+# twice was the SOURCED demihull ceiling: `formlib` carries the Southampton
+# envelope with its SECONDARY caveat attached, and the obvious way to widen
+# the grammar was to type `15.10` into `grammar.py` beside a comment naming
+# Molland, Wellicome & Couser. That is this repository's signature defect with
+# the second copy laundered into a citation, and `formlib.Basis.DRAWING`'s
+# docstring already fences it INSIDE formlib and cannot fence it from outside.
+# These are the outside half of that fence.
+
+def test_the_demihull_band_edges_are_IMPORTED_and_not_retyped():
+    from navalai import formlib, grammar
+
+    assert (grammar.L_OVER_B_BAND_DEMIHULL[1]
+            == formlib.SOTON_DEMIHULL_L_OVER_B.high)
+    assert (grammar.B_OVER_T_BAND_DEMIHULL[0]
+            == formlib.SOTON_DEMIHULL_B_OVER_T.low)
+    # the public name is the citation block ITSELF, so the caveat travels
+    assert formlib.SOTON_DEMIHULL_L_OVER_B is formlib._SOTON_L_OVER_B
+    assert formlib.SOTON_DEMIHULL_B_OVER_T is formlib._SOTON_B_OVER_T
+
+
+def test_no_module_retypes_a_sourced_band_edge_or_a_box_bound():
+    """A textual sweep, in the spirit of `_BANNED` above.
+
+    Each literal below is a number that now has exactly one home. The scan
+    drops comments and docstrings (see `_code_lines`), so the module that
+    EXPLAINS an incident may still quote its digits — only executable lines
+    are searched.
+    """
+    from navalai import formlib, grammar
+
+    banned = (
+        # the Southampton demihull ceiling, retyped instead of imported
+        ("15.10", "formlib.SOTON_DEMIHULL_L_OVER_B.high"),
+        # the RCD scope, retyped instead of read from grammar.PARAMS
+        ("(2.5, 24.0)", "grammar.PARAMS' LWL row"),
+    )
+    offenders = []
+    for path in _sources():
+        if path.name in ("formlib.py", "grammar.py", "limits.py"):
+            continue      # the definition sites: formlib owns the Southampton
+            # envelope, limits.py owns the RCD scope tuple, and grammar.py
+            # imports both. `policy/legal.py` used to hold the RCD scope and
+            # now imports it from limits.py — the ladder may never import
+            # `navalai.policy`, so the number had to move DOWN to the module
+            # both layers can see rather than be retyped in the grammar.
+        src = _code_lines(path)
+        for literal, home in banned:
+            if literal in src:
+                offenders.append(
+                    f"{path.relative_to(_ROOT)}: {literal!r} — import {home}")
+    assert not offenders, (
+        "a sourced band edge was retyped:\n  " + "\n  ".join(offenders))
+    # and the definition sites really do hold them
+    assert formlib.SOTON_DEMIHULL_L_OVER_B.high == 15.10
+    assert [r for r in grammar.PARAMS if r[0] == "LWL"][0][2:4] == (2.5, 24.0)
+
+
+def test_the_freeboard_floors_check_applies_are_declared_once_each():
+    """They were each written TWICE — in the condition and in the message
+    beside it — which is the pattern that put a 15 mm ply outside its own
+    scantling rule. `check()` now reads both from a symbol, and the D-floor of
+    the parameter box is DERIVED from the absolute one, so a divergence would
+    silently move the box as well as the bar.
+    """
+    from navalai import grammar
+
+    assert grammar.MIN_FREEBOARD_ABS_M == 0.30
+    assert grammar.MIN_FREEBOARD_FRAC_LWL == 0.045
+    d_floor = [r for r in grammar.PARAMS if r[0] == "D"][0][2]
+    t_floor = [r for r in grammar.PARAMS if r[0] == "T"][0][2]
+    assert d_floor == pytest.approx(t_floor + grammar.MIN_FREEBOARD_ABS_M)
+    src = _code_lines(_ROOT / "navalai" / "grammar.py")
+    assert "0.045 * lwl" not in src, (
+        "the relative freeboard floor is inlined again beside its own symbol")
+
+
+def test_the_multihull_stability_refusal_has_ONE_home():
+    """The sentence a catamaran gets instead of a GM verdict is a THRESHOLD in
+    prose: if the rules tier and any report ever phrase it differently, they
+    are two claims about one thing. `limits.py` owns it, exactly as it owns the
+    GM floor the sentence exists to disown.
+    """
+    from navalai.rules import iso12217
+
+    assert limits.MULTIHULL_STABILITY_UNASSESSED in iso12217.assess.__doc__ \
+        if iso12217.assess.__doc__ else True
+    src = _code_lines(_ROOT / "navalai" / "rules" / "iso12217.py")
+    assert "MULTIHULL STABILITY IS NOT ASSESSED" not in src, (
+        "the refusal text is retyped in the rules tier — import "
+        "limits.MULTIHULL_STABILITY_UNASSESSED")
+    assert "8.0" not in src.replace("MULTIHULL_OFFSET_LOAD_HEEL_LIMIT_DEG", ""), (
+        "the multihull offset-load limit is retyped — import "
+        "limits.MULTIHULL_OFFSET_LOAD_HEEL_LIMIT_DEG")

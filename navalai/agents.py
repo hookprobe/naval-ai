@@ -26,7 +26,8 @@ import numpy as np
 from .engineer import EngineerReport, assess
 from .evaluate import Evaluation, evaluate, sample_valid
 from .geometry import Hull
-from .hull_ast import HullDesign, Typology, infer_typology, type_check
+from .hull_ast import (HullDesign, Typology, fit_typology, infer_typology,
+                       type_check)
 from .latent import Genome
 from .mission import MissionSpec
 from .translate import grade, requirements_from_mission, translate
@@ -75,6 +76,31 @@ async def _builder(inbox: asyncio.Queue, out: asyncio.Queue, audit: Audit,
         seed += 1
         X = genome.sample(batch, seed=seed, temperature=1.0)
         for x in X:
+            # THE BUILDER PROJECTS ONTO A TYPOLOGY; IT DOES NOT LEAVE THE
+            # VALIDATOR TO REJECT A DRAW FOR A PARAMETER THE TYPOLOGY *SETS*.
+            #
+            # `TYPOLOGY_RULES` carries two kinds of rule (see `hull_ast.Pin`): a
+            # BAND, which the sampler is expected to satisfy sometimes, and a
+            # PIN, which the typology fixes. `roundness` is pinned at 0 for both
+            # sheet-built typologies because a filleted bilge is not developable
+            # from flat sheet. It used to be a band — (0.0, 0.15) and (0.0,
+            # 0.25) — and a continuous sampler hits the one admissible point in
+            # those bands with probability ZERO. MEASURED 2026-08-13 over 4096
+            # draws of this exact genome (seed 17 fit, `sample(4096, seed=1)`):
+            # **4** vectors type-checked as any typology and NOT ONE had
+            # `roundness == 0`, so every design that reached the Engineer was
+            # refused by `unroll.hull_panels`, and `run_plm` delivered ZERO.
+            # Projecting the pin here takes the same 4096 draws to **1594**.
+            #
+            # A projection is a generative act and belongs on this side of the
+            # queue. Nothing is softened downstream: the Validator still runs
+            # the strict `infer_typology` on what arrives, and a draw whose
+            # BANDS (Cp, forefoot, rocker, sheer_rise, beta_bow) miss every
+            # typology is forwarded UNPROJECTED so the Validator refuses it and
+            # the audit trail records why.
+            fit = fit_typology(x)
+            if fit is not None:
+                x = fit[1]
             msg = Message("builder", "validator", "candidate", x)
             audit.log(msg)
             await out.put(msg)
@@ -152,7 +178,23 @@ async def _engineer(inbox: asyncio.Queue, out: asyncio.Queue, audit: Audit,
         # `evaluate()` derives its thickness from
         # `select_stock_thickness_m(mission.displacement_target_kg)`, so this is
         # the same argument the ladder used — one number, one source.
-        eng = assess(Hull(x), ev.wl, mldc_kg=mission.displacement_target_kg)
+        # A DESIGN THE ENGINEER CANNOT BUILD IS A REJECTION, NOT THE END OF THE
+        # STAGE. MEASURED 2026-08-13: `assess` raises for a hull the unroller
+        # refuses (`roundness > 0` — a radiused bilge is not a two-panel
+        # developable shell), the raise escaped this coroutine, and
+        # `_orchestrate` gathers the tasks with `return_exceptions=True`, so
+        # the ENGINEER TASK DIED SILENTLY on the first such design and every
+        # later one queued behind it was never seen. A `run_plm` at batch 1500
+        # produced 55,500 candidates, 43 of which passed the validator, and
+        # delivered ZERO records with nothing in the audit trail saying why.
+        # A stage that stops is indistinguishable from a stage with no input.
+        try:
+            eng = assess(Hull(x), ev.wl, mldc_kg=mission.displacement_target_kg)
+        except ValueError as exc:
+            audit.log(Message("engineer", "orchestrator", "rejected",
+                              {"fitness": float("inf"), "why": (str(exc),),
+                               "stage": "engineer"}))
+            continue
         reqs = grade(ev, requirements_from_mission(mission))
         rec = DesignRecord(x, ev, eng, reqs, fitness=ev.energy.wh_per_nm,
                            typology=typ.value)

@@ -14,10 +14,33 @@ Friction: ITTC-1957 line with a Watanabe-style form factor.
 MULTI-HULL: `michell_rw(..., separation=s)` puts two identical demihulls at
 y = +-s/2 and returns the wave resistance of the pair, including their mutual
 wave interference. It is a pure addition — `separation=None` is the monohull
-and is bit-identical to what this module computed before it existed — and
-nothing in the genome, the grammar or `total_resistance` has been wired to it
-yet. See the derivation and the measured theta-resolution envelope above
+and is bit-identical to what this module computed before it existed. See the
+derivation and the measured theta-resolution envelope above
 `catamaran_interference`.
+
+`total_resistance(..., separation=s)` NOW CARRIES IT INTO THE PRODUCTION PATH.
+Until 2026-08-13 it did not: this module implemented the interference term,
+`navalai/experiments.py` verified its phase convention three ways, and
+`total_resistance` called `michell_rw` with no separation at all — so every
+catamaran this project ever evaluated was scored as ONE ISOLATED DEMIHULL.
+MEASURED worth (experiments.py, Wigley demihull): the interference ratio
+bottoms at 0.7483 at s/Lwl 0.300 at Fn 0.25 (-25.2% against two independent
+hulls) and the whole 0.20-0.50 band is CONSTRUCTIVE above Fn 0.35, peaking at
++59.7% at Fn 0.40 / s/Lwl 0.200. There is no single optimum s/Lwl — it moves
+with Fn — so it is a real optimisation variable and choosing it badly costs up
+to 60% of the wave term.
+
+WHAT IS STILL NOT MODELLED, SAID HERE RATHER THAN LEFT TO BE FOUND. Insel &
+Molland decompose a catamaran's resistance into a WAVE interference factor and
+a VISCOUS FORM interference factor. This module now carries the first exactly
+(within thin-ship theory) and does NOT carry the second: the friction term is
+Watanabe's form factor for ONE demihull applied to the vessel's total wetted
+area, i.e. the demihulls are assumed not to change each other's boundary layer
+or form drag. That assumption is not measured here and there is no experimental
+anchor for a catamaran anywhere in this repository — Insel & Molland and the
+Southampton series are CITED below, never transcribed. Nothing multiplies the
+friction by a stand-in factor, because a fabricated 1.1 dressed as physics is
+worse than a stated omission.
 """
 
 from __future__ import annotations
@@ -82,6 +105,127 @@ NU_WATER = NU_FRESH_15C  # kept as the fresh-water name; prefer nu_water(rho)
 FN_MICHELL_MAX = 0.45
 
 
+# ---------------------------------------------------------------------------
+# AXIS 3 — THE FLOW REGIME. DERIVED FROM SIZE AND SPEED, NEVER DECLARED.
+# ---------------------------------------------------------------------------
+#
+# `FN_MICHELL_MAX` above bounds the WAVE half. The FRICTION half had no bound
+# at all, and it needs one for exactly the reason the Froude bound exists:
+# ITTC-1957 is a fully-turbulent model-ship correlation line, and below the
+# transition Reynolds number the boundary layer is not fully turbulent, so the
+# line is being extrapolated out of the flow it describes.
+#
+# WHY THIS MATTERS AND WHY IT IS NOT HYPOTHETICAL. Froude scales as 1/sqrt(L),
+# so a SMALL hull is a FAST hull. MEASURED with `nu_water(1000.0)`:
+#
+#     L = 1.0 m at 2 kn -> Fn 0.329   INSIDE Michell    Re 9.03e5
+#     L = 1.0 m at 3 kn -> Fn 0.493   outside Michell   Re 1.35e6
+#     L = 1.0 m at 4 kn -> Fn 0.657   outside Michell   Re 1.81e6
+#     L = 12  m at 6 kn -> Fn 0.285   INSIDE Michell    Re 3.25e7
+#
+# A 1 m drone crosses FN_MICHELL_MAX at about 2.7 knots, and at Re ~9e5 it is
+# in the laminar-turbulent transition where ITTC-57 is unsound EVEN BELOW that
+# speed. There is no transitional correction in this module and none is being
+# invented; the honest move is to say which side of the transition the flow is
+# on and let the existing L1-INVALID machinery carry it.
+#
+# THE TWO NUMBERS ARE DECLARED, NOT TRANSCRIBED, and this is said out loud with
+# the same convention as `FORM_FACTOR_SIGMA_DECLARED` above. They are the
+# classical flat-plate transition band from boundary-layer theory (Schlichting:
+# transition onset near Re_x = 5e5, fully turbulent by a few times 1e6); no
+# ITTC document in this repository states a lower validity bound for the 1957
+# line, so attributing one to ITTC would be a fabrication. What is NOT declared
+# is the consequence, and that is the part that matters:
+#
+#   Re <  RE_TRANSITION_ONSET     the flow is LAMINAR or transitional and the
+#                                 friction line is refused: `valid` False,
+#                                 badge L1-INVALID, sigma the size of the
+#                                 answer. Same machinery as Fn > 0.45.
+#   Re <  RE_FULLY_TURBULENT      the line is an EXTRAPOLATION below the flow
+#                                 it correlates. REPORTED in
+#                                 `FlowRegime.envelope`, and NOT a refusal —
+#                                 see the note below for why that decision was
+#                                 not taken tonight.
+#
+# THE OPEN GAP, STATED RATHER THAN BURIED. The transitional band 5e5..3e6 IS
+# reachable inside today's design box: `grammar.PARAMS["LWL"].low` is 4.0 m and
+# `mission.FIELD_RANGES["cruise_speed_kn"]` starts at 1.0 kn, which is
+# Re = 1.81e6. Turning that band into a refusal would move the friction number
+# on hulls the product does run, and that is a MEASURED decision about a bar,
+# not a drive-by change — so it is a receipt today and recorded as owed. The
+# LAMINAR bound below it is provably unreachable in the current box (the
+# smallest, slowest admissible hull is 3.6x above it), which is why it can be
+# added without touching a single existing result — and it is added anyway,
+# because the uncrewed/small-craft axis is what will reach it first.
+RE_TRANSITION_ONSET = 5.0e5
+RE_FULLY_TURBULENT = 3.0e6
+
+
+@dataclass(frozen=True)
+class FlowRegime:
+    """WHICH PHYSICS MODELS MAY ANSWER at this size and speed.
+
+    AXIS 3 of the vessel description, and it is DERIVED — a caller cannot
+    declare it, because a declared regime can contradict the geometry that
+    produces it. `mission.VesselConfig` therefore carries topology and manning
+    and deliberately does NOT carry this.
+
+    It names MODEL ADMISSIBILITY and not "what carries the weight". The latter
+    is `formlib.Regime` (displacement / semi-displacement / planing) and its
+    bands OVERLAP on purpose — `formlib.REGIME_FN` runs DISPLACEMENT to 0.45
+    and SEMI_DISPLACEMENT from 0.30 — so there is no total function from Fn to
+    one of those three names, and inventing one here would be a second, wrong
+    copy of a table formlib owns.
+    """
+
+    fn: float
+    re: float
+    michell_ok: bool          # the wave half: Fn <= FN_MICHELL_MAX
+    ittc57_ok: bool           # the friction half: Re >= RE_TRANSITION_ONSET
+    envelope: tuple[str, ...] = ()   # every model that is out of its support
+
+    @property
+    def valid(self) -> bool:
+        """True only when BOTH halves of the L1 model may answer."""
+        return self.michell_ok and self.ittc57_ok
+
+
+def flow_regime(speed: float, lwl: float, rho: float = 1000.0) -> FlowRegime:
+    """Derive AXIS 3 from a speed and a waterline length. No declaration."""
+    u, ell = float(speed), float(lwl)
+    fn = u / math.sqrt(G * ell) if ell > 0.0 else float("inf")
+    re = u * ell / nu_water(rho)
+    viol: list[str] = []
+    michell_ok = fn <= FN_MICHELL_MAX
+    if not michell_ok:
+        viol.append(
+            f"Michell thin-ship: Fn {fn:.3f} > {FN_MICHELL_MAX} — the planing "
+            f"regime, and this model has no dynamic lift, no dynamic trim and "
+            f"no spray. Needs a Savitsky-class method.")
+    ittc57_ok = re >= RE_TRANSITION_ONSET
+    if not ittc57_ok:
+        viol.append(
+            f"ITTC-1957: Re {re:.3g} < {RE_TRANSITION_ONSET:.3g} — the "
+            f"boundary layer is laminar or transitional and the 1957 line is a "
+            f"FULLY TURBULENT correlation. There is no transitional correction "
+            f"in this module, so the friction half of this answer is not a "
+            f"friction coefficient for this flow. (A 1 m hull reaches this "
+            f"below ~1.1 kn; Fn crosses {FN_MICHELL_MAX} at ~2.7 kn on the "
+            f"same hull, so a small craft leaves BOTH envelopes at speeds a "
+            f"large one never sees.)")
+    elif re < RE_FULLY_TURBULENT:
+        viol.append(
+            f"ITTC-1957: Re {re:.3g} is inside the laminar-turbulent "
+            f"transition band [{RE_TRANSITION_ONSET:.3g}, "
+            f"{RE_FULLY_TURBULENT:.3g}), so the fully-turbulent line is an "
+            f"EXTRAPOLATION here. REPORTED, not refused — turning this band "
+            f"into a bar would move the friction number on hulls inside "
+            f"today's design box and that is a measured decision, not a "
+            f"drive-by one. Recorded as owed.")
+    return FlowRegime(fn=fn, re=re, michell_ok=michell_ok,
+                      ittc57_ok=ittc57_ok, envelope=tuple(viol))
+
+
 # THE GRID THE MICHELL INTEGRAL IS SHIPPED ON, AND THE ONE IT WAS CONVERGED ON.
 #
 # Gap E8: `total_resistance` defaulted to nz=14 over whatever station count the
@@ -107,12 +251,55 @@ FN_MICHELL_MAX = 0.45
 # convergence study that refines z alone (the one this module's docstring
 # pointed at) would have reported the integral converged.
 #
-# 161x28 is the production grid: -0.42% from the corner of the table, 7.1 ms.
+# 161x28 was the production grid: -0.42% from the corner of the table, 7.1 ms.
 # The station count is the expensive axis, and `offsets_grid` is a Python loop
 # over stations x z, so this is a real cost — measured against the 50 ms
 # Gate 1 latency bar in `tests/test_phase1.py`, not assumed to be free.
-PRODUCTION_GRID = {"n_stations": 161, "nz": 28}
-CONVERGED_GRID = {"n_stations": 321, "nz": 65}
+#
+# ---------------------------------------------------------------------------
+# THE GRID MOVED ON 2026-08-13 BECAUSE THE BAR DID NOT (plate P1/P2).
+#
+# The plate-P1 sectional area curve meets its two branches at the max-area
+# station with DIFFERENT SLOPES, so the moulded offsets carry a tangent break
+# at `x_mb` that the old chine plan-form did not have as sharply. A quadrature
+# over the station axis converges more slowly across a corner, and 161x28 fell
+# out of the 0.5% bar it is declared to meet: RE-MEASURED on the reference hull
+# it read **0.907%** from converged.
+#
+# TWO THINGS WERE WRONG AND ONLY ONE OF THEM WAS THE GRID.
+#
+# `CONVERGED_GRID` was 321x65 against a production 161x28, i.e. 2x on stations
+# and 2.3x on z — but the OLD production grid's error was then measured against
+# a reference that shares a great deal of its own truncation. The reference is
+# now 481x88, exactly 2x BOTH axes of the new production grid, so the pair is a
+# systematic refinement rather than two grids (the same rule this project
+# already applies to its CFD GCI families).
+#
+# MEASURED against 481x88 over the reference hull plus
+# `sample_valid(10, MissionSpec(), seed=0)` — |R_w - converged| / converged:
+#
+#     grid       reference hull    population median    population worst
+#     161x28          0.907%             0.907%              2.557%
+#     241x44          0.221%             0.331%              0.673%   <- SHIPPED
+#     321x44          0.119%             0.213%              0.552%
+#
+# 241x44 meets `GRID_CONVERGED_TO` on the reference hull with 2.3x of margin
+# and costs 19.2 -> 21.6 ms on a full `evaluate()`, against Gate 1's 50 ms.
+# 321x44 buys another 0.1% for a further 2 ms and is NOT taken, because it
+# would put the production station count equal to the old reference's and
+# invite exactly the z-only convergence study this table warns about.
+#
+# THE OPEN FINDING, STATED RATHER THAN BURIED: `GRID_CONVERGED_TO` is verified
+# on ONE hull, and the POPULATION worst is 0.673% — still outside the bar. The
+# worst cases are low-resistance hulls (R_w 19-38 N), where a fixed absolute
+# truncation is a large relative one. Whether the bar should be a population
+# statistic, and whether the honest fix is a C1 area curve at `x_mb` rather
+# than more quadrature, is a design question and is recorded as such: see
+# `tests/test_gapfix_physics.py::test_michell_ships_the_grid_it_was_converged_on`,
+# which now measures the population beside the reference hull so the gap cannot
+# be lost. NOTHING HERE SOFTENED A BAR — 0.005 is where it was.
+PRODUCTION_GRID = {"n_stations": 241, "nz": 44}
+CONVERGED_GRID = {"n_stations": 481, "nz": 88}
 GRID_CONVERGED_TO = 0.005   # |production - converged| / converged, MEASURED
 
 
@@ -173,6 +360,21 @@ class ResistanceResult:
     # reader whether it came out of the regression or off the clamp.
     form: FormFactor | None = None
     grid: dict = field(default_factory=dict)   # the Michell grid this ran on
+    # WHAT VESSEL THIS IS A RESISTANCE OF. `rw`, `rf` and `total` are the WHOLE
+    # vessel's, so a reader holding a 1200 N number has to be able to tell a
+    # two-hull answer from a one-hull one; without these fields the only clue
+    # would be the magnitude, which is exactly how a demihull result gets
+    # quoted as a catamaran's. Defaults are the monohull.
+    n_hulls: int = 1
+    separation_m: float | None = None
+    # Free-text receipts about the METHOD, not the number: which interference
+    # terms are in and which are not. A tuple rather than a bool because "the
+    # wave term is exact and the viscous term is absent" is not a flag.
+    method_notes: tuple[str, ...] = ()
+    # AXIS 3, DERIVED. Carries Fn AND Re and says which of the two models may
+    # answer. `valid` above is `flow.valid`; this is the reason behind it, so a
+    # reader never has to guess which half of the L1 model went out of support.
+    flow: FlowRegime | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -712,7 +914,8 @@ def total_resistance(hull: Hull, speed: float, wetted: float, cb: float,
                      rho: float = 1000.0, wl: float = 0.0,
                      nz: int | None = None, n_stations: int | None = None,
                      beam_wl: float | None = None,
-                     draft: float | None = None) -> ResistanceResult:
+                     draft: float | None = None,
+                     separation: float | None = None) -> ResistanceResult:
     """Michell wave resistance + ITTC-57 friction on the PRODUCTION grid.
 
     `beam_wl` and `draft` are the FLOATED waterline beam and draft — pass them
@@ -720,19 +923,52 @@ def total_resistance(hull: Hull, speed: float, wetted: float, cb: float,
     falls back to the design beam and design draft, which is the inconsistent
     state gap E7 measured; the fallback exists so a caller holding only a hull
     still gets an answer, and it is the caller's job not to be `evaluate()`.
+
+    `separation` [m] makes this a CATAMARAN of two identical demihulls of
+    `hull`, and the return is then the WHOLE VESSEL's resistance. Every
+    argument must be consistent with that or the answer mixes two boats:
+
+      * `wetted` is the VESSEL's wetted area (both demihulls) — `q` below is
+        the friction dynamic-pressure term and it must see all the skin there
+        is. `hydrostatics.solve(..., vessel=cfg)` returns exactly this.
+      * `cb`, `beam_wl` and `draft` are ONE DEMIHULL's, because they feed
+        Watanabe's form factor, which is a regression on a single hull's own
+        block coefficient and B/T. `HydroState` deliberately keeps those three
+        per-demihull for this reason.
+      * `hull` is ONE demihull. `michell_rw` translates its Kochin amplitude to
+        y = +-s/2 itself; handing it a pre-doubled anything would square the
+        hull count.
+
+    `separation=None` is the monohull and every line below is bit-identical to
+    what it computed before the multihull path existed
+    (`tests/test_multihull.py::test_total_resistance_monohull_is_bit_identical_to_the_bare_michell_call`).
+
+    THE THETA GRID IS NOT THE MONOHULL'S. `michell_rw` resolves `n_theta` from
+    the MEASURED rule `880 * max(1, s/Lwl)` and REFUSES anything coarser,
+    because the interference term's quadrature error changes sign with
+    separation and an optimiser reads that as a real optimum. MEASURED cost of
+    obeying it on the production grid (241 x 44 offsets, reference hull):
+    6.2 ms at 220 nodes, 24.3 ms at 880 — so a catamaran evaluation is ~18 ms
+    dearer than a monohull one and Gate 1's 50 ms bar is a MONOHULL bar. The
+    bar was not touched; see `tests/test_multihull.py` for the catamaran's own
+    measured latency gate.
     """
     nz = int(PRODUCTION_GRID["nz"] if nz is None else nz)
     ns = int(PRODUCTION_GRID["n_stations"] if n_stations is None
              else n_stations)
     # Refine the STATION axis for the integral only. The hull handed in carries
     # whatever station count its caller wanted for hydrostatics (41 by
-    # default); the Michell integral needs 161 to be within 0.5% of converged,
-    # and rebuilding is ~1 ms against the 4 ms integral.
+    # default); the Michell integral needs 241 to be within 0.5% of converged
+    # on the reference hull, and rebuilding is ~1 ms against the integral.
+    # THE REBUILD CAN REFUSE: `Hull` solves the section at every station it is
+    # given, so a vector that builds at 41 can raise `GeometryError` at 241.
+    # That is why `grammar.check` probes the section solve on a grid denser
+    # than this one before it passes anything (`geometry.section_probe`).
     grid_hull = hull if hull.n_stations == ns else Hull(hull.params,
                                                         n_stations=ns)
     xs, zs, Y = grid_hull.offsets_grid(nz=nz, wl=wl)
     # Michell frame: free surface at z=0 — shift the grid by the floated WL
-    rw = michell_rw(xs, zs - wl, Y, speed, rho)
+    rw = michell_rw(xs, zs - wl, Y, speed, rho, separation=separation)
     lwl = float(hull.x[-1])
     cf = ittc57_cf(speed, lwl, rho=rho)
     beam = (2.0 * float(hull.y_chine.max()) if beam_wl is None
@@ -751,14 +987,48 @@ def total_resistance(hull: Hull, speed: float, wetted: float, cb: float,
     # the friction-line scatter.
     sigma_rf = rf * math.sqrt((form.sigma_k / (1.0 + form.k)) ** 2 + 0.10**2)
     sigma = 0.25 * rw + sigma_rf
-    valid = fn <= FN_MICHELL_MAX
+    # AXIS 3. `valid` used to be `fn <= FN_MICHELL_MAX` alone; it now also
+    # requires the friction line to be inside the flow it correlates. The
+    # `regime` STRING below is still keyed on Fn only, exactly as it was, so
+    # nothing that reads it changes meaning: at Re >= RE_TRANSITION_ONSET —
+    # true of every hull in today's design box, by 3.6x at the worst corner —
+    # `flow.valid` is identically the old expression.
+    flow = flow_regime(speed, lwl, rho)
+    valid = flow.valid
     if not valid:
         # The band is meaningless outside the model's regime; say so with a
         # sigma the size of the answer rather than a comfortable 25%.
         sigma = max(sigma, total)
+    grid = {"n_stations": ns, "nz": nz, "converged_to": GRID_CONVERGED_TO}
+    notes: tuple[str, ...] = ()
+    n_hulls = 1
+    if separation is not None:
+        n_hulls = 2
+        # The theta count is a RECEIPT, not a re-derivation: `michell_rw`
+        # resolved and enforced it from this same function on this same length
+        # a few lines above, so recording it here cannot disagree with what ran.
+        grid["n_theta"] = n_theta_for_separation(
+            float(xs[-1] - xs[0]), float(separation))
+        grid["separation_m"] = float(separation)
+        notes = (
+            "catamaran: WAVE interference is the exact thin-ship factor "
+            "4 cos^2(k_y s/2), k_y = k0 sec^2(th) sin(th) "
+            "(navalai/experiments.py verified the convention three ways)",
+            "catamaran: VISCOUS form interference is NOT modelled — the "
+            "demihull's own Watanabe form factor is applied to the vessel's "
+            "total wetted area. Insel & Molland measure this factor; it is "
+            "cited in this module and has never been transcribed, so no "
+            "number stands in for it",
+            "catamaran: NO EXPERIMENTAL ANCHOR. The s -> infinity and "
+            "superposition checks prove the term is self-consistent, not that "
+            "it is right",
+        )
     return ResistanceResult(speed, fn, rw, rf, total, cw, cf, sigma,
                             valid=valid,
-                            regime="displacement" if valid else "planing",
-                            form=form,
-                            grid={"n_stations": ns, "nz": nz,
-                                  "converged_to": GRID_CONVERGED_TO})
+                            regime=("displacement" if fn <= FN_MICHELL_MAX
+                                    else "planing"),
+                            form=form, grid=grid,
+                            n_hulls=n_hulls,
+                            separation_m=(None if separation is None
+                                          else float(separation)),
+                            method_notes=notes, flow=flow)

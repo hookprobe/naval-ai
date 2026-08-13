@@ -40,9 +40,15 @@ from navalai.mission import MissionSpec
 from navalai.stl_forensics import load_stl, mesh_of_hull
 
 #: The cage the subdivision arm starts from: `Hull.n_stations` (41) in x, and
-#: nz=16, which is `hull_to_stl`'s own default section count. Chosen so the
-#: cage is a plausible hand-editable control mesh rather than a resampling of
-#: the shipped one — a 600x120 cage subdivided is not a designer's cage.
+#: nz=16. Chosen so the cage is a plausible hand-editable control mesh rather
+#: than a resampling of the shipped one — a 600x120 cage subdivided is not a
+#: designer's cage.
+#:
+#: 16 WAS `hull_to_stl`'s own default section count when this was written, and
+#: this comment justified the choice by that fact. It is not any more (the
+#: girth default is now bilge-derived), so the justification stands on its own
+#: terms — a designer's cage is coarse because a cage is coarse — rather than
+#: on a default that has moved. The number here is deliberate, not inherited.
 SUBSURF_CAGE = (41, 16)
 
 #: Crease bar for the subdivision arms, in degrees of NORMAL JUMP. Not a new

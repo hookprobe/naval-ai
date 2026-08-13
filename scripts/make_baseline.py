@@ -80,7 +80,20 @@ def build(out: Path, dry_run: bool = False) -> dict:
         print(f"harvested {n} L1 hulls into a fresh provenance DB "
               f"(seed {HARVEST_SEED})")
 
-        target = out if not dry_run else Path(tmp) / "baselines.json"
+        # THE RUN WRITES INTO A SCRATCH FILE, NEVER INTO `out` (2026-08-13).
+        # `retrain` only REPLACES the key it deployed, so pointing it at the
+        # file being regenerated left a REFUSED quantity's previous entry
+        # standing. MEASURED on the first regeneration after the geometry
+        # kernel rebuild: `gm` was refused at 0.7341 against the 0.35 absolute
+        # floor, and the file that came out still carried the pre-rebuild
+        # `gm` mark — median 0.2504, suite fingerprint d782c04bf198af11, a
+        # timestamp from the previous day — which the ensemble block below
+        # then averaged in as seed 21's value. A mark measured on hulls the
+        # genome can no longer express, surviving its own regeneration and
+        # entering a statistic: defect class 5 with a fresh timestamp on it.
+        # The scratch file makes a refused quantity ABSENT, which is what
+        # `refused_by_the_gate` is for.
+        target = Path(tmp) / "baselines.json"
         # The provenance DB is thrown away; the baseline is not. That is
         # deliberate: the baseline is a claim about the FROZEN SUITE, which is
         # reconstructible from `benchmarks/` and the held-out wedge, not about

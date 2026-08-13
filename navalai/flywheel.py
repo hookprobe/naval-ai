@@ -208,15 +208,25 @@ BENCHMARK_PROBES = {
     "wigley_like_proportions": dict(
         LWL=_PROBE_LWL, BWL=_PROBE_LWL / _WIG_L_OVER_B,
         T=_PROBE_LWL / _WIG_L_OVER_B / _WIG_B_OVER_T, D=1.90,
-        beta_mid=2.0, beta_bow=12.0, p_bow=2.0, p_stern=2.0, x_mb=0.50,
-        r_transom=0.10, rocker=0.05, forefoot=0.60, flare=2.0,
-        sheer_rise=0.10, beta_len=0.40),
+        # Cp 2/3 is Wigley's OWN prismatic: its sectional area curve is
+        # parabolic, A(x) ~ 1 - xi^2, whose mean over the length is exactly
+        # 2/3. lcb 0 because Wigley is fore-and-aft symmetric. Both were
+        # inexpressible before plate P1 and are now stated rather than hoped
+        # for. roundness 0 keeps the probe on the hard-chine branch, where the
+        # kernel reproduces the pre-P1 geometry exactly.
+        Cp=2.0 / 3.0, lcb=0.0, x_mb=0.50, r_transom=0.05,
+        beta_mid=2.0, beta_bow=12.0, beta_len=0.40, roundness=0.0,
+        rocker=0.05, forefoot=0.60, flare=2.0, sheer_rise=0.10),
     "kcs_proportions": dict(
         LWL=_PROBE_LWL, BWL=_PROBE_LWL / _KCS_L_OVER_B,
         T=_PROBE_LWL / _KCS_L_OVER_B / _KCS_B_OVER_T, D=1.60,
-        beta_mid=1.0, beta_bow=15.0, p_bow=2.6, p_stern=3.0, x_mb=0.52,
-        r_transom=0.25, rocker=0.02, forefoot=0.70, flare=3.0,
-        sheer_rise=0.08, beta_len=0.35),
+        # KCS's published form coefficients, which this probe could not carry
+        # before plate P1: Cb 0.651 / Cm 0.985 gives Cp 0.661, and LCB is
+        # -1.48% of Lpp. The probe scales the PROPORTIONS, so the form
+        # coefficients transfer unchanged.
+        Cp=0.651 / 0.985, lcb=-1.48, x_mb=0.52, r_transom=0.20,
+        beta_mid=1.0, beta_bow=15.0, beta_len=0.35, roundness=0.0,
+        rocker=0.02, forefoot=0.70, flare=3.0, sheer_rise=0.08),
 }
 
 

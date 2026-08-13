@@ -1336,13 +1336,113 @@ def stl_resolution(lwl: float, target_edge: float) -> tuple[int, int]:
     return nx, int(min(max(round(nx * 0.2), 16), 120))
 
 
-def hull_to_stl(hull: Hull, path: Path, nx: int = 80, nz: int = 16) -> str:
+# The GIRTH resolution a watertight STL needs, and it is a function of the
+# BILGE SHAPE, which is why a single default was wrong.
+#
+# nz = 16 survived unnoticed because it was calibrated when every hull this
+# grammar could draw had a HARD CHINE — a crease that a few girth points
+# represent exactly. Plate P2 made the radiused bilge expressible and nothing
+# re-derived the tessellation it needs.
+#
+# nz = 48 replaced it and was calibrated on ROUNDNESS VARIANTS OF ONE REFERENCE
+# HULL (rho in {0.5, 0.9, 1.0}), which read a worst of 0.111% and 3.15x of
+# margin. RE-MEASURED 2026-08-13 ON THE POPULATION THE BAR IS ACTUALLY APPLIED
+# TO — the twelve designs `evaluate()` returns `ok=True` for out of
+# `grammar.sample(600, rng(0))` — the worst is 0.3581% and the margin is 1.04x,
+# and the test nz = 48 was raised to serve FAILED against its own 0.35% bar.
+# Configuration is an argument, never an assumption (docs/LESSONS.md defect
+# class 6), and the POPULATION a bar is calibrated on is part of the
+# configuration.
+#
+# Worst |STL volume - ladder volume| / ladder volume over those twelve designs,
+# nx held at this function's own default 80:
+#
+#     nz          48      64      96     128     192     384
+#     worst   0.3581  0.2854  0.2579  0.2473  0.2398  0.2354
+#
+# IT DOES NOT GO TO ZERO, AND THAT IS THE POINT. The residual is NOT girth
+# resolution; it is decomposed in `tests/test_end_to_end_flow.py` beside
+# `STL_VOLUME_TOL_PCT`. Two terms:
+#
+#   * a GIRTH term that converges like h^2 and is what this constant buys.
+#     Isolated by integrating the SAMPLED section area at the ladder's own 41
+#     stations with the ladder's own trapezoid: 0.0920% (nz 48) -> 0.0240% (96)
+#     -> 0.0059% (192) -> 0.0015% (384) on the worst design. Clean second
+#     order, converging to zero. Measured on the whole population as the gap
+#     between the STL and its own nz -> inf limit it reads 0.2701 (48) ->
+#     0.1553 (64) -> 0.0673 (96) -> 0.0357 (128) -> 0.0140 (192). This one is
+#     a tessellation error and 96 is where it stops being the dominant term.
+#   * a LOFT term that does not converge with nz OR nx at all, worst 0.1869%,
+#     always NEGATIVE. `closed_mesh` lerps the section control points between
+#     41 stations while `hydrostatics.solve` trapezoids the EXACT section areas
+#     at the same 41 stations, and area is convex in those control points, so
+#     A(lerp(p)) <= lerp(A(p)) at every x in between. The STL and the ladder
+#     are describing two different solids and no value of nz can close it.
+#     MEASURED at roundness EXACTLY 0, where nz changes nothing: over twelve
+#     validated hard-chine designs the STL still reads 0.1921% low, identical
+#     at nz 16 and at nz 384. (The 0.032% recorded above for a hard chine was
+#     ONE hull's loft term, not a property of hard chines.)
+#
+# So 96 is chosen to put the term this constant CONTROLS (0.0673% worst at 96)
+# at about a third of the term it does not (0.1869%), rather than for a margin
+# against the bar — the bar cannot be met at the file's usual 2x while the loft
+# term stands. 192 would buy another 0.018% for 4x the triangles.
+# THE COST IS MEASURED on design 1 of that population: 7.31 MB against 3.67 MB
+# per STL and 0.65 s against 0.33 s to write, which is nothing beside the mesh
+# it feeds.
+#
+# NX MATTERS ONLY THROUGH ALIGNMENT, and this function's 80 is misaligned.
+# `closed_mesh` samples `linspace(0, LWL, nx)` over a surface whose parameter
+# curves KINK at the 41 stations, so an nx that does not land on them chords
+# across the kinks as well. MEASURED at nz = 48 on the worst of those twelve
+# (design 2, and it is the worst at all four): nx 80 -> 0.3581%, 81 -> 0.3366%,
+# 320 -> 0.3372%, 321 -> 0.3358%, i.e. nx = 2*(n_stations-1)+1 = 81 beats
+# nx = 320 for a quarter of the triangles. `nx = k*(Hull.n_stations-1)+1`
+# is worth ~0.05% for free and is NOT changed here, because the nx default is
+# read by callers this constant does not own.
+#
+# The CFD case path does NOT use these; it calls `stl_resolution`, which
+# returns 600x120 at scale 1.0. These govern the BARE default, which is what
+# `evaluate.l3_case_evidence` writes when it checks whether a recorded RANS
+# campaign is about this hull — so an under-resolved default here silently
+# widens that identity test.
+_STL_NZ_HARD_CHINE = 16
+_STL_NZ_FILLETED = 96
+
+
+def stl_girth_resolution(hull: Hull) -> int:
+    """nz for a hull whose STL must enclose the displacement the ladder floated.
+
+    ONE HOME for the choice, because the bare default is read by the L3
+    identity check and by every ad-hoc `hull_to_stl(h, p)` call. A caller that
+    genuinely wants a coarse mesh passes nz explicitly and says why.
+    """
+    from .. import grammar
+    rho = float(grammar.named(hull.params)["roundness"])
+    return _STL_NZ_HARD_CHINE if rho <= 0.0 else _STL_NZ_FILLETED
+
+
+def hull_to_stl(hull: Hull, path: Path, nx: int = 80,
+                nz: int | None = None) -> str:
     """Write a WATERTIGHT ascii STL (full hull + deck + transom); sha256.
 
     CFD needs a closed manifold: the earlier wetted-only shell had 198 open
     edges (surfaceFeatureExtract, first Mac smoke run) and let the mesher
     reach the hull interior.
+
+    `nz` defaults to `stl_girth_resolution(hull)` rather than to a constant:
+    a radiused bilge needs six times the girth points a chine does, and the
+    old fixed 16 under-enclosed a filleted hull by 0.71% against a 0.35% bar.
+
+    `nx` DOES NOT DEFAULT TO A STATION-ALIGNED VALUE and 80 is not one. The
+    surface `closed_mesh` samples kinks at `Hull.n_stations` stations, so an nx
+    off those kinks chords across them: MEASURED over twelve validated designs,
+    worst submerged-volume error 0.3581% at nx=80 against 0.3366% at nx=81 and
+    0.3372% at nx=320 — 81 beats 320 for a sixteenth of the triangles. Pass
+    `nx = k * (hull.n_stations - 1) + 1` when the volume matters.
     """
+    if nz is None:
+        nz = stl_girth_resolution(hull)
     verts, tris = hull.closed_mesh(nx=nx, nz=nz)
     lines = ["solid hull"]
     for t in tris:

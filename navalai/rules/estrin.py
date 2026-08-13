@@ -16,10 +16,32 @@ WHAT THIS MODULE DOES, AND THE ORDER IT DOES IT IN
    KCS's EFD figure over a Wigley hull.)
 2. For a craft IN scope, the two Chapter 4 articles this repository can
    actually measure — safety clearance and freeboard.
-3. ES-COV, which FAILS for any in-scope craft, listing the eighteen ES-TRIN
-   chapters that are not implemented. An in-scope craft must not be able to
-   read a green report as compliance with a 558-page standard of which we
-   implement one chapter.
+3. ES-COV, which FAILS for any in-scope craft, listing the ES-TRIN chapters
+   that are not implemented. An in-scope craft must not be able to read a
+   green report as compliance with a 578-page standard of which we implement
+   two articles.
+
+   THE COUNT WAS WRONG IN THREE DIFFERENT WAYS AT ONCE, MEASURED 2026-08-13,
+   and every one of them overstated coverage:
+     - this docstring said "eighteen";
+     - `UNIMPLEMENTED_CHAPTERS` held SEVENTEEN entries;
+     - and the tuple stopped at Chapter 20, which silently asserted that
+       ES-TRIN HAS twenty chapters. It has THIRTY-THREE. Chapters 21-33
+       (push-tow craft, floating equipment, worksite craft, traditional
+       craft, sea-going vessels, RECREATIONAL CRAFT, container carriers,
+       craft over 110 m, high-speed vessels, ... ) were not merely
+       unimplemented, they were not on the list of things we admit to not
+       implementing.
+   ES-COV's whole job is an honest refusal, and it was reporting 1 of 18
+   against a true 2 articles of 33 chapters — coverage overstated by ~40%.
+   `TOTAL_CHAPTERS` is now derived from the table of contents of the edition
+   named below, read directly, and the denominator is asserted in the tests.
+
+4. ES-REC, which records that ES-TRIN Art. 26.01 DOES NOT APPLY CHAPTER 4 TO
+   RECREATIONAL CRAFT. This is the sharpest finding in the module and it
+   points at the module itself: the two bars implemented here are the two
+   bars most likely not to govern the craft this project builds. See the
+   ES-REC section in `assess` for the verbatim clause list.
 
 PROVENANCE
 ----------
@@ -66,6 +88,15 @@ from .review import basis_for
 _DIR_2016_1629 = "Directive (EU) 2016/1629 Art. 2(1) (consolidated 2024-01-01)"
 _ESTRIN = "ES-TRIN edition 2023/1 (CESNI, published free at cesni.eu)"
 
+# RE-VERIFIED 2026-08-13 against the 2025/1 text (`ES_TRIN_2025_signed_en.pdf`,
+# 578 pages, CESNI, free). Articles 4.01 and 4.02 are UNCHANGED between 2023/1
+# and 2025/1 — every bar and coefficient transcribed here was re-read clause by
+# clause in the newer edition. The edition string above still names 2023/1
+# because that is the text the ORIGINAL transcription was made from and
+# `basis_for` records who checked what; this constant records the recheck
+# separately rather than silently promoting the citation.
+_ESTRIN_2025 = "ES-TRIN edition 2025/1 (CESNI, published free at cesni.eu)"
+
 # ------------------------------------------------------------------- scope
 
 # Directive (EU) 2016/1629 Art. 2(1): the Directive applies to "vessels having
@@ -111,17 +142,57 @@ FREEBOARD_BASE_MM = 150.0
 SHEER_FWD_CAP_MM = 1000.0
 SHEER_AFT_CAP_MM = 500.0
 
-# What we do not implement. Transcribed from the ES-TRIN 2023/1 table of
-# contents so the refusal names real chapters rather than gesturing.
+# Art. 4.02(5): "However, coefficient r will not be taken to be more than 1."
+# Art. 4.02(6): if beta_a.Se_a exceeds beta_v.Se_v, the AFT term is clamped to
+# the forward one. Art. 4.02(7): "In view of the reductions referred to in (2)
+# to (6) the freeboard shall be not less than 0 mm."
+#
+# ALL THREE WERE MISSING, AND ALL THREE OMISSIONS ERRED THE UNSAFE WAY.
+# Each clause CAPS a reduction, and `F = 150 - (Se_v + Se_a)/15` subtracts that
+# reduction, so dropping a cap makes the REQUIRED freeboard smaller and the
+# check easier to pass. That is the opposite direction from the alpha = 0
+# simplification documented in `required_freeboard_mm`, which the docstring
+# correctly calls conservative — so the file contained one omission that erred
+# safe, described at length, and three that erred unsafe, not mentioned.
+SHEER_R_CAP = 1.0
+FREEBOARD_FLOOR_MM = 0.0
+
+# ES-TRIN 2025/1 has THIRTY-THREE chapters. Read from the table of contents of
+# `downloads/standards/ES_TRIN_2025_signed_en.pdf`, not remembered.
+TOTAL_CHAPTERS = 33
+
+# The ONE article pair we implement, so that coverage is stated as a fraction
+# of something real. Chapter 4 itself is only PARTIALLY implemented: 4.01(2)
+# (the 500 mm bar for openings that cannot be closed weathertight), 4.01(3)
+# and 4.02(8) (inspection-body discretion to demand more), 4.02(9) (salinity),
+# 4.03/4.04 (draught marks and scales) and 4.05 (zone 4 derogations) are not.
+IMPLEMENTED_ARTICLES = ("4.01(1) safety clearance", "4.02 freeboard")
+
+# What we do not implement. Transcribed from the ES-TRIN 2025/1 table of
+# contents so the refusal names real chapters rather than gesturing. Chapter 1
+# (general provisions) is EXCLUDED because its definitions ARE used — 1.01(4.2),
+# (4.4) and (4.16) are what `hull_length_m` and `hull_breadth_m` implement — and
+# Chapter 4 is excluded because it is the chapter we partially implement. Every
+# other chapter of the standard is here.
 UNIMPLEMENTED_CHAPTERS = (
+    "2 procedure",
     "3 shipbuilding requirements", "5 manoeuvrability", "6 steering system",
     "7 wheelhouse", "8 engine design", "9 emission of gaseous and particulate "
     "pollutants", "10 electrical equipment and installations",
-    "11 electric vessel propulsion", "12 electronic equipment and systems",
+    "11 electric propulsion systems", "12 electronic equipment and systems",
     "13 equipment", "14 safety at work stations", "15 accommodation",
     "16 fuel-fired heating, cooking and refrigerating equipment",
     "17 liquefied gas installations", "18 on-board sewage treatment plants",
     "19 passenger vessels", "20 passenger sailing vessels",
+    "21 craft forming part of a push-tow or side-by-side formation",
+    "22 floating equipment", "23 worksite craft", "24 traditional craft",
+    "25 sea-going vessels", "26 recreational craft",
+    "27 vessels carrying containers", "28 craft longer than 110 m",
+    "29 high-speed vessels",
+    "30 craft with propulsion or auxiliary systems using fuels with a "
+    "flashpoint <= 55 C", "31 vessels sailing with minimum crew",
+    "32 transitional provisions for craft on the Rhine (Zone R)",
+    "33 transitional provisions for craft on Zone 1, 2, 3 and 4 waterways",
 )
 
 
@@ -233,14 +304,38 @@ def required_freeboard_mm(hull: "Hull") -> tuple[float, dict]:
                 xc = float(xx[k - 1]) + f * (float(xx[k]) - float(xx[k - 1]))
                 x_abs = abs(xc - end_x)
                 break
-        p = 4.0 * x_abs / max(lwl, 1e-9)
+        # Art. 4.02(5) closes with "However, coefficient r will not be taken to
+        # be more than 1." Uncapped, a sheer line that reaches 0.25 S beyond
+        # L/4 from the extremity yields r > 1, inflating Se and so DEFLATING
+        # the required freeboard. The cap is the standard's, not a guard.
+        p = min(4.0 * x_abs / max(lwl, 1e-9), SHEER_R_CAP)
         return s, s * p
 
     s_v, se_v = _sheer(xs[i_low:], zs[i_low:], SHEER_FWD_CAP_MM, "fwd")
     s_a, se_a = _sheer(xs[:i_low + 1], zs[:i_low + 1], SHEER_AFT_CAP_MM, "aft")
-    f = FREEBOARD_BASE_MM - (se_v + se_a) / 15.0
+
+    # Art. 4.02(6): "If beta_a . Se_a is greater than beta_v . Se_v, the value
+    # of beta_v . Se_v will be taken as being the value for beta_a . Se_a."
+    # beta_v = beta_a = 1 here (Art. 4.02(4) with no superstructure), so the
+    # clause reduces to clamping the aft contribution to the forward one. A
+    # stern-heavy sheer cannot buy more freeboard credit than the bow earns.
+    se_a_eff = min(se_a, se_v)
+
+    f_raw = FREEBOARD_BASE_MM - (se_v + se_a_eff) / 15.0
+    # Art. 4.02(7): "In view of the reductions referred to in (2) to (6) the
+    # freeboard shall be not less than 0 mm."
+    #
+    # THIS CLAUSE CANNOT FIRE WHILE alpha = 0, and saying so is the point.
+    # Art. 4.02(5) caps the actual sheers at 1000 mm forward and 500 mm aft and
+    # caps r at 1, so the reduction cannot exceed (1000 + 500)/15 = 100 mm
+    # against the 150 mm base: F >= 50 mm, always. The floor becomes reachable
+    # only when a superstructure shrinks the base through 150(1 - alpha), which
+    # this project does not model yet. It is transcribed now anyway, because a
+    # clause added only on the day it first bites is a clause nobody reviews.
+    f = max(f_raw, FREEBOARD_FLOOR_MM)
     return f, {"S_v_mm": s_v, "Se_v_mm": se_v, "S_a_mm": s_a,
-               "Se_a_mm": se_a, "alpha": 0.0}
+               "Se_a_mm": se_a, "Se_a_capped_mm": se_a_eff,
+               "F_before_floor_mm": f_raw, "alpha": 0.0}
 
 
 def assess(ev: "Evaluation", hull: "Hull") -> list[RuleFinding]:
@@ -333,16 +428,51 @@ def assess(ev: "Evaluation", hull: "Hull") -> list[RuleFinding]:
         f"1.01(4.4) is to the lowest point of the gunwale; the sheer line is "
         f"used."))
 
+    # ---- ES-REC, Art. 26.01: the two bars above may not govern -----------
+    # READ DIRECTLY from ES-TRIN 2025/1 p.191-192 on 2026-08-13. Art. 26.01(1)
+    # applies to recreational craft only "the following requirements", and the
+    # list is: parts of Ch. 3, 5, 6, 7, 8; all of Ch. 9; part of Ch. 10, 13;
+    # all of Ch. 16, 17; part of Ch. 21. CHAPTER 4 IS NOT IN IT. Art. 26.01(2)
+    # is narrower still — for a recreational craft subject to Directive
+    # 2013/53/EU (the RCD, i.e. exactly this project's SKUs) "only the
+    # following requirements apply": 6.08, part of Ch. 7, 8, 13, and Ch. 16,
+    # 17. Chapter 4 is absent from that list too.
+    #
+    # So ES-SAFE and ES-FB — the ONLY two numeric bars this module computes —
+    # are very likely not the bars that govern the craft we build. This module
+    # cannot decide it, because craft TYPE is not modelled: `MissionSpec` has
+    # no recreational/commercial flag, and inferring one from the hull would be
+    # inventing a fact. It is therefore REPORTED, not silently applied and not
+    # silently dropped. Deleting the two findings on this basis would be the
+    # worse error in the same family as the L/B measurand above: an
+    # understatement that DELETES the assessment.
+    out.append(RuleFinding(
+        "ES-REC", f"{_ESTRIN_2025} Art. 26.01 (application of Part II to "
+                  f"recreational craft)",
+        basis_for("ES-REC"), False, float("nan"), 4.0, "chapter",
+        "UNDECIDABLE, AND IT DECIDES WHETHER THE TWO BARS ABOVE APPLY. "
+        "Art. 26.01(1) lists the Part II requirements a recreational craft "
+        "must meet and CHAPTER 4 IS NOT AMONG THEM; Art. 26.01(2), for a "
+        "recreational craft subject to Directive 2013/53/EU, is narrower "
+        "still and also omits Chapter 4. Craft type is not modelled here, so "
+        "whether ES-SAFE and ES-FB govern this hull CANNOT BE ANSWERED. If "
+        "the craft is recreational they are informative only, and the "
+        "governing set is Art. 26.01's — none of which is implemented. An "
+        "inspection body decides this, not this file."))
+
     # ---- ES-COV: the refusal -------------------------------------------
-    # FAILS, always, for an in-scope craft. One chapter of twenty is not an
-    # assessment, and a report that passed every finding it happened to
-    # implement would read as compliance.
+    # FAILS, always, for an in-scope craft. Two articles of thirty-three
+    # chapters is not an assessment, and a report that passed every finding it
+    # happened to implement would read as compliance.
     out.append(RuleFinding(
         "ES-COV", f"{_ESTRIN} (coverage of the standard)",
-        basis_for("ES-COV"), False, 1.0, float(len(UNIMPLEMENTED_CHAPTERS) + 1),
-        "chapters",
-        "IN SCOPE AND NOT ASSESSED. Only Chapter 4 (safety clearance, "
-        "freeboard) is implemented. Not implemented: "
+        basis_for("ES-COV"), False, 1.0, float(TOTAL_CHAPTERS), "chapters",
+        f"IN SCOPE AND NOT ASSESSED. {len(UNIMPLEMENTED_CHAPTERS)} of "
+        f"{TOTAL_CHAPTERS} chapters are wholly unimplemented. Chapter 1 is "
+        f"used for definitions only. Chapter 4 is PARTIALLY implemented — "
+        + ", ".join(IMPLEMENTED_ARTICLES)
+        + " — while 4.01(2), 4.01(3), 4.02(8), 4.02(9), 4.03, 4.04 and 4.05 "
+          "are not. Not implemented at all: "
         + "; ".join(f"Ch. {c}" for c in UNIMPLEMENTED_CHAPTERS)
         + ". This craft requires an inspection body under Directive (EU) "
           "2016/1629; nothing here substitutes for one."))

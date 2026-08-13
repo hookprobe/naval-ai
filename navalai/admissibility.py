@@ -70,6 +70,45 @@ from .cfd.case import (_DOMAIN_LENGTH_L, _HULL_REFINE, _LAYER_EXPANSION,
                        _NX_BASE, _refine_boxes, layer_spec, stl_resolution)
 from .geometry import Hull, station_geometry
 
+#: THE GENOME THE SCREEN'S BARS WERE CALIBRATED AGAINST. Not a version number —
+#: the parameter COUNT, because that is what makes a stored campaign vector
+#: replayable or not.
+#:
+#: Every numeric bar below was set by looking at a LABELLED OpenFOAM campaign:
+#: `data/gate2u-campaign-baseline.json`, 18 hulls at seed 0, speed 2.57, LTS,
+#: np=10, each with a measured checkMesh outcome. The bars are the thresholds
+#: that separated the hulls that meshed from the ones that did not.
+#:
+#: THE GEOMETRY KERNEL REBUILD VOIDED THAT CALIBRATION, and it cannot be
+#: repaired by re-tuning. The genome went 15 -> 16 parameters (`p_bow` and
+#: `p_stern` dropped, `Cp`, `lcb` and `roundness` added), so a stored campaign
+#: vector does not describe a hull the current `Hull` can build, and "hull 12"
+#: in that file is not the hull `sample_valid(..., seed=0)[12]` produces now.
+#: The LABELS are what is lost, not the numbers: re-tuning bars against hulls
+#: whose mesh outcome nobody has measured would be calibrating against nothing,
+#: which is worse than an honest gap.
+#:
+#: MEASURED after the rebuild, on the same test: the screen went from catching
+#: 6 of 12 observed failures with 0 false refusals to (5, 3) — but BOTH of
+#: those numbers are computed against labels that no longer belong to these
+#: hulls, so neither is a result.
+#:
+#: The tests that depend on those labels skip on this constant rather than
+#: being deleted or re-tuned, and they UN-SKIP AUTOMATICALLY the moment a
+#: campaign is run on the current genome. Gate 2A's ledger row carries the
+#: debt with an owner and a review-by date.
+CALIBRATION_GENOME_N_PARAMS = 15
+
+
+def calibration_is_current() -> bool:
+    """Do the labelled campaign's vectors still describe buildable hulls?
+
+    A probe, not a belief — the same discipline as `gates.Requirement`. It is
+    deliberately keyed on `grammar.N_PARAMS` rather than a hand-maintained
+    flag, so nobody can declare the calibration current by editing a string.
+    """
+    return grammar.N_PARAMS == CALIBRATION_GENOME_N_PARAMS
+
 
 class Verdict(enum.Enum):
     """Typed, because a verdict carried as a free-form string is editable prose.
@@ -220,8 +259,23 @@ def surface_grid(hull: Hull, nx: int, nz: int) -> np.ndarray:
     not uniformly in z across the whole section. The row split is imported
     from `Hull`, never restated here — this function is already a second copy
     of a surface and one number declared twice inside it is enough.
+
+    UPDATED 2026-08-13 with plate P2: the vectorised branch below is the
+    HARD-CHINE case, where the two panels are straight and linear
+    interpolation IS the section. A radiused bilge is not linear in either
+    panel, so there is nothing to vectorise and the loop calls the ONE sampler
+    (`Hull._section_at_rows`) instead of transcribing it. Slower — measured
+    ~90 ms against 7 ms at 600x120 — and the alternative is a third copy of
+    the shape function.
     """
     xs = np.linspace(float(hull.x[0]), float(hull.x[-1]), nx)
+    jc = hull.chine_row(nz)
+    if hull.roundness > 0.0:
+        S = np.empty((len(xs), nz + 1, 3))
+        for k, xv in enumerate(xs):
+            S[k, :, 1:] = hull._section_at_rows(float(xv), jc, nz - jc)
+            S[k, :, 0] = xv
+        return S
     xst = hull.x
     i = np.clip(np.searchsorted(xst, xs), 1, hull.n_stations - 1)
     f = (xs - xst[i - 1]) / (xst[i] - xst[i - 1])
@@ -231,7 +285,6 @@ def surface_grid(hull: Hull, nx: int, nz: int) -> np.ndarray:
 
     zk, yc, zc = lerp(hull.z_keel), lerp(hull.y_chine), lerp(hull.z_chine)
     ys, zs = lerp(hull.y_sheer), lerp(hull.z_sheer)
-    jc = hull.chine_row(nz)
     t_lo = np.linspace(0.0, 1.0, jc + 1)
     t_hi = np.linspace(0.0, 1.0, nz - jc + 1)[1:]
     Y = np.empty((len(xs), nz + 1))

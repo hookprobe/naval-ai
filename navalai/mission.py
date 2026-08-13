@@ -11,8 +11,10 @@ import json
 import math
 import re
 from dataclasses import asdict, dataclass, field
+from enum import Enum
 
 from .energy import EnergySpec
+from .formlib import Topology            # AXIS 1's enum has ONE home; see below
 
 DESIGN_CATEGORIES = ("A", "B", "C", "D")   # ISO 12217 / CE categories
 WATERS = {"river": "D", "lake": "D", "coastal": "C", "offshore": "B", "ocean": "A"}
@@ -103,6 +105,236 @@ _DEFAULTS = {"displacement_target_kg": 6000.0, "cruise_speed_kn": 5.0,
              "crew": 2, "lwl_hint_m": None, "design_category": "C"}
 
 
+# ---------------------------------------------------------------------------
+# THE VESSEL — THREE ORTHOGONAL AXES, and every one of them SELECTS BEHAVIOUR
+# ---------------------------------------------------------------------------
+#
+# NOT one "vessel type" enum, and not a list of named boats. Three axes, because
+# the combinations are real and each one is a different piece of work:
+#
+#   AXIS 1  TOPOLOGY  monohull | catamaran | trimaran
+#           selects the I_T sum (`hydrostatics.vessel_terms`), whether wave
+#           interference applies at all (`resistance.total_resistance`), and —
+#           the safety-critical half — WHICH STABILITY CRITERION GOVERNS.
+#
+#   AXIS 2  MANNING   crewed | liveaboard | uncrewed
+#           selects WHICH RULE SET APPLIES. Uncrewed is not "crewed with zero
+#           people": the RCD does not govern uncrewed craft at all, so ISO
+#           12217-1's assessment — crew mass, accommodation, escape — does not
+#           apply to it, and `limits.CREW_MASS_KG` and the offset-load crowding
+#           fraction are crewed-only concepts.
+#
+#   AXIS 3  REGIME    DERIVED from size and speed (Fn, Re) — NEVER declared,
+#           so it is not a field here. It lives in `resistance.flow_regime`
+#           beside the models it admits or refuses, and it selects WHICH
+#           PHYSICS MODELS MAY ANSWER. Declaring it would let a caller assert a
+#           regime the geometry contradicts.
+#
+# A drone catamaran is topology=CATAMARAN, manning=UNCREWED, and a regime our
+# solvers may not cover. Collapsing that into one enum would hide that those
+# are three separate gaps.
+#
+# HOW MANY HULLS, AND HOW FAR APART
+#
+# WHY IT LIVES HERE AND NOT IN THE GENOME. `grammar.PARAMS` describes ONE
+# moulded surface: LWL, BWL, deadrise, sheer, the chine plan-form. Every one of
+# those is a property of a single hull and every consumer of the genome —
+# `Hull`, `unroll`, `export`, `formlib` — reads it as one. Hull COUNT is not a
+# property of that surface at all: two demihulls of the same genome are the same
+# moulded surface built twice. Putting `n_hulls` in the parameter vector would
+# put a topological switch inside a continuous box that NSGA-II samples
+# uniformly and that `hull_ast.project` pins by typology, and every existing
+# consumer would have to learn to ignore one column.
+#
+# It is a vessel-level object above the hull, referenced from `MissionSpec`,
+# because that is the level at which the question is actually asked: a solar
+# liveaboard wanting deck area and stability is a CONFIGURATION decision made
+# with the mission, alongside the design category and the displacement target,
+# and it is the same layer that `EnergySpec` already sits at.
+#
+# WHY SEPARATION IS A RATIO OF LWL AND NOT METRES. The physics is a function of
+# s/Lwl at a given Froude number, in both halves of it:
+#   * `resistance.n_theta_for_separation` is written in s/Lwl, and
+#     `navalai/experiments.py` measured the interference optimum as an s/Lwl
+#     that MOVES with Fn (0.390 at Fn 0.20, 0.300 at Fn 0.25, 0.430 at 0.30);
+#   * the stability term A_wp d^2 scales with the same ratio once the demihull
+#     is scaled with the hull.
+# LWL is a free grammar parameter, so a spacing declared in metres would be a
+# DIFFERENT physical configuration at every length the optimiser tries — the
+# ratio is the thing that is held constant when the mission says "catamaran".
+# `separation_m(lwl)` is the ONE place the conversion happens; nothing else in
+# the tree multiplies the ratio by a length.
+#
+# THE BAND IS A CONTRACT BOUND, NOT A VERDICT, exactly like `FIELD_RANGES`
+# above: it refuses absurd input. Whether a given spacing actually clears the
+# demihulls of each other is a GEOMETRY question and is answered against the
+# hull by `hydrostatics.vessel_terms`, which refuses an intersection.
+SEPARATION_OVER_LWL_BAND = (0.05, 2.0)
+
+
+# AXIS 1's enum IS `formlib.Topology`, IMPORTED AND NOT REDECLARED.
+# `navalai/formlib.py` already owns it — monohull, catamaran, trimaran,
+# quadrimaran, small-waterplane, supported — with a docstring explaining why a
+# topology is not a peer of a section law, and `formlib.MISSION` already
+# declares this product line's topology as CATAMARAN. Writing a second
+# three-member `Topology` here would be the recurring defect in this codebase
+# (a thing declared twice) applied to the one contract three agents have to
+# agree on. `formlib` imports nothing from this package, so there is no cycle.
+#
+# WHAT ANOTHER MODULE SHOULD IMPORT: `from navalai.mission import Topology` or
+# `from navalai.formlib import Topology` — they are the SAME object, and
+# `mission.vessel.topology` is the stable accessor for a design's value.
+
+
+class Manning(str, Enum):
+    """AXIS 2. Who is aboard, and therefore WHICH RULE SET APPLIES.
+
+    UNCREWED is not CREWED with zero people. The RCD (Directive 2013/53/EU)
+    governs recreational craft; an uncrewed vehicle is outside it, so ISO
+    12217-1 — a harmonised standard under that directive, and one whose whole
+    assessment is built from crew mass, accommodation and escape — does not
+    apply, and nothing in this repository applies in its place.
+    """
+
+    CREWED = "crewed"
+    LIVEABOARD = "liveaboard"
+    UNCREWED = "uncrewed"
+
+
+# Hull count PER TOPOLOGY, in one place. `n_hulls` is a derived property of the
+# topology and not a second field, so it is impossible to declare a catamaran
+# with three hulls.
+#
+# TWO of `formlib.Topology`'s six members have NO hull count at all, and they
+# are absent from this table on purpose rather than defaulted to 1:
+# SMALL_WATERPLANE is a section law and SUPPORTED is a lift mechanism ("lift
+# comes from something that is not buoyancy" — formlib's own words). Asking
+# how many hulls a SUPPORTED craft has is a category error, and `n_hulls`
+# raises for it instead of answering 1 — which is the `${VAR:-0}` pattern that
+# has already cost this project a run.
+#
+# TRIMARAN AND QUADRIMARAN ARE DECLARABLE AND NOT EVALUABLE, which is a
+# different thing from absent. A trimaran's centre hull is NOT a copy of its
+# amas — different displacement, different waterline, different free-wave
+# spectrum — while `grammar.PARAMS` carries exactly one moulded surface and
+# `resistance.catamaran_interference` derives `I_cat = 2 I_demi cos(k_y s/2)`
+# from two IDENTICAL translated Kochin amplitudes. Summing three copies of one
+# genome would report a vessel nobody would build. So `evaluate` REFUSES the
+# topology BY NAME, which keeps the gap visible instead of absent.
+HULL_COUNT: dict[Topology, int] = {
+    Topology.MONOHULL: 1,
+    Topology.CATAMARAN: 2,
+    Topology.TRIMARAN: 3,
+    Topology.QUADRIMARAN: 4,
+}
+EVALUABLE_TOPOLOGIES = (Topology.MONOHULL, Topology.CATAMARAN)
+
+
+@dataclass(frozen=True)
+class VesselConfig:
+    """The two DECLARED axes: topology and manning. Regime is derived, not here.
+
+    Frozen because it is part of the design description, not a call argument:
+    `hydrostatics.solve` and `resistance.total_resistance` must be asked about
+    ONE vessel, and a mutable spacing that a caller could change between the
+    two would produce a hydrostatic answer and a resistance answer for
+    different boats.
+
+    REFUSES rather than clamps. A multihull with no declared spacing is not a
+    magnitude error that a clamp could sensibly resolve — it is an unspecified
+    vessel, and `resistance._separation_or_raise` already refuses the same
+    thing for the same reason ("a demihull spacing of zero, negative or NaN is
+    not a degenerate boat, it is an unspecified one").
+
+    `n_hulls` IS THE STABLE ACCESSOR other modules read. `hydrostatics.
+    vessel_terms` duck-types on `.n_hulls` and `.separation_m(lwl)`;
+    `grammar`/`limits` should key their topology-conditional bands off
+    `mission.vessel.topology` (`navalai.mission.Topology`), which is the enum
+    and never a string literal.
+    """
+
+    topology: Topology = Topology.MONOHULL
+    manning: Manning = Manning.CREWED
+    separation_over_lwl: float = 0.0     # centreplane to centreplane, / Lwl
+
+    def __post_init__(self) -> None:
+        # Coerce first: a spec arriving from JSON carries plain strings, and a
+        # `topology` that is the string "catamaran" while every comparison in
+        # the tree is against the enum would silently evaluate as a monohull.
+        try:
+            object.__setattr__(self, "topology", Topology(self.topology))
+            object.__setattr__(self, "manning", Manning(self.manning))
+        except ValueError as e:
+            raise ValueError(
+                f"VesselConfig: {e}. topology is one of "
+                f"{[t.value for t in Topology]}, manning one of "
+                f"{[m.value for m in Manning]}.") from e
+        s = self.separation_over_lwl
+        if not (isinstance(s, (int, float)) and math.isfinite(s)):
+            raise ValueError(
+                f"VesselConfig: separation_over_lwl = {s!r} is not a finite "
+                f"number")
+        if self.n_hulls == 1:
+            if float(s) != 0.0:
+                raise ValueError(
+                    f"VesselConfig: topology {self.topology.value} with "
+                    f"separation_over_lwl = {s!r}. A monohull has nothing to "
+                    f"be separated from; a spacing here would be silently "
+                    f"ignored by every consumer, which is how a two-hull "
+                    f"intention becomes a one-hull answer.")
+            return
+        lo, hi = SEPARATION_OVER_LWL_BAND
+        if not (lo <= float(s) <= hi):
+            raise ValueError(
+                f"VesselConfig: separation_over_lwl = {float(s):g} is outside "
+                f"{list(SEPARATION_OVER_LWL_BAND)}. This is a contract bound, "
+                f"not a stability or resistance verdict — whether the "
+                f"demihulls clear each other is checked against the actual "
+                f"hull by hydrostatics.vessel_terms.")
+
+    @property
+    def n_hulls(self) -> int:
+        """Hull count, DERIVED from the topology. Never a second field."""
+        try:
+            return HULL_COUNT[self.topology]
+        except KeyError:
+            raise ValueError(
+                f"VesselConfig: topology {self.topology.value!r} has no hull "
+                f"count — it is a section law or a lift mechanism, not a "
+                f"number of hulls. Asking how many hulls it has is a category "
+                f"error and is refused rather than answered with 1.") from None
+
+    def separation_m(self, lwl: float) -> float:
+        """Centreplane-to-centreplane spacing [m] on a waterline length `lwl`.
+
+        THE ONE HOME OF THE RATIO -> METRES CONVERSION. `hydrostatics` needs it
+        for the parallel-axis term and `resistance` needs it for the
+        interference phase, and if the two ever derived it from different
+        lengths they would be describing different vessels while sharing an
+        `Evaluation`.
+        """
+        if not (isinstance(lwl, (int, float)) and math.isfinite(lwl)
+                and lwl > 0.0):
+            raise ValueError(
+                f"VesselConfig.separation_m: lwl = {lwl!r} is not a positive "
+                f"finite length, so the spacing has no value here")
+        return float(self.separation_over_lwl) * float(lwl)
+
+    @property
+    def is_multihull(self) -> bool:
+        return self.n_hulls > 1
+
+    @property
+    def is_evaluable(self) -> bool:
+        """False for a topology this project can DECLARE but not evaluate.
+
+        The refusal itself belongs to `evaluate`, which says which topology and
+        why; this is only the predicate, so nobody has to spell the tuple out
+        twice.
+        """
+        return self.topology in EVALUABLE_TOPOLOGIES
+
+
 @dataclass
 class MissionSpec:
     name: str = "unnamed mission"
@@ -113,6 +345,11 @@ class MissionSpec:
     crew: int = 2
     waters: str = "river+coastal"
     energy: EnergySpec = field(default_factory=EnergySpec)
+    # Default is a MONOHULL, so every existing mission — and every one built
+    # by `MissionSpec(**body)` over HTTP, which cannot know about this field —
+    # describes exactly the vessel it described before multihull support
+    # existed, and the ladder runs the identical arithmetic on it.
+    vessel: VesselConfig = field(default_factory=VesselConfig)
     notes: str = ""
 
     def __post_init__(self) -> None:
@@ -173,14 +410,32 @@ class MissionSpec:
         return self.cruise_speed_kn * 0.514444
 
     def to_json(self) -> str:
-        return json.dumps(asdict(self), indent=2)
+        # `default=` because `formlib.Topology` is a plain `enum.Enum`, not a
+        # str mixin, and `asdict` does not unwrap it — `json.dumps` would raise
+        # `TypeError: Object of type Topology is not JSON serializable`. The
+        # value written is the plain word ("catamaran"), which is what
+        # `VesselConfig.__post_init__` coerces back, so the round trip is
+        # closed. Importing formlib's enum rather than declaring a str-mixin
+        # copy is worth this one line.
+        return json.dumps(asdict(self), indent=2,
+                          default=lambda o: getattr(o, "value", str(o)))
 
     @staticmethod
     def from_json(s: str) -> "MissionSpec":
         d = json.loads(s)
         e = d.pop("energy", {})
-        m = MissionSpec(**{k: v for k, v in d.items() if k in MissionSpec.__dataclass_fields__})
+        # `asdict` flattens VesselConfig to a dict on the way out, so it has to
+        # be rebuilt as the frozen type on the way back in. Assigning the raw
+        # dict would give a MissionSpec whose `.vessel.n_hulls` raises
+        # AttributeError deep inside `evaluate` — a round-trip that looks like
+        # it worked. `.pop` before the field filter for the same reason `energy`
+        # is popped: the filter would otherwise pass the dict straight through.
+        v = d.pop("vessel", None)
+        m = MissionSpec(**{k: v2 for k, v2 in d.items()
+                           if k in MissionSpec.__dataclass_fields__})
         m.energy = EnergySpec(**e)
+        if v is not None:
+            m.vessel = VesselConfig(**v)
         return m
 
 

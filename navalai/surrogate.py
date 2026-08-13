@@ -92,10 +92,19 @@ def _nn_distance(Q: np.ndarray, X: np.ndarray) -> np.ndarray:
     """Distance from every row of Q to its NEAREST row of X, unweighted.
 
     Deliberately NOT lengthscale-weighted. The ARD lengthscales are what the
-    sigma test already looks through, and they saturate: MEASURED on a GP
-    trained on 100 L1 hulls, two of the fifteen lengthscales sat exactly on the
-    optimiser's upper bound (10.0), which means the kernel — and therefore
-    sigma — is blind to those two axes entirely. A support test that divides by
+    sigma test already looks through, and they saturate. RE-MEASURED 2026-08-13
+    on the 16-parameter genome, and the count depends on the TRAINING SET, so
+    the configuration is stated rather than a single number quoted:
+
+        sample_valid(250, seed=7), full box   3 of 16: D, beta_len, sheer_rise
+        the beta_mid >= 12 subset, 109 rows   6 of 16: lcb, r_transom,
+                                              beta_bow, beta_len, flare,
+                                              sheer_rise
+
+    (The superseded reading was "two of the fifteen ... trained on 100 L1
+    hulls" — a 15-parameter genome that no longer exists.) The kernel — and
+    therefore sigma — is blind to those axes entirely. A support test that
+    divides by
     the same lengthscales inherits the same blind spot and adds nothing. This
     one asks the plain question the name promises: have we ever seen a hull
     like this?
@@ -245,11 +254,18 @@ class GP(_Escalates):
             d_support = float("inf")
 
         # THE HYPERPARAMETER THAT STOPPED ON ITS BOUND IS NOW REPORTED (gap
-        # A6c). MEASURED 2026-08-12 on the Gate 3 production GP —
-        # `sample_valid(250, MissionSpec(), seed=7)`, log(Wh/NM), seed=1 — ONE
-        # of the fifteen lengthscales, `x_mb`, came back at exactly 10.0000,
-        # the optimiser's ceiling. That is the kernel declaring itself blind to
-        # the max-beam station, and the module printed, returned and recorded
+        # A6c). RE-MEASURED 2026-08-13 on the Gate 3 production GP —
+        # `sample_valid(250, MissionSpec(), seed=7)`, log(Wh/NM), seed=1 —
+        # THREE of the SIXTEEN lengthscales come back at exactly 10.0000, the
+        # optimiser's ceiling: `D`, `beta_len` and `sheer_rise`.
+        #
+        # The superseded reading was "ONE of the fifteen, `x_mb`". Both halves
+        # of that changed: the genome went 15 -> 16 parameters, and `x_mb`
+        # STOPPED saturating while three other axes started. So the specific
+        # axis named here is not durable and the COUNT is not either — what is
+        # durable is that saturation happens and must be reported. That is the
+        # kernel declaring itself blind to those axes, and the module printed,
+        # returned and recorded
         # nothing about it: the surrogate's own predictive sigma cannot see a
         # query that moves only along x_mb, and every caller was told the fit
         # succeeded. An unmeasured value must never be scored as a passing one;

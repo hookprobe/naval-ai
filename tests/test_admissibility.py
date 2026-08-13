@@ -23,7 +23,8 @@ import numpy as np
 import pytest
 
 from navalai import grammar
-from navalai.admissibility import (Basis, Metric, Verdict, screen,
+from navalai.admissibility import (CALIBRATION_GENOME_N_PARAMS, Basis, Metric,
+                                   Verdict, calibration_is_current, screen,
                                    surface_grid)
 from navalai.cfd.case import _HULL_REFINE, _refine_boxes, layer_spec
 from navalai.evaluate import sample_valid
@@ -101,10 +102,24 @@ def test_the_chine_is_a_row_of_the_grid_not_a_corner_it_chords_across():
     is ON the surface, not near it (docs/LESSONS.md defect class 3 — the
     assertion has to be the one the old grid FAILS, and the old grid fails
     this by 12 mm).
+
+    PINNED TO roundness = 0 ON 2026-08-13. `chine_row` still exists after the
+    geometry rebuild, but for a FILLETED bilge it returns the fillet's
+    mid-point, not a corner — so "the chine is a row of the grid" is a claim
+    about a hull that HAS a chine. Measured on the reference hull with the
+    fillet live, the row sits 0.430 m from `_section_at`'s breakpoint, which is
+    the fillet's own curvature and not a regression. At roundness = 0 the
+    kernel is bit-identical to the pre-rebuild one (fenced at 1e-12 in
+    tests/test_geometry_kernel.py) and the 1e-9 bar below is exactly as hard as
+    it was. Relaxing the bar to cover a fillet would have retired the
+    measurement this test exists for.
     """
     X, _ = sample_valid(25, MissionSpec(), seed=0)
+    ir = grammar.NAMES.index("roundness")
     for hid in (4, 8, 14):
-        h = Hull(np.asarray(X[hid], float))
+        x = np.asarray(X[hid], float).copy()
+        x[ir] = 0.0                       # a chine claim needs a chine
+        h = Hull(x)
         nz = 120
         jc = h.chine_row(nz)
         assert 1 <= jc <= nz - 1
@@ -125,9 +140,23 @@ def test_every_grid_point_still_lies_on_the_analytic_section_polyline():
     The panels are unchanged straight segments; only the sampling parameter
     changed. If this ever fails, the row split has become a shape change —
     which would be a different boat, not a better mesh.
+
+    PINNED TO roundness = 0 ON 2026-08-13, and the pin is the point rather than
+    a convenience. "Lies on the section POLYLINE" is a HARD-CHINE property: the
+    geometry kernel rebuild made the bilge a fillet, and a point on a curve is
+    not on the chord that used to approximate it — measured 0.058 m off at the
+    reference hull, which is the fillet, not a defect. The claim this test was
+    written to defend (redistributing rows moves vertices ALONG the section,
+    never off it) is exactly true at roundness = 0, where the kernel is
+    bit-identical to the old one to 1e-12. The curved case has its own
+    assertion in tests/test_geometry_kernel.py, against the analytic CURVE.
+    Weakening this bound to swallow a fillet would have made it measure nothing.
     """
     X, _ = sample_valid(3, MissionSpec(), seed=7)
+    ir = grammar.NAMES.index("roundness")
     for x in X:
+        x = np.array(x, dtype=float).copy()
+        x[ir] = 0.0                      # a polyline claim needs a polyline
         h = Hull(x)
         nx, nz = 61, 12
         S = surface_grid(h, nx, nz)
@@ -191,7 +220,27 @@ def test_the_draft_bar_is_the_refinement_band_and_not_a_fitted_number(
 # Every bar, fed the input it must REFUSE.
 # ---------------------------------------------------------------------------
 
+# The nine tests below read a LABELLED mesh campaign — hull indices and the
+# screen's catch rate against measured checkMesh outcomes. The geometry kernel
+# rebuild changed the genome 15 -> 16 parameters, so those stored vectors no
+# longer describe hulls this `Hull` can build and "hull 12" is a different boat.
+# The LABELS are what was lost. Re-tuning the bars against hulls whose mesh
+# outcome nobody has measured would be calibrating against nothing.
+#
+# They are SKIPPED, not deleted and not re-tuned, on a PROBE
+# (`admissibility.calibration_is_current`) rather than a flag — so they un-skip
+# by themselves the moment a campaign is run on the current genome. Gate 2A's
+# ledger row carries the debt with an owner and a review-by date.
+_needs_calibration = pytest.mark.skipif(
+    not calibration_is_current(),
+    reason=(f"the screen's bars were calibrated on a "
+            f"{CALIBRATION_GENOME_N_PARAMS}-parameter genome and this tree has "
+            f"{grammar.N_PARAMS}; the campaign labels cannot be transferred — "
+            f"re-run scripts/mesh_robustness.py on the current genome"))
+
+
 @pytest.mark.parametrize("hid", DRAFT_BAR_HULLS)
+@_needs_calibration
 def test_draft_bar_refuses_the_hulls_whose_keel_sits_in_the_refine_band(
         reports, hid):
     """Campaign hulls 0, 1, 6, 12 — draft 10.14/12.31/11.82/13.20 hull cells.
@@ -207,6 +256,7 @@ def test_draft_bar_refuses_the_hulls_whose_keel_sits_in_the_refine_band(
 
 
 @pytest.mark.parametrize("hid", COLLAPSE_BAR_HULLS)
+@_needs_calibration
 def test_collapse_bar_refuses_the_hulls_whose_sheer_was_silently_clipped(
         reports, hid):
     """Campaign hulls 5, 11, 12 — 3.04, 2.13 and 4.36 cells of collapsed deck.
@@ -223,6 +273,7 @@ def test_collapse_bar_refuses_the_hulls_whose_sheer_was_silently_clipped(
     assert "sheer_collapse_cells" in reports[hid].refused_by
 
 
+@_needs_calibration
 def test_sub_cell_bars_refuse_a_verbatim_sub_cell_hull(reports):
     """Campaign hull 20: bottom panel 0.998 cells, transom half-beam 0.998 cells.
 
@@ -274,6 +325,7 @@ def test_a_diagnostic_metric_never_votes(reports):
 # The screen as a whole, against every historical case.
 # ---------------------------------------------------------------------------
 
+@_needs_calibration
 def test_the_screen_refuses_no_hull_that_actually_meshed(reports):
     """Zero false alarms on the 6 hulls that meshed — the direction that
     matters, because a screen that refuses good hulls silently shrinks the
@@ -284,6 +336,7 @@ def test_the_screen_refuses_no_hull_that_actually_meshed(reports):
             f"{reports[hid].refused_by}")
 
 
+@_needs_calibration
 def test_the_screen_catches_half_the_failures_and_no_more(reports):
     """PINS THE MEASUREMENT, INCLUDING ITS LIMIT. TP 6, FP 0, FN 6, TN 6 —
     precision 1.000, recall 0.500 over campaign hulls 0-17.
@@ -299,6 +352,7 @@ def test_the_screen_catches_half_the_failures_and_no_more(reports):
     assert tp / len(FAILED) == pytest.approx(0.5)
 
 
+@_needs_calibration
 def test_a_refused_hull_is_rescuable_and_the_module_says_so(reports):
     """THE FINDING THAT BOUNDS THIS WHOLE MODULE, pinned so it cannot be
     quietly dropped when someone wants a stronger claim.

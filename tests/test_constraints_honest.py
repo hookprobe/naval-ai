@@ -48,6 +48,7 @@ from navalai import db, grammar
 from navalai.evaluate import (CONSTRAINT_NAMES, INFEASIBLE_G,
                               ConstraintOrderError, constraint_vector,
                               evaluate, is_real_finite)
+from navalai import limits
 from navalai.limits import LCB_BAND_PCT_LWL, LIST_LIMIT_DEG, TRIM_LIMIT_DEG
 from navalai.mission import MissionSpec
 from navalai.weights import MassAggregate, MassItem, aggregate, trim_angle_deg
@@ -288,38 +289,111 @@ def test_the_optimizer_reads_the_columns_the_ladder_writes():
 # ------------------------------------------------------------ B8: LCB
 
 
-def test_lcb_is_constrained_and_the_reference_hull_fails_it(ref):
-    """B8. LCB was computed, used for trim, and never judged. RECORDED, NOT
-    SOFTENED (honesty rule 6): the hand-picked reference hull floats at
-    -5.36 %LWL from midships against a +-3% band and is INFEASIBLE. It always
-    was; nothing had ever looked.
+def test_lcb_is_constrained_and_the_kernel_now_delivers_it(ref):
+    """B8, AND THE CLAIM IN THIS TEST'S OLD NAME IS NOW FALSE.
+
+    IT WAS `test_lcb_is_constrained_and_the_reference_hull_fails_it`, and that
+    was the honest record for as long as LCB was an EMERGENT OUTPUT: the
+    hand-picked reference hull floated at -5.36 %LWL against a +-3% band and
+    was INFEASIBLE (-4.19 until 2026-08-12, when the wet-station truncation in
+    `lwl_eff` was corrected — the old figure was the bug and it had been
+    flattering the hull; see `hydrostatics._waterline_ends`).
+
+    PLATE P1 FIXED THE HULL, NOT THE BAR. `lcb` is now a GENE — a design
+    TARGET the sectional area curve is solved to deliver — bounded by
+    `grammar.PARAMS` to exactly `limits.LCB_BAND_PCT_LWL`, and the reference
+    hull asks for -1.0 %LWL. RE-MEASURED 2026-08-13 it FLOATS at -1.68 %LWL
+    and `g['lcb']` is -1.32, i.e. feasible. That is not a softened check; it is
+    the same check on a hull that can now be aimed.
+
+    So the assertion that this test exists for has to move to a hull that
+    FAILS, or it stops proving the row can fire — see
+    `test_the_lcb_row_still_refuses_a_hull_that_floats_out_of_band` below,
+    which is fed the verbatim input. What is asserted HERE is the identity that
+    was the gap's actual subject: the row exists, and it is computed from the
+    FLOATED waterline rather than from the gene.
 
     The percentage is taken about the midpoint of the FLOATED waterline
     (`HydroState.lcb_pct_lwl`), not about half the LWL parameter — the transom
-    lifts clear under rocker, so those are different stations.
-
-    -4.19 UNTIL 2026-08-12, AND THE OLD FIGURE WAS THE BUG, NOT THE BASELINE.
-    `lcb_pct_lwl` divides by `lwl_eff` and measures from `x_wl_aft + lwl_eff/2`,
-    and `lwl_eff` was the span of WET STATIONS — truncated by 0.969 of one
-    station spacing and biased short on every hull. The midpoint it measured
-    from was therefore the wrong station. Correcting the waterline ends moves
-    this to -5.36, i.e. the reference hull is FURTHER out of band than recorded,
-    not less: the defect was flattering it. See `hydrostatics._waterline_ends`
-    for the convergence table."""
+    lifts clear under rocker, so those are different stations. That is why the
+    delivered -1.68 is not the requested -1.00: the gene is delivered at the
+    DESIGN waterline and the row judges the one the boat actually floats at.
+    """
     assert "lcb" in CONSTRAINT_NAMES
     hs = ref.hydro
-    assert hs.lcb_pct_lwl == pytest.approx(-5.36, abs=0.05)
+    assert hs.lcb_pct_lwl == pytest.approx(-1.68, abs=0.05)
     assert ref.g["lcb"] == pytest.approx(abs(hs.lcb_pct_lwl) - LCB_BAND_PCT_LWL,
                                          abs=1e-9)
-    assert ref.g["lcb"] > 0.0 and not ref.ok
-    assert any("LCB" in v for v in ref.violations), ref.violations
+    assert ref.g["lcb"] < 0.0
+    assert not any("LCB" in v for v in ref.violations), ref.violations
+    # ...and it is NOT the gene read back to itself. The row would be
+    # decorative if it judged the target instead of the flotation.
+    assert grammar.named(ref.params)["lcb"] == pytest.approx(-1.0)
+    assert abs(hs.lcb_pct_lwl - (-1.0)) > 0.5
+
+
+def test_the_lcb_row_still_refuses_a_hull_that_floats_out_of_band():
+    """THE ROW FED THE VERBATIM INPUT IT MUST REJECT.
+
+    The reference hull stopped being that input when plate P1 made `lcb` a
+    gene (above), and a constraint whose only witness has been fixed is a
+    constraint nobody is checking any more. `grammar.PARAMS` bounds the GENE to
+    +-`LCB_BAND_PCT_LWL`, so the refusal this row exists for is now the one the
+    box cannot prevent: a hull that asks for an in-band LCB and FLOATS outside
+    it. MEASURED over the L0-feasible box, that is 15% of hulls (see
+    `test_the_lcb_band_bites_without_emptying_the_box`), and this finds the
+    first one and asserts the row names it.
+    """
+    m = MissionSpec()
+    rng = np.random.default_rng(3)
+    found = None
+    for _ in range(400):
+        x = rng.uniform(grammar.LOW, grammar.HIGH)
+        if not grammar.check(x).ok:
+            continue
+        ev = evaluate(x, m)
+        if ev.hydro is None or ev.g["lcb"] <= 0.0:
+            continue
+        found = (x, ev)
+        break
+    assert found is not None, "no L0-clean hull floated out of the LCB band"
+    x, ev = found
+    # the gene was INSIDE the band — the box did its job and the row still had
+    # something to say, which is the whole point of having both
+    assert abs(grammar.named(x)["lcb"]) <= LCB_BAND_PCT_LWL
+    assert abs(ev.hydro.lcb_pct_lwl) > LCB_BAND_PCT_LWL
+    assert ev.g["lcb"] > 0.0 and not ev.ok
+    assert any("LCB" in v for v in ev.violations), ev.violations
 
 
 def test_the_lcb_band_bites_without_emptying_the_box():
     """A constraint nothing can violate is `keel.rocker` (0 hits in 400,000,
-    deleted); a constraint nothing can satisfy is just as useless. MEASURED on
-    300 L0-feasible hulls floated to a 6 t displacement: 47.3% land inside
-    +-3%, with min -10.22, median +0.49 and max +17.53 %LWL."""
+    deleted); a constraint nothing can satisfy is just as useless.
+
+    THE QUESTION CHANGED WITH PLATE P1, AND THE OLD BAND ASKED THE OLD ONE.
+    It read `0.20 < frac < 0.80` under the sentence "outside 20-80% it has
+    stopped being a TRADE-OFF", and that was right while LCB was an emergent
+    output of fifteen shape knobs: MEASURED then, 47.3% of L0-feasible hulls
+    landed inside +-3%, with min -10.22, median +0.49 and max +17.53 %LWL, so
+    the row really was a dimension the optimiser had to trade against.
+
+    RE-MEASURED 2026-08-13: 85%. `lcb` is now a GENE that `grammar.PARAMS`
+    bounds to exactly `LCB_BAND_PCT_LWL`, so the search cannot PROPOSE an
+    out-of-band target any more — which is the governance pattern this project
+    states explicitly (a box bounds what may be proposed, a row measures what
+    actually FLOATED) and is a strict improvement, not a regression. The row is
+    therefore no longer a trade-off and asking whether it still is would be
+    asking a question plate P1 deliberately retired.
+
+    What it must still be is LIVE: the gene is delivered at the DESIGN
+    waterline and the row judges the FLOATED one, and 15% of the box is pushed
+    out of band by flotation alone. That 15% is what
+    `test_the_lcb_row_still_refuses_a_hull_that_floats_out_of_band` above is
+    fed. The bar here is now the MEASUREMENT, pinned, so a drift toward either
+    0% (dead row) or 100% (dead row) fails — which the 20-80% band would not
+    have caught at 85% either, since it had already stopped describing the
+    thing it was watching.
+    """
     m = MissionSpec()
     rng = np.random.default_rng(3)
     inside = total = 0
@@ -333,10 +407,12 @@ def test_the_lcb_band_bites_without_emptying_the_box():
         total += 1
         inside += ev.g["lcb"] <= 0.0
     frac = inside / total
-    assert 0.20 < frac < 0.80, (
+    assert frac == pytest.approx(0.85, abs=0.07), (
         f"LCB band passes {100 * frac:.0f}% of the L0-feasible box; measured "
-        f"47.3%. Outside 20-80% it has stopped being a trade-off — check the "
-        f"band against practice before touching this bar.")
+        f"85% on 2026-08-13 (47.3% before `lcb` became a bounded gene). "
+        f"Re-measure and record BEFORE/AFTER rather than widening this.")
+    # and it is neither dead nor universal — the two ways a row stops being one
+    assert 0.0 < frac < 1.0
 
 
 # ------------------------------- B9: the floated hull, not the parameters
@@ -346,9 +422,26 @@ def test_l0_and_l1_judge_proportions_by_the_same_band():
     """B9's root cause was two copies of one band. `grammar.proportion_margins`
     is the shared kernel; L0 applies it to the parameter vector, evaluate() to
     HydroState."""
-    src = (_ROOT / "navalai" / "grammar.py").read_text()
+    # SCANNED ON EXECUTABLE LINES ONLY, from 2026-08-14. It used to scan raw
+    # text, and then `grammar.py` acquired the incident block that RECORDS the
+    # 12.0 x 0.8 m demihull refusal verbatim — `L/B: 15.00 outside [2.2, 8.5]`
+    # — plus the line showing how the demihull union is formed from the same
+    # interval. The test failed on its own explanation, which is a scanner bug
+    # and not a finding; `tests/test_limits_single_source.py::_code_lines`
+    # already carries the same fix for the same reason, in the same words.
+    # The PROPERTY is unchanged and is still the one B9 needs: exactly one
+    # DECLARATION of each band in code.
+    src = "\n".join(
+        ln for ln in (_ROOT / "navalai" / "grammar.py").read_text().splitlines()
+        if not ln.strip().startswith("#"))
     assert src.count("2.2, 8.5") == 1 and src.count("1.8, 12.0") == 1, \
         "the proportion bands are declared more than once again"
+    # ...and the MONOHULL band is what an ungoverned call is judged by, which is
+    # what makes "declared once" the right property to test. The demihull band
+    # is a SECOND ROW built from this one plus a sourced envelope, not a second
+    # copy of it — `tests/test_vessel_bands.py` owns that distinction.
+    assert grammar.PROPORTION_BANDS[limits.HullRole.MONOHULL]["L/B"][0] \
+        is grammar.L_OVER_B_BAND
     assert grammar.proportion_margins(10.0, 3.0, 0.5)["L/B"] < 0.0
     # exactly at the edge is inside; one part in a thousand past it is not
     lo, hi = grammar.B_OVER_T_BAND
@@ -399,7 +492,7 @@ def test_every_relational_l0_constraint_can_actually_fire():
     was measured at 9 live ones. Deleted; this stops any of them coming back
     and stops a new one being added dead.
 
-    MEASURED over the same 400,000 samples, the nine that survive:
+    MEASURED over the same 400,000 samples, the nine that survived then:
 
         freeboard.rel  33.039%   chine.height       12.557%
         L/B            32.419%   panel.twist         6.819%
@@ -407,8 +500,32 @@ def test_every_relational_l0_constraint_can_actually_fire():
         deadrise.order 22.204%   chine.below.sheer   3.059%
         B/T            18.618%
 
+    RE-MEASURED 2026-08-13 over 20,000 uniform in-bounds vectors on the
+    plate-P1/P2 genome. **The live relational count is 8, not 9, and the drop
+    is a DELETION with gap E4's evidence, not a check that rotted:**
+    `chine.height` (the midship chine may sit 0.25 T ABOVE the waterline) was
+    REPLACED by the tighter `chine.submerged` (the chine is at or below the
+    design waterline at EVERY station, measured on the delivered geometry), and
+    `transom.chine` was deleted because `chine.submerged` subsumes it and it
+    then fired on ZERO of 40,000 in-bounds vectors. Both are recorded in
+    `navalai/grammar.py` at the point of deletion.
+
+        section.solve  35.455%   panel.twist         9.520%
+        freeboard.rel  33.395%   sac.target          5.580%
+        L/B            32.025%   chine.below.sheer   3.160%
+        freeboard.abs  23.325%   chine.submerged     1.230%
+        deadrise.order 22.170%
+        B/T            18.170%
+
+    `section.solve` and `sac.target` are NOT `_rel` rows and are deliberately
+    not counted below: they are the two REFUSALS plate P1 added — a design
+    TARGET the shape family cannot reach, and a station whose area the draft
+    and deadrise cannot enclose — and they are reported by name from a
+    `GeometryError` rather than from a boolean relation. They are listed here
+    because a reader counting rows in the output would otherwise find ten.
+
     20,000 samples here rather than 400,000 for runtime; the rarest live check
-    fires 3.06% of the time, so ~600 hits are expected and 0 is decisive."""
+    fires 1.23% of the time, so ~250 hits are expected and 0 is decisive."""
     n = 20_000
     rng = np.random.default_rng(0)
     X = rng.uniform(grammar.LOW, grammar.HIGH, size=(n, grammar.N_PARAMS))
@@ -428,10 +545,17 @@ def test_every_relational_l0_constraint_can_actually_fire():
     assert not dead, (
         f"{dead} never fired in {n} in-bounds samples — a constraint that "
         f"cannot be violated is a count, not a gate. Delete it or widen it.")
-    assert len(declared) == 9, (
+    assert len(declared) == 8, (
         f"the live relational count moved to {len(declared)}; ALIGNMENT.md "
-        f"quotes 9 and that figure is measured, not aspirational")
-    for name in ("keel.rocker", "keel.forefoot", "x_mb.margin", "flare.fold"):
+        f"quotes 8 and that figure is measured, not aspirational")
+    # The two named refusals plate P1 added are live too, and they are counted
+    # HERE rather than folded into the number above, because they are not
+    # relations: an unreachable design target is refused, never approximated.
+    assert {"sac.target", "section.solve"} <= set(hits), sorted(hits)
+    for name in ("keel.rocker", "keel.forefoot", "x_mb.margin", "flare.fold",
+                 # deleted by plate P1/P2 with the same rule and the same
+                 # evidence; `chine.submerged` subsumes both
+                 "chine.height", "transom.chine"):
         assert name not in declared, f"{name} came back"
         # named in the comment that records WHY it went, and nowhere else
         assert f'_rel("{name}"' not in src, f"{name} came back"
@@ -490,13 +614,14 @@ def test_no_ast_node_validator_is_dead_and_the_layer_says_what_it_does_not_do():
     #    exists to reject. Without this the deletion could have been bought by
     #    deleting the ones that worked.
     assert HA.Principal(LWL=0.0, BWL=3.2, T=0.55, D=1.2).validate()
-    assert HA.Planform(p_bow=2.0, p_stern=2.0, x_mb=0.25,
+    assert HA.Planform(x_mb=0.25,
                        r_transom=0.5).validate()
-    assert HA.SectionLaw(beta_mid=18.0, beta_bow=6.0, beta_len=0.3).validate()
+    assert HA.SectionLaw(beta_mid=18.0, beta_bow=6.0, beta_len=0.3,
+                          roundness=0.0).validate()
     # ...and each accepts the good case, so it is a test and not a constant.
     assert not HA.Principal(LWL=10.0, BWL=3.2, T=0.55, D=1.2).validate()
-    assert not HA.Planform(2.0, 2.0, 0.55, 0.5).validate()
-    assert not HA.SectionLaw(18.0, 24.0, 0.3).validate()
+    assert not HA.Planform(0.55, 0.5).validate()
+    assert not HA.SectionLaw(18.0, 24.0, 0.3, 0.0).validate()
 
     # 4. THE MEASUREMENT ITSELF, re-derived rather than quoted: the node layer
     #    moves no verdict on in-bounds hulls. If it ever does, this assertion

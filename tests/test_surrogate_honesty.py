@@ -42,6 +42,41 @@ from navalai.surrogate import GP, OODRefusal
 _ROOT = pathlib.Path(__file__).resolve().parents[1]
 _COMMITTED = _ROOT / "data" / "baselines.json"
 
+#: The quantities `scripts/make_baseline.py` ATTEMPTS. Not the ones it wrote —
+#: the gate is allowed to refuse one, and the difference between the two lists
+#: is the thing several tests below check.
+_ATTEMPTED = ("wh_per_nm", "gm", "rt")
+
+
+def _deployed_and_refused(base: dict) -> tuple[dict, dict]:
+    """Split the committed baseline into marks that EXIST and marks the
+    deployment gate REFUSED, and insist every attempted quantity is in exactly
+    one of them.
+
+    HONESTY RULE 4, READ AS A PRECONDITION RATHER THAN AS A DECORATION. A
+    quantity the gate refused must NOT be handed an entry so the file looks
+    complete, and it must not simply vanish either — vanishing is how an
+    unmeasurable value becomes a passing one (docs/LESSONS.md defect class 1).
+    `refused_by_the_gate` is where make_baseline records it, with the numbers
+    that refused it.
+
+    MEASURED 2026-08-13 on the regenerated file: `wh_per_nm` and `rt` deployed,
+    `gm` was REFUSED at a median spread-normalised error of 0.7341 against
+    `flywheel.HARD_MAX_MEDIAN_REL_ERR` = 0.35 — an absolute floor no baseline
+    or tolerance may move. So `data/baselines.json` has no `gm` key at all.
+    The tests below therefore ask each quantity which side it is on rather than
+    assuming a mark exists, and they un-refuse THEMSELVES the moment gm
+    deploys again: nothing here is keyed on a hand-maintained flag.
+    """
+    refused = base.get("_README", {}).get("refused_by_the_gate", {})
+    deployed = {q: base[q] for q in _ATTEMPTED if q in base}
+    for q in _ATTEMPTED:
+        assert (q in deployed) != (q in refused), (
+            f"{q} is in neither the marks nor `refused_by_the_gate`, or in "
+            f"both. A quantity the gate refused is RECORDED as refused; one "
+            f"that simply disappeared is an unmeasured value scored as a pass")
+    return deployed, {q: refused[q] for q in _ATTEMPTED if q in refused}
+
 
 @pytest.fixture(scope="module")
 def stocked(tmp_path_factory):
@@ -49,6 +84,37 @@ def stocked(tmp_path_factory):
     prov = db.Provenance(d / "p.sqlite3")
     m = MissionSpec()
     harvest(120, m, prov, seed=21)
+    return prov, m, d
+
+
+@pytest.fixture(scope="module")
+def independent(tmp_path_factory):
+    """A harvest that is NOT the committed baseline's own pinned seed.
+
+    `stocked` above draws seed 21, which is `make_baseline.HARVEST_SEED` — the
+    exact draw `data/baselines.json` was written from. Every test that needs an
+    honest retrain to CLEAR the committed mark used it, and that was gap T3's
+    defect one level down: the suite demonstrated "an honest model deploys"
+    using the one draw the mark itself was built on, which under the old genome
+    was also the LUCKIEST of the eight measured seeds.
+
+    MEASURED 2026-08-13 on the regenerated baseline, n=120, against the
+    committed mark's threshold of 1.25 x 0.1130 = 0.1413:
+
+        seed 21 (the file's own)   median rel err 0.1721   REFUSED
+        seed  7 (independent)      median rel err 0.1358   DEPLOYED
+
+    Seed 21 is now the SECOND-WORST of the eight seeds the file records, not
+    the best, so it no longer clears the mark it produced. That is a real
+    finding about the ratchet and it is reported rather than tuned away; what
+    changes HERE is only that a test needing a deploying model draws a seed
+    that is independent of the mark, which is what it should always have done.
+    `tests/test_phase7.py` has drawn seed 7 for the same reason for longer.
+    """
+    d = tmp_path_factory.mktemp("independent")
+    prov = db.Provenance(d / "p.sqlite3")
+    m = MissionSpec()
+    harvest(120, m, prov, seed=7)
     return prov, m, d
 
 
@@ -219,19 +285,25 @@ def test_a_surrogate_number_carries_value_tier_and_sigma_in_physical_units(
 
 
 def test_retrain_hands_back_a_guarded_model_and_records_what_it_refuses(
-        stocked, tmp_path):
+        independent, tmp_path):
     """A4 end to end: the deployment path is where the bare GP escaped from.
 
     Also records `frozen_ood_rate` — the share of its own deployment benchmark
     the model would refuse in production. It is a RECEIPT and not a bar: the
     benchmark's held-out wedge is deliberately outside the training draw, so a
-    nonzero rate is the design working. MEASURED at the shipped configuration
-    (120 harvested hulls, wh_per_nm, harvest seed 21, holdout seed 4242): 1 of
-    27 points, 3.7%. The wedge is out of the training SAMPLE but inside the
-    model's support radius (distances 0.726-1.098 against d_support 1.075),
-    which is the same thing the 10.4% median error there says.
+    nonzero rate is the design working. RE-MEASURED 2026-08-13 at the shipped
+    configuration (120 harvested hulls, wh_per_nm, holdout seed 4242): 3 of 27
+    points, 11.1%, against 1 of 27 (3.7%) on the 15-parameter genome. It is 5
+    of 27 on the seed-21 draw, so the receipt is a property of the model and
+    not of the suite. MECHANISM:
+    one more genome axis to be distant along, so a fixed frozen suite sits
+    further from the same number of training points.
+
+    The fixture is `independent` (seed 7), not `stocked` (seed 21), because this
+    test needs a model that DEPLOYS against the committed mark and seed 21 is
+    the mark's own draw — see the `independent` fixture for the measurement.
     """
-    prov, m, _d = stocked
+    prov, m, _d = independent
     bp = tmp_path / "baselines.json"
     shutil.copy(_COMMITTED, bp)
     model, rep = retrain(prov, m, "wh_per_nm", baseline_path=bp)
@@ -268,11 +340,21 @@ def test_the_committed_baseline_is_reproducible_and_says_which_suite_it_is():
     The fingerprint is the field D4 needs: a mark is only comparable to a
     metric measured on the SAME benchmark, and `"suite": "frozen_suite"` is a
     constant string that is true of every suite this code can produce.
+
+    A QUANTITY THE GATE REFUSED IS NOT HANDED A MARK SO THIS TEST CAN PASS.
+    2026-08-13: `gm` is refused at 0.7341 against the 0.35 absolute floor and
+    `data/baselines.json` has no `gm` key. The honest assertion is not that
+    every attempted quantity has a mark — that would be satisfied by inventing
+    one — but that every attempted quantity is either MARKED or RECORDED AS
+    REFUSED, with the numbers, and that a refusal is justified by a measurement
+    rather than by a label. That is asserted here rather than skipped, and it
+    reverts to the marked branch by itself the moment gm deploys.
     """
     base = json.loads(_COMMITTED.read_text())
-    for q in ("wh_per_nm", "gm", "rt"):
-        assert q in base, f"the committed baseline has no mark for {q}"
-        row = base[q]
+    deployed, refused = _deployed_and_refused(base)
+    assert deployed, "the committed baseline carries no marks at all"
+
+    for q, row in deployed.items():
         for key in ("suite_fingerprint", "n_frozen", "best_median_rel_err",
                     "best_coverage_2sigma", "best_wall_clock_s", "transform"):
             assert key in row, f"{q} baseline has no {key}"
@@ -282,6 +364,20 @@ def test_the_committed_baseline_is_reproducible_and_says_which_suite_it_is():
             f"suite than this code produces — regenerate it with "
             f"scripts/make_baseline.py")
         assert row["n_frozen"] == len(labels)
+
+    for q, rec in refused.items():
+        for key in ("median_err", "coverage_2sigma", "err_kind", "transform"):
+            assert key in rec, (
+                f"{q} was refused and the file does not say {key} — a refusal "
+                f"nobody can audit is the same silence as an invented mark")
+        # the refusal is SHOWN to be a refusal: a floor was actually missed
+        assert (rec["median_err"] > F.HARD_MAX_MEDIAN_REL_ERR
+                or not (F.HARD_MIN_COVERAGE_2SIGMA
+                        <= rec["coverage_2sigma"] <= 1.0)), (
+            f"{q} is recorded as refused with metrics that clear both absolute "
+            f"floors ({rec['median_err']:.4g}, {rec['coverage_2sigma']:.4g}) — "
+            f"then it should have deployed. Regenerate with "
+            f"scripts/make_baseline.py")
 
 
 def test_the_frozen_suites_identity_covers_its_targets_not_only_its_points():
@@ -307,10 +403,18 @@ def test_the_frozen_suites_identity_covers_its_targets_not_only_its_points():
     Kept as a SECOND fingerprint rather than folded into the first, because the
     two mismatches want different messages: a probe change is a different
     benchmark, a target change is the same benchmark under different physics.
+
+    THE PAIR AT THE BOTTOM USED TO BE (wh_per_nm, gm) AND IS NOW (wh_per_nm,
+    rt). It needs two quantities that share probe COORDINATES while differing
+    in TARGETS, which is the case one merged hash could not tell apart; `gm` no
+    longer has a mark to compare (refused at 0.7341 against the 0.35 floor) and
+    `rt` demonstrates exactly the same thing. MEASURED on the regenerated file:
+    both carry suite 654314aec9e94e22 while their targets are d8dfa07fdbc127aa
+    and ccc27bfbfe88c8 respectively.
     """
     base = json.loads(_COMMITTED.read_text())
-    for q in ("wh_per_nm", "gm", "rt"):
-        row = base[q]
+    deployed, _refused = _deployed_and_refused(base)
+    for q, row in deployed.items():
         assert "targets_fingerprint" in row, (
             f"{q} has no targets_fingerprint — the mark cannot say what "
             f"physics it was measured under")
@@ -329,12 +433,16 @@ def test_the_frozen_suites_identity_covers_its_targets_not_only_its_points():
     nudged[0] += 1e-6
     assert F.targets_fingerprint(nudged) != F.targets_fingerprint(y)
     assert suite_fingerprint(_X, labels) == suite_fingerprint(_X, labels)
-    # ...and the three quantities share probe points while differing in y,
-    # which is exactly the case one merged hash could not distinguish.
-    assert (base["wh_per_nm"]["suite_fingerprint"]
-            == base["gm"]["suite_fingerprint"])
-    assert (base["wh_per_nm"]["targets_fingerprint"]
-            != base["gm"]["targets_fingerprint"])
+    # ...and two MARKED quantities share probe points while differing in y,
+    # which is exactly the case one merged hash could not distinguish. The pair
+    # is taken from whatever actually deployed, so a further refusal moves it
+    # rather than breaking it — but two are needed for the comparison to exist.
+    assert len(deployed) >= 2, (
+        "fewer than two quantities carry a mark, so nothing in the committed "
+        "file demonstrates two benchmarks sharing probes and differing in y")
+    (qa, ra), (qb, rb) = list(deployed.items())[:2]
+    assert ra["suite_fingerprint"] == rb["suite_fingerprint"], (qa, qb)
+    assert ra["targets_fingerprint"] != rb["targets_fingerprint"], (qa, qb)
 
 
 def test_a_mark_measured_under_different_physics_is_refused(tmp_path):
@@ -436,55 +544,84 @@ def test_an_explicit_bootstrap_drops_the_prior_and_cannot_deadlock(tmp_path):
 
 
 def test_the_ratchet_marks_a_seed_ensemble_not_the_luckiest_seed():
-    """Gap T3: the mark was a single pinned seed, and it was the MINIMUM.
+    """Gap T3: the mark was a single pinned seed, and it was an EXTREME of the
+    distribution it claimed to represent.
 
-    MEASURED 2026-08-12, eight honest seeds through the real path (n=120,
-    holdout 4242, GP.fit(seed=1)) — the numbers now recorded in the file:
+    MEASURED 2026-08-12 on the 15-parameter genome, eight honest seeds through
+    the real path (n=120, holdout 4242, GP.fit(seed=1)):
 
         quantity    median   min      max      spread   seed 21 is
         wh_per_nm   0.1901   0.1240   0.2509   2.02x    the MINIMUM
         gm          0.4194   0.2504   0.7456   2.98x    the MINIMUM
         rt          0.1901   0.1240   0.2312   1.86x    the MINIMUM
 
-    `make_baseline.py` pinned seed 21, which is the best of the eight on all
-    three quantities, and `retrain` ratcheted a fresh single-seed draw against
-    it with a 1.25x tolerance. Against `best_median_rel_err * 1.25`, 4 of 8
-    honest seeds are refused on wh_per_nm and 7 of 8 on gm — a 50-90%
-    false-refusal rate on models that are fine. That is a broken statistic, not
-    a strict gate, and the absolute floors (0.35 / 0.80) are untouched by this
-    change and are what keep it from being a softened bar.
+    RE-MEASURED 2026-08-13 on the rebuilt 16-parameter genome — the numbers now
+    recorded in the file:
 
-    NOTE, recorded rather than smoothed over: gm's ensemble median 0.4194 is
-    ABOVE HARD_MAX_MEDIAN_REL_ERR (0.35). The floor is stricter than the mark
-    for that quantity, so most gm seeds would be refused outright regardless of
-    any ratchet — that is a real finding about the gm surrogate, not a defect
-    in this row.
+        quantity    median   min      max      spread   seed 21 is
+        wh_per_nm   0.1130   0.0618   0.1868   3.02x    2nd-WORST of 8
+        rt          0.1206   0.0618   0.1868   3.02x    2nd-WORST of 8
+        gm          — REFUSED at 0.7341 against the 0.35 floor, no mark —
+
+    THE PINNED SEED FLIPPED FROM THE BEST OF THE EIGHT TO NEARLY THE WORST, AND
+    THE ROW'S FINDING SURVIVED IT UNCHANGED. What T3 says is not "seed 21 is
+    lucky" — it is that ONE DRAW IS NOT THE DISTRIBUTION, and a mark taken from
+    an extreme of a 2-3x spread cannot be ratcheted against with a 1.25x
+    tolerance. That is now true in the other direction and the mechanism (an
+    ensemble median plus a measured spread, rather than one draw) is unchanged
+    and still right. The assertions below were re-written to be
+    DIRECTION-AGNOSTIC for exactly this reason: the previous
+    `ensemble_median > best_median_rel_err` encoded "the pinned seed is the
+    minimum", which was an accident of that genome and not the finding.
+
+    THE PRICE IS NOW VISIBLE AND IT IS NOT SOFTENED HERE. Against the ratchet's
+    own threshold (1.25 x 0.1130 = 0.1413 for wh_per_nm), THREE of the eight
+    seeds the file itself measures as honest are refused — 0.1721, 0.1415 and
+    0.1868 — a 37.5% false-refusal rate, and one of the three is the draw
+    `make_baseline.py` deploys from. `rt` refuses two of eight on the same
+    seeds. That belongs to `flywheel.retrain`'s tolerance and to
+    `make_baseline`'s pinned seed, not to this test, and nothing here is widened
+    to hide it. The absolute floors (0.35 / 0.80) are untouched throughout.
     """
     base = json.loads(_COMMITTED.read_text())
+    deployed, _refused = _deployed_and_refused(base)
     seeds = base["_README"]["generation"]["harvest_seeds"]
     assert len(seeds) >= 5, "a 'seed ensemble' of fewer than five is a sample"
-    for q in ("wh_per_nm", "gm", "rt"):
-        row = base[q]
+    assert deployed, "no quantity carries a mark, so there is no ensemble to check"
+    for q, row in deployed.items():
         for key in ("seeds", "median_rel_err_seeds", "coverage_2sigma_seeds",
                     "ensemble_median_rel_err", "ensemble_coverage_2sigma",
                     "seed_spread"):
             assert key in row, f"{q} baseline has no {key}"
         meds = row["median_rel_err_seeds"]
+        ens = row["ensemble_median_rel_err"]
         assert row["seeds"] == seeds
         assert len(meds) == len(seeds), (
             "an ensemble statistic over a subset of its own seeds is a "
             "statistic that does not describe what its name says")
         # the recorded statistic IS the median of the recorded draws, and the
         # spread IS max/min of them — neither is a number written beside them
-        assert row["ensemble_median_rel_err"] == pytest.approx(
-            statistics.median(meds), rel=1e-12)
+        assert ens == pytest.approx(statistics.median(meds), rel=1e-12)
         assert row["seed_spread"] == pytest.approx(
             max(meds) / min(meds), rel=1e-12)
-        # ...and it is a ROBUST statistic, not the extreme the single seed gave
-        assert row["ensemble_median_rel_err"] > row["best_median_rel_err"], (
-            f"{q}: the ensemble median is not above the best seed, so either "
-            f"the ensemble is degenerate or the pinned seed is no longer the "
-            f"minimum — re-measure rather than re-word")
+        # ...and it is a ROBUST statistic: strictly INSIDE the range of the
+        # draws, in either direction. A mark pinned at one seed sits on an
+        # endpoint and fails this; so does a degenerate ensemble, where min,
+        # median and max coincide.
+        assert min(meds) < ens < max(meds), (
+            f"{q}: the ensemble median {ens:.4f} is an endpoint of "
+            f"[{min(meds):.4f}, {max(meds):.4f}] — the mark is an extreme "
+            f"order statistic again, which is the defect T3 is about")
+        # THE FINDING ITSELF, stated without a direction: the pinned draw is
+        # not a stand-in for the ensemble, because it falls outside the very
+        # tolerance the ratchet allows around the ensemble median.
+        pinned = meds[seeds.index(base["_README"]["generation"]["harvest_seed"])]
+        assert not (ens / 1.25 <= pinned <= ens * 1.25), (
+            f"{q}: the pinned seed's draw {pinned:.4f} now agrees with the "
+            f"ensemble median {ens:.4f} inside the ratchet's own 1.25x "
+            f"tolerance. If that is real it is good news — T3's finding has "
+            f"changed shape and the table above must be re-measured, not "
+            f"re-worded.")
         assert row["seed_spread"] > 1.25, (
             f"{q}: the measured spread {row['seed_spread']:.2f}x is now inside "
             f"the declared tolerance; re-state the finding above")
@@ -498,6 +635,26 @@ def test_the_ratchet_uses_the_ensemble_mark_and_the_recorded_spread(tmp_path):
     evidence of a regression. Using only the first judges one draw against a
     median with no allowance for the noise between them; using only the second
     keeps ratcheting against the minimum.
+
+    THE ROW BELOW IS A SYNTHETIC SCENARIO AND IT STILL DEMONSTRATES THE
+    MECHANISM, BUT ONE SENTENCE OF ITS JUSTIFICATION HAS BEEN REFUTED AND IS
+    RECORDED HERE RATHER THAN LEFT STANDING. The reason given for NOT widening
+    the tolerance to `seed_spread` was that it would push the threshold above
+    the absolute floor and make the ratchet inert: on the 15-parameter numbers
+    0.1901 x 2.0234 = 0.3846, above HARD_MAX_MEDIAN_REL_ERR (0.35). On the
+    REGENERATED file that is no longer CLEANLY true, and the honest statement is
+    that it now depends on the quantity: wh_per_nm gives 0.1130 x 3.0214 =
+    0.3415, BELOW the 0.35 floor, while rt gives 0.1206 x 3.0215 = 0.3643,
+    still ABOVE it. So spread-widening would make the ratchet inert for
+    wh_per_nm and not for rt — the original argument survives for one quantity
+    and fails for the other, which is a weaker reason than the comment claims
+    and a real one. The design decision
+    lives in `navalai/flywheel.py` and is not this test's to change; the
+    measurement is written down here so the next reader does not take the
+    superseded arithmetic as a live reason. The numbers inside this test are
+    the ORIGINAL synthetic ones on purpose — they are what makes the assertions
+    below fire, and re-pointing them at the current file would change what is
+    being demonstrated.
     """
     bp = tmp_path / "b.json"
     fp = suite_fingerprint(None, [])
@@ -558,24 +715,31 @@ def test_the_ratchet_uses_the_ensemble_mark_and_the_recorded_spread(tmp_path):
     assert any("half a statistic" in r for r in rep.refusals), rep.refusals
 
 
-def test_a_mark_measured_on_a_different_benchmark_is_refused(stocked, tmp_path):
+def test_a_mark_measured_on_a_different_benchmark_is_refused(independent,
+                                                             tmp_path):
     """D4's precondition, fired on a realistic input: one benchmark probe stops
     being part of the suite.
 
     Dropping `wigley_like_proportions` takes the suite from 27 points to 26.
-    MEASURED at two training sizes, because the size of the move is not the
+    MEASURED at three configurations, because the size of the move is not the
     point and quoting one number would overstate the case:
 
-        harvest            median_rel_err        move
-        60 hulls, seed 7   0.102623 -> 0.102540  -0.08%
-        120 hulls, seed 21 0.104462 -> 0.098547  -5.66%   (THIS fixture)
+        genome  harvest             median_rel_err        move
+        15-par  60 hulls, seed 7    0.102623 -> 0.102540  -0.08%
+        15-par  120 hulls, seed 21  0.104462 -> 0.098547  -5.66%
+        16-par  120 hulls, seed 7   0.135755 -> 0.137053  +0.96%   (THIS fixture)
 
-    Neither is anywhere near the 1.25 tolerance, and the second moves in the
+    None is anywhere near the 1.25 tolerance, and one of the three moves in the
     PASSING direction — a smaller benchmark made the model look better. The
     error gate cannot see this in either direction, so the fingerprint is what
     has to refuse, and it says which suite it expected.
+
+    The fixture is `independent` (seed 7), not `stocked` (seed 21): the first
+    retrain here must DEPLOY for the second one to be a comparison, and the
+    committed mark now refuses its own pinned seed. See the `independent`
+    fixture for that measurement.
     """
-    prov, m, _d = stocked
+    prov, m, _d = independent
     bp = tmp_path / "baselines.json"
     shutil.copy(_COMMITTED, bp)
     good, rep = retrain(prov, m, "wh_per_nm", baseline_path=bp)
@@ -634,7 +798,10 @@ def test_a_baseline_with_no_fingerprint_cannot_be_compared_and_refuses(
 def _stub_prov():
     class P:
         def training_matrix(self, *_a):
-            return np.zeros((30, 15)), np.ones(30)
+            # width from grammar, not a literal 15 — `GP.fit` is mocked in
+            # every caller so this never bit, and a stub that quietly describes
+            # the PREVIOUS genome is how the next change gets missed.
+            return np.zeros((30, grammar.N_PARAMS)), np.ones(30)
     return P()
 
 

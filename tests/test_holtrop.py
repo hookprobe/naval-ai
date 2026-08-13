@@ -485,19 +485,30 @@ def test_the_ladder_names_its_resistance_method_and_why_holtrop_is_not_it():
     The row offers two: wire Holtrop-Mennen into `evaluate()`, or put an
     explicit envelope guard there that routes small craft away from it. Over
     300 `grammar.sample` vectors (seed 3) floated to the 6 t default mission,
-    299 float and only 15 of them — 5.0% — satisfy all three of the method's
-    stated applicability clauses:
+    RE-MEASURED 2026-08-13 on the plate-P1/P2 kernel: 297 float and only 37 of
+    them — 12.5% — satisfy all three of the method's stated applicability
+    clauses:
 
-        L/B   min 1.97   med 4.32   max  9.66    band 3.9 - 9.5
-        B/T   min 0.84   med 6.96   max 43.73    band 2.1 - 4.0
-        Cp    min 0.39   med 0.66   max  0.88    band 0.55 - 0.85
+        L/B   min 1.72   med 5.04   max 18.96    band 3.9 - 9.5
+        B/T   min 0.42   med 5.63   max 36.86    band 2.1 - 4.0
+        Cp    min 0.49   med 0.63   max  0.81    band 0.55 - 0.85
 
-    B/T is the killer: shallow-draft river craft sit at 2-10x the
+    BEFORE, on the pre-rebuild kernel: 299 floated, 15 inside (5.0%), with
+    L/B 1.97/4.32/9.66, B/T 0.84/6.96/43.73 and Cp 0.39/0.66/0.88. The share
+    inside went 5.0% -> 12.5% and the reason is plate P1: `Cp` is now a GENE
+    bounded to the Froude-number prismatic table's span (0.525-0.710), so the
+    Cp clause — which used to refuse a third of the box on its own — is
+    satisfied by construction almost everywhere. NEITHER BAND MOVED; the bands
+    are Holtrop and Mennen's.
+
+    B/T is still the killer: shallow-draft river craft sit at 2-10x the
     beam-to-draught of the 1982 merchant/trawler population. Wiring H-M in
-    would spend the compute to produce an `L1H-INVALID` badge on 95% of the
+    would spend the compute to produce an `L1H-INVALID` badge on 87.5% of the
     search box and would leave a ship method one edit from answering for a
     boat. So the envelope is EVALUATED and REPORTED and the resistance stays
-    Michell + ITTC-57.
+    Michell + ITTC-57. The arm this test chooses is unchanged, and the
+    threshold that would change it is a MAJORITY, not a tenth — see the
+    assertion below, which now PINS the count instead of banding it.
 
     THE GUARD IS FED THE VERBATIM CASE IT EXISTS TO REJECT — the reference
     hull, which is outside on two clauses — and the words it produces are the
@@ -517,8 +528,16 @@ def test_the_ladder_names_its_resistance_method_and_why_holtrop_is_not_it():
     viol = ev.holtrop_envelope_violations
     assert viol, "the reference hull is measured to be OUTSIDE the envelope"
     joined = "; ".join(viol)
-    assert "L/B 3.00 outside [3.9, 9.5]" in joined
-    assert "B/T 8.70 outside [2.1, 4.0]" in joined
+    # RE-MEASURED 2026-08-13 ON THE PLATE-P1/P2 REFERENCE HULL. 3.00 and 8.70
+    # until then; the hull moved (`forefoot` 0.85 -> 0.60 and `r_transom`
+    # 0.75 -> 0.30, the latter because that symbol changed meaning from transom
+    # half-BEAM ratio to transom sectional-AREA ratio), and both ratios are
+    # read off the FLOATED waterline, so both moved with it. NEITHER BAND
+    # MOVED, and the finding is unchanged and if anything stronger: the
+    # reference hull is still outside on the same two clauses, and B/T is still
+    # the killer at 7.34 against a 2.1-4.0 band.
+    assert "L/B 3.17 outside [3.9, 9.5]" in joined
+    assert "B/T 7.34 outside [2.1, 4.0]" in joined
     # each clause names its measured value, or "outside the envelope" is not
     # actionable
     for v in viol:
@@ -554,10 +573,20 @@ def test_the_ladder_names_its_resistance_method_and_why_holtrop_is_not_it():
         fn = 2.5 / math.sqrt(9.80665 * st.lwl_eff)
         if not envelope_violations(pp, fn, st.cp):
             inside += 1
-    assert total == 299, f"{total} of 300 floated; the table above is measured"
-    assert inside == 15, (
-        f"{inside}/{total} hulls are inside the Holtrop envelope, not 15/299 — "
+    assert total == 297, f"{total} of 300 floated; the table above is measured"
+    assert inside == 37, (
+        f"{inside}/{total} hulls are inside the Holtrop envelope, not 37/297 — "
         f"re-measure the table above rather than loosening this")
-    assert 0.0 < inside / total < 0.10, (
-        "the envelope now admits a real share of the box; if it ever reaches a "
-        "majority, WIRING Holtrop in becomes the honest arm of gap E1b")
+    # THE BAND WAS `< 0.10` AND IT WAS THE WRONG SHAPE FOR THE QUESTION.
+    # 0.10 was "comfortably a small minority" written when the measurement was
+    # 5.0%; it is now 12.5% for a reason the docstring names (Cp became a
+    # bounded gene), and the arm this test chooses does not turn on 5 vs 12
+    # percent — the sentence beside it has always said the trigger is a
+    # MAJORITY. So the guard is now the exact PIN two lines up, which is
+    # strictly tighter than any band, plus the decision threshold stated as
+    # what it is. A band loose enough to survive a re-measurement and tight
+    # enough to mean something is a band doing neither job.
+    assert 0.0 < inside / total < 0.50, (
+        "the envelope now admits a MAJORITY of the box; WIRING Holtrop in "
+        "becomes the honest arm of gap E1b — this is the arm change, not a "
+        "number to widen")

@@ -1158,36 +1158,57 @@ def test_export_refuses_a_design_that_failed_the_ladder(tmp_path):
 
 # ---------------- G6: the exported solid IS the validated hull -------------
 
-def test_step_export_defaults_to_the_validated_discretisation(tmp_path):
-    """G6. `export_step`/`export_iges` lofted a hard-coded 12 stations while
-    the Hull the ladder floated and ruled on has 41. MEASURED: 29.353430 m^3
-    against a kernel moulded volume of 29.512494 m^3 — **-0.539%** between what
-    passed the gates and what shipped, from a default argument.
+def test_step_export_lofts_denser_than_the_validated_discretisation(tmp_path):
+    """G6, AND THE CLAIM IN THIS TEST'S OLD NAME IS NOW REFUTED.
 
-    At the validated 41 stations the same loft reads +0.0075%, a factor of 72
-    better, and the receipt records which it was either way.
+    It was `test_step_export_defaults_to_the_validated_discretisation`, and it
+    asserted `rec["n_stations_exported"] == hull.n_stations == 41` — the
+    exporter must loft exactly the discretisation the ladder validated. That
+    was the right fix for the original defect (a hard-coded 12 stations against
+    a validated 41, MEASURED at **-0.539%**) and it is the WRONG resting place,
+    because matching the ladder's station count does not make the loft the
+    ladder's boat.
 
-    BEFORE 2026-08-13 those four figures were 37.247988 / 37.433959 / -0.497% /
-    -0.0004% (factor 1240). The RATIO changed, not just the volumes: the
-    geometry-kernel rebuild moved the reference hull (`mid_params` went
-    `forefoot` 0.85 -> 0.60 and `r_transom` 0.75 -> 0.30, the latter having
-    also changed meaning from a transom half-BEAM ratio to a transom sectional-
-    AREA ratio), so both the displacement and the longitudinal fairness of the
-    thing being lofted are different. 0.0075% against the 0.01% bar below is a
-    25% margin where it used to be 25x; that is recorded here rather than
-    silently enjoyed, because the next person to shave the loft will trip it."""
+    MEASURED 2026-08-13. `Hull._section_at_rows` LERPS THE CONTROL POINTS
+    between stations, so a loft through 41 stations describes the
+    piecewise-linear-in-controls surface, while `hydrostatics.solve` trapezoids
+    the EXACT areas at those same stations. Area is CONVEX in the control
+    points, so `A(lerp p) <= lerp(A p)`: the loft can only ever enclose LESS,
+    and it does, on every hull tested. Receipt `displacement_error_pct` on the
+    reference hull:
+
+        loft stations      12         41        161 (shipped)
+        displacement    -0.4587%   -0.0129%     +0.0123%
+        vs kernel       -0.5066%   +0.0075%     +0.0335%
+
+    The sign flips at 161 because the loft has converged onto the true hull and
+    what remains is the LADDER's own 41-station trapezoid — a separate and
+    smaller question. `export._LOFT_STATIONS` is 161, station-ALIGNED
+    (161 = 4 x 40 + 1) so the loft grid contains the validated stations exactly,
+    and the export REBUILDS the hull at that count rather than resampling the
+    41-station one, which is measured not to help.
+
+    The receipt still records BOTH counts, which is the part that was always
+    right: a discretisation nobody wrote down is the defect, not the
+    discretisation itself.
+    """
     import json
     pytest.importorskip("cadquery")
-    from navalai.export import export_step, moulded_volume_m3
+    from navalai.export import _LOFT_STATIONS, export_step, moulded_volume_m3
 
     hull = Hull(mid_params())
     p = export_step(hull, tmp_path / "hull.step")
     rec = json.loads((tmp_path / "hull.step.receipt.json").read_text())
-    assert rec["n_stations_exported"] == hull.n_stations == 41
-    assert rec["n_stations_validated"] == 41
+    assert rec["n_stations_exported"] == _LOFT_STATIONS == 161
+    assert rec["n_stations_validated"] == hull.n_stations == 41
+    # station-ALIGNED, so the loft grid contains the validated stations
+    assert (_LOFT_STATIONS - 1) % (hull.n_stations - 1) == 0
     assert rec["kernel_moulded_volume_m3"] == pytest.approx(
         moulded_volume_m3(hull), abs=1e-5)
-    assert abs(rec["volume_error_pct"]) < 0.01
+    assert rec["volume_error_pct"] == pytest.approx(0.0335, abs=0.01)
+    # and the loft is now on the OTHER side of the ladder, which is the whole
+    # point: it no longer under-encloses the boat that passed the gates
+    assert rec["displacement_error_pct"] == pytest.approx(0.0123, abs=0.01)
     assert p.stat().st_size > 10_000
 
 
@@ -1198,8 +1219,8 @@ def test_the_old_twelve_station_loft_really_did_lose_half_a_percent(tmp_path):
     RE-MEASURED 2026-08-13 against the rebuilt geometry kernel:
 
         quantity                       BEFORE        AFTER
-        solid_volume_m3 at 12          37.248        29.353
-        volume_error_pct at 12         -0.497%       -0.539%
+        solid_volume_m3 at 12          37.248        29.363
+        volume_error_pct at 12         -0.497%       -0.5066%
 
     The volume moved because the REFERENCE HULL moved, not because the loft
     did: `mid_params` went `forefoot` 0.85 -> 0.60 and `r_transom` 0.75 -> 0.30
@@ -1207,7 +1228,15 @@ def test_the_old_twelve_station_loft_really_did_lose_half_a_percent(tmp_path):
     transom sectional-AREA ratio), which is a materially finer bow and a much
     smaller transom. The FINDING is unchanged and is the percentage, not the
     cubic metres: a 12-station default still loses about half a percent of the
-    displacement the ladder signed off, and it lost slightly more of it here.
+    displacement the ladder signed off.
+
+    THE SECOND FIGURE MOVED AGAIN LATER THE SAME DAY, 29.353 -> 29.363 and
+    -0.539% -> -0.5066%, and the reason is worth a line because it makes this
+    test sharper rather than blunter. `export_step(..., n_stations=12)` used to
+    SAMPLE the 41-station hull at twelve places; it now REBUILDS the hull at
+    twelve stations from the closed form. The first is a lerp of a lerp and the
+    second is an honestly coarse boat, so a 12-station loft is now exactly what
+    the name says it is. It still loses half a percent.
 
     NOT AFFECTED BY THE `Hull.section()` POSITIONAL-READ DEFECT fixed in
     `navalai/export.py` on the same day. That defect bites hulls with
@@ -1224,5 +1253,5 @@ def test_the_old_twelve_station_loft_really_did_lose_half_a_percent(tmp_path):
     export_step(Hull(mid_params()), tmp_path / "coarse.step", n_stations=12)
     rec = json.loads((tmp_path / "coarse.step.receipt.json").read_text())
     assert rec["n_stations_exported"] == 12
-    assert rec["solid_volume_m3"] == pytest.approx(29.353, abs=0.01)
-    assert rec["volume_error_pct"] == pytest.approx(-0.539, abs=0.01)
+    assert rec["solid_volume_m3"] == pytest.approx(29.363, abs=0.01)
+    assert rec["volume_error_pct"] == pytest.approx(-0.5066, abs=0.01)

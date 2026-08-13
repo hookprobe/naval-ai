@@ -131,7 +131,13 @@ def test_an_unbracketable_or_unconverged_flotation_is_refused_not_midpointed():
     try:
         solve_to_displacement(h, 1.0)
     except ValueError as exc:
-        assert "4.134" in str(exc)
+        # 4.134 kg UNTIL 2026-08-13. The number is the reference hull's own
+        # minimum buoyant mass at the lowest bracketable waterline, so it moved
+        # with the hull when the plate-P1/P2 kernel re-solved it (see
+        # `tests/test_phase0.mid_params`); the REFUSAL is what this test is
+        # about and it is unchanged, as is the requirement that the message
+        # carry the number that made the target impossible.
+        assert "4.164" in str(exc)
     # It is NOT the swamping refusal wearing a new string.
     with pytest.raises(ValueError, match="swamp"):
         solve_to_displacement(h, 1e6)

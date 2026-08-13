@@ -16,11 +16,69 @@
 >
 > | Question | Ask |
 > |---|---|
+> | what is this for, and what is the gap it fills? | this file, §0 |
 > | what are we allowed to build, and who owns it? | this file |
 > | what is built, in what order, against what bars? | `docs/BUILD-PLAN.md` |
 > | what is green, red, or overdue? | `python -m navalai.gates`, `data/gate-ledger.json` |
 > | what is still broken? | `python scripts/reconcile_gaps.py`, `docs/GAP-REGISTER.md` |
 > | how do I work in this tree? | `CLAUDE.md`, `docs/LESSONS.md` |
+
+## 0 · Vision — the one sentence
+
+> **NavalAI generates the safest, most energy-efficient, BUILDABLE vessel for a
+> specified mission and budget — and shows its evidence.**
+
+Each word in it is load-bearing. *Safest* and *most energy-efficient* are
+objectives the ladder measures; *buildable* is a constraint the manufacturing
+back end enforces rather than a hope; *for a specified mission and budget* means
+the mission is the INPUT, not a caption written after the fact; and *shows its
+evidence* is the part that is hardest to copy and the part this repository has
+already paid for.
+
+### 0.1 The gap is NOT that "the industry lacks tools"
+
+This project has claimed that in the past and it is false. CAD systems,
+hydrostatic packages, RANS solvers and open-source naval-architecture
+calculators all exist, many of them good and several of them free.
+
+**The gap is that there is no broadly accessible, integrated, physics-aware
+workflow in which a technically capable person can state a MISSION and receive a
+safe, efficient, structurally realisable vessel together with a traceable
+evidence trail.** Today that path is fragmented:
+
+    CAD → hydrostatics → resistance → CFD → manual stability
+        → manual structure → manual electrical → manual drawings
+
+Every arrow in that chain is a hand-carried file, a re-keyed number and a lost
+provenance. NavalAI collapses the chain into one governed pipeline, and the
+governing is the product.
+
+### 0.2 The evidence trail is the moat
+
+Three mechanisms, all of them already in the tree and all of them gated, are
+what would let a builder trust an output they did not compute themselves:
+
+- **every quantity carries `{value, tier, sigma}`** — there are no bare numbers,
+  and a tier is the name of the model that produced the number;
+- **the ladder REFUSES what it cannot compute in-process** rather than
+  substituting something cheaper (L3 raises `TierRequiresOperator` and names the
+  operator route; a speed past the Michell envelope is badged `L1-INVALID`,
+  which ranks BELOW L0 so it can never compare as a valid result);
+- **a failing gate is RECORDED, never softened** — a missed bar goes into
+  `data/gate-ledger.json` with a measured watermark, an owner and a review-by
+  date (§3 step 5, and honesty rule 6).
+
+An optimiser that reports a beautiful number is easy. An optimiser that reports
+which model produced the number, how uncertain it is, and what it declined to
+answer, is the thing a person can build a boat from.
+
+### 0.3 Relationship to `docs/BUILD-PLAN.md` §1
+
+That section states the same vision in SYSTEM-PLAN terms — the SELL → BUILD →
+RUN loop, the evidence graph, the fleet-learning return path. **This sentence is
+the platform-law statement and governs if the two ever diverge**; §1 is the plan
+that realises it. A vision is what a product is allowed to be, which is this
+file's question.
 
 ## 1 · The platform ("one system")
 
@@ -42,17 +100,52 @@ rule profiles, mission presets); it may never bypass a gate or fork physics.
 
 ## 2 · Product lines (SKUs are configurations, not code)
 
+### 2.0 Two markets, one engine, and the difference is the mission layer
+
+The vision in §0 is served by two product families that share nearly the whole
+kernel — geometry, physics ladder, rules tier, arrangement, manufacturing — and
+differ mainly in what a mission *is* and what the optimiser is asked to minimise:
+
+| Family | Mission is stated as | Asked for |
+|---|---|---|
+| **Recreational / DIY** | people, range, speed, comfort, cost, coastal conditions | a safe, buildable vessel a competent builder can cut and assemble |
+| **Autonomous marine drone** | payload, endurance, sea state, sensor package | an autonomous vessel sized to the payload and the mission duration |
+
+The drone family does not have ONE objective. A fishing drone wants minimum
+Wh/km; a research/survey platform wants maximum survey-km per kWh; a
+surveillance platform wants maximum time-on-station. Some of them care about
+**wake and acoustic disturbance**, which are not energy at all — a survey
+platform that scares the thing it is measuring has failed its mission at a
+perfectly good Wh/km.
+
+**Nothing about the drone family ships today, and the honest reason is the
+mission layer, not the physics.** `mission.MissionSpec` carries crew,
+displacement target, cruise speed, design category, waters and an energy budget
+— a crewed-craft vocabulary. There is no payload/endurance/sea-state/sensor
+mission, and `optimize.HullProblem`'s three objectives are `wh_per_nm`, build
+panel area and distance from the GM band: no time-on-station, no survey-km/kWh,
+no wake or acoustic term. Adding those is a mission-layer and objective change
+that goes through §3 like anything else — and per §0 it must not become a fork.
+
+### 2.1 Declared lines
+
 | Line | Mission preset | Grammar subspace | Rules profile |
 |---|---|---|---|
-| **Hull-Line v1** | any (research base) | full 15-param | ISO 12217/12215 subset |
+| **Hull-Line v1** | any (research base) | full 16-param | ISO 12217/12215 subset |
 | **Solar Liveaboard** | 6 t, Danube/Black Sea, cat C/D | sharp-chine, 9–14 m | + ES-TRIN |
 | **Dayboat** | 1–3 t, cat D | pram/sharp-chine 4–7 m | cat D profile |
 | **Full-Vessel Line v2** | + interior/exterior arrangement + unsinkability | + arrangement grammar | + ergonomics tier E + flotation tier F |
 | **Kit-Line v3** | the self-certifiable envelope (LH < 12 m, cat C/D), delivered as a CNC kit | unchanged | unchanged, one policy profile, one delivery mode |
+| **Drone-Line** (declared, not built) | payload + endurance + sea state + sensor package | unchanged | uncrewed profile — **the applicable rules are not yet identified**, and the recreational-craft profile is the wrong one |
 
 Adding a product = one mission preset + one grammar subspace + one rules
 profile. If it needs new physics or new grammar axes, that is a PLATFORM change
-and goes through the lifecycle below.
+and goes through the lifecycle below. The Drone-Line needs both a new mission
+vocabulary and new objectives, so it is a platform change, not a preset.
+
+The genome is **sixteen** parameters (`grammar.N_PARAMS`, verified 2026-08-13).
+This row read "15-param" until then; it is one number and it lives in
+`grammar.PARAMS`, so ask that rather than this table.
 
 **What is built of each line is not stated here** — it moved, and it belongs to
 `python -m navalai.gates` and `docs/BUILD-PLAN.md`. A line listed above is a

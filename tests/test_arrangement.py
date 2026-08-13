@@ -231,6 +231,13 @@ def test_l0a_runs_inside_the_ten_millisecond_budget(ref):
     and it is worth stating that a correctness fix doubled this number and
     still left a factor of 23.) The median is the statistic asserted: a single
     worst-case sample on a shared machine measures the scheduler.
+
+    RE-MEASURED 2026-08-13 after the geometry-kernel rebuild and the layout
+    re-draw, same machine, same 8 + 4 nodes: median **0.27 ms**. Same code
+    path; the count of boxes did not change and neither did the rules, so the
+    difference is the machine, not the checker. Recorded because the 2.0 ms
+    regression guard below is only worth having if the number under it is the
+    one this tree actually measures.
     """
     A.check_l0a(ref)                       # warm the numpy paths
 
@@ -281,10 +288,18 @@ def test_two_overlapping_spaces_are_refused_and_both_are_named(ref):
     """Negative control 1 — overlap.
 
     The quarter berth is moved across the centreline into the head. Nothing
-    else changes: same function, same length, same masses.
+    else changes: same function, same masses.
+
+    The clash box used to be offset 100 mm FORWARD of the head as well as
+    across it, and on the re-drawn layout that offset ran it 50 mm into the nav
+    station: two overlaps, and `len(hits) == 1` failed on a control that was
+    meant to isolate one. The head's aft neighbour is 1.65 m away and its
+    forward neighbour 50 mm, so there is no longitudinal offset that stays
+    isolated in both directions. The offset is transverse only now — which is
+    what the test's own sentence says it is doing.
     """
     head = next(s for s in ref.spaces if s.id == "head").box
-    clash = A.Box(head.x0 + 0.10, head.x1 + 0.10, head.y0 - 0.10, head.y1 - 0.10,
+    clash = A.Box(head.x0, head.x1, head.y0 - 0.10, head.y1 - 0.10,
                   head.z0, head.z0 + 0.95)
     bad = _with_space(ref, "berth.aft", box=clash)
 
@@ -337,8 +352,12 @@ def test_a_space_larger_than_the_envelope_is_refused_on_each_axis(ref, env):
     assert [v.subject for v in hits] == ["saloon"], rep.messages
     assert hits[0].measured == pytest.approx(1.5)
 
-    # (b) wider than the hull at its own floor level. The saloon is already the
-    # full interior beam, so 0.5 m a side is unambiguous.
+    # (b) wider than the boat has room for. The saloon is the full width the
+    # COACHROOF allows (0.845 m half-beam against a 0.895 m coachroof), so
+    # 0.5 m a side is unambiguous. It is refused at the CEILING rather than the
+    # floor on this hull — 1.345 m still fits inside the 1.363 m the hull
+    # offers at sole level — which is the same rule reading the same box at the
+    # level that binds, and is exactly what the envelope-Y fix was for.
     rep = A.check_l0a(_with_space(
         ref, "saloon",
         box=dataclasses.replace(saloon, y0=saloon.y0 - 0.5, y1=saloon.y1 + 0.5)))
@@ -618,9 +637,11 @@ def _broken_layouts(ref: A.Arrangement, env: A.Envelope) -> dict:
                                     y1=saloon.y1 + 0.5)),
         A.R_ENVELOPE_Z: _with_space(
             ref, "saloon", box=dataclasses.replace(saloon, z1=saloon.z1 + 0.5)),
+        # Transverse offset only — a longitudinal one lands in the nav station
+        # on the re-drawn layout; see the isolated control above.
         A.R_OVERLAP: _with_space(
             ref, "berth.aft",
-            box=A.Box(head.x0 + 0.10, head.x1 + 0.10, head.y0 - 0.10,
+            box=A.Box(head.x0, head.x1, head.y0 - 0.10,
                       head.y1 - 0.10, head.z0, head.z0 + 0.95)),
         A.R_MIN_DIMS: _with_space(
             ref, "berth.aft", box=dataclasses.replace(aft, x1=aft.x0 + 1.90)),
@@ -884,9 +905,9 @@ def test_a_locker_has_no_floor_and_says_which_way_that_cuts(ref):
     """STOWAGE is unbounded on all three limbs, on purpose.
 
     'A shallow locker is still a locker, and inventing a floor would evict real
-    stowage.' The forepeak of the reference boat is 0.30 m wide and is a chain
-    locker; a fabricated 560 mm floor would delete it and the boat would carry
-    its ground tackle nowhere.
+    stowage.' The forepeak of the reference boat is 0.315 m wide (0.30 m before
+    the geometry-kernel rebuild) and is a chain locker; a fabricated 560 mm
+    floor would delete it and the boat would carry its ground tackle nowhere.
     """
     d = A.min_dims_m(A.Function.STOWAGE)
     assert d == {"plan_long": None, "plan_short": None, "height": None}
@@ -957,13 +978,29 @@ def test_the_trunk_is_a_step_and_is_never_interpolated_across(hull, env):
     was added to a per-station array and the array was then INTERPOLATED at the
     two ends of a run — smearing a vertical step over one station spacing.
 
-    MEASURED on the reference layout: the head runs 1.35-2.15 m, the coachroof
-    starts at 1.30 m, so the head is 50 mm inside the trunk from end to end.
-    Interpolating between station 1.25 (no trunk, 1.000 m) and station 1.50
-    (trunk, 1.735 m) returned **1.294 m**. The head then reported a height of
-    **1619 mm** against the 1905 mm compromise-headroom floor and L0-A FAILED
-    the reference layout on an overhead that exists nowhere on the vessel —
-    neither the sheer nor the coachroof, but 40% of the way between them.
+    MEASURED 2026-08-07 on the pre-rebuild layout: the head ran 1.35-2.15 m,
+    the coachroof started at 1.30 m, so the head was 50 mm inside the trunk
+    from end to end. Interpolating between station 1.25 (no trunk, 1.000 m) and
+    station 1.50 (trunk, 1.735 m) returned **1.294 m**. The head then reported
+    a height of **1619 mm** against the 1905 mm compromise-headroom floor and
+    L0-A FAILED the reference layout on an overhead that exists nowhere on the
+    vessel — neither the sheer nor the coachroof, but 40% of the way between
+    them.
+
+    RE-MEASURED 2026-08-13 on the re-drawn layout, because a guard is only a
+    guard if it still fires. Head 3.10-3.90 m, coachroof from 3.05 m, same
+    50 mm inset: the broken implementation returns **1.291 m** against a
+    correct 1.727 m, i.e. a head **1624 mm** tall. It fires on the `inside` and
+    `tiny` limbs below. It does NOT fire on `straddle` — that limb has a
+    bare-hull station inside its run pinning the minimum at the sheer under
+    both implementations, so it is a conservatism check ('a box crossing the
+    edge gets the sheer'), not a fire-test, and saying so is cheaper than
+    discovering it later.
+
+    That the defect is still reachable at all is a layout decision: `hull.x` is
+    41 stations over 10 m, so a coachroof edge on a round fraction of LWL lands
+    ON a station and the step has nothing to be smeared across.
+    `arrangement._TRUNK_X0` is 0.305 rather than 0.300 for that reason.
 
     The invariant that replaces it: over a run entirely under the trunk, the
     overhead is exactly the bare-hull overhead plus the trunk height; over a
@@ -984,6 +1021,10 @@ def test_the_trunk_is_a_step_and_is_never_interpolated_across(hull, env):
     straddle = (t.x0 - 0.20, t.x0 + 0.80)
     assert env.overhead_z(*straddle) == pytest.approx(
         bare.overhead_z(*straddle)), "a box crossing the edge gets the sheer"
+    # ... and the run really does straddle: the trunk buys the same box nothing
+    # here while buying `inside` its full height, which is the only thing that
+    # makes the equality above informative rather than a restatement.
+    assert env.overhead_z(*straddle) < env.overhead_z(*inside)
 
     # The consequence, at the gate: the head clears standing headroom.
     head = next(s for s in A.reference_layout(hull).spaces if s.id == "head")
@@ -994,8 +1035,9 @@ def test_the_trunk_is_a_step_and_is_never_interpolated_across(hull, env):
 def test_the_search_bounds_contain_the_layout_they_are_meant_to_contain(ref, env):
     """DEFECT (found 2026-08-07, `Arrangement.bounds`): the upper z bound was
     `overhead_z(0, LWL)`, which is the LOWEST overhead anywhere — 1.000 m on
-    this hull. Four of the reference layout's own spaces have ceilings at
-    1.735 m under the coachroof, so the search box excluded the fixture the
+    this hull. Three of the reference layout's own spaces have ceilings at
+    1.727 m under the coachroof (four at 1.735 m before the geometry-kernel
+    rebuild re-drew the layout), so the search box excluded the fixture the
     gate is defined by, and V2.3's CP+GA would have been unable to express it.
 
     `bounds()` bounds the SEARCH, not feasibility (the hull is not a cuboid),
@@ -1015,8 +1057,10 @@ def test_the_search_bounds_contain_the_layout_they_are_meant_to_contain(ref, env
         "the highest overhead and the lowest are not the same number here"
     # The highest overhead is NOT sheer_max + trunk height: the sheer peaks at
     # the stem (1.279 m) where the coachroof does not reach, and the coachroof
-    # peaks at its own forward end (1.031 + 0.735 = 1.766 m). Two different
-    # stations, which is exactly why the profile is built before it is reduced.
+    # peaks at its own forward end (1.031 + 0.727 = 1.758 m; it was
+    # 1.031 + 0.735 = 1.766 m before the geometry-kernel rebuild moved the
+    # sole). Two different stations, which is exactly why the profile is built
+    # before it is reduced.
     t = env.trunk
     profile = np.where((env.x >= t.x0) & (env.x <= t.x1),
                        env.z_sheer + t.height, env.z_sheer)
@@ -1049,21 +1093,45 @@ def test_the_envelope_reports_what_it_extracted_and_what_it_assumed(env, hull):
 
 
 def test_the_accommodation_run_is_measured_not_remembered(env):
-    """MEASURED 2026-08-07 on the 10 m reference hull: (0.00, 8.50) m.
+    """RE-MEASURED 2026-08-13 on the rebuilt hull: (0.00, **8.75**) m.
 
-    The docstring claimed (0.00, 9.20) — 800 mm off the bow — until the module
-    was executed for the first time. It is 1.50 m. A measurement beats a
-    document; this test is what keeps the document honest from now on.
+    BEFORE 2026-08-13: (0.00, 8.50) m, 1.50 m off the bow.
+    AFTER  2026-08-13: (0.00, 8.75) m, 1.25 m off the bow.
+
+    Nothing about the RULE moved. `accommodation_x` asks where the sole stops
+    being `SOLE_MIN_CLEAR_WIDTH_MM` wide, and the geometry-kernel rebuild
+    (plates P1/P2) changed the hull it asks about: the section became a shape
+    function, `forefoot` went 0.85 -> 0.60 and the hull's wetted surface fell
+    30.579 -> 25.639 m^2. The sole now holds its 560 mm one station longer.
+
+    The number's whole history is a document losing to a measurement. It was
+    written as (0.00, 9.20) and had never been run; it measured 8.50; it now
+    measures 8.75. This test is what makes the next change to it a diff.
     """
     x0, x1 = env.accommodation_x
-    assert (x0, x1) == pytest.approx((0.0, 8.5), abs=0.02)
-    assert env.lwl - x1 == pytest.approx(1.5, abs=0.02)
-    # It ends where the sole stops being wide enough to stand on, so the
-    # V-berth and the forepeak are forward of it and sit on platforms.
-    for sid in ("berth.fwd", "stowage.fwd"):
-        s = next(s for s in A.reference_layout().spaces if s.id == sid)
-        assert s.box.x1 > x1
-        assert s.box.z0 > env.sole_z, "forward of the accommodation, on a platform"
+    assert (x0, x1) == pytest.approx((0.0, 8.75), abs=0.02)
+    assert env.lwl - x1 == pytest.approx(1.25, abs=0.02)
+
+    # The forepeak is forward of it and sits on a platform, which is how the
+    # bow of a real boat is built.
+    fwd = next(s for s in A.reference_layout().spaces if s.id == "stowage.fwd")
+    assert fwd.box.x1 > x1
+    assert fwd.box.z0 > env.sole_z, "forward of the accommodation, on a platform"
+
+    # The V-berth USED TO BE forward of it too, and on this hull it is not.
+    # That is a measurement, not a relaxation: a berth is a BOX, so a 1525 mm
+    # double needs 0.8125 m of half-breadth at its FORWARD-most station, and
+    # the platform level that delivers it climbs as the station moves forward —
+    # -0.230 m at 0.830 LWL, +0.227 m at 0.850, +0.913 m at 0.870, against an
+    # overhead of 1.042 m. At 0.870 LWL (the station the pre-rebuild hull
+    # carried) the berth has 129 mm of headroom over its platform and L0-A
+    # refuses it outright at its ceiling. It was MOVED aft, not narrowed:
+    # DOUBLE_BERTH_WIDTH_MIN_MM is a sourced bar and the layout still clears it.
+    berth = next(s for s in A.reference_layout().spaces if s.id == "berth.fwd")
+    assert berth.box.x1 < x1, "the fine new bow does not carry a double past 8.75 m"
+    assert berth.box.z0 > env.sole_z, "still on the platform the forefoot forces"
+    assert berth.box.dy >= E.DOUBLE_BERTH_WIDTH_MIN_MM.value / 1e3
+    assert berth.box.z1 - berth.box.z0 > 1.0, "and you can sit up in it"
 
 
 def test_an_envelope_with_no_interior_is_refused_rather_than_reported_empty(hull):
@@ -1088,8 +1156,16 @@ def test_a_v_berth_that_does_not_fit_is_refused_at_construction(hull):
     FORWARD-most station, and at 0.915 LWL that is 0.617 m against the 0.8125 m
     a 1525 mm double needs. The refusal itself is correct and is kept: a layout
     that silently produced a 1.2 m 'double' would be worse. What changed is the
-    station, to 0.870 LWL, and the test asserts both — that the shipped berth
-    clears the double-berth floor, and that the old station still cannot.
+    station, and the test asserts both — that the shipped berth clears the
+    double-berth floor, and that the old station still cannot.
+
+    RE-MEASURED 2026-08-13 on the rebuilt hull. The berth's forward station has
+    now moved TWICE: 0.915 -> 0.870 (pre-rebuild) -> **0.830** LWL. The new bow
+    is finer — 0.682 m of interior half-breadth at 0.915 LWL against the old
+    0.617 m being the one number that got easier, while 0.870 LWL went from a
+    -0.138 m platform to a +0.913 m one — so the refusal above still fires for
+    the same reason, and the shipped station moved aft again rather than the
+    1525 mm being trimmed to reach it.
     """
     env = A.Envelope.from_hull(hull, trunk=A.reference_trunk(hull))
     want_half = 0.5 * E.DOUBLE_BERTH_WIDTH_MIN_MM.value / 1e3 + 0.05
@@ -1181,19 +1257,36 @@ def test_a_space_that_stands_above_the_sheer_is_measured_against_the_coachroof(
     for any z above the sheer (it extends the topsides upward forever), and the
     check never looked at that level anyway.
 
-    MEASURED on the reference layout, which L0-A PASSED: the saloon, the galley
-    and the head all stood 735 mm above the sheer, with half-beams of
-    1.399 / 1.248 / 1.128 m against a 0.964 m coachroof. The saloon protruded
-    435 mm through the side of the coachroof, each side, over its whole height.
-    The gate's own fixture was not a buildable boat, and 'fits in the envelope'
-    is one of the three rule families L0-A exists to enforce.
+    MEASURED 2026-08-07 on the reference layout, which L0-A PASSED: the saloon,
+    the galley and the head all stood 735 mm above the sheer, with half-beams
+    of 1.399 / 1.248 / 1.128 m against a 0.964 m coachroof. The saloon
+    protruded 435 mm through the side of the coachroof, each side, over its
+    whole height. The gate's own fixture was not a buildable boat, and 'fits in
+    the envelope' is one of the three rule families L0-A exists to enforce.
+
+    Those four figures are the PRE-REBUILD hull's and are kept as the record of
+    the defect. On the rebuilt hull (plates P1/P2) the coachroof half-width is
+    0.895 m and the saloon's is 0.845 m, so the control below no longer names a
+    literal 1.399: it is DERIVED from the envelope, one margin inside what the
+    hull offers at the saloon's floor. A hard-coded width would have been a
+    fourth copy of a hull dimension, and it is exactly what went stale here —
+    1.399 m was the old hull's beach mark and this test failed on it the day
+    the kernel changed, asserting `1.363 > 1.399` about a boat that no longer
+    exists.
     """
     t = env.trunk
     # The mechanism, stated as a fact about the geometry kernel: above the
     # sheer the hull query does NOT go to zero.
+    #
+    # The run used to be the literal (3.0, 4.0), which was inside the old
+    # coachroof and is 50 mm outside this one — the coachroof's aft end moved
+    # 1.30 -> 3.05 m when the hull was rebuilt. It is taken off the trunk now,
+    # because a station hard-coded here is a second copy of a layout decision
+    # and it went stale the day the layout moved.
     above = float(env.z_sheer.min()) + 0.30
-    assert env.min_half_breadth(3.0, 4.0, above) > 1.0
-    assert env.available_half_breadth(3.0, 4.0, above) == pytest.approx(
+    run = (t.x0 + 0.50, t.x0 + 1.50)
+    assert env.min_half_breadth(*run, above) > 1.0
+    assert env.available_half_breadth(*run, above) == pytest.approx(
         t.half_width)
     # ... and outside the coachroof's run there is nothing up there at all.
     assert env.available_half_breadth(t.x1 + 0.5, t.x1 + 1.0,
@@ -1204,12 +1297,25 @@ def test_a_space_that_stands_above_the_sheer_is_measured_against_the_coachroof(
         assert s.box.half_beam <= env.available_half_breadth(
             s.box.x0, s.box.x1, s.box.z1) + A.TOUCH_TOL_M, s.id
 
-    # The control: widen the saloon back out to the hull's beam and it is
-    # refused — at its CEILING, and the row says so.
+    # The control: widen the saloon back out to the HULL's beam at its own
+    # floor — which is what the pre-fix layout did — and it is refused at its
+    # CEILING, where the coachroof is.
+    #
+    # BEFORE 2026-08-13 this read `y0=-1.399, y1=1.399`, the saloon half-beam
+    # measured on the pre-rebuild hull. AFTER: the width is re-measured from
+    # the envelope every run, 50 mm inside what the hull offers at the saloon's
+    # floor. On today's hull that is **1.313 m** against a 0.895 m coachroof
+    # (BEFORE: 1.399 m against 0.964 m). The two assertions that follow are
+    # what the control has to be for the test to mean anything, so they are
+    # asserted rather than assumed: the width must FIT at the floor, and must
+    # NOT fit at the ceiling. A control that failed on both levels would still
+    # go green while proving nothing about which level the rule reads.
     saloon = next(s for s in ref.spaces if s.id == "saloon").box
-    wide = dataclasses.replace(saloon, y0=-1.399, y1=1.399)
-    # It still fits at the floor, which is why the old check passed it.
-    assert env.available_half_breadth(saloon.x0, saloon.x1, saloon.z0) > 1.399
+    hull_half = env.available_half_breadth(saloon.x0, saloon.x1, saloon.z0)
+    wide_half = hull_half - 0.05
+    assert wide_half < hull_half, "the control must fit at the floor"
+    assert wide_half > t.half_width, "the control must NOT fit under the coachroof"
+    wide = dataclasses.replace(saloon, y0=-wide_half, y1=wide_half)
     rep = A.check_l0a(_with_space(ref, "saloon", box=wide))
     hits = rep.by_rule(A.R_ENVELOPE_Y)
     assert [v.subject for v in hits] == ["saloon"], rep.messages

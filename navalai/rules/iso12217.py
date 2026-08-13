@@ -4,8 +4,31 @@ Implemented tests (each a typed executable checker with clause provenance):
   R-SCP  SCOPE: does 12217-1 govern this hull at all
   R-DFH  downflooding height vs design-category floor
   R-OLH  offset-load heel (crew crowding to one side)
-  R-GM   metacentric-height floor per category
+  R-GM   metacentric-height floor per category — MONOHULLS ONLY
+  R-MHS  multihull stability: REFUSED, not assessed (see below)
   R-CAT  category context (significant wave height the category implies)
+
+WHICH STABILITY CRITERION APPLIES IS A FUNCTION OF TOPOLOGY, NOT ONLY OF
+DESIGN CATEGORY (2026-08-14). `CATEGORY_TABLE` already varies the bars by
+category; nothing varied them by hull count, and the two are ORTHOGONAL — a
+category C catamaran and a category A catamaran face different sea states, and
+a category C catamaran and a category C monohull face different FAILURE MODES.
+
+A GM floor is the monohull criterion: GM is the initial slope of a righting-arm
+curve that rises, peaks and vanishes, and below the angle of vanishing stability
+a monohull self-rights. A catamaran's parallel-axis A_wp*d^2 term makes its GM
+enormous, so it clears any GM floor by a wide margin AND CAN STILL CAPSIZE AND
+STAY INVERTED. Reporting `R-GM PASS` for one is a green tick on the quantity
+that does not govern — the same defect class as `gate2m.py` printing KCS's EFD
+figure over a Wigley hull, pointed in the DANGEROUS direction: the L/B band that
+started this work was a correct rule refusing a safe hull, and this is a
+criterion admitting an unassessed one.
+
+So for `n_hulls > 1` R-GM is WITHHELD (R-SCP's precedent: findings from a
+standard we do not implement are not produced at all) and R-MHS refuses with
+0 of 1 criteria assessed. R-OLH still runs, against the STRICTER of ISO's
+length-based limit and a free multihull limit — see
+`limits.MULTIHULL_OFFSET_LOAD_HEEL_LIMIT_DEG`.
 
 Thresholds basis='approx': engineering-practice values standing in until the
 licensed standard text parity review (BuildPlan Gate 6). The MECHANICS
@@ -16,7 +39,8 @@ named for ISO 12217-**1**, whose own title restricts it to craft of hull
 length 6 m and over; craft below that are governed by ISO 12217-**3**, which
 we do not hold and have not implemented. `assess()` nonetheless applied the
 -1 category floors to anything handed to it, and the grammar admits hulls from
-`PARAMS["LWL"].low` = 4.0 m while the BuildPlan's Dayboat SKU is 4-7 m.
+`PARAMS["LWL"].low` = 2.5 m (4.0 m until 2026-08-14) while the BuildPlan's
+Dayboat SKU is 4-7 m.
 MEASURED on a 4.5 m grammar hull at category C: five findings printed, four of
 them numeric bars, under a header naming a standard that does not cover the
 boat — the same defect shape as `gate2m.py` printing KCS's EFD figure for a
@@ -35,12 +59,17 @@ from __future__ import annotations
 
 import math
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:            # evaluate imports THIS module now, so the
     from ..evaluate import Evaluation   # runtime import would be circular
 from ..limits import (CATEGORY_TABLE, CREW_MASS_KG,  # single source (limits.py)
-                      gm_floor)
+                      MULTIHULL_OFFSET_LOAD_HEEL_LIMIT_DEG,
+                      MULTIHULL_OFFSET_LOAD_SCOPE_LOA_M,
+                      MULTIHULL_OFFSET_LOAD_SOURCE,
+                      MULTIHULL_STABILITY_UNASSESSED,
+                      gm_floor, stability_criterion)
 from . import RuleFinding
 from .review import basis_for
 
@@ -186,9 +215,41 @@ def assess(ev: "Evaluation", category: str, crew: int,
         f"correction factors at their most demanding 1.0 (no openings "
         f"declared); lowest opening assumed at the sheer line"))
 
-    out.append(RuleFinding(
-        "R-GM", "ISO 12217-1 annex (metacentric floor, practice value)",
-        basis_for("R-GM"), ev.gm_m >= gm_req, ev.gm_m, gm_req, "m", ""))
+    # ---- WHICH STABILITY CRITERION GOVERNS (2026-08-14) --------------------
+    # The hull count comes from `Evaluation.vessel`, which the multihull
+    # landing fills in for EVERY vessel including a monohull (`n_hulls: 1`), so
+    # a missing key is a genuinely unknown vessel and not a monohull by
+    # omission. `limits.hull_role` refuses anything it cannot interpret.
+    criterion = stability_criterion(_vessel_of(ev))
+
+    if criterion.implemented:
+        out.append(RuleFinding(
+            "R-GM", "ISO 12217-1 annex (metacentric floor, practice value)",
+            basis_for("R-GM"), ev.gm_m >= gm_req, ev.gm_m, gm_req, "m", ""))
+    else:
+        # R-GM IS NOT EMITTED FOR A MULTIHULL, AND THAT IS THE POINT.
+        #
+        # This follows R-SCP's precedent exactly: when the governing document
+        # is one we do not implement, the numeric findings are WITHHELD rather
+        # than produced, so nothing downstream can read an unassessed hull as
+        # an assessed one. A catamaran clears any GM floor by a wide margin
+        # because of the parallel-axis A_wp*d^2 term — emitting `R-GM PASS`
+        # beside a refusal would put a green tick on the exact quantity that
+        # does not govern, and a reader who saw only the tick would be wrong in
+        # the dangerous direction.
+        #
+        # THE MEASURE IS A COUNT, NOT A LENGTH: 0 of the 1 criterion this
+        # vessel needs has been assessed. `evaluate.g["rules"]` reads
+        # |measured - required| / |required|, so this lands at 1.0 — a real,
+        # finite, INFEASIBLE constraint value, not a nan and not a silent pass.
+        out.append(RuleFinding(
+            "R-MHS",
+            "RCD 2013/53/EU Annex I A 3.3 (inversion) + ISO 12217-1:2015 cl. "
+            "6.6 (habitable multihull boats) — NEITHER IMPLEMENTED",
+            basis_for("R-MHS"), False, 0.0, 1.0, "criteria assessed",
+            MULTIHULL_STABILITY_UNASSESSED + " GM here is "
+            f"{ev.gm_m:.3f} m against the monohull floor of {gm_req:.2f} m; "
+            f"that comparison is REPORTED and is not a verdict."))
 
     # offset-load heel: moment balance m*b = disp*GM*sin(phi)  (exact mechanics)
     m_crew = crew * CREW_MASS_KG
@@ -196,11 +257,63 @@ def assess(ev: "Evaluation", category: str, crew: int,
     sin_phi = min(m_crew * b / max(ev.hydro.disp_kg * ev.gm_m, 1e-9), 1.0)
     phi = math.degrees(math.asin(sin_phi))
     heel_max = offset_load_heel_limit_deg(lh)
+    clause = "ISO 12217-1:2015 6.2.3 a) + Table 4 (offset-load test)"
+    note = (f"{crew} crew x {CREW_MASS_KG:.0f} kg at {b:.2f} m offset; "
+            f"phi_O(R) = 11.5 + (24 - {lh:.2f})^3/520 = {heel_max:.2f} deg, "
+            f"a function of LENGTH only — not of design category")
+    if not criterion.implemented:
+        # THE ONE MULTIHULL BAR THAT IS COMPUTABLE FROM WHAT THIS LADDER HAS.
+        # ISO 12217-1 sends habitable multihulls to clause 6.6, whose text this
+        # project does not hold, so applying Table 4 to a catamaran is itself an
+        # unexamined extrapolation. Maritime NZ states an offset-load/crowding
+        # limit for multihulls explicitly and it is free; the STRICTER of the
+        # two governs, and the clause string names both so the reader can see
+        # which one bit. It is not a second measurement — same phi, two bars.
+        iso_max = heel_max
+        heel_max = min(heel_max, MULTIHULL_OFFSET_LOAD_HEEL_LIMIT_DEG)
+        clause = (f"{clause} AND {MULTIHULL_OFFSET_LOAD_SOURCE}")
+        note = (f"{note}. MULTIHULL: the stricter of ISO's {iso_max:.2f} deg "
+                f"and the {MULTIHULL_OFFSET_LOAD_HEEL_LIMIT_DEG:.0f} deg "
+                f"multihull limit governs")
+        if lh > MULTIHULL_OFFSET_LOAD_SCOPE_LOA_M:
+            note = (f"{note}. NOTE: hull length {lh:.2f} m is above the "
+                    f"{MULTIHULL_OFFSET_LOAD_SCOPE_LOA_M:.0f} m scope of NZ "
+                    f"cl. 1.3; cl. 1.1's offset-load table carries the same "
+                    f"8 deg without that limit, and it is applied on that "
+                    f"clause")
     out.append(RuleFinding(
-        "R-OLH", "ISO 12217-1:2015 6.2.3 a) + Table 4 (offset-load test)",
-        basis_for("R-OLH"),
-        phi <= heel_max, phi, heel_max, "deg",
-        f"{crew} crew x {CREW_MASS_KG:.0f} kg at {b:.2f} m offset; "
-        f"phi_O(R) = 11.5 + (24 - {lh:.2f})^3/520 = {heel_max:.2f} deg, "
-        f"a function of LENGTH only — not of design category"))
+        "R-OLH", clause, basis_for("R-OLH"), phi <= heel_max, phi, heel_max,
+        "deg", note))
     return out
+
+
+@dataclass(frozen=True)
+class _NHulls:
+    """Minimal carrier so `limits.hull_role` sees the attribute it duck-types
+    on. Not `mission.VesselConfig`: `rules/` must not import `mission`, and a
+    real config would refuse a hull count this module only wants to classify."""
+
+    n_hulls: int
+
+
+def _vessel_of(ev: "Evaluation") -> _NHulls:
+    """The vessel descriptor `limits.hull_role` needs, out of an `Evaluation`.
+
+    `Evaluation.vessel` is a REPORT dict, not `mission.VesselConfig`, so this
+    adapts it.
+
+    A MISSING `n_hulls` READS AS A MONOHULL, AND THAT IS A STATED RISK RATHER
+    THAN AN OVERSIGHT. `evaluate()` fills the key in for every vessel it
+    produces, monohull included, so on the ladder's own output the key is
+    always there. The default exists for evaluations assembled by hand — every
+    test in this tree that constructs an `Evaluation` directly predates the
+    vessel contract — and it falls to the STRICTER treatment: the monohull path
+    emits R-GM and applies the ISO offset-load limit, so nothing is granted a
+    pass by omission. What a missing key CAN do is hide a real catamaran behind
+    monohull criteria, which is exactly the hole this block closes; the guard
+    against that is `evaluate()` filling the field, and it is asserted in
+    `tests/test_vessel_bands.py`.
+    """
+    v = getattr(ev, "vessel", None) or {}
+    n = v.get("n_hulls", 1)
+    return _NHulls(int(n))

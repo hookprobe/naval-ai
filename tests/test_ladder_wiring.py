@@ -159,24 +159,39 @@ def test_the_ladder_never_starts_a_solver_from_inside_the_product():
 # --------------------------------------------------------- tier R (gap A2) --
 
 def hull_that_only_the_rules_tier_rejects() -> np.ndarray:
-    """A 13.45 m hull whose ONLY failing constraint is an ISO 12217 clause.
+    """A 15.57 m hull whose ONLY failing constraint is an ISO 12217 clause.
 
-    MEASURED: floated freeboard 0.597 m. `limits.FREEBOARD_FLOOR_M` is 0.25 m,
-    so the L1 freeboard constraint reads -0.347 (comfortably feasible), while
-    ISO 12217-1's downflooding-height floor for design category A is 0.65 m, so
-    R-DFH fails by 53 mm. Every other constraint is negative.
+    MEASURED 2026-08-13: floated freeboard 0.8827 m. `limits.FREEBOARD_FLOOR_M`
+    is 0.25 m, so the L1 freeboard constraint reads -0.633 (comfortably
+    feasible), while ISO 12217-1's downflooding height for design category A on
+    a hull this long is 1.038 m, so R-DFH fails by 155 mm. Every other
+    constraint is negative.
 
     That is the point: before tier R was wired, this boat was `ok=True` with no
-    violations and exported. The same hull under category C — where the
-    downflooding floor is 0.35 m — is still `ok=True`, which is the negative
+    violations and exported. The same hull under category C — where Table A.1
+    clamps the requirement to 0.750 m — is `ok=True`, which is the negative
     control that keeps this test about the RULES tier and not about a hull that
     is simply bad.
+
+    THE VECTOR CHANGED ON 2026-08-13 AND THE OLD ONE STOPPED BEING A WITNESS.
+    It was a 13.45 m hull (freeboard 0.597 m, R-DFH short by 53 mm on a 0.65 m
+    floor). Under the plate-P1/P2 kernel that same vector floats differently
+    and now ALSO fails `gm` (+0.221) and `bend_radius` (+0.914), so it no
+    longer demonstrates a refusal that is tier R's alone — the assertion below
+    is `all(g[k] <= 0 for k != "rules")` and it is the whole test. This vector
+    was found by searching the L0-feasible box for the property the test needs
+    (rules > 0, every other row <= 0 under category A, and `ok` under C and D),
+    not by relaxing anything: 8,359 draws of `rng(11)` produced four, and this
+    is the one with the widest margin, so the witness is not a near-miss that
+    the next re-measurement flips. NO BAR MOVED — R-DFH, the GM floors and the
+    bend-radius limit are all where they were.
     """
     return grammar.vector({
-        "LWL": 13.45, "BWL": 3.0, "T": 0.40, "D": 1.05,
-        "beta_mid": 14.3, "beta_bow": 42.4, "p_bow": 1.72, "p_stern": 2.69,
-        "x_mb": 0.61, "r_transom": 0.33, "rocker": 0.52, "forefoot": 0.84,
-        "flare": 23.0, "sheer_rise": 0.26, "beta_len": 0.51,
+        "LWL": 15.5719, "BWL": 2.9137, "T": 0.4960, "D": 1.2838,
+        "Cp": 0.5930, "lcb": -2.5474, "x_mb": 0.4561, "r_transom": 0.0901,
+        "beta_mid": 14.4169, "beta_bow": 25.8859, "beta_len": 0.2059,
+        "roundness": 0.3008, "rocker": 0.1490, "forefoot": 0.4675,
+        "flare": 14.0069, "sheer_rise": 0.4793,
     })
 
 
@@ -192,18 +207,25 @@ def test_the_rules_tier_alone_can_refuse_a_design():
         {k: round(v, 3) for k, v in ev_a.g.items()}
     assert len(ev_a.violations) == 1 and "R-DFH" in ev_a.violations[0], \
         ev_a.violations
-    assert ev_a.hydro.freeboard_min == pytest.approx(0.597, abs=0.01)
+    # 0.597 m until 2026-08-13 on the 13.45 m vector this fixture used to hold
+    assert ev_a.hydro.freeboard_min == pytest.approx(0.8827, abs=0.01)
 
-    # NEGATIVE CONTROL: same hull, category D. WAS category C until
-    # 2026-08-12, and the change is the point: ISO 12217-1:2015 Annex A makes
-    # the required downflooding height hD(R) = (LH/15) x F1..F5 clamped to
-    # Table A.1, so it SCALES WITH LENGTH. This hull is 13.45 m, giving 0.897 m
-    # for A and B and 0.750 m (the Table A.1 ceiling) for C — against 0.597 m
-    # of freeboard, so C now fails too. The old fixed floors (0.65/0.50/0.35 m)
-    # were length-blind and let a 13 m hull through category C on a number
-    # sized for a 6 m one. D clamps to 0.400 m and still passes.
-    ev_c = evaluate(x, MissionSpec(design_category="D"))
-    assert ev_c.ok and ev_c.violations == () and ev_c.g["rules"] < 0.0
+    # ...and category B, which shares A's requirement, fails identically — so
+    # the refusal tracks the CLAUSE and not one enum value.
+    ev_b = evaluate(x, MissionSpec(design_category="B"))
+    assert not ev_b.ok and ev_b.g["rules"] == pytest.approx(ev_a.g["rules"])
+
+    # NEGATIVE CONTROL: same hull, category C. ISO 12217-1:2015 Annex A makes
+    # the required downflooding height hD(R) = (LH/15) x F1..F5 CLAMPED to
+    # Table A.1, so it scales with length and then stops. This hull is 15.57 m,
+    # giving 1.038 m for A and B and 0.750 m (the Table A.1 ceiling) for C —
+    # against 0.8827 m of freeboard, so C passes and A fails on the same boat.
+    # The old fixed floors (0.65/0.50/0.35 m) were length-blind and would have
+    # passed all three. D clamps lower still and also passes.
+    for cat in ("C", "D"):
+        ev_ok = evaluate(x, MissionSpec(design_category=cat))
+        assert ev_ok.ok and ev_ok.violations == () and ev_ok.g["rules"] < 0.0, \
+            (cat, ev_ok.violations)
 
 
 def test_the_rules_constraint_is_a_margin_the_optimizer_can_descend():
@@ -217,8 +239,10 @@ def test_the_rules_constraint_is_a_margin_the_optimizer_can_descend():
     ok = evaluate(np.array(mid_params()), MissionSpec())
     for ev in (fail, ok):
         assert "rules" in ev.g and np.isfinite(ev.g["rules"])
-    # the shortfall is 0.65 - 0.597 = 53 mm on a 0.65 m bar, i.e. ~8%
-    assert fail.g["rules"] == pytest.approx(0.334, abs=0.01)
+    # the shortfall is 1.038 - 0.8827 = 155 mm on a 1.038 m requirement, i.e.
+    # ~15% (0.334 until 2026-08-13, on the 13.45 m vector this fixture used to
+    # hold — see `hull_that_only_the_rules_tier_rejects` for why it moved)
+    assert fail.g["rules"] == pytest.approx(0.1498, abs=0.01)
     assert ok.g["rules"] < 0.0
 
 

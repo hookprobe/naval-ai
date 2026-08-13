@@ -60,6 +60,7 @@ from navalai.energy import (SIGMA_PLACEHOLDER, SIGMA_PROPAGATED,
 from navalai.evaluate import (CONSTRAINT_NAMES, TIER_ORDER, evaluate,
                               is_real_finite)
 from navalai.geometry import Hull
+from navalai.hull_ast import fit_typology
 from navalai.mission import MissionSpec
 
 # The default mission: 6 t solar-electric liveaboard, 5 kn, category C, 2 crew.
@@ -76,13 +77,27 @@ _SAMPLE_BUDGET = 600
 
 
 @lru_cache(maxsize=8)
-def _validated(n: int = 4, seed: int = 0) -> tuple[tuple, ...]:
+def _validated(n: int = 4, seed: int = 0,
+               sheet_built: bool = False) -> tuple[tuple, ...]:
     """`n` designs that pass the WHOLE ladder, as (params, Evaluation).
 
     `ok=True`, not merely "L1 ran": these are the designs the export boundary
     would accept, which is the only population an end-to-end assertion may be
     made on. Cached because `evaluate()` is ~7 ms and every test below wants
     the same designs.
+
+    `sheet_built=True` restricts the population to designs of a SHEET-BUILT
+    typology, drawn the way the design path draws them: `hull_ast.fit_typology`
+    PROJECTS the sample onto the typology's pins (`roundness` is pinned at 0 —
+    a filleted bilge is doubly curved and not developable from flat sheet) and
+    the ladder then validates the PROJECTED vector, so nothing here is
+    evaluating one hull and cutting another. Only the manufacturing handoff
+    needs it; every other test below runs on the unrestricted population,
+    because a round-bilge hull is a perfectly good hull that simply goes to a
+    mould rather than a cutter. MEASURED 2026-08-13: without this, the first
+    `ok` design at seed 0 has roundness 0.131 and `engineer.assess` raised
+    `unroll: roundness 0.131 — a radiused bilge is not a two-panel developable
+    shell` before the BOM existed.
 
     FAILS rather than skips on an empty result. A smoke test that quietly
     reports "nothing to check" is `not ledger_has("Gate 2M")` wearing a
@@ -91,6 +106,11 @@ def _validated(n: int = 4, seed: int = 0) -> tuple[tuple, ...]:
     """
     out = []
     for x in grammar.sample(_SAMPLE_BUDGET, np.random.default_rng(seed)):
+        if sheet_built:
+            fit = fit_typology(x)
+            if fit is None:
+                continue
+            x = fit[1]
         ev = evaluate(x, MISSION)
         if ev.ok:
             out.append((x, ev))
@@ -98,7 +118,8 @@ def _validated(n: int = 4, seed: int = 0) -> tuple[tuple, ...]:
                 return tuple(out)
     raise AssertionError(
         f"the ladder produced only {len(out)} fully-valid design(s) out of "
-        f"{_SAMPLE_BUDGET} L0-feasible samples at seed {seed}; {n} were asked "
+        f"{_SAMPLE_BUDGET} L0-feasible samples at seed {seed} "
+        f"(sheet_built={sheet_built}); {n} were asked "
         f"for. At commit 173cd00 the first arrived at sample 12 and ten within "
         f"53. This is not a reason to skip the end-to-end checks — it means "
         f"the mission no longer reaches a design, which is the largest "
@@ -176,6 +197,47 @@ STEP_VOLUME_TOL_PCT = 0.40
 # `stl_resolution` actually writes. 0.35% is ~2x the worst.
 # For scale: `evaluate._L3_VOLUME_TOL` is 3% — 16x looser — because it must also
 # swallow a hull written by a different generator revision.
+#
+# THE BAR STANDS AND MOST OF ITS HEADROOM IS SPENT. RE-MEASURED 2026-08-13 over
+# the twelve designs `evaluate()` returns ok=True for out of `grammar.sample(600,
+# rng(0))`, after plate P2 made a radiused bilge expressible: the STL at the
+# function default read 0.3581% and this test FAILED. Raising
+# `cfd.case._STL_NZ_FILLETED` 48 -> 96 takes the worst to 0.2579%. The bar was
+# NOT moved, because what is left is not tessellation noise and pretending it is
+# would be the softening this project refuses. Decomposed, worst over the twelve:
+#
+#   girth (converges, h^2)   0.2701% at nz 48 -> 0.0673% at 96 -> 0.0140% at 192
+#   nx misalignment          0.0485%, fixed, because 80 is not 4*(41-1)+1
+#   THE LOFT TERM            0.1869%, and NOTHING in this test's reach moves it
+#
+# The loft term is a REAL DISAGREEMENT ABOUT WHICH SOLID THE BOAT IS, not a
+# resolution: `Hull.closed_mesh` lerps the section control points between the 41
+# stations and integrates the area of the lerped section, while
+# `hydrostatics.solve` trapezoids the EXACT areas AT those stations. Area is
+# convex in the control points, so A(lerp(p)) <= lerp(A(p)) everywhere in
+# between and the STL under-encloses at EVERY resolution — which is why the sign
+# is always negative. MEASURED against the closed form densely resampled
+# (`Hull(x, n_stations=2561)`, the design intent both paths discretise): the
+# ladder's 41-station trapezoid sits within 0.044% of it and the loft sits
+# 0.171% BELOW it, so on this evidence the LADDER is the better description of
+# the designed hull and the shipped loft is the coarse one.
+#
+# `STEP_VOLUME_TOL_PCT` above is measuring the SAME term — cadquery's ruled loft
+# through the same 41 stations is the same solid — and its recorded 0.2064% over
+# 30 designs is this floor, seen from the other path. The two bars are therefore
+# not independent, and closing one closes both.
+#
+# The one lever that closes it is `Hull.n_stations`, and it is second order in
+# the station spacing. MEASURED, gap between the ladder's trapezoid and the loft
+# it ships, worst of the first four designs, waterline held fixed:
+#
+#     n_stations    21       41       81      161      321
+#     gap        0.763%   0.191%   0.051%   0.022%   0.009%
+#     Hull()+hydro_arrays   0.64 ms  1.22 ms  2.47 ms   (at 41 / 81 / 161)
+#
+# 81 stations would put both this bar and the STEP bar an order of magnitude
+# clear for 2x the cost of the ladder's inner loop. That is a change to
+# `geometry.py`/`hydrostatics.py` and is recorded here, not made here.
 STL_VOLUME_TOL_PCT = 0.35
 
 # MEASURED over 10 ok designs, seed 0: the L2 BEM panel mesh at the shipped
@@ -546,10 +608,27 @@ def test_the_manufacturing_stage_builds_the_ply_the_ladder_validated():
     the unwired one must ANNOUNCE that it is not rule-derived rather than
     quietly returning a number. Only one design (the call is ~4 s: it searches
     five nesting layouts).
+
+    THE DESIGN IS DRAWN `sheet_built=True` (2026-08-13). This stage CUTS PLY,
+    and a hull with a radiused bilge cannot be cut from ply at all — the
+    filleted strip is doubly curved and not developable, so `unroll.hull_panels`
+    refuses it and `engineer.assess` re-raises that refusal. MEASURED: the first
+    `ok` design at seed 0 draws roundness 0.131 and this test died on the
+    unroller's `ValueError` before reaching a single assertion. Asking
+    `_validated` for a sheet-built typology is not a weaker test — it is the
+    only population for which "the BOM cuts what the ladder validated" is a
+    question with an answer. The unroller's refusal is untouched and is fenced
+    by `test_stageC.py::test_the_engineer_refuses_a_round_bilge_as_a_round_bilge`
+    and `test_geometry_kernel.py`, both of which still require `roundness = 0.4`
+    to raise.
     """
     from navalai.engineer import assess
 
-    x, ev = _validated(1)[0]
+    x, ev = _validated(1, sheet_built=True)[0]
+    assert Hull(x).roundness == 0.0, (
+        "a sheet-built design reached the manufacturing stage with a radiused "
+        "bilge; `hull_ast` pins `roundness` at 0 for both sheet-built "
+        "typologies and `fit_typology` is supposed to have projected it")
     h = Hull(x)
     rep = assess(h, wl=ev.wl, mldc_kg=ev.hydro.disp_kg)
     assert rep.bottom_thickness_mm == pytest.approx(

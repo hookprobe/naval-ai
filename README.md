@@ -4,15 +4,34 @@
   <img src="docs/assets/naval-ai.png" alt="NavalAI" width="100%">
 </p>
 
-**An autonomous naval-architecture system that designs a hull, proves it with
-physics, and refuses to overstate what it proved.**
+> **NavalAI generates the safest, most energy-efficient, BUILDABLE vessel for a
+> specified mission and budget — and shows its evidence.**
+>
+> — `PLM.md` §0, which is the home of the vision, the two product families and
+> the gap analysis. This blockquote is a citation, not a second copy.
 
-Describe a mission in plain language. NavalAI generates hull forms inside a
-grammar that cannot express an invalid boat, validates each one up a four-tier
-physics ladder, checks it against ISO small-craft rules, and exports panels a
-shop can cut. Every number it reports carries the tier that produced it and an
-uncertainty — and a gate that misses its bar stays red, on the record, with an
-owner and a review date.
+**The gap is not that the industry lacks tools.** CAD systems, hydrostatic
+packages, RANS solvers and open-source naval-architecture calculators all exist,
+and several of them are excellent. The gap is that there is **no broadly
+accessible, integrated, physics-aware workflow in which a technically capable
+person can state a MISSION and get back a safe, efficient, structurally
+realisable vessel with a traceable evidence trail.** Today that path is
+
+    CAD → hydrostatics → resistance → CFD → manual stability
+        → manual structure → manual electrical → manual drawings
+
+— eight tools, every arrow a hand-carried file and a re-keyed number. NavalAI
+collapses it into one governed pipeline, and the governing is the product:
+every quantity carries `{value, tier, sigma}`, the ladder refuses what it cannot
+compute in-process instead of substituting something cheaper, and a gate that
+misses its bar stays red, on the record, with an owner and a review date.
+
+Two product families share nearly the whole engine and differ mainly in the
+mission layer — **recreational / DIY** (people, range, speed, comfort, cost,
+coastal conditions) and the **autonomous marine drone** (payload, endurance, sea
+state, sensor package). The drone family is DECLARED, not built; `PLM.md` §2.0
+says exactly what is missing and why it is the mission layer rather than the
+physics.
 
 Licensed under **GNU AGPL-3.0** (see `LICENSE`).
 
@@ -37,6 +56,7 @@ does the same for outstanding work.
 
 | You want | Read |
 |---|---|
+| what this is for, what a product may be, who owns what | `PLM.md` |
 | how the system is built, and what order it is being built in | `docs/BUILD-PLAN.md` |
 | what has been MEASURED, and what was refuted | `docs/research/*.md` |
 | what this project learned the hard way | `docs/LESSONS.md` |
@@ -57,10 +77,43 @@ The L0 count is deliberately not quoted here. The audit measured 9 live
 constraints against a "49" the plan claimed and a "30+" this file claimed
 (gap E4) — a count in prose is a count that drifts, so ask `grammar.check`.
 
+L3 is the one tier that cannot run in-process: `evaluate` raises
+`TierRequiresOperator` and names the operator route rather than quietly handing
+back an L1 number wearing an L3 badge.
+
 Surrogate spine (`surrogate.py`): ARD kriging + Kennedy–O'Hagan co-kriging,
 batched-EI infill, OOD → ladder escalation. Generative (`generative.py`):
 GMM family model + performance-conditioned sampling + 2-D latent map (guided
 tabular diffusion is the planned drop-in upgrade behind the same interface).
+
+## What the kernel does — each line checked against the code, 2026-08-13
+
+This section states only what was re-verified by reading the module named
+beside it. This project's recurring defect is a claim that is not true of the
+code — four documents once asserted that two shipping subsystems did not exist —
+so nothing goes here on the strength of having been written before.
+
+- **The sectional-area curve and the design waterline are DESIGN CURVES, not
+  outputs.** `geometry.sectional_area(params, x)` and
+  `geometry.design_waterline(params, x)` are closed form. `Cp` and `lcb` are
+  GENES in `grammar.PARAMS`, and `geometry.sac_exponents` SOLVES the area-curve
+  exponents to deliver the requested pair, refusing a `(Cp, lcb)` it cannot
+  reach at that `x_mb` instead of silently landing somewhere else. A naval
+  architect chooses Cp for the design Froude number; here that is an input.
+- **The section kernel is not three points.** `Hull.section_control()` returns
+  the exact five-point description — two legs and ONE quadratic Bézier arc —
+  and `immersed_section` integrates it in closed form. `Hull.section()` is
+  adaptive: 3 points at `roundness == 0` (bit-for-bit the old polyline, fenced
+  at 1e-12) and 257 above it.
+- **Resistance knows where it stops being valid.** `resistance.FN_MICHELL_MAX`
+  is **0.45**; past it the result is badged `L1-INVALID`, and
+  `evaluate.tier_rank` puts that at **−1**, BELOW L0's 0 — so an
+  out-of-envelope number can never win a comparison against a valid one.
+- **The genome is SIXTEEN parameters** (`grammar.N_PARAMS`), not fifteen.
+- **The optimiser minimises energy per mile, not drag.** `optimize.HullProblem`
+  returns `(wh_per_nm, build panel area, distance from the GM band)` — build
+  area is in the objective vector, so panel cost is optimised against, not
+  checked afterwards.
 
 ## Honesty rules (enforced by tests, not vibes)
 
@@ -94,11 +147,18 @@ different Gate 2M numbers came to circulate at once (gap J1).
 |---|---|---|
 | Gate 0G | the ladder cannot be talked into passing | `tests/test_gate_integrity.py` (37 tests) |
 | Gate 0R | a missed clause is RED BY RECORD, never prose in a scope | `tests/test_red_by_record.py` (14 tests) |
+| Gate 0K | geometry kernel: SAC/DWL design curves + N-point section | `tests/test_geometry_kernel.py` (18 tests) |
+| Gate 1E | the stages agree with each other: one geometry, one resistance, one ply, tier+sigma across every handoff | `tests/test_end_to_end_flow.py` (14 tests) |
+| Gate 0F | the hull-form library: bands ordered, every band carries its basis, no family contradicts its own Froude regime | `tests/test_formlib.py` (48 tests) |
+| Gate 0X | the experiment suite: controlled sweeps hold their controlled quantities, out-of-envelope points are refused, and the Michell interference phase matches an independent superposition | `tests/test_experiments.py` (52 tests) |
+| Gate 1M | the vessel: topology/manning/regime, the parallel-axis I_T, separation in the PRODUCTION wave term, and no multihull safety verdict from a monohull GM floor | `tests/test_multihull.py` (27 tests) |
+| Gate PV-B | vessel-conditional proportion bands, the sourced size box, and the multihull stability refusal | `tests/test_vessel_bands.py` (18 tests) |
+| Gate 0B | buildability metrics are PROXIES that refuse rather than default, are grid-converged by a measured residual, and price manufacturing in ABSOLUTE m^2 — never in a ratio an optimiser can inflate | `tests/test_buildability.py` (11 tests) |
 | Gate 0 | grammar/geometry/DB | `tests/test_phase0.py` (15 tests) |
-| Gate 1 | L1 physics + Wigley anchor + <50ms | `tests/test_phase1.py` (26 tests) |
+| Gate 1 | L1 physics + Wigley anchor + <50ms | `tests/test_phase1.py` (35 tests) |
 | Gate 1H | Holtrop-Mennen vs the 1982 worked example | `tests/test_holtrop.py` (57 tests) |
-| Gate 1C | the constraint vector: complete, ordered, finite, and no undefined state reported as ideal | `tests/test_constraints_honest.py` (17 tests) |
-| Gate 1P | the L1 physics core says what it actually computed | `tests/test_gapfix_physics.py` (14 tests) |
+| Gate 1C | the constraint vector: complete, ordered, finite, and no undefined state reported as ideal | `tests/test_constraints_honest.py` (18 tests) |
+| Gate 1P | the L1 physics core says what it actually computed | `tests/test_gapfix_physics.py` (15 tests) |
 | Gate 1b | NSGA-II Pareto front | `tests/test_optimize.py` (8 tests) |
 | Gate 2 | Capytaine BEM (Hulme anchor) | `tests/test_phase2.py` (18 tests) |
 | Gate 2R | CFD reference parity + GCI honesty | `tests/test_cfd_reference_parity.py` (97 tests) |
@@ -108,16 +168,16 @@ different Gate 2M numbers came to circulate at once (gap J1).
 | Gate 5 | mission translation + LLM seam | `tests/test_phase5.py` (11 tests) |
 | Gate 6 | rules-as-code mechanics | `tests/test_phase6.py` (6 tests) |
 | Gate 7 | flywheel: frozen suite != training draw, monotone regression mark, wall clock, committed baseline | `tests/test_phase7.py` (15 tests) |
-| Gate B | grammar AST + bend radius + 8-D genome | `tests/test_stageB.py` (11 tests) |
-| Gate C | agentic PLM network + engineer + STEP/IGES | `tests/test_stageC.py` (9 tests) |
+| Gate B | grammar AST + bend radius + 8-D genome | `tests/test_stageB.py` (13 tests) |
+| Gate C | agentic PLM network + engineer + STEP/IGES | `tests/test_stageC.py` (13 tests) |
 | Gate D | waves/RAO response + dynamics + CFD post | `tests/test_stageD.py` (19 tests) |
 | Gate E | latent-space evolution + latent GP | `tests/test_stageE.py` (3 tests) |
 | Gate F | panel unroll/DXF + Pareto dash + handoff receipt | `tests/test_stageF.py` (11 tests) |
 | Gate G | APSE: similitude/ITTC-78/cost/planner/evidence | `tests/test_stageG.py` (51 tests) |
 | Gate V2.1 | arrangement grammar: envelope, spaces, deck zones, and an L0-A that names the space it refuses | `tests/test_arrangement.py` (42 tests) |
 | Gate V3.0 | governance compiles to a parameter box and to constraint rows, ratchets only tighter, and the ladder never imports it | `tests/test_policy.py` (48 tests) |
-| Gate 6P | the product surface: scope guards refuse what does not govern, and the mission contract binds | `tests/test_gapfix_product.py` (22 tests) |
-| Gate L | one limit, one home; scantling derived from the rule | `tests/test_limits_single_source.py` (13 tests) |
+| Gate 6P | the product surface: scope guards refuse what does not govern, and the mission contract binds | `tests/test_gapfix_product.py` (24 tests) |
+| Gate L | one limit, one home; scantling derived from the rule | `tests/test_limits_single_source.py` (17 tests) |
 | Gate 6M | manufacturing back end: nesting, BOM, developability controls, export receipt (refold onto the hull: Gate 6D) | `tests/test_manufacturing.py` (34 tests) |
 | Gate R3 | the ladder is climbable: L2 escalation, monotone tier promotion, honest refusal of L3 | `tests/test_ladder.py` (8 tests) |
 | Gate S | the MDO spine: one terminal state per genome, append-only archive, legal-transition graph, unmeasured metric refused | `tests/test_pipeline.py` (48 tests) |
@@ -130,8 +190,8 @@ different Gate 2M numbers came to circulate at once (gap J1).
 | Gate V2.0 | refdata spine: every constant carries source + basis | `tests/test_refdata.py` (27 tests) |
 | Gate 2A | CFD-admissibility screen: a grammar-valid hull is not a CFD-meshable one | `tests/test_admissibility.py` (21 tests) |
 | Gate 2L | the prism-layer cap is a measured value, and a clean mesh with no boundary layer is not a pass | `tests/test_layer_cap.py` (6 tests) |
-| Gate 2F | STL forensics: watertight is not valid, and the surface handed to snappy is measured rather than assumed | `tests/test_stl_forensics.py` (15 tests) |
-| Gate 2B | Blender-native hull generation, measured and REFUSED on the hull path: a 0.05 m voxel remesh destroys the chine | `tests/test_blender_hull.py` (7 tests) |
+| Gate 2F | STL forensics: watertight is not valid, and the surface handed to snappy is measured rather than assumed | `tests/test_stl_forensics.py` (16 tests) |
+| Gate 2B | Blender-native hull generation, measured and REFUSED on the hull path: a 0.05 m voxel remesh destroys the chine | `tests/test_blender_hull.py` (10 tests) |
 | Gate 2C | the campaign classifier names the mechanism that actually failed, and refuses one it cannot measure | `tests/test_campaign_classifier.py` (11 tests) |
 | Gate 2H | surface repair on the import boundary, and generated geometry refused rather than healed | `tests/test_mesh_repair.py` (7 tests) |
 | Gate 2G | KCS benchmark geometry: present and accepted (scripts/fetch_benchmark_geom.py) | `tests/test_benchmark_geom.py` (4 tests) |
@@ -147,6 +207,39 @@ different Gate 2M numbers came to circulate at once (gap J1).
 
 ## What is deliberately NOT here yet
 
+**Physics the vision needs and the code does not have** — all four re-verified
+against the modules named, 2026-08-13. A README that oversells is worse than one
+that undersells, and honesty rule 6 applies to capability claims as much as to
+gate colours:
+
+- **no multihull stability physics.** The transverse-inertia sum
+  `I_T = Σ_j [ I_T,j + A_wp,j · d_j² ]` does not exist anywhere in
+  `hydrostatics.py`. A slender demihull is therefore judged against a MONOHULL
+  GM floor, which measures the wrong vessel — the same error class as printing
+  one benchmark's EFD figure over another hull, which this project has already
+  caught once.
+- **no catamaran resistance in the production path.** `resistance.michell_rw`
+  accepts a `separation` argument; `resistance.total_resistance` calls it
+  WITHOUT one, so **every catamaran this project has evaluated has been scored
+  as an isolated demihull.**
+- **no experimental validation of the catamaran interference term.** Insel &
+  Molland (1992) and Molland et al. (1996) are CITED in `resistance.py` and
+  never transcribed. Self-consistency is not validation.
+- **no multi-chine hulls.** `Hull` carries a single `y_chine`/`z_chine` pair.
+  Against the five standard body plans the grammar reaches **two** (Series 62
+  and deep-V); double chine with wide transom, double chine on Series 62, and
+  rounded bilge it cannot deliver. Pinning `roundness = 0` for sheet-built
+  typologies is a stopgap correct for the unroller we have, not a principle — a
+  constant-radius bilge strip is a cylinder and IS developable, which is how
+  radius-chine metal boats are built.
+
+Everything else:
+
+- the **autonomous-drone mission layer**. `mission.MissionSpec` speaks crew,
+  displacement, cruise speed, design category, waters and energy budget; there
+  is no payload/endurance/sea-state/sensor mission, and `optimize.HullProblem`
+  has no wake, acoustic, survey-km/kWh or time-on-station objective. The engine
+  is shared; the mission layer is not written (`PLM.md` §2.0).
 - guided tabular diffusion (GMM baseline stands in; same interface)
 - LoRA-fine-tuned translator (rule floor + sanitising LLM seam stand in)
 - Tokyo-2015 calibration. OpenFOAM now RUNS (Mac simulation node), so this is

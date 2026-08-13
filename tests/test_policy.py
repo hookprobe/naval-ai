@@ -701,8 +701,18 @@ def test_an_empty_box_is_a_compile_time_error():
     Left to the optimiser, "no feasible design" reads as a difficult mission
     rather than as a constitution that contradicts itself.
     """
+    # RE-AIMED 2026-08-14. It used to ask for 3.0 m "below the grammar's own
+    # 4 m floor" — and the grammar's floor moved to 2.5 m (the RCD Art. 3(2)
+    # scope, `limits.RCD_HULL_LENGTH_SCOPE_M`), so 3.0 m became a perfectly
+    # ordinary ceiling and the box it produced was not empty. The test was
+    # passing on a coincidence of two unrelated numbers; it now derives its
+    # ceiling from the floor it is trying to sit under, so it cannot go blind
+    # again the next time the box moves.
+    below_floor = grammar.LOW[grammar.NAMES.index("LWL")] * 0.9
     dna = DesignDNA("too small", max_hull_length_m=owner(
-        3.0, "m", "a length ceiling below the grammar's own 4 m floor"))
+        below_floor, "m",
+        f"a length ceiling of {below_floor:.2f} m, below the grammar's own "
+        f"{grammar.LOW[grammar.NAMES.index('LWL')]:.2f} m floor"))
     with pytest.raises(PolicyError, match="EMPTY parameter box"):
         compile_policy(Constitution("empty", LegalEnvelope(), dna))
 

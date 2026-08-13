@@ -65,6 +65,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from ..limits import RCD_HULL_LENGTH_SCOPE_M
 from ..rules import DISCLAIMER as _RULES_DISCLAIMER
 from .base import PolicyError, PolicyRefusal, PolicyValue
 
@@ -86,8 +87,13 @@ _AI_ACT = "Regulation (EU) 2024/1689 (Artificial Intelligence Act)"
 # this band the RCD is not the instrument that governs the craft, and this
 # module REFUSES to route rather than picking one of three modes because one of
 # three had to be returned.
+# The tuple moved to `limits.py` on 2026-08-14 and is IMPORTED here. It was
+# declared once, correctly, in this file — and then `grammar.PARAMS` needed the
+# same band as its LWL box, and the ladder may never import `navalai.policy`.
+# So the number went DOWN to the module both layers may see, rather than being
+# retyped in the one that could not reach it.
 RCD_SCOPE_LENGTH_M = PolicyValue(
-    (2.5, 24.0), "m",
+    RCD_HULL_LENGTH_SCOPE_M, "m",
     f"{_RCD}, Art. 3(2) — 'recreational craft' means any watercraft intended "
     f"for sport and leisure purposes of hull length from 2,5 m to 24 m",
     "directive")

@@ -95,6 +95,22 @@ REVIEW = {
             "and is kept as one, but no standard blesses it, so it can never "
             "report basis='standard'."
         ),
+        "R-MHS": (
+            "THERE IS NOTHING TO CONFIRM IT AGAINST, AND THAT IS THE FINDING. "
+            "R-MHS is the multihull stability refusal added 2026-08-14. "
+            "ISO 12217-1:2015 gives habitable multihulls clause 6.6 (p. 27), "
+            "which EN ISO 12217-1:2017 Annex ZA maps to BOTH RCD Annex I A 3.3 "
+            "(inversion) and A 3.8 (escape) — and the BODY of 6.6 is behind the "
+            "paywall (1 865 SEK) and past the free preview's page cut, so not "
+            "one word of it is in this tree. The Directive's own sentence is "
+            "qualitative ('sufficient buoyancy to remain afloat in the inverted "
+            "position') and carries no number. The finding therefore asserts no "
+            "threshold at all: it REFUSES, reports 0 of 1 criteria assessed, "
+            "and names the three free national criteria "
+            "(limits.MULTIHULL_RIGHTING_CRITERIA) that would apply once a "
+            "righting-arm curve exists. A rule that states no number cannot be "
+            "confirmed against a text, and must never read basis='standard'."
+        ),
         "R-PBM": (
             "ISO 12215-5's edition is still a placeholder — there is no text "
             "to have confirmed it against. What IS verified from "

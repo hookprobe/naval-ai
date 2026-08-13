@@ -12,10 +12,30 @@ from navalai import db, geometry, grammar
 def mid_params():
     """A sensible 10 m solar-liveaboard-ish hull, hand-picked."""
     return grammar.vector({
+        # PLATE P1/P2 GENOME. `p_bow`/`p_stern` are gone (the plan-form is a
+        # consequence of the area curve now, not an input) and `Cp`, `lcb` and
+        # `roundness` are new. Two numbers had to MOVE, and both are
+        # information about the old reference hull rather than a loosened bar:
+        #
+        #   forefoot 0.85 -> 0.60. At 0.85 the keel rises to 0.225 m of draft
+        #   at x/L = 0.95, where the warped deadrise is 24.2 deg, and a section
+        #   of that draft and deadrise cannot enclose the 0.2000 m^2 the area
+        #   curve asks for (`section.solve`). The old kernel had no area curve
+        #   to be wrong against.
+        #
+        #   r_transom 0.75 -> 0.30. The symbol changed meaning: it was the
+        #   transom half-BEAM ratio and is now the transom sectional AREA
+        #   ratio, and 0.75 of the midship area at the transom forces Cp above
+        #   what the SAC family can reach with the rest of the hull.
+        #
+        # Everything else is the hull that was here before. `panel_twist_rate`
+        # still reads 11.22 deg/m on it, which is the number its own
+        # convergence table in geometry.py is quoted at.
         "LWL": 10.0, "BWL": 3.2, "T": 0.55, "D": 1.55,
-        "beta_mid": 8.0, "beta_bow": 30.0, "p_bow": 2.2, "p_stern": 3.0,
-        "x_mb": 0.55, "r_transom": 0.75, "rocker": 0.15, "forefoot": 0.85,
-        "flare": 10.0, "sheer_rise": 0.18, "beta_len": 0.35,
+        "Cp": 0.60, "lcb": -1.0, "x_mb": 0.55, "r_transom": 0.30,
+        "beta_mid": 8.0, "beta_bow": 30.0, "beta_len": 0.35,
+        "roundness": 0.0, "rocker": 0.15, "forefoot": 0.60,
+        "flare": 10.0, "sheer_rise": 0.18,
     })
 
 
@@ -178,9 +198,15 @@ def test_shell_area_is_integrated_not_a_factor_times_the_waterline_area():
     h = geometry.Hull(mid_params())
     exact = shell_area_m2(h)
     assert exact == pytest.approx(h.wetted_surface(float(h.z_sheer.max())))
-    assert exact == pytest.approx(51.616, abs=0.01)
-    assert h.wetted_surface(0.0) == pytest.approx(30.579, abs=0.01)
-    assert exact / h.wetted_surface(0.0) == pytest.approx(1.6879, abs=1e-3)
+    # RE-MEASURED 2026-08-13 on the plate-P1/P2 kernel and on the reference
+    # hull's new forefoot/r_transom (see `mid_params`). 51.616 / 30.579 /
+    # 1.6879 before; the invariant this test exists for — that the shell area
+    # is an INTEGRAL and not a factor times the waterline area — is the line
+    # above and the box sweep below, both unchanged, and the ratio moved
+    # FURTHER from 1.6, not closer.
+    assert exact == pytest.approx(46.707, abs=0.01)
+    assert h.wetted_surface(0.0) == pytest.approx(25.639, abs=0.01)
+    assert exact / h.wetted_surface(0.0) == pytest.approx(1.8217, abs=1e-3)
 
     # ...and it is emphatically not 1.6 anywhere but by luck. Sweep the box.
     X = grammar.sample(200, np.random.default_rng(3))
@@ -250,9 +276,34 @@ def test_wh_per_nm_sigma_is_propagated_and_says_so():
     # ends moves cb and with it the friction form factor. The RATIO assertion
     # two lines up is the invariant; this line is the measured magnitude and it
     # is re-derived, not loosened. See hydrostatics._waterline_ends.
-    assert en.sigma_wh_per_nm == pytest.approx(103.34, abs=0.5)
-    # it is NOT the old decoration, and it is not equal to it by accident
-    assert abs(en.sigma_wh_per_nm - 0.30 * en.wh_per_nm) > 0.10 * en.wh_per_nm
+    # 103.34 UNTIL 2026-08-13, on the pre-plate-P1 reference hull. The hull
+    # changed (see `mid_params`), so the resistance and its uncertainty band
+    # changed with it. The RATIO assertion four lines up is the invariant.
+    assert en.sigma_wh_per_nm == pytest.approx(179.81, abs=0.5)
+    # IT IS NOT THE OLD DECORATION — MEASURED ACROSS HULLS, NOT ON ONE.
+    #
+    # This check used to read `abs(sigma - 0.30*wh) > 0.10*wh`, which is a
+    # coincidence detector calibrated on a single hull: on the pre-plate-P1
+    # reference hull sigma/wh was 0.1672 and the margin was 82.2 against 61.8,
+    # and on this one it is 0.2020 and the margin is 87.25 against 89.02, so it
+    # would fail by 2% for a reason unconnected to the claim. The CLAIM is that
+    # the band is PROPAGATED — that the ratio is a property of the hull rather
+    # than a constant — and a constant cannot hide from a population. MEASURED
+    # over the 20 L0-feasible hulls of `grammar.sample(20, rng(3))`: the ratio
+    # spans 0.1374..0.2940 with a standard deviation of 0.0404, where a flat
+    # 0.30 factor would give 0.3000 exactly on every one of them.
+    ratios = []
+    for xr in grammar.sample(20, np.random.default_rng(3)):
+        hr = geometry.Hull(xr)
+        hsr = H.solve(hr, 0.0)
+        rr = total_resistance(hr, 2.5, hsr.wetted, hsr.cb, wl=0.0)
+        if not rr.valid:
+            continue
+        er = energy_report(rr.total, 2.5, hr.deck_area(), spec, rr.uncertainty)
+        ratios.append(er.sigma_wh_per_nm / er.wh_per_nm)
+    ratios = np.array(ratios)
+    assert ratios.std() > 0.02 and ratios.min() < 0.20
+    assert not np.allclose(ratios, 0.30, atol=0.01)
 
     # Out of regime: the band must FOLLOW the resistance model's own retreat.
     fast = 4.6

@@ -98,9 +98,14 @@ def shipped_resolution(hull: Hull, scale: float = 1.0) -> tuple[int, int]:
 
     Delegates to `navalai.cfd.case.stl_resolution` with the same background
     cell derivation the case writer uses, so a comparison is made at the
-    SHIPPED triangulation rather than at `hull_to_stl`'s 80x16 default. Those
+    SHIPPED triangulation rather than at `hull_to_stl`'s bare default. Those
     are different surfaces and a finding on one is not a finding on the other
     (docs/LESSONS.md defect class 6).
+
+    That default USED to be 80x16 and this docstring named the number. It is
+    now bilge-derived (`case.stl_girth_resolution`: 16 for a hard chine, 96 for
+    a fillet), so the number is gone from here rather than restated — one home
+    for it, and this is not the home.
     """
     from ..cfd.case import (_DOMAIN_LENGTH_L, _HULL_REFINE, _NX_BASE,
                             stl_resolution)

@@ -70,16 +70,29 @@ def test_crowded_rail_flips_offset_load():
     # TWICE TOO STRICT. Until 2026-08-12 the limit was a per-category constant
     # (12 deg for category D); ISO 12217-1:2015 6.2.3 a) makes it a function of
     # LENGTH only, phi_O(R) = 11,5 + (24 - LH)^3/520, which for this hull is
-    # 16.78 deg. 12 crew on a 3.2 m beam heel it 6.81 deg — comfortably inside
-    # the real limit, which is the correct answer, not a regression. What is
-    # actually invariant is that crowding MOVES the heel and that the bar is
-    # the ISO one, so that is what is asserted.
-    import math
+    # 16.78 deg. What is invariant is that crowding MOVES the heel and that the
+    # bar is the ISO one, so that is what is asserted first.
+    #
+    # THIS TEST'S NAME IS TRUE AGAIN. Between 2026-08-12 and the geometry
+    # kernel rebuild the crowded case PASSED — 12 crew on a 3.2 m beam heeled
+    # the old reference hull 6.81 deg, comfortably inside 16.78, and this test
+    # asserted `passed` and said so. RE-MEASURED 2026-08-13 on the plate-P1/P2
+    # reference hull: GM is 0.861 m and the same 12 crew x 85 kg at 1.28 m
+    # offset heel it **17.67 deg**, so R-OLH FAILS by 0.89 deg. Neither the
+    # rule nor the crew model moved; the boat did — it is a narrower hull for
+    # the same LWL and it is less stiff. Recorded, not softened: the offset-
+    # load clause is now a live refusal on the reference hull and the 2 crew
+    # case (2.90 deg) is the control that keeps this about crowding.
     from navalai.rules.iso12217 import offset_load_heel_limit_deg
     lh = 10.0
     assert by_cr["R-OLH"].required == pytest.approx(
         offset_load_heel_limit_deg(lh), abs=0.5), by_cr["R-OLH"].required
-    assert by_cr["R-OLH"].passed, "6.8 deg is well inside the 16.8 deg ISO bar"
+    assert by_ok["R-OLH"].measured == pytest.approx(2.90, abs=0.1)
+    assert by_ok["R-OLH"].passed, "2 crew must not trip the offset-load clause"
+    assert by_cr["R-OLH"].measured == pytest.approx(17.67, abs=0.2)
+    assert not by_cr["R-OLH"].passed, (
+        "12 crew no longer heel the reference hull past the ISO limit — "
+        "re-measure and record BEFORE/AFTER; this test's name is the finding")
 
 
 def test_unfloatable_hull_fails_closed():

@@ -7,10 +7,40 @@ import pathlib
 import numpy as np
 import pytest
 
-from navalai import db
+from navalai import db, grammar
 from navalai.flywheel import harvest, retrain
 from navalai.mission import MissionSpec
 from navalai.surrogate import GP
+
+#: HOW MANY HULLS THIS SUITE HARVESTS, AND WHY IT IS NO LONGER 60.
+#:
+#: MEASURED 2026-08-13, immediately after the geometry-kernel rebuild took the
+#: genome from 15 to 16 parameters. Same code, same seeds, same frozen suite,
+#: only `harvest(n, ...)` varying, scored through the real deployment gate:
+#:
+#:     wh_per_nm          n=60                      n=120
+#:     harvest seed 21    med 0.2808  cov 0.7778    med 0.1721  cov 0.8889
+#:     harvest seed  7    med 0.1929  cov 0.7778    med 0.1358  cov 1.0000
+#:
+#: `HARD_MIN_COVERAGE_2SIGMA` is 0.80 and it is an ABSOLUTE FLOOR, so at n=60
+#: BOTH seeds are refused — not on error, on COVERAGE, with the 2-sigma band
+#: containing 74-78% of the frozen suite where it must contain 80%. Every test
+#: below whose precondition is "an honest retrain deploys" therefore failed,
+#: and two more failed downstream with `FileNotFoundError: no frozen benchmark`
+#: because a refused retrain writes no baseline file for the next one to read.
+#:
+#: THE FLOOR IS NOT MOVED. What moved is the fixture, and the mechanism is
+#: dimensional rather than physical: 60 training points that covered a
+#: 15-parameter box do not cover a 16-parameter one, the GP's predictive band
+#: is fitted too narrow on the sparser set, and it is the BAND that fails, not
+#: the mean. At 120 the coverage clears the floor on all eight seeds
+#: `scripts/make_baseline.py` measures (0.889-1.000, `data/baselines.json`).
+#:
+#: 120 is not a number chosen to pass. It is `make_baseline.N_HARVEST`, i.e.
+#: the size the product's own baseline is generated at, so this suite now
+#: exercises the shipped configuration instead of one below it. The cost is
+#: measured: the module fixture goes ~4 s to ~9 s.
+N_HARVEST = 120
 
 
 @pytest.fixture(scope="module")
@@ -18,17 +48,18 @@ def stocked(tmp_path_factory):
     d = tmp_path_factory.mktemp("fly")
     prov = db.Provenance(d / "p.sqlite3")
     m = MissionSpec()
-    n = harvest(60, m, prov, seed=21)
+    n = harvest(N_HARVEST, m, prov, seed=21)
     return prov, m, d, n
 
 
 def test_harvest_records_all_quantities(stocked):
     prov, _m, _d, n = stocked
-    assert n == 60
+    assert n == N_HARVEST
     X, y = prov.training_matrix("L1", "wh_per_nm")
-    assert len(y) == 60 and (y > 0).all()
+    assert len(y) == N_HARVEST and (y > 0).all()
+    assert X.shape[1] == grammar.N_PARAMS
     X2, y2 = prov.training_matrix("L1", "GM_m")
-    assert len(y2) == 60
+    assert len(y2) == N_HARVEST
 
 
 # ---------------------------------------------------------------------------
@@ -51,7 +82,8 @@ def test_the_frozen_suite_is_not_the_training_draw(stocked):
 
     MEASURED: the suite is 27 points, 2 benchmark + 25 held-out region; uniform
     L0-feasible sampling lands in that wedge 1.3% of the time, and with
-    `exclude_heldout` the 60 harvested training rows contain ZERO of them.
+    `exclude_heldout` the 120 harvested training rows contain ZERO of them
+    (re-measured 2026-08-13 at the enlarged fixture; it was 60 rows, also zero).
     """
     from navalai.flywheel import (BENCHMARK_PROBES, frozen_suite,
                                   in_heldout_region)
@@ -101,11 +133,12 @@ def test_gm_is_not_log_transformed(stocked):
     metacentric height is a boat that capsizes, which is exactly the region a
     stability surrogate must represent.
 
-    MEASURED over the 60 harvested hulls in this fixture: min GM = -0.983 m
-    with 22 of 60 negative, so `np.log` produced 22 NaNs and the failure
-    surfaced (if at all) as a Cholesky error several frames away. (Under the
-    gap-E6 grammar the same seed draws 17 of 60 negative, not 22 — the count
-    moves with the feasible set, the defect does not.)
+    MEASURED over the 120 harvested hulls in this fixture: min GM = -1.085 m
+    with 51 of 120 negative, so `np.log` produced 51 NaNs and the failure
+    surfaced (if at all) as a Cholesky error several frames away. (It was 22 of
+    60 at min -0.983 m before the fixture grew, and 17 of 60 under the gap-E6
+    grammar before that — the count moves with the feasible set and with the
+    harvest size, the defect does not.)
 
     The relative-error METRIC is signed too: |pred - y| / |y| is unbounded at
     the zero crossing, so an identity-transformed quantity is scored in units
@@ -135,14 +168,28 @@ def test_gm_is_not_log_transformed(stocked):
     (a bar pinned at the luckiest seed); this is that defect pinned at the
     luckiest DRAW.
 
-    The floor is not moved and the fixture is not grown to chase the number:
-    at n=120 (what `scripts/make_baseline.py` uses) seed 21 reads 0.252 and
-    deploys while 5 of the same 10 seeds still refuse, so a bigger harvest
-    would re-pin the same lottery one size up. The refusal is recorded in
-    `data/gate-ledger.json` instead, and what this test asserts is what it was
-    always about: nothing in the GM path is a NaN, the transform is identity,
-    the metric says which kind of number it is, and if the gate refuses it
-    refuses for the ERROR FLOOR rather than for a silent numerical failure.
+    The floor is not moved and the fixture was not grown to chase THIS number:
+    on the 15-parameter genome, n=120 (what `scripts/make_baseline.py` uses)
+    read 0.252 at seed 21 and deployed while 5 of the same 10 seeds still
+    refused, so a bigger harvest only re-pinned the same lottery one size up.
+
+    RE-MEASURED 2026-08-13 after the geometry-kernel rebuild, and the lottery
+    is gone in the direction nobody wanted: GM is now refused at BOTH sizes and
+    on BOTH seeds — n=120 reads 0.7341 (seed 21) and 0.5325 (seed 7) against
+    the 0.35 floor, and NEITHER moved when the Michell grid was refined from
+    161x28 to 241x44, which says the GM refusal is not a quadrature artefact.
+    `data/baselines.json`
+    carries NO `gm` key for exactly this reason; the refusal is recorded under
+    `_README.refused_by_the_gate` with the numbers that produced it. The fixture
+    did grow to 120 in this commit, but for the wh_per_nm COVERAGE floor (see
+    `N_HARVEST` above), and it made the GM verdict worse rather than better —
+    which is the evidence that it was not chosen for GM.
+
+    The refusal is recorded in `data/gate-ledger.json`, and what this test
+    asserts is what it was always about: nothing in the GM path is a NaN, the
+    transform is identity, the metric says which kind of number it is, and if
+    the gate refuses it refuses for the ERROR FLOOR rather than for a silent
+    numerical failure.
     """
     from navalai.flywheel import (HARD_MAX_MEDIAN_REL_ERR, NonPositiveTarget,
                                   transform_for)
@@ -188,8 +235,9 @@ def test_retrain_records_its_wall_clock_and_gates_on_it(stocked, tmp_path):
     field, and no test asserted one — half of Gate 7 was unbuilt while the gate
     reported GREEN.
 
-    MEASURED on this fixture: a retrain is 0.60 s and the recorded baseline now
-    carries `wall_clock_s` / `best_wall_clock_s` beside the error metrics. The
+    MEASURED on this fixture: a retrain is 0.60 s at n=60 and 2.08 s at the
+    n=120 the fixture now uses, and the recorded baseline carries
+    `wall_clock_s` / `best_wall_clock_s` beside the error metrics. The
     tolerance is 3x rather than something tight, because this Mac thermally
     throttles (CLAUDE.md records a Thermal Emergency Sleep mid-campaign) and a
     bar that machine weather can trip is a bar people learn to ignore.
@@ -226,7 +274,11 @@ def test_the_mission_to_validated_hull_cycle_is_timed():
 
     c = cycle_time()
     assert c["validated"] is True and c["tier"] == "L1"
-    assert c["params"] is not None and len(c["params"]) == 15
+    # `15` was written here as a literal and the genome went to 16, so this read
+    # as a genome assertion and behaved as a stale constant. `grammar.N_PARAMS`
+    # is the single source; what this line is FOR is that the cycle returns a
+    # whole hull rather than a fragment.
+    assert c["params"] is not None and len(c["params"]) == grammar.N_PARAMS
     assert c["total_s"] > 0
     assert c["parse_s"] + c["search_s"] + c["validate_s"] == pytest.approx(
         c["total_s"], rel=1e-6)
@@ -353,7 +405,10 @@ def test_red_gates_fail_the_runner_but_suites_only_does_not():
 def _stub_prov():
     class P:
         def training_matrix(self, *a):
-            return np.zeros((30, 15)), np.ones(30)
+            # width from grammar, not a literal 15 — `GP.fit` is mocked in every
+            # caller so this never mattered, and a stub that silently describes
+            # the previous genome is how the next one gets missed.
+            return np.zeros((30, grammar.N_PARAMS)), np.ones(30)
     return P()
 
 
@@ -446,14 +501,32 @@ def test_the_committed_baseline_exists_and_can_refuse_a_poisoned_model(tmp_path)
     `retrain(..., bootstrap=True)`. No metric in it was written by hand, which
     is the only kind of baseline that means anything.
 
-    MEASURED against the committed file, from an INDEPENDENT harvest (seed 7,
-    60 hulls, against the file's own seed 21 / 120):
+    THE HARVEST IS DELIBERATELY NOT THE BASELINE'S OWN SEED. The file is built
+    from seed 21 and this test draws seed 7, because a mark that only its own
+    training draw can clear is not a benchmark. That mattered on 2026-08-13:
+    the regenerated baseline's ratchet REFUSES the seed-21 draw it was written
+    from (0.1721 against 1.25x the 8-seed ensemble median of 0.1130), so a test
+    that had reused seed 21 would have failed for the mark's arithmetic instead
+    of measuring what it is named for.
 
-        honest retrain    median rel err 0.1026 vs best 0.1045   DEPLOYED
-        label-shuffled    median rel err 0.7251                  REFUSED
+    RE-MEASURED 2026-08-13 against the regenerated file, INDEPENDENT harvest
+    (seed 7), at the 120 hulls the file itself is generated at. BEFORE is the
+    15-parameter genome at 60 hulls:
+
+        honest retrain    median rel err 0.1026 -> 0.1358   DEPLOYED
+        label-shuffled    median rel err 0.7251 -> 0.6371   REFUSED
 
     The second row is the D3 proof-of-concept verbatim — the poisoned model
     that used to deploy and become the eternal reference.
+
+    THE HONEST MARGIN IS 4%, AND THAT IS RECORDED RATHER THAN SMOOTHED OVER.
+    0.1358 sits against a threshold of 0.1413 (1.25 x 0.1130). It clears, and it
+    clears by less than the seed-to-seed noise the same file measures at 3.02x
+    spread. It was 2% before the Michell grid refinement and SURVIVED that
+    change, which is one datapoint of robustness and not a guarantee. The
+    tolerance is NOT widened to buy margin — the finding belongs to
+    `flywheel.retrain`'s tolerance and `make_baseline`'s pinned seed, not to
+    this test, and softening here would hide it.
     """
     import shutil
 
@@ -474,7 +547,7 @@ def test_the_committed_baseline_exists_and_can_refuse_a_poisoned_model(tmp_path)
     shutil.copy(committed, bp)
     prov = db.Provenance(tmp_path / "p.sqlite3")
     m = MissionSpec()
-    harvest(60, m, prov, seed=7)
+    harvest(N_HARVEST, m, prov, seed=7)
 
     gp, rep = retrain(prov, m, "wh_per_nm", baseline_path=bp)
     assert gp is not None and rep.passed_gate, (
