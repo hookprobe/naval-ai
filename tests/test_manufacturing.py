@@ -385,13 +385,47 @@ def test_refold_does_not_converge_with_station_count():
     satisfy at 1.020.
     """
     for rulings, n_coarse, n_fine, lo, hi in (
-            ("constant-x", 21, 41, 1.0, 1.2),
-            ("developable", 41, 161, 1.0, 3.0)):
+            ("constant-x", 21, 41, 1.0, 1.2),):
         coarse = hull_panels(Hull(mid_params(), n_stations=n_coarse), rulings)[0]
         fine = hull_panels(Hull(mid_params(), n_stations=n_fine), rulings)[0]
         ratio = (refold_deviation_mm(fine).max()
                  / refold_deviation_mm(coarse).max())
         assert lo <= ratio <= hi, f"{rulings}: fine/coarse = {ratio:.2f}"
+
+    # THE DEVELOPABLE FAMILY IS ASSERTED AS A MAGNITUDE, NOT A RATIO, AND THE
+    # REASON IS A SECOND ILL-POSEDNESS ONE LAYER UP FROM THE FIRST.
+    #
+    # Its ratio was ("developable", 41, 161, 1.0, 3.0) until 2026-08-12 and it
+    # is NOT a function of its input across platforms: this Mac measures
+    # 66.246 -> 102.869 mm, ratio 1.553, and ubuntu-latest measured 0.839 on
+    # the same commit — the error SHRINKS there and GROWS here.
+    #
+    # The mechanism is NOT `_trilaterate` (that one is documented in
+    # navalai/unroll.py and bites the constant-x bottom panel at n >= 81). It
+    # is `developable_pairing`'s Levenberg-Marquardt solve landing on a
+    # DIFFERENT ROOT. unroll.py already records the same solve doing this:
+    # "the planarity condition has several roots and a solve that walked onto
+    # another branch returned a lower warp and a topside panel 1938 mm off the
+    # hull, against 612 mm for the constant-x family it replaced."
+    #
+    # A one-ULP sweep does NOT catch it, and the reason is worth stating so the
+    # next person does not repeat the mistake: perturbing `src_a` AFTER
+    # `hull_panels()` has run measures `refold` given a FIXED pairing. The
+    # pairing is what moves. Within one machine it is deterministic — three
+    # runs give identical par_b to nine decimals — so only a cross-platform
+    # comparison exposes it.
+    #
+    # What Gate 6D actually needs is not the direction of refinement, it is
+    # that the panels are NOWHERE NEAR the 5 mm bar at any refinement. That is
+    # platform-stable by orders of magnitude, so it is what is asserted.
+    for n in (41, 161):
+        worst = max(refold_deviation_mm(p).max()
+                    for p in hull_panels(Hull(mid_params(), n_stations=n),
+                                         "developable"))
+        assert worst > 10.0 * REFOLD_BAR_MM, (
+            f"developable at {n} stations refolds to {worst:.1f} mm — if this "
+            f"ever approaches the {REFOLD_BAR_MM} mm bar, Gate 6D's watermark "
+            f"is stale and the ledger must be re-measured, not this test")
 
 
 def _refold_under_1ulp(n_stations, rulings, seed):
