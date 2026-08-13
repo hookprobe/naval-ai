@@ -16,4 +16,4 @@ this directory: whatever is here is done; whatever is missing must be
 re-inspected (agent prompts are reconstructable from AUDIT doc section list).
 
 ## Arrived so far
-(none yet — updated as reports land)
+- physics-models.md (agent D) — ARRIVED
