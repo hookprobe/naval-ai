@@ -19,3 +19,5 @@ re-inspected (agent prompts are reconstructable from AUDIT doc section list).
 - physics-models.md (agent D) — ARRIVED
 - cfd-prep-timers.md (agent E) — ARRIVED
 - hydrostatics-loading.md (agent C) — ARRIVED
+- grammar-typology-mission.md (agent B) — ARRIVED
+- geometry-representation.md (agent A) — ARRIVED
