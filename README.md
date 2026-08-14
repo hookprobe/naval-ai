@@ -207,41 +207,50 @@ different Gate 2M numbers came to circulate at once (gap J1).
 
 <!-- END GATE TABLE -->
 
-## What is deliberately NOT here yet
+## Capability truth — IMPLEMENTED / PARTIAL / REFUSED / UNKNOWN
 
-**Physics the vision needs and the code does not have** — all four re-verified
-against the modules named, 2026-08-13. A README that oversells is worse than one
-that undersells, and honesty rule 6 applies to capability claims as much as to
-gate colours:
+Re-verified against the modules named, **2026-08-14** (the 2026-08-13 list
+below it claimed four absences that code and gates had since disproved —
+prose claiming a capability is absent when the tree proves it exists is the
+same defect as overselling, mirrored). A README that oversells is worse than
+one that undersells, and honesty rule 6 applies in both directions:
 
-- **no multihull stability physics.** The transverse-inertia sum
-  `I_T = Σ_j [ I_T,j + A_wp,j · d_j² ]` does not exist anywhere in
-  `hydrostatics.py`. A slender demihull is therefore judged against a MONOHULL
-  GM floor, which measures the wrong vessel — the same error class as printing
-  one benchmark's EFD figure over another hull, which this project has already
-  caught once.
-- **no catamaran resistance in the production path.** `resistance.michell_rw`
-  accepts a `separation` argument; `resistance.total_resistance` calls it
-  WITHOUT one, so **every catamaran this project has evaluated has been scored
-  as an isolated demihull.**
-- **no experimental validation of the catamaran interference term.** Insel &
-  Molland (1992) and Molland et al. (1996) are CITED in `resistance.py` and
-  never transcribed. Self-consistency is not validation.
-- **no multi-chine hulls.** `Hull` carries a single `y_chine`/`z_chine` pair.
-  Against the five standard body plans the grammar reaches **two** (Series 62
-  and deep-V); double chine with wide transom, double chine on Series 62, and
-  rounded bilge it cannot deliver. Pinning `roundness = 0` for sheet-built
-  typologies is a stopgap correct for the unroller we have, not a principle — a
-  constant-radius bilge strip is a cylinder and IS developable, which is how
-  radius-chine metal boats are built.
+- **multihull hydrostatics + righting arm: PARTIALLY IMPLEMENTED, verdict
+  REFUSED.** The parallel-axis sum `I_T = Σ_j [ I_T,j + A_wp,j · d_j² ]`
+  is in `hydrostatics.solve` (Gate 1M measures it); the heeled-waterplane
+  solve exists (`gz_curve` — the catamaran curve saturates at ~2.46 m where
+  GM·sin claims 10.3 m, peaks and declines, computed not narrated); NZ Part
+  40A cl. 1.4 clauses (a)/(b) are MEASURED (`multihull_gz_assessment`).
+  The CRITERION still cannot pass: clause (c) needs windage the genome
+  cannot declare, clause (d)'s text is unread — so every multihull carries
+  an explicit stability refusal, never a monohull GM verdict. Refusal-first
+  until the vessel can declare its windage.
+- **catamaran resistance: IMPLEMENTED in the production path.**
+  `total_resistance(..., separation=)` carries the demihull spacing into
+  the interference term (Gate 1M: ratios 1.107/1.002/0.996 at s/Lwl
+  0.40/0.60/1.00 measured through `evaluate`). **Experimental validation:
+  UNKNOWN** — Insel & Molland (1992) are cited, not transcribed;
+  self-consistency is not validation, and no tank anchor exists in tree.
+- **multi-chine hulls: NOT IMPLEMENTED.** The section law delivers hard
+  chine and the `roundness` bilge fillet (round bilge IS expressible —
+  `formlib` re-audited 2026-08-14); a second chine is not. Pinning
+  `roundness = 0` for sheet-built typologies is a stopgap correct for the
+  unroller we have, not a principle.
+- **CFD: READY, not VALIDATED.** `cfd.manifest.CFDManifest` is the one
+  vessel description a case renders from (mass/centres/attitude from the
+  L1 weight model at the SOLVED equilibrium — never rho·V_STL); Gate 2M's
+  watermark is NONE and stays red until a converged campaign exists on a
+  CFD node. CFD-READY is a bookkeeping claim, CFD-VALIDATED an
+  experimental one; this repo currently earns only the first.
 
 Everything else:
 
-- the **autonomous-drone mission layer**. `mission.MissionSpec` speaks crew,
-  displacement, cruise speed, design category, waters and energy budget; there
-  is no payload/endurance/sea-state/sensor mission, and `optimize.HullProblem`
-  has no wake, acoustic, survey-km/kWh or time-on-station objective. The engine
-  is shared; the mission layer is not written (`PLM.md` §2.0).
+- the **autonomous-drone mission layer: PARTIAL.** `MissionSpec.payload`
+  (`PayloadSpec`: mass/volume/continuous+peak power/endurance/mission
+  distance/sea-state, positioned mass + hotel-load wiring, Gate VM) ships;
+  `sea_state` is a DECLARED requirement nothing can assess yet, and
+  `optimize.HullProblem` still has no wake, acoustic, survey-km/kWh or
+  time-on-station objective (`PLM.md` §2.0).
 - guided tabular diffusion (GMM baseline stands in; same interface)
 - LoRA-fine-tuned translator (rule floor + sanitising LLM seam stand in)
 - Tokyo-2015 calibration. OpenFOAM now RUNS (Mac simulation node), so this is
