@@ -38,14 +38,11 @@ G = geometry.G
 # deadrise cannot enclose the area the sectional area curve asks for there, so
 # the old reference vector is REFUSED by `section.solve`. That is information
 # about the old reference hull, not a reason to loosen the check.
-MID = {
-    "LWL": 10.0, "BWL": 3.2, "T": 0.55, "D": 1.55,
-    "Cp": 0.60, "lcb": -1.0, "x_mb": 0.55, "r_transom": 0.30,
-    "beta_mid": 8.0, "beta_bow": 30.0, "beta_len": 0.35,
-    "roundness": 0.0, "rocker": 0.15, "forefoot": 0.60,
-    "flare": 10.0, "sheer_rise": 0.18,
-}
+# R1.5: MID is the ONE reference genome, imported — see navalai/reference.py
+# for the provenance of forefoot 0.60 and r_transom 0.30.
+from navalai.reference import REFERENCE_HULL
 
+MID = dict(REFERENCE_HULL)
 
 def hull(**kw) -> Hull:
     return Hull(grammar.vector({**MID, **kw}))

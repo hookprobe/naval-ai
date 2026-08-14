@@ -10,33 +10,16 @@ from navalai import db, geometry, grammar
 
 
 def mid_params():
-    """A sensible 10 m solar-liveaboard-ish hull, hand-picked."""
-    return grammar.vector({
-        # PLATE P1/P2 GENOME. `p_bow`/`p_stern` are gone (the plan-form is a
-        # consequence of the area curve now, not an input) and `Cp`, `lcb` and
-        # `roundness` are new. Two numbers had to MOVE, and both are
-        # information about the old reference hull rather than a loosened bar:
-        #
-        #   forefoot 0.85 -> 0.60. At 0.85 the keel rises to 0.225 m of draft
-        #   at x/L = 0.95, where the warped deadrise is 24.2 deg, and a section
-        #   of that draft and deadrise cannot enclose the 0.2000 m^2 the area
-        #   curve asks for (`section.solve`). The old kernel had no area curve
-        #   to be wrong against.
-        #
-        #   r_transom 0.75 -> 0.30. The symbol changed meaning: it was the
-        #   transom half-BEAM ratio and is now the transom sectional AREA
-        #   ratio, and 0.75 of the midship area at the transom forces Cp above
-        #   what the SAC family can reach with the rest of the hull.
-        #
-        # Everything else is the hull that was here before. `panel_twist_rate`
-        # still reads 11.22 deg/m on it, which is the number its own
-        # convergence table in geometry.py is quoted at.
-        "LWL": 10.0, "BWL": 3.2, "T": 0.55, "D": 1.55,
-        "Cp": 0.60, "lcb": -1.0, "x_mb": 0.55, "r_transom": 0.30,
-        "beta_mid": 8.0, "beta_bow": 30.0, "beta_len": 0.35,
-        "roundness": 0.0, "rocker": 0.15, "forefoot": 0.60,
-        "flare": 10.0, "sheer_rise": 0.18,
-    })
+    """A sensible 10 m solar-liveaboard-ish hull, hand-picked.
+
+    DELEGATES to `navalai.reference.REFERENCE_HULL` (R1.5): the sixteen
+    numbers existed as three transcribed copies and ~60 tests hang off this
+    one, so this keeps the fixture API while the numbers live in ONE place.
+    The provenance prose (forefoot 0.85->0.60, r_transom 0.75->0.30) moved
+    with them.
+    """
+    from navalai.reference import reference_params
+    return reference_params()
 
 
 def test_named_vector_roundtrip():

@@ -1227,21 +1227,15 @@ REFERENCE_CATEGORY = "C"
 
 
 def reference_hull_params() -> np.ndarray:
-    """The 10 m Solar-Liveaboard hull, from `tests/test_phase0.mid_params`.
+    """The 10 m Solar-Liveaboard hull — from `navalai.reference` (R1.5).
 
-    Re-declared here so `arrangement` has a reference vessel without importing
-    a test module — and it is the SAME sixteen numbers, which is a duplication
-    this module would rather not have. It is confined to the reference-layout
-    demo; nothing in the grammar or the gate reads it.
+    This function used to re-declare the sixteen numbers "so `arrangement`
+    has a reference vessel without importing a test module"; the numbers now
+    have a production home and the duplication this module said it would
+    rather not have is gone.
     """
-    from . import grammar
-    return grammar.vector({
-        "LWL": 10.0, "BWL": 3.2, "T": 0.55, "D": 1.55,
-        "Cp": 0.60, "lcb": -1.0, "x_mb": 0.55, "r_transom": 0.30,
-        "beta_mid": 8.0, "beta_bow": 30.0, "beta_len": 0.35,
-        "roundness": 0.0, "rocker": 0.15, "forefoot": 0.60,
-        "flare": 10.0, "sheer_rise": 0.18,
-    })
+    from .reference import reference_params
+    return reference_params()
 
 
 def reference_trunk(hull: Hull) -> Trunk:
