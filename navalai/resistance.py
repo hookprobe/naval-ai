@@ -66,7 +66,8 @@ from .holtrop import NU_SEA_15C, RHO_SEA_15C
 # IMPORTED from `holtrop.NU_SEA_15C` rather than retyped: this module and that
 # one would otherwise hold the same physical constant twice, which is the
 # defect `limits.py` exists to prevent, one floor down in the stack.
-NU_FRESH_15C = 1.14e-6    # [m^2/s] the value this module has always shipped
+from .constants import \
+    NU_FRESH_15C_ROUNDED as NU_FRESH_15C  # see constants.py for the 1.13902e-6 note
 _NU_ANCHORS = ((1000.0, NU_FRESH_15C), (RHO_SEA_15C, NU_SEA_15C))
 
 

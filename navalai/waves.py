@@ -12,7 +12,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-G = 9.80665
+from .constants import G_STANDARD as G
 
 
 @dataclass(frozen=True)

@@ -56,6 +56,7 @@ import math
 from dataclasses import dataclass, replace
 
 from .cfd.case import background_counts
+from .constants import G_STANDARD
 from .similitude import Condition
 
 # --- MEASURED on runs/kcs_sym, np=10, Apple M5 Pro -------------------------
@@ -342,7 +343,8 @@ DOMAIN_LWL = 4.5
 SEICHE_SEPARATION = 3.0
 
 
-def wave_speed(wavelength: float, depth: float, g: float = 9.81) -> float:
+def wave_speed(wavelength: float, depth: float,
+               g: float = G_STANDARD) -> float:
     """Linear free-surface phase speed, FULL dispersion relation [m/s].
 
         c = sqrt( g/k * tanh(k h) ),  k = 2 pi / lambda

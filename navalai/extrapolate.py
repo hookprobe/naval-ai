@@ -43,6 +43,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
+from .constants import RHO_SEA_15C_ITTC
 from .resistance import form_factor, ittc57_cf
 from .similitude import Condition, PhysicalModel
 
@@ -89,7 +90,7 @@ def roughness_allowance(lwl_ship: float, k_s: float = STANDARD_ROUGHNESS_M) -> f
 
 def air_resistance_coefficient(area_transverse: float, wetted_ship: float,
                                cd_air: float = 0.8, rho_air: float = 1.226,
-                               rho_water: float = 1026.0) -> float:
+                               rho_water: float = RHO_SEA_15C_ITTC) -> float:
     """C_AA referred to the WETTED area, so it adds to C_T directly.
 
         C_AA = cd_air * (rho_air / rho_water) * A_T / S

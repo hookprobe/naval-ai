@@ -339,10 +339,10 @@ _LTS_ITERATIONS = 2000
 # `tests/test_cfd_gap_closure.py` now greps this file for the bare digits, the
 # way `tests/test_limits_single_source.py` does for limits.py, so the claim is
 # enforced instead of asserted.
-_G = 9.81               # matches constant/g in the generated case
-_RHO_WATER = 998.8      # kg/m^3, ~20 C fresh water
+from ..constants import G_OPENFOAM as _G  # constant/g case parity
+from ..constants import RHO_FRESH_20C as _RHO_WATER
 _RHO_AIR = 1.2
-_NU_WATER = 1.09e-6     # m^2/s
+from ..constants import NU_FRESH_20C as _NU_WATER
 _NU_AIR = 1.48e-5
 # Surface tension is set to ZERO, matching the Wolf Dynamics KCS reference.
 # At model scale We >> 1 so it is physically negligible, but the CSF force

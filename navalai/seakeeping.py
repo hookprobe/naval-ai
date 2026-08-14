@@ -145,7 +145,7 @@ def _body_from_hull(hull: Hull, nx: int, nz: int):
 
 
 def heave_coeffs(hull: Hull, omegas: np.ndarray, nx: int = 40,
-                 nz: int = 10, rho: float = 1000.0):
+                 nz: int = 10, rho: float = RHO_WATER):
     """Heave added mass + radiation damping over a frequency set."""
     import capytaine as cpt
 
@@ -163,7 +163,7 @@ def heave_coeffs(hull: Hull, omegas: np.ndarray, nx: int = 40,
 
 
 def heave_rao(hull: Hull, omegas: np.ndarray, disp_kg: float, awp: float,
-              nx: int = 30, nz: int = 8, rho: float = 1000.0,
+              nx: int = 30, nz: int = 8, rho: float = RHO_WATER,
               wave_direction: float = 0.0) -> np.ndarray:
     """|RAO| of heave in long-crested waves from `wave_direction` (zero speed).
 
@@ -206,7 +206,7 @@ def heave_rao(hull: Hull, omegas: np.ndarray, disp_kg: float, awp: float,
 
 
 def convergence_sweep(hull: Hull, omega: float, levels=((24, 6), (36, 9), (48, 12)),
-                      rho: float = 1000.0):
+                      rho: float = RHO_WATER):
     """Added-mass at one frequency across mesh refinements.
 
     Returns (values, n_panels, rel_change_last) — the honest uncertainty basis.
@@ -230,7 +230,7 @@ L2_MESHES = ((20, 5), (28, 7))
 
 
 def heave_seakeeping(hull: Hull, omegas: np.ndarray, disp_kg: float,
-                     awp: float, rho: float = 1000.0,
+                     awp: float, rho: float = RHO_WATER,
                      meshes: tuple = L2_MESHES,
                      wave_direction: float = 0.0) -> SeakeepingResult:
     """The L2 heave answer for one hull, as a `SeakeepingResult`.
@@ -271,7 +271,7 @@ def heave_seakeeping(hull: Hull, omegas: np.ndarray, disp_kg: float,
 
 def hemisphere_added_mass_lowfreq(radius: float = 1.0, n_theta: int = 26,
                                   n_phi: int = 52, omega: float = 0.15,
-                                  rho: float = 1000.0,
+                                  rho: float = RHO_WATER,
                                   method: str = BIE_METHOD) -> float:
     """Benchmark case: floating hemisphere heave added mass, near zero frequency.
 

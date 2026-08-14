@@ -311,3 +311,33 @@ def test_the_multihull_stability_refusal_has_ONE_home():
     assert "8.0" not in src.replace("MULTIHULL_OFFSET_LOAD_HEEL_LIMIT_DEG", ""), (
         "the multihull offset-load limit is retyped — import "
         "limits.MULTIHULL_OFFSET_LOAD_HEEL_LIMIT_DEG")
+
+
+def test_physical_constants_have_one_home_S18():
+    """Consolidation directive §18: four densities, three viscosities and
+    two gravities were declared across seven modules. They now live ONLY in
+    navalai/constants.py; everything else imports. The fence greps for the
+    distinctive literals — a re-declaration anywhere else is the
+    number-declared-twice defect coming back.
+    """
+    import pathlib
+    import re
+
+    import navalai
+
+    root = pathlib.Path(navalai.__file__).parent
+    distinctive = ("9.80665", "998.8", "1.09e-6", "1.13902e-6",
+                   "1.18831e-6", "1026.0")
+    offenders = []
+    for py in root.rglob("*.py"):
+        if py.name == "constants.py":
+            continue
+        text = py.read_text()
+        for lit in distinctive:
+            for k, line in enumerate(text.splitlines(), 1):
+                stripped = line.split("#")[0]
+                if lit in stripped and "=" in stripped and "import" not in stripped:
+                    offenders.append(f"{py.relative_to(root)}:{k}: {line.strip()[:70]}")
+    assert not offenders, (
+        "physical-constant literals re-declared outside constants.py:\n  "
+        + "\n  ".join(offenders))

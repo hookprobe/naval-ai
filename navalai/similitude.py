@@ -58,8 +58,11 @@ from .geometry import G
 # Danube dayboat SKUs; these are the values a tank quotes its Reynolds number
 # with, so a benchmark comparison must use them or it compares two different
 # Reynolds numbers and calls the difference physics.
-FRESH_WATER_15C = (999.0, 1.13902e-6)      # (rho [kg/m3], nu [m2/s])
-SEA_WATER_15C = (1026.0, 1.18831e-6)
+from .constants import (NU_FRESH_15C, NU_SEA_15C, RHO_FRESH_15C,
+                        RHO_SEA_15C_ITTC)
+
+FRESH_WATER_15C = (RHO_FRESH_15C, NU_FRESH_15C)  # (rho [kg/m3], nu [m2/s])
+SEA_WATER_15C = (RHO_SEA_15C_ITTC, NU_SEA_15C)
 
 # Surface tension, water/air at 15 C [N/m]. basis='approx' — it is a handbook
 # value, not an ITTC-procedure value, and it only ever feeds a WARNING here.

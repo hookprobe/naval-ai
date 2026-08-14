@@ -159,7 +159,9 @@ def _cases() -> tuple[FormCase, ...]:
                                     separation_over_lwl=0.30)),
             drawn_row="catamaran", family_key="slender_symmetric_cat_demihull",
             rationale="THE target class: L/B 15.0 (inside Southampton's "
-                      "[7.00, 15.10]). T = 0.52 m so design B/T 1.538 sits "
+                      f"[{formlib.SOTON_DEMIHULL_L_OVER_B.low:.2f}, "
+                      f"{formlib.SOTON_DEMIHULL_L_OVER_B.high:.2f}]). "
+                      "T = 0.52 m so design B/T 1.538 sits "
                       "ABOVE the sourced 1.50 floor — the owner's 0.6 m "
                       "draft is refused on evidence (grammar's "
                       "OUT_OF_SOURCED_RANGE) and is deliberately not used."),

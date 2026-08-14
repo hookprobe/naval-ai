@@ -93,7 +93,7 @@ from typing import Mapping
 # Only for the knots<->Froude helper. No project physics is imported: this
 # module must stay readable while the geometry kernel is being rewritten, and
 # `g` is not a hull-form datum.
-_G = 9.80665
+from .constants import G_STANDARD as _G
 _KNOT_MS = 0.514444
 
 

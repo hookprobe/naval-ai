@@ -95,7 +95,7 @@ from dataclasses import dataclass, field
 from .geometry import G
 
 # Sea water at 15 degrees centigrade, the condition the 1982 paper works in.
-RHO_SEA_15C = 1025.0      # density [kg/m^3]
+from .constants import RHO_SEA_HOLTROP as RHO_SEA_15C  # see constants.py
 NU_SEA_15C = 1.1883e-6    # kinematic viscosity [m^2/s], ITTC-1957 table
 
 # The uncertainty band attached to every prediction.  DECLARED, NOT SOURCED:

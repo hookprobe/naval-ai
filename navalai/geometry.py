@@ -49,8 +49,10 @@ import numpy as np
 
 from . import grammar
 
-RHO_WATER = 1000.0  # fresh water (Danube); pass 1025 for salt
-G = 9.80665
+# Declarations live in navalai/constants.py (§18, one home); geometry
+# remains the import point its many consumers already use.
+from .constants import G_STANDARD as G
+from .constants import RHO_FRESH as RHO_WATER
 
 # Sectional-area-curve shape exponents. The SOLVER may only return values in
 # this band, and a (Cp, lcb) pair it cannot reach inside it is REFUSED by
