@@ -327,7 +327,7 @@ def test_physical_constants_have_one_home_S18():
 
     root = pathlib.Path(navalai.__file__).parent
     distinctive = ("9.80665", "998.8", "1.09e-6", "1.13902e-6",
-                   "1.18831e-6", "1026.0")
+                   "1.18831e-6", "1.1883e-6", "1026.0")
     offenders = []
     for py in root.rglob("*.py"):
         if py.name == "constants.py":

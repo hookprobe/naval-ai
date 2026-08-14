@@ -473,8 +473,10 @@ def first_layer_thickness(speed: float, lwl: float, target_yplus: float,
 
     y+ = u_tau * y / nu with y the cell CENTRE, so the cell is twice that.
     """
-    re = speed * lwl / nu
-    cf = 0.075 / (math.log10(re) - 2.0) ** 2
+    # §18: the friction line has ONE home (resistance.ittc57_cf); the y+
+    # derivation consumes it with the case fluid's nu passed explicitly.
+    from ..resistance import ittc57_cf
+    cf = ittc57_cf(speed, lwl, nu=nu)
     u_tau = speed * math.sqrt(cf / 2.0)
     return 2.0 * target_yplus * nu / u_tau
 

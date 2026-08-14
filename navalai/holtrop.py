@@ -96,7 +96,7 @@ from .geometry import G
 
 # Sea water at 15 degrees centigrade, the condition the 1982 paper works in.
 from .constants import RHO_SEA_HOLTROP as RHO_SEA_15C  # see constants.py
-NU_SEA_15C = 1.1883e-6    # kinematic viscosity [m^2/s], ITTC-1957 table
+from .constants import NU_SEA_HOLTROP as NU_SEA_15C  # see constants.py
 
 # The uncertainty band attached to every prediction.  DECLARED, NOT SOURCED:
 # the 1982 paper does not publish a per-prediction standard error in a form
@@ -457,18 +457,18 @@ def model_ship_correlation(lwl: float, cb: float, c2_: float, c4_: float,
 
 
 def ittc57_cf(speed: float, lwl: float, nu: float = NU_SEA_15C) -> float:
-    """ITTC-1957 flat-plate friction coefficient C_F [-].
+    """ITTC-1957 flat-plate friction coefficient C_F [-], sea-water default.
 
-    Deliberately a local definition rather than a call into
-    `navalai.resistance.ittc57_cf`: that one defaults to FRESH water at 15 C
-    (nu = 1.14e-6) because the Michell tier works in fresh water, and this
-    method's validation set is sea water (nu = 1.1883e-6).  Sharing the
-    function would mean sharing a default that is wrong for one of them, which
-    is how a number gets declared twice and drifts.  The FORMULA is identical
-    and is asserted identical in tests/test_holtrop.py.
+    CONSOLIDATED 2026-08-14 (§18): this was a deliberate local COPY, argued
+    from "sharing the function would mean sharing a default that is wrong
+    for one of them" — but the canonical `resistance.ittc57_cf` takes `nu`
+    EXPLICITLY, so the fresh-water default never fires when this wrapper
+    passes its sea value. The argument defended against a hazard the
+    signature already prevents; what remains is one formula, one home, and
+    this module's own sea-water default preserved at ITS boundary.
     """
-    re = max(speed * lwl / nu, 1.0e4)
-    return 0.075 / (math.log10(re) - 2.0) ** 2
+    from .resistance import ittc57_cf as _canonical
+    return _canonical(speed, lwl, nu=nu)
 
 
 @dataclass(frozen=True)

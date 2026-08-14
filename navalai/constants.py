@@ -57,5 +57,8 @@ NU_FRESH_20C = 1.09e-6
 
 # 1025.0, the round sea-water figure the 1982 regression is conventionally
 # run with — one kg/m^3 under the ITTC 15 C table value above. Kept separate
-# and named, per the rule at the top.
+# and named, per the rule at the top. The viscosity is likewise the ITTC
+# value rounded to four significant figures — found by the §18 sweep AFTER
+# the first fence landed, which is why the fence greps both spellings.
 RHO_SEA_HOLTROP = 1025.0
+NU_SEA_HOLTROP = 1.1883e-6
