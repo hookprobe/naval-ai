@@ -109,6 +109,24 @@ instead, and every pre-existing failure met en route is classified below.
   state, R4 wire-or-delete, R5 five-case validation matrix + final
   report (audit q.36).
 
+## Phase 5 — CODE FORENSICS directive (2026-08-14 night, §0-35): in flight
+Phase 1 fan-out (7 read-only agents), reports banked to docs/forensics/ on
+arrival, committed+pushed immediately:
+- import-graph.md (§6/§7 module classification + reachability) — PENDING
+- e2e-map.md (§2/§3/§14 four-vessel executed trace + mutation probes) — PENDING
+- ownership.md (§4/§5/§16/§17 quantity/object tables + duplicates) — PENDING
+- scripts-files-artifacts.md (§8/§9/§10/§21/§22) — PENDING
+- failure-paths.md (§18/§19/§20) — PENDING
+- tests-gates-docs.md (§11/§12/§13/§24) — PENDING
+- shadow-api.md (§15/§23 + live-map skeleton) — PENDING
+Baseline (§1/§32): full gates+reconcile+pytest running in pinned worktree
+at f6eca26 (verify-f6eca26.txt). Repo state at fan-out: HEAD 3527a59,
+clean, synced, 77,644 py LOC.
+Then: CODE_FORENSICS_REPORT + LIVE_SYSTEM_MAP + E2E map + CONSOLIDATION
+PLAN (Phase 2), incremental fixes (Phase 3), verification + the 17-question
+answer (Phase 4). Deletion rule: find -> trace consumers -> gates -> docs ->
+history -> classify -> migrate -> only then delete/archive.
+
 ## Pre-existing failures classified en route (not caused by the rebuild)
 - Wall-clock bars on this box (fortress001 is slower than the bar-setting
   machine; all reproduce on the UNMODIFIED tree): catamaran latency 120ms
