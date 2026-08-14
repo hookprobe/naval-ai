@@ -279,9 +279,12 @@ def frozen_suite(mission: MissionSpec, quantity: str = "wh_per_nm",
     exactly as well on it as an honest one.
     """
     X, y, labels = [], [], []
+    # Same role the ladder will judge by (R0.1): a benchmark probe or held-out
+    # point must not be rejected as a monohull when the mission is not one.
+    vessel_cfg = getattr(mission, "vessel", None)
     for name, p in BENCHMARK_PROBES.items():
         x = grammar.vector(p)
-        rep = grammar.check(x)
+        rep = grammar.check(x, vessel=vessel_cfg)
         if not rep.ok:
             # Recorded, not silently dropped: a probe that stops being L0-legal
             # is a fact about the grammar and the reader should see it.
@@ -300,7 +303,8 @@ def frozen_suite(mission: MissionSpec, quantity: str = "wh_per_nm",
     got = 0
     while got < n_region:
         x = rng.uniform(grammar.LOW, grammar.HIGH)
-        if not in_heldout_region(x[None, :])[0] or not grammar.check(x).ok:
+        if (not in_heldout_region(x[None, :])[0]
+                or not grammar.check(x, vessel=vessel_cfg).ok):
             continue
         ev = evaluate(x, mission)
         val = _quantity_of(ev, quantity)

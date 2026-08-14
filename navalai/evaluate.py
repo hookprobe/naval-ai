@@ -295,10 +295,14 @@ def sample_valid(n: int, mission: MissionSpec, seed: int = 0,
     Returns (X, y) for surrogate training — the flywheel's data feed.
     """
     rng = np.random.default_rng(seed)
+    # The pre-filter must judge by the SAME role the ladder will: a demihull
+    # candidate rejected here by monohull bands would starve the sampler for
+    # a catamaran mission (R0.1 — the 2026-08-14 finding).
+    vessel_cfg = getattr(mission, "vessel", None)
     X, y = [], []
     while len(X) < n:
         x = rng.uniform(grammar.LOW, grammar.HIGH)
-        if not grammar.check(x).ok:
+        if not grammar.check(x, vessel=vessel_cfg).ok:
             continue
         ev = evaluate(x, mission)
         if ev.energy is None:
@@ -404,7 +408,16 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
     """
     t0 = time.perf_counter()
 
-    rep = grammar.check(params)
+    # `getattr` rather than `mission.vessel`: `translate.sanitize` and
+    # `ui/server.py`'s `MissionSpec(**body)` build spec-like objects, and a
+    # caller holding an older one must get the monohull it has always got
+    # rather than an AttributeError from inside the ladder. Resolved BEFORE
+    # the L0 gate: `grammar.check` judges proportions by HULL ROLE, and a
+    # demihull judged by monohull bands refuses the project's own catamaran
+    # (the 2026-08-14 finding quoted at the top of `grammar.py`).
+    vessel_cfg = getattr(mission, "vessel", None)
+
+    rep = grammar.check(params, vessel=vessel_cfg)
     if not rep.ok:
         return Evaluation(False, "L0", rep.violations, params=np.asarray(params),
                           hull_lwl_m=_declared_lwl_m(params),
@@ -413,18 +426,12 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
     hull = Hull(params)
     p = grammar.named(params)
 
-    # HOW MANY HULLS, AND HOW FAR APART — resolved ONCE, here, and handed to
+    # HOW MANY HULLS, AND HOW FAR APART — resolved ONCE, above, and handed to
     # both halves of the physics. `hydrostatics.vessel_terms` is the single
     # home of the derivation (`mission.VesselConfig.separation_m` is the single
     # home of the ratio -> metres conversion inside it); the stability term and
     # the wave-interference term must be given the same spacing or they
     # describe different vessels while sharing one Evaluation.
-    #
-    # `getattr` rather than `mission.vessel`: `translate.sanitize` and
-    # `ui/server.py`'s `MissionSpec(**body)` build spec-like objects, and a
-    # caller holding an older one must get the monohull it has always got
-    # rather than an AttributeError from inside the ladder.
-    vessel_cfg = getattr(mission, "vessel", None)
     try:
         # AXIS 1 has values this project can DECLARE and cannot EVALUATE. A
         # trimaran's amas are not copies of its centre hull and this genome
@@ -716,8 +723,11 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
 
     # Proportions re-checked on the FLOATED hull, against the same bands L0
     # applied to the parameter vector (gap B9). `grammar.proportion_margins` is
-    # the shared kernel, so the two states cannot be judged by different numbers.
-    props = grammar.proportion_margins(hs.lwl_eff, hs.b_wl_max, hs.draft)
+    # the shared kernel, so the two states cannot be judged by different
+    # numbers — and it receives the SAME vessel L0 received, so a demihull is
+    # not re-judged as a monohull once it floats.
+    props = grammar.proportion_margins(hs.lwl_eff, hs.b_wl_max, hs.draft,
+                                       vessel=vessel_cfg)
     worst_prop = max(props, key=lambda k: props[k])
 
     # Built FROM CONSTRAINT_NAMES, not typed in an order that happened to match
@@ -757,10 +767,12 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
                f"waterline of {hs.lwl_eff:.2f} m)",
         "proportions": f"floated {worst_prop} outside its band: L/B "
                        f"{hs.lwl_eff / max(hs.b_wl_max, 1e-9):.2f} "
-                       f"{list(grammar.L_OVER_B_BAND)}, B/T "
+                       f"{list(grammar.bands_for(vessel_cfg)['L/B'][0])}, B/T "
                        f"{hs.b_wl_max / max(hs.draft, 1e-9):.2f} "
-                       f"{list(grammar.B_OVER_T_BAND)} — L0 checked the design "
-                       f"draft, this is the hull that floated",
+                       f"{list(grammar.bands_for(vessel_cfg)['B/T'][0])} — "
+                       f"role {grammar.hull_role(vessel_cfg).value}; L0 "
+                       f"checked the design draft, this is the hull that "
+                       f"floated",
         "rules": ("rules tier: " + "; ".join(
             f"{f.rule_id} {f.measured:.2f} vs {f.required:.2f} {f.unit}"
             for f in fails)) if fails else "",
