@@ -1444,6 +1444,18 @@ def hull_to_stl(hull: Hull, path: Path, nx: int = 80,
     if nz is None:
         nz = stl_girth_resolution(hull)
     verts, tris = hull.closed_mesh(nx=nx, nz=nz)
+    data = _tris_to_ascii_stl(verts, tris)
+    path.write_bytes(data)
+    return hashlib.sha256(data).hexdigest()
+
+
+def _tris_to_ascii_stl(verts, tris) -> bytes:
+    """(verts, tris) -> ascii STL bytes — THE one facet emitter.
+
+    Factored out of `hull_to_stl` (G7.1) so the imported-and-repaired path
+    writes its mesh through the identical formatter rather than growing a
+    second copy of the loop.
+    """
     lines = ["solid hull"]
     for t in tris:
         p = verts[list(t)]
@@ -1457,9 +1469,7 @@ def hull_to_stl(hull: Hull, path: Path, nx: int = 80,
         lines.append("  endloop")
         lines.append(" endfacet")
     lines.append("endsolid hull")
-    data = "\n".join(lines).encode()
-    path.write_bytes(data)
-    return hashlib.sha256(data).hexdigest()
+    return "\n".join(lines).encode()
 
 
 # ---------------------------------------------------------------------------
@@ -1879,8 +1889,17 @@ def write_resistance_case_from_stl(stl_path: str | Path, lwl: float,
     # is bit-identical). Holes and true self-intersections are REFUSED, not
     # patched: closing them retriangulates, and silently changing an imported
     # benchmark's shape would invalidate the very comparison it exists for.
-    from ..mesh_repair import IMPORTED, diagnose
-    rep = diagnose(str(stl_path), origin=IMPORTED)
+    # AUDIT G7.1 (2026-08-14): this block called `diagnose` — which only
+    # COUNTS — and then wrote `import_winding_repaired={rep.applied}`, a
+    # field only `repair()` ever fills. The receipt was structurally always
+    # "no" while the comment above promised repair, and an imported STL with
+    # winding conflicts sailed into snappyHexMesh unrepaired under a receipt
+    # that read as "checked". `repair()` now actually runs; it relabels
+    # triangles and drops exact degenerates/duplicates (no vertex moves, so
+    # the calibration shape is bit-identical) and still REFUSES holes and
+    # self-intersections.
+    from ..mesh_repair import IMPORTED, repair
+    V_rep, T_rep, rep = repair(str(stl_path), origin=IMPORTED)
     if rep.found["boundary_edges"] or rep.found["nonmanifold_edges"]:
         raise ValueError(
             f"imported STL is not a closed manifold and will not be meshed: "
@@ -1892,7 +1911,12 @@ def write_resistance_case_from_stl(stl_path: str | Path, lwl: float,
             f"that retriangulates and changes the geometry you are calibrating "
             f"against.")
 
-    data = Path(stl_path).read_bytes()
+    if rep.applied:
+        # The mesher gets the REPAIRED surface — writing the original bytes
+        # beside a "repaired: yes" receipt would be the same lie mirrored.
+        data = _tris_to_ascii_stl(V_rep, T_rep)
+    else:
+        data = Path(stl_path).read_bytes()   # untouched: nothing was needed
     (out / "constant" / "triSurface" / "hull.stl").write_bytes(data)
     stl_sha = hashlib.sha256(data).hexdigest()
     info = _write_case_dicts(out, stl_sha, lwl, speed, end_time, scale,
@@ -1902,7 +1926,9 @@ def write_resistance_case_from_stl(stl_path: str | Path, lwl: float,
     with (out / "case.info").open("a") as fh:
         for k, v in rep.found.items():
             fh.write(f"import_{k}={v}\n")
-        fh.write(f"import_winding_repaired={'yes' if rep.applied else 'no'}\n")
+        fh.write("import_winding_repaired="
+                 f"{'yes' if any('reoriented' in a for a in rep.applied) else 'no'}\n")
+        fh.write(f"import_repairs_applied={'; '.join(rep.applied) or 'none'}\n")
     return info
 
 

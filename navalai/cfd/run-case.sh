@@ -20,6 +20,46 @@ set -- "${ARGS[@]+"${ARGS[@]}"}"
 CASE="${1:?usage: run-case.sh <case-dir> [n-procs] [--force]}"
 NP="${2:-4}"
 
+# AUDIT G8.1 (2026-08-14): the solver ran UNBOUNDED — a diverging interFoam
+# (deltaT ~1e-40, Courant blowup: both documented below) would sit forever
+# with the "already running" guard then refusing every later run on the
+# machine. SOLVER_TIMEOUT is a HANG GUARD, not a latency bar: 6h default
+# covers every measured Mac solve (minutes to ~1h) with an order of
+# magnitude to spare; 0 disables it for a deliberately long campaign.
+# Portable watchdog (macOS ships no GNU `timeout`), with a VERIFIED kill:
+# the TERM is followed up, and surviving ranks are reported by name.
+SOLVER_TIMEOUT="${SOLVER_TIMEOUT:-21600}"
+# run_solver append|trunc <logfile> <cmd...> — the solver's output goes to
+# the log; the watchdog's own FATAL lines stay on the console (a timeout
+# notice buried inside log.interFoam is a notice nobody sees).
+run_solver() {
+  rs_mode=$1; rs_log=$2; shift 2
+  if [ "$rs_mode" = append ]; then
+    "$@" >> "$rs_log" 2>&1 &
+  else
+    "$@" > "$rs_log" 2>&1 &
+  fi
+  solver_pid=$!
+  waited=0
+  while kill -0 "$solver_pid" 2>/dev/null; do
+    if [ "$SOLVER_TIMEOUT" -gt 0 ] && [ "$waited" -ge "$SOLVER_TIMEOUT" ]; then
+      say "FATAL: solver exceeded SOLVER_TIMEOUT=${SOLVER_TIMEOUT}s; killing PID $solver_pid"
+      kill "$solver_pid" 2>/dev/null || true
+      sleep 5
+      kill -9 "$solver_pid" 2>/dev/null || true
+      wait "$solver_pid" 2>/dev/null || true
+      if pgrep -x interFoam >/dev/null 2>&1; then
+        say "FATAL: interFoam ranks SURVIVED the kill: $(pgrep -xl interFoam | head -3 | tr '\n' ' ')"
+        say "       clean up by hand before the next run."
+      fi
+      exit 124
+    fi
+    sleep 10
+    waited=$((waited + 10))
+  done
+  wait "$solver_pid"
+}
+
 [ -d "$CASE" ] || { echo "FATAL: case dir '$CASE' does not exist." \
   "Generate it first: python scripts/make_case.py --out <dir> [--triplet]"; exit 2; }
 [ -f "$CASE/system/controlDict" ] || { echo "FATAL: '$CASE' is not an" \
@@ -102,7 +142,7 @@ if [ -n "$RESUME_FROM" ] && [ "$RESUME_FROM" != "0" ]; then
   say "RESUMING from t=$RESUME_FROM (mesh + decomposition reused)"
   foamDictionary -entry startFrom -set latestTime system/controlDict >/dev/null
   say "interFoam -parallel (resume; tail -f $CASE/log.interFoam) ..."
-  mpirun -np "$NP" interFoam -parallel >> log.interFoam 2>&1
+  run_solver append log.interFoam mpirun -np "$NP" interFoam -parallel
   reconstructPar -latestTime > log.reconstruct 2>&1
   say "done: $(ls postProcessing/forces/ 2>/dev/null | tr '\n' ' ' || echo 'NO FORCES')"
   exit 0
@@ -494,10 +534,10 @@ if [ "$NP" -gt 1 ]; then
   say "decomposePar ($NP ranks) ..."
   decomposePar -force > log.decompose 2>&1
   say "interFoam -parallel (tail -f $CASE/log.interFoam to watch) ..."
-  mpirun -np "$NP" interFoam -parallel > log.interFoam 2>&1
+  run_solver trunc log.interFoam mpirun -np "$NP" interFoam -parallel
   reconstructPar -latestTime > log.reconstruct 2>&1
 else
   say "interFoam ..."
-  interFoam > log.interFoam 2>&1
+  run_solver trunc log.interFoam interFoam
 fi
 say "done: $(ls postProcessing/forces/0/ 2>/dev/null || echo 'NO FORCES OUTPUT')"

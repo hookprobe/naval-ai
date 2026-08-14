@@ -870,3 +870,68 @@ def test_the_tier_survives_serialization_and_an_unknown_one_is_refused_on_the_wa
     raw["ev"].pop("tier")
     with pytest.raises(TypeError, match="tier"):
         EvidenceGraph.from_json(json.dumps(raw))
+
+
+def test_an_imported_stl_with_flipped_winding_is_REALLY_repaired(tmp_path):
+    """AUDIT G7.1 (2026-08-14): the import path called `diagnose` — which
+    only counts — and then wrote `import_winding_repaired={rep.applied}`, a
+    field only `repair()` fills. The receipt was structurally always "no"
+    while the block comment promised repair, and a conflicted STL sailed
+    into the mesher unrepaired under a receipt that read as checked.
+
+    The fixture is the honest tetrahedron above with ONE face flipped; the
+    case must (a) write a hull.stl whose winding is consistent again,
+    (b) say so in the receipt, and (c) list what was applied."""
+    from navalai.mesh_repair import IMPORTED, diagnose
+
+    v = [(0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)]
+    faces = [(0, 2, 1), (0, 1, 3), (0, 3, 2), (2, 1, 3)]   # last one FLIPPED
+    out = ["solid s"]
+    for a, b, c in faces:
+        out += ["facet normal 0 0 0", "outer loop"]
+        out += [f"vertex {v[i][0]} {v[i][1]} {v[i][2]}" for i in (a, b, c)]
+        out += ["endloop", "endfacet"]
+    out.append("endsolid s")
+    stl = tmp_path / "flipped.stl"
+    stl.write_text("\n".join(out) + "\n")
+    assert diagnose(str(stl), origin=IMPORTED).found["winding_conflicts"] > 0
+
+    case = tmp_path / "case"
+    write_resistance_case_from_stl(stl, KCS_MODEL_L, KCS_MODEL_U, case,
+                                   end_time=1.0, scale=1.0, np_procs=2,
+                                   symmetric=True, n_layers=2)
+    info = (case / "case.info").read_text()
+    assert "import_winding_repaired=yes" in info, info
+    assert "reoriented to a consistent outward winding" in info, info
+    written = case / "constant" / "triSurface" / "hull.stl"
+    rep2 = diagnose(str(written), origin=IMPORTED)
+    assert rep2.found["winding_conflicts"] == 0, (
+        "the receipt says repaired but the WRITTEN surface still carries "
+        f"{rep2.found['winding_conflicts']} winding conflict(s)")
+    assert rep2.found["boundary_edges"] == 0
+
+
+def test_a_clean_import_is_not_repaired_and_says_so(tmp_path):
+    """The mirror guard: when nothing was needed, no repair is applied and
+    the receipt says none. Byte identity of hull.stl is NOT the claim — the
+    bow-patch instrument (`split_bow_region`) legitimately renames the
+    facets into main/bow regions downstream of the import — so what is
+    asserted is the REPAIR half: receipt says none, and the written surface
+    carries exactly the source's facets (same count, still clean)."""
+    from navalai.mesh_repair import IMPORTED, diagnose
+
+    stl = tmp_path / "clean.stl"
+    stl.write_text(_STL)
+    case = tmp_path / "case"
+    write_resistance_case_from_stl(stl, KCS_MODEL_L, KCS_MODEL_U, case,
+                                   end_time=1.0, scale=1.0, np_procs=2,
+                                   symmetric=True, n_layers=2)
+    info = (case / "case.info").read_text()
+    assert "import_winding_repaired=no" in info
+    assert "import_repairs_applied=none" in info
+    written = case / "constant" / "triSurface" / "hull.stl"
+    assert written.read_text().count("facet normal") == _STL.count(
+        "facet normal")
+    rep = diagnose(str(written), origin=IMPORTED)
+    assert rep.found["winding_conflicts"] == 0
+    assert rep.found["boundary_edges"] == 0
