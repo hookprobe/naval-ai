@@ -198,6 +198,7 @@ different Gate 2M numbers came to circulate at once (gap J1).
 | Gate 6R-mech | review-record mechanics + basis routing | `tests/test_phase6r.py` (10 tests) |
 | Gate PF | physical form regression: six deterministic hulls stay boat-like (descriptors, SAC shape, sourced bands, ratchet) | `tests/test_physical_form.py` (46 tests) |
 | Gate VM | vessel matrix: five vessel classes end-to-end (ladder + manifest), refusals explicit, roles judged apart | `tests/test_vessel_matrix.py` (8 tests) |
+| Gate DC | design certification: cheap classify-and-rank with receipts, banded speed curves, loading matrix, regime refusals | `tests/test_design_certification.py` (8 tests) |
 | Gate 4F | raw generative feasibility: UNFILTERED model draws vs the >=99% bar (BuildPlan Phase 4) | **RED** — `data/gate-ledger.json` |
 | Gate 3E | the L1 surrogate's held-out error bar, measured ACROSS query seeds rather than on one chosen draw | **RED** — `data/gate-ledger.json` |
 | Gate 2M | KCS/JBC OpenFOAM calibration w/ per-case GCI | **RED** — `data/gate-ledger.json` |

@@ -644,6 +644,13 @@ GATES = [
     Gate("Gate VM", "vessel matrix: five vessel classes end-to-end "
          "(ladder + manifest), refusals explicit, roles judged apart",
          "tests/test_vessel_matrix.py"),
+    # The pre-CFD screening engine (2026-08-14 directive): classify
+    # ACCEPT/MARGINAL/REFUSE + CFD-worthiness from cheap physics only —
+    # receipts on every figure, validity-banded speed curves, loading
+    # matrix, regime refusals by name. Invariant tests, not float pins.
+    Gate("Gate DC", "design certification: cheap classify-and-rank with "
+         "receipts, banded speed curves, loading matrix, regime refusals",
+         "tests/test_design_certification.py"),
     # GAP D11, and HONESTY RULE 6 APPLIED TO THIS FILE'S OWN REGISTRY.
     #
     # Gate 4's suite passes everything it asserts, so the row printed a blanket
