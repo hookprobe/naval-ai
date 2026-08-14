@@ -149,7 +149,7 @@ different Gate 2M numbers came to circulate at once (gap J1).
 | Gate 0R | a missed clause is RED BY RECORD, never prose in a scope | `tests/test_red_by_record.py` (14 tests) |
 | Gate 0K | geometry kernel: SAC/DWL design curves + N-point section | `tests/test_geometry_kernel.py` (18 tests) |
 | Gate 1E | the stages agree with each other: one geometry, one resistance, one ply, tier+sigma across every handoff | `tests/test_end_to_end_flow.py` (14 tests) |
-| Gate 0F | the hull-form library: bands ordered, every band carries its basis, no family contradicts its own Froude regime | `tests/test_formlib.py` (48 tests) |
+| Gate 0F | the hull-form library: bands ordered, every band carries its basis, no family contradicts its own Froude regime | `tests/test_formlib.py` (49 tests) |
 | Gate 0X | the experiment suite: controlled sweeps hold their controlled quantities, out-of-envelope points are refused, and the Michell interference phase matches an independent superposition | `tests/test_experiments.py` (52 tests) |
 | Gate 1M | the vessel: topology/manning/regime, the parallel-axis I_T, separation in the PRODUCTION wave term, and no multihull safety verdict from a monohull GM floor | `tests/test_multihull.py` (27 tests) |
 | Gate PV-B | vessel-conditional proportion bands, the sourced size box, and the multihull stability refusal | `tests/test_vessel_bands.py` (18 tests) |
@@ -157,11 +157,11 @@ different Gate 2M numbers came to circulate at once (gap J1).
 | Gate 0 | grammar/geometry/DB | `tests/test_phase0.py` (15 tests) |
 | Gate 1 | L1 physics + Wigley anchor + <50ms | `tests/test_phase1.py` (35 tests) |
 | Gate 1H | Holtrop-Mennen vs the 1982 worked example | `tests/test_holtrop.py` (57 tests) |
-| Gate 1C | the constraint vector: complete, ordered, finite, and no undefined state reported as ideal | `tests/test_constraints_honest.py` (18 tests) |
-| Gate 1P | the L1 physics core says what it actually computed | `tests/test_gapfix_physics.py` (15 tests) |
-| Gate 1b | NSGA-II Pareto front | `tests/test_optimize.py` (10 tests) |
+| Gate 1C | the constraint vector: complete, ordered, finite, and no undefined state reported as ideal | `tests/test_constraints_honest.py` (19 tests) |
+| Gate 1P | the L1 physics core says what it actually computed | `tests/test_gapfix_physics.py` (26 tests) |
+| Gate 1b | NSGA-II Pareto front | `tests/test_optimize.py` (11 tests) |
 | Gate 2 | Capytaine BEM (Hulme anchor) | `tests/test_phase2.py` (18 tests) |
-| Gate 2R | CFD reference parity + GCI honesty | `tests/test_cfd_reference_parity.py` (97 tests) |
+| Gate 2R | CFD reference parity + GCI honesty | `tests/test_cfd_reference_parity.py` (98 tests) |
 | Gate 2P | slamming pressure is measurable: a bow patch that partitions the hull, a function object that refuses to point at nothing, and a Wagner C_p guarded at both limits | `tests/test_slamming.py` (14 tests) |
 | Gate 3 | surrogate spine: GP + co-kriging rho, OOD refusal, batched-EI infill (held-out error bar: Gate 3E) | `tests/test_phase3.py` (24 tests) |
 | Gate 4 | generative + slider p95<100ms (raw feasibility: Gate 4F) | `tests/test_phase4.py` (27 tests) |
@@ -173,11 +173,11 @@ different Gate 2M numbers came to circulate at once (gap J1).
 | Gate D | waves/RAO response + dynamics + CFD post | `tests/test_stageD.py` (19 tests) |
 | Gate E | latent-space evolution + latent GP | `tests/test_stageE.py` (3 tests) |
 | Gate F | panel unroll/DXF + Pareto dash + handoff receipt | `tests/test_stageF.py` (11 tests) |
-| Gate G | APSE: similitude/ITTC-78/cost/planner/evidence | `tests/test_stageG.py` (51 tests) |
+| Gate G | APSE: similitude/ITTC-78/cost/planner/evidence | `tests/test_stageG.py` (53 tests) |
 | Gate V2.1 | arrangement grammar: envelope, spaces, deck zones, and an L0-A that names the space it refuses | `tests/test_arrangement.py` (42 tests) |
 | Gate V3.0 | governance compiles to a parameter box and to constraint rows, ratchets only tighter, and the ladder never imports it | `tests/test_policy.py` (48 tests) |
-| Gate 6P | the product surface: scope guards refuse what does not govern, and the mission contract binds | `tests/test_gapfix_product.py` (24 tests) |
-| Gate L | one limit, one home; scantling derived from the rule | `tests/test_limits_single_source.py` (17 tests) |
+| Gate 6P | the product surface: scope guards refuse what does not govern, and the mission contract binds | `tests/test_gapfix_product.py` (25 tests) |
+| Gate L | one limit, one home; scantling derived from the rule | `tests/test_limits_single_source.py` (18 tests) |
 | Gate 6M | manufacturing back end: nesting, BOM, developability controls, export receipt (refold onto the hull: Gate 6D) | `tests/test_manufacturing.py` (34 tests) |
 | Gate R3 | the ladder is climbable: L2 escalation, monotone tier promotion, honest refusal of L3 | `tests/test_ladder.py` (8 tests) |
 | Gate S | the MDO spine: one terminal state per genome, append-only archive, legal-transition graph, unmeasured metric refused | `tests/test_pipeline.py` (48 tests) |
@@ -197,6 +197,7 @@ different Gate 2M numbers came to circulate at once (gap J1).
 | Gate 2G | KCS benchmark geometry: present and accepted (scripts/fetch_benchmark_geom.py) | `tests/test_benchmark_geom.py` (4 tests) |
 | Gate 6R-mech | review-record mechanics + basis routing | `tests/test_phase6r.py` (10 tests) |
 | Gate PF | physical form regression: six deterministic hulls stay boat-like (descriptors, SAC shape, sourced bands, ratchet) | `tests/test_physical_form.py` (46 tests) |
+| Gate VM | vessel matrix: five vessel classes end-to-end (ladder + manifest), refusals explicit, roles judged apart | `tests/test_vessel_matrix.py` (8 tests) |
 | Gate 4F | raw generative feasibility: UNFILTERED model draws vs the >=99% bar (BuildPlan Phase 4) | **RED** — `data/gate-ledger.json` |
 | Gate 3E | the L1 surrogate's held-out error bar, measured ACROSS query seeds rather than on one chosen draw | **RED** — `data/gate-ledger.json` |
 | Gate 2M | KCS/JBC OpenFOAM calibration w/ per-case GCI | **RED** — `data/gate-ledger.json` |

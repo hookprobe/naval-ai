@@ -636,6 +636,14 @@ GATES = [
     Gate("Gate PF", "physical form regression: six deterministic hulls stay "
          "boat-like (descriptors, SAC shape, sourced bands, ratchet)",
          "tests/test_physical_form.py"),
+    # Consolidation directive §19/§20: the same deterministic vessels
+    # (formcheck.CASES — ONE fixture set), judged end to end through the
+    # ladder and the CFD manifest; every cell PASS or EXPLICITLY
+    # UNSUPPORTED, trimaran refused by name, and the historical 12x0.8 m
+    # demihull judged differently under its two roles.
+    Gate("Gate VM", "vessel matrix: five vessel classes end-to-end "
+         "(ladder + manifest), refusals explicit, roles judged apart",
+         "tests/test_vessel_matrix.py"),
     # GAP D11, and HONESTY RULE 6 APPLIED TO THIS FILE'S OWN REGISTRY.
     #
     # Gate 4's suite passes everything it asserts, so the row printed a blanket
