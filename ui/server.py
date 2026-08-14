@@ -127,11 +127,20 @@ def get_pareto(mission: MissionSpec | None = None) -> dict:
             # ladder; "lcb" and "proportions" (gaps B8, B9) make the feasible
             # set smaller, and MEASURED at the old budget the front collapsed
             # from 6 members to 2 — a dashboard showing a point instead of a
-            # trade-off. pop=24/gens=10 restores 6 members for 1.2 s against
-            # 0.4 s on the first (cached) request. The front's members were
-            # feasible at BOTH budgets; what changed is how much of it the
-            # search had found.
-            res = pareto_front(mission, pop=24, gens=10, seed=2)
+            # trade-off. pop=24/gens=10 restored 6 members for 1.2 s.
+            #
+            # RAISED AGAIN 2026-08-14 (R1.1), same doctrine: the mission now
+            # CHOOSES its prismatic (`mission_cp_band`), so a hinted brief
+            # searches a much narrower Cp box, and MEASURED at pop=24 the
+            # panel's own opening brief found 0 front members on seeds 1-3
+            # (gens 10 AND 30) while pop=48 finds 7-14 — the feasible set is
+            # a thin manifold and the narrower box needs more POPULATION
+            # DIVERSITY, not more generations. pop=48/gens=15, measured:
+            # default mission 18 members, panel brief 7 (seed 2). Cold cost
+            # ~3x, declared in the payload as ever — the front's members were
+            # feasible at every budget; what changed is how much of it the
+            # search finds.
+            res = pareto_front(mission, pop=48, gens=15, seed=2)
             pts = []
             for x, f in zip(res.X, res.F):
                 # GM IS RE-READ FROM THE LADDER, NOT DECODED FROM f[2].

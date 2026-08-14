@@ -107,8 +107,8 @@ def test_pareto_endpoint_serves_designs():
 
     MEASURED, CI run 31611386179 on ubuntu-latest: `assert (2 >= 3)`. This Mac
     serves 24 points from the same commit, the same mission and the SAME
-    SEED — `ui/server.py` calls `pareto_front(mission, pop=24, gens=10,
-    seed=2)`, and pymoo 0.6.2 derives a local PCG64 from that seed, so the RNG
+    SEED — `ui/server.py` calls `pareto_front(mission, pop=48, gens=15,
+    seed=2)` (raised 2026-08-14 with the mission-chosen Cp box, R1.1), and pymoo 0.6.2 derives a local PCG64 from that seed, so the RNG
     is pinned and thread counts provably change nothing. What is not pinned is
     the trajectory: NSGA-II ranks each generation by DOMINATION, a discrete
     decision on continuous inputs, so a last-bit arithmetic difference sends
@@ -307,15 +307,20 @@ def test_pareto_over_http_takes_a_mission():
     port = srv.server_address[1]
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     try:
+        # 600 s: a cold /pareto is a full NSGA-II run, and the budget rose
+        # to pop=48/gens=15 with the mission-chosen Cp box (R1.1) — MEASURED
+        # ~2 min cold on the slow audit box under concurrent suite load. The
+        # timeout is a hang guard, not a latency bar; the latency claim
+        # lives in the payload's own declared cost.
         with urllib.request.urlopen(f"http://127.0.0.1:{port}/pareto",
-                                    timeout=120) as r:
+                                    timeout=600) as r:
             default = json.loads(r.read())          # GET still works
         body = json.dumps({"mission": json.loads(parse_mission(
             "3 tonne dayboat, 8 m, coastal, cruise 9 knots, 2 crew").to_json())
         }).encode()
         req = urllib.request.Request(f"http://127.0.0.1:{port}/pareto",
                                      data=body)
-        with urllib.request.urlopen(req, timeout=120) as r:
+        with urllib.request.urlopen(req, timeout=600) as r:
             typed = json.loads(r.read())
     finally:
         srv.shutdown()

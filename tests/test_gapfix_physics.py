@@ -610,3 +610,91 @@ def test_the_michell_z_grid_must_not_include_the_waterline():
     assert abs(included - converged) / converged < 0.01
     assert abs(coarse_in - converged) / converged == pytest.approx(0.045,
                                                                   abs=0.005)
+
+
+# ---------------------------------------------------------------------------
+# R2.1 — trim equilibrium (audit P0: "no trim equilibrium; all hydrostatics
+# upright-zero-trim"). The solver is `hydrostatics.solve_trimmed` +
+# `solve_equilibrium`; these tests pin its physics, not its floats.
+# ---------------------------------------------------------------------------
+
+def _ref_hull():
+    from navalai.geometry import Hull
+    from navalai.reference import reference_params
+    return Hull(reference_params())
+
+
+def test_trimmed_solver_at_zero_trim_IS_the_level_solver():
+    """Bit-for-bit: trim 0 must reproduce `solve` exactly, so the level
+    solver stays the special case and never a second code path."""
+    from navalai import hydrostatics as H
+    h = _ref_hull()
+    for wl in (-0.15, 0.0, 0.1):
+        s0, s1 = H.solve(h, wl=wl), H.solve_trimmed(h, wl0=wl, trim_deg=0.0)
+        for f in ("volume", "lcb", "kb", "bm", "bm_l", "awp", "lcf",
+                  "freeboard_min", "cb", "cp", "b_wl_max", "lwl_eff"):
+            assert getattr(s0, f) == getattr(s1, f), (wl, f)
+
+
+def test_equilibrium_stands_the_buoyancy_under_the_gravity():
+    """At the solution: displacement matches the weight AND lcb matches lcg;
+    with the lever at zero the attitude is level."""
+    from navalai import hydrostatics as H
+    h = _ref_hull()
+    target = 2800.0
+    st, _ = H.solve_to_displacement(h, target)
+    eq, wl0, theta = H.solve_equilibrium(h, target, st.lcb)
+    assert abs(theta) < 1e-3
+    assert eq.disp_kg == pytest.approx(target, rel=2e-3)
+    assert eq.lcb == pytest.approx(st.lcb, abs=2e-3)
+
+
+def test_solved_trim_agrees_with_the_small_angle_lever_and_then_departs():
+    """MEASURED 2026-08-14 on the reference hull at 2800 kg: a 0.2 m aft
+    lever solves to -0.3691 deg against the linearised
+    atan((LCG-LCB)/GM_L) = -0.3701 deg — 0.3% apart, the small-angle
+    agreement that validates both. The solver must stay within 2% of the
+    lever in the linear regime and must be MONOTONE in it."""
+    import numpy as np
+
+    from navalai import hydrostatics as H
+    h = _ref_hull()
+    target = 2800.0
+    st, _ = H.solve_to_displacement(h, target)
+    gml = H.gm_long(st, 0.9)
+    assert gml > 0
+    thetas = []
+    for lever in (0.1, 0.2, 0.4):
+        _, _, theta = H.solve_equilibrium(h, target, st.lcb - lever)
+        lin = np.degrees(np.arctan(-lever / gml))
+        assert theta == pytest.approx(lin, rel=0.02), (lever, theta, lin)
+        thetas.append(theta)
+    assert thetas[0] > thetas[1] > thetas[2]     # more aft lever, more bow-up
+
+
+def test_equilibrium_refuses_an_unreachable_lcg():
+    """A centre of gravity that cannot be stood under within the trim range
+    is a refusal, never a nearest-endpoint answer (gap E14's rule)."""
+    from navalai import hydrostatics as H
+    h = _ref_hull()
+    st, _ = H.solve_to_displacement(h, 2800.0)
+    with pytest.raises(ValueError, match="no longitudinal equilibrium"):
+        H.solve_equilibrium(h, 2800.0, st.lcb - 4.0)
+
+
+def test_equilibrium_floats_the_vessel_not_the_demihull():
+    """A catamaran floats the WHOLE vessel to the target: same genome, same
+    target, the two-hull equilibrium rides higher and still stands lcb under
+    lcg."""
+    from navalai import hydrostatics as H
+    from navalai.mission import Topology, VesselConfig
+    h = _ref_hull()
+    # 0.45 x LWL = 4.5 m spacing: clear of the 3.2 m demihull beam
+    cat = VesselConfig(topology=Topology.CATAMARAN, separation_over_lwl=0.45)
+    target = 2800.0
+    st_mono, _ = H.solve_to_displacement(h, target)
+    eq, wl0, theta = H.solve_equilibrium(h, target, st_mono.lcb, vessel=cat)
+    assert eq.n_hulls == 2
+    assert eq.disp_kg == pytest.approx(target, rel=2e-3)
+    assert eq.draft < st_mono.draft          # half the mass per hull
+    assert eq.lcb == pytest.approx(st_mono.lcb, abs=2e-3)

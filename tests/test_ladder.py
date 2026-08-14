@@ -159,7 +159,10 @@ def test_revalidate_promotes_to_l2_and_records_it(tmp_path):
     assert ev1.tier == "L1"
     assert len(ev1.violations) == 1 and "bend radius" in ev1.violations[0], \
         ev1.violations
-    assert ev1.hydro.lcb_pct_lwl == pytest.approx(-1.68, abs=0.05)
+    # RE-MEASURED 2026-08-14 (R2.1, solved trim equilibrium): at the
+    # attitude the boat actually takes, LCB stands under LCG at
+    # -0.81 %LWL (was -1.68 at the level float).
+    assert ev1.hydro.lcb_pct_lwl == pytest.approx(-0.81, abs=0.05)
     assert ev1.g["lcb"] < 0.0
     ev2 = revalidate(ev1, m, "L2", provenance=prov)
 

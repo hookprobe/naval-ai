@@ -37,6 +37,7 @@ asserts it field by field with `==`, and against the pre-multihull FORMULAS.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 import numpy as np
@@ -544,3 +545,229 @@ def solve_to_displacement(hull: Hull, target_kg_mass: float,
         f"{z_hi:.4f}] m, still {abs(m - target_kg_mass) / max(target_kg_mass, 1e-9):.1%} "
         f"out against a {tol:.1%} tolerance. The midpoint is not the answer "
         f"and must not be returned as one.")
+
+
+# ---------------------------------------------------------------------------
+# TRIM EQUILIBRIUM (R2.1, audit P0 "no trim equilibrium anywhere").
+#
+# Every hydrostatic quantity above is computed at a LEVEL waterline; the trim
+# ANGLE the ladder reports is `weights.trim_angle_deg`, the small-angle lever
+# (LCG-LCB)/GM_L — a linearised ESTIMATE about the level float. That means a
+# hull the ladder reports as trimming 1.9 deg has its GM, freeboard, wetted
+# surface and proportions all reported for an attitude it does not float at.
+# The two functions below solve the actual attitude: the waterline PLANE gains
+# a longitudinal tilt, each station is clipped at its own local waterline —
+# `Hull.immersed_section(i, wl_i)` was per-station all along — and the
+# equilibrium is the (wl0, theta) at which the buoyant mass matches the weight
+# AND the centre of buoyancy stands under the centre of gravity.
+# ---------------------------------------------------------------------------
+
+def solve_trimmed(hull: Hull, rho: float = RHO_WATER, wl0: float = 0.0,
+                  trim_deg: float = 0.0, vessel=None) -> HydroState:
+    """Hydrostatics on a TRIMMED waterplane. Positive trim = bow (x = LWL) down.
+
+    `wl0` is the waterline height at midships (x = LWL/2); the local plane is
+    z_wl(x) = wl0 + tan(trim) * (x - LWL/2). At trim 0 this reproduces
+    `solve(hull, rho, wl0, vessel)` exactly — same integrals, same guards —
+    so the level solver remains the special case, not a second code path.
+
+    Transverse quantities (BM, I_T) are still the UPRIGHT waterplane's: this
+    solves trim, not heel. A heeled solve (the righting-arm curve) remains
+    absent and is said so in the multihull refusal above.
+    """
+    x = hull.x
+    L = float(x[-1] - x[0])
+    tanb = math.tan(math.radians(trim_deg))
+    wl_x = wl0 + tanb * (x - (x[0] + 0.5 * L))
+    n = hull.n_stations
+    a = np.empty(n)
+    b = np.empty(n)
+    zc = np.empty(n)
+    for i in range(n):
+        a[i], b[i], zc[i] = hull.immersed_section(i, float(wl_x[i]))
+    n_hulls, separation, d = vessel_terms(hull, vessel)
+    vol_demi = 2.0 * float(np.trapezoid(a, x))
+    if vol_demi <= 1e-9:
+        raise ValueError("hull has no displacement at this waterline")
+    vol = n_hulls * vol_demi
+    lcb = 2.0 * float(np.trapezoid(a * x, x)) / vol_demi
+    zb = 2.0 * float(np.trapezoid(a * zc, x)) / vol_demi
+    t_design = -float(hull.z_keel.min())
+    kb = zb + t_design
+    awp_demi = 2.0 * float(np.trapezoid(b, x))
+    awp = n_hulls * awp_demi
+    lcf = 2.0 * float(np.trapezoid(b * x, x)) / max(awp_demi, 1e-12)
+    ixx_demi = (2.0 / 3.0) * float(np.trapezoid(b**3, x))
+    i_t = n_hulls * (ixx_demi + awp_demi * d * d)
+    bm = i_t / vol
+    i_l = n_hulls * 2.0 * float(np.trapezoid(b * (x - lcf) ** 2, x))
+    bm_l = i_l / vol
+    bmax = 2.0 * float(b.max())
+    wet = a > 1e-6
+    x_wl_aft, lwl_eff = _waterline_ends(x, a, wet)
+    # Mean immersion over the wetted length — the trimmed generalisation of
+    # `t_design + wl`, which it equals exactly at trim 0 for a fully-wetted
+    # hull. cb/cp consume it the same way the level solver's t_mean is
+    # consumed: as the mean draft of the floating attitude.
+    if wet.any():
+        t_mean = t_design + float(np.mean(wl_x[wet]))
+    else:
+        t_mean = t_design + wl0
+    cb = vol_demi / max(lwl_eff * bmax * t_mean, 1e-12)
+    amax = float(a.max()) * 2.0
+    cp = vol_demi / max(amax * lwl_eff, 1e-12)
+    fb = float((hull.z_sheer - wl_x).min())
+    return HydroState(
+        draft=t_mean, volume=vol, disp_kg=rho * vol, lcb=lcb, kb=kb, bm=bm,
+        bm_l=bm_l,
+        awp=awp, lcf=lcf, b_wl_max=bmax, lwl_eff=lwl_eff, x_wl_aft=x_wl_aft,
+        cb=cb, cp=cp,
+        wetted=n_hulls * hull.wetted_surface(wl0), freeboard_min=fb,
+        n_hulls=n_hulls, separation_m=separation, i_t=i_t,
+    )
+
+
+def _float_at_trim(hull: Hull, target_kg_mass: float, trim_deg: float,
+                   rho: float, vessel, tol: float) -> tuple[HydroState, float]:
+    """`solve_to_displacement`'s bisection, on the trimmed plane at one angle."""
+    z_lo = float(hull.z_keel.min()) * 0.98
+    z_hi = float(hull.z_sheer.min()) - 0.02
+    st_hi = solve_trimmed(hull, rho, z_hi, trim_deg, vessel)
+    if st_hi.disp_kg < target_kg_mass:
+        raise ValueError(
+            f"hull swamps at trim {trim_deg:+.2f} deg: max buoyant mass "
+            f"{st_hi.disp_kg:.0f} kg < target {target_kg_mass:.0f} kg")
+    try:
+        m_lo = solve_trimmed(hull, rho, z_lo, trim_deg, vessel).disp_kg
+    except ValueError:
+        m_lo = 0.0
+    if m_lo > target_kg_mass:
+        raise ValueError(
+            f"hull floats too high at trim {trim_deg:+.2f} deg: min buoyant "
+            f"mass {m_lo:.3f} kg > target {target_kg_mass:.3f} kg")
+    lo, hi = z_lo, z_hi
+    m = float("nan")
+    for _ in range(80):
+        mid = 0.5 * (lo + hi)
+        try:
+            st = solve_trimmed(hull, rho, mid, trim_deg, vessel)
+            m = st.disp_kg
+        except ValueError:
+            lo = mid
+            continue
+        if abs(m - target_kg_mass) < tol * target_kg_mass:
+            return st, mid
+        if m < target_kg_mass:
+            lo = mid
+        else:
+            hi = mid
+    raise ValueError(
+        f"flotation at trim {trim_deg:+.2f} deg did not converge: {m:.3f} kg "
+        f"against target {target_kg_mass:.3f} kg after 80 bisections")
+
+
+def solve_equilibrium(hull: Hull, target_kg_mass: float, lcg_m: float,
+                      rho: float = RHO_WATER, vessel=None,
+                      max_trim_deg: float = 6.0, tol: float = 1e-3,
+                      warm: tuple[HydroState, float] | None = None
+                      ) -> tuple[HydroState, float, float]:
+    """The floating ATTITUDE: (state, wl0, trim_deg) with the buoyant mass at
+    `target_kg_mass` AND the centre of buoyancy under the centre of gravity.
+
+    Nested bisection: the inner loop floats the hull at a candidate trim
+    (`_float_at_trim`), the outer drives lcb(trim) - lcg to zero. lcb moves
+    AFT as the bow goes down, so the residual is monotone decreasing in trim
+    and a sign change on [-max_trim_deg, +max_trim_deg] brackets the root.
+
+    REFUSES when no bracket exists: a hull whose LCG cannot be stood under
+    within ±`max_trim_deg` has no equilibrium this solver may report, and the
+    nearest endpoint is not an answer (the same rule
+    `solve_to_displacement` applies to its own bracket — gap E14).
+    """
+    L = max(float(hull.x[-1]), 1.0)
+    # NEWTON FAST PATH, MEASURED 2026-08-14 before wiring into evaluate():
+    # the nested bisection costs 963 ms against the level float's 80 ms on
+    # the reference hull, which would put ~1 s inside every L1 evaluation
+    # and ~12 minutes inside one NSGA-II front. Warm-started from the level
+    # float and the small-angle lever (the estimate this solver replaces —
+    # demoted from answer to initial guess), 2-4 damped Newton iterations
+    # on r = (disp - target, lcb - lcg) land inside the same tolerances for
+    # ~10 `solve_trimmed` calls. The bisection below remains the
+    # AUTHORITATIVE fallback and the only issuer of the no-equilibrium
+    # refusal: Newton is never allowed to refuse, only to succeed or hand
+    # over.
+    try:
+        if warm is not None:
+            # The caller already floated the hull level (`evaluate` always
+            # has); re-solving it here would double the entry cost for
+            # nothing.
+            st0, wl_l = warm
+        else:
+            st0, wl_l = solve_to_displacement(hull, target_kg_mass, rho,
+                                              tol=tol, vessel=vessel)
+        theta0 = math.degrees(math.atan((lcg_m - st0.lcb)
+                                        / max(st0.kb + st0.bm_l, 1e-9)))
+        z = np.array([wl_l, min(max(theta0, -max_trim_deg), max_trim_deg)])
+        h_w, h_t = 1e-4, 1e-3
+        for _ in range(8):
+            st = solve_trimmed(hull, rho, float(z[0]), float(z[1]), vessel)
+            r = np.array([st.disp_kg - target_kg_mass, st.lcb - lcg_m])
+            if (abs(r[0]) < tol * target_kg_mass and abs(r[1]) < 1e-4 * L
+                    and abs(z[1]) <= max_trim_deg):
+                return st, float(z[0]), float(z[1])
+            sw = solve_trimmed(hull, rho, float(z[0]) + h_w, float(z[1]),
+                               vessel)
+            stt = solve_trimmed(hull, rho, float(z[0]), float(z[1]) + h_t,
+                                vessel)
+            J = np.array([
+                [(sw.disp_kg - st.disp_kg) / h_w,
+                 (stt.disp_kg - st.disp_kg) / h_t],
+                [(sw.lcb - st.lcb) / h_w, (stt.lcb - st.lcb) / h_t]])
+            step = np.linalg.solve(J, r)
+            if not np.all(np.isfinite(step)):
+                break
+            # Damping: a Newton step through the sheer or past the trim
+            # range is a sign the local model left its region, not a result.
+            step[0] = min(max(step[0], -0.2), 0.2)
+            step[1] = min(max(step[1], -2.0), 2.0)
+            z = z - step
+            if abs(z[1]) > max_trim_deg + 1e-9:
+                break
+    except (ValueError, np.linalg.LinAlgError):
+        pass
+
+    def residual(theta: float) -> tuple[float, HydroState, float]:
+        st, wl0 = _float_at_trim(hull, target_kg_mass, theta, rho, vessel, tol)
+        return st.lcb - lcg_m, st, wl0
+
+    r_lo, st_lo, w_lo = residual(-max_trim_deg)
+    r_hi, st_hi, w_hi = residual(+max_trim_deg)
+    if r_lo == 0.0:
+        return st_lo, w_lo, -max_trim_deg
+    if r_hi == 0.0:
+        return st_hi, w_hi, +max_trim_deg
+    if r_lo * r_hi > 0.0:
+        raise ValueError(
+            f"no longitudinal equilibrium within ±{max_trim_deg:.1f} deg: "
+            f"lcb - lcg spans [{r_hi:+.3f}, {r_lo:+.3f}] m over the full trim "
+            f"range, so the centre of buoyancy cannot be stood under the "
+            f"centre of gravity at any attitude this solver may report.")
+    lo, hi = -max_trim_deg, +max_trim_deg
+    # residual is DECREASING in trim (bow down moves lcb aft), so keep the
+    # invariant residual(lo) > 0 > residual(hi).
+    if r_lo < 0.0:
+        lo, hi = hi, lo
+    theta = 0.0
+    for _ in range(60):
+        theta = 0.5 * (lo + hi)
+        r, st, wl0 = residual(theta)
+        if abs(r) < 1e-4 * max(float(hull.x[-1]), 1.0):
+            return st, wl0, theta
+        if r > 0.0:
+            lo = theta
+        else:
+            hi = theta
+    raise ValueError(
+        f"trim equilibrium did not converge: |lcb - lcg| = {abs(r):.5f} m "
+        f"after 60 bisections at trim {theta:+.3f} deg — not an answer, and "
+        f"not returned as one.")

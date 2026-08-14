@@ -321,15 +321,25 @@ def test_lcb_is_constrained_and_the_kernel_now_delivers_it(ref):
     """
     assert "lcb" in CONSTRAINT_NAMES
     hs = ref.hydro
-    assert hs.lcb_pct_lwl == pytest.approx(-1.68, abs=0.05)
+    # RE-MEASURED 2026-08-14 (R2.1): the ladder now floats the SOLVED trim
+    # equilibrium, and at equilibrium the centre of buoyancy stands under
+    # the centre of gravity — so the floated LCB is the MASS MODEL's LCG
+    # seen through the floated waterline, -0.81 %LWL, no longer the level
+    # float's -1.68. The identity below is the stronger form of the old
+    # pin: lcb == lcg to the solver's own tolerance is the definition of
+    # the attitude the boat actually takes.
+    assert hs.lcb_pct_lwl == pytest.approx(-0.81, abs=0.05)
+    assert hs.lcb == pytest.approx(ref.masses.lcg_m, abs=2e-3)
     assert ref.g["lcb"] == pytest.approx(abs(hs.lcb_pct_lwl) - LCB_BAND_PCT_LWL,
                                          abs=1e-9)
     assert ref.g["lcb"] < 0.0
     assert not any("LCB" in v for v in ref.violations), ref.violations
     # ...and it is NOT the gene read back to itself. The row would be
-    # decorative if it judged the target instead of the flotation.
+    # decorative if it judged the target instead of the flotation. The gene
+    # asks -1.0; the flotation delivers the equilibrium LCB, which came from
+    # the WEIGHT model, not from the SAC target.
     assert grammar.named(ref.params)["lcb"] == pytest.approx(-1.0)
-    assert abs(hs.lcb_pct_lwl - (-1.0)) > 0.5
+    assert abs(hs.lcb_pct_lwl - (-1.0)) > 0.1
 
 
 def test_the_lcb_row_still_refuses_a_hull_that_floats_out_of_band():

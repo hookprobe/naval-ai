@@ -948,7 +948,9 @@ def stl_waterplane_properties(path, waterline: float = 0.0) -> dict:
     return {"awp_m2": awp, "lcf": lcf, "i_l_m4": max(i_l, 1e-12)}
 
 
-def stl_submerged_properties(path, waterline: float = 0.0) -> dict:
+def stl_submerged_properties(path, waterline: float = 0.0,
+                             trim_deg: float = 0.0,
+                             x_pivot: float = 0.0) -> dict:
     """Submerged volume and its centroid (LCB/TCB/VCB) from a closed STL.
 
     Why this exists rather than a published LCB percentage: the KCS STL spans
@@ -964,10 +966,26 @@ def stl_submerged_properties(path, waterline: float = 0.0) -> dict:
     to the x and y centroid integrals. Only VCB needs the cap, and it gets it
     because z = waterline there is a constant, handled analytically below.
 
+    `trim_deg` (R2.1): the ladder now floats a TRIMMED attitude, and a level
+    clip of an upright STL is a different boat from the one the ladder
+    validated. Positive = bow (larger x) down, the ladder's convention; the
+    mesh is rigidly rotated about the y-axis through (`x_pivot`, waterline)
+    into the floating attitude before the level clip — rigid equivalence to
+    clipping the upright mesh at the tilted plane. With trim, the centroid
+    is reported in the ROTATED (floating-attitude) frame.
+
     Returns {volume_m3, lcb, tcb, vcb} with centroid in the STL's own frame.
     """
     tris = np.asarray(_read_stl_tris(path), float)
     tris = tris - np.array([0.0, 0.0, waterline])      # waterline -> z = 0
+    if trim_deg:
+        cth = np.cos(np.radians(trim_deg))
+        sth = np.sin(np.radians(trim_deg))
+        xr = tris[..., 0] - x_pivot
+        zr = tris[..., 2]
+        tris = tris.copy()
+        tris[..., 0] = cth * xr + sth * zr + x_pivot
+        tris[..., 2] = -sth * xr + cth * zr
 
     kept = []
     for tri in tris:

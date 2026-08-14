@@ -43,17 +43,19 @@ from .holtrop import envelope_violations as holtrop_envelope_violations
 from .holtrop import particulars_from_floated
 from .hydrostatics import (HydroState, gm, gm_long,
                            multihull_stability_refusal, solve,
-                           solve_to_displacement, vessel_terms)
+                           solve_equilibrium, solve_to_displacement,
+                           vessel_terms)
 from .limits import (FREEBOARD_FLOOR_M, LCB_BAND_PCT_LWL, LIST_LIMIT_DEG,
                      TRIM_LIMIT_DEG, gm_floor, min_bend_radius_m)
-from .mission import EVALUABLE_TOPOLOGIES, Manning, MissionSpec
+from .mission import (EVALUABLE_TOPOLOGIES, Manning, MissionSpec,
+                      mission_cp_band)
 from .resistance import (FN_MICHELL_MAX, ResistanceResult, bow_wave_rise,
                          total_resistance)
 from .rules import report as rules_report
 from .rules.iso12215 import assess as scantling_rules
 from .rules.iso12215 import select_stock_thickness_m
 from .rules.iso12217 import assess as stability_rules
-from .weights import MassAggregate, MassItem, aggregate, trim_angle_deg
+from .weights import MassAggregate, MassItem, aggregate
 
 
 # The ladder's inequality constraints, in one place, as g <= 0 == feasible.
@@ -299,9 +301,25 @@ def sample_valid(n: int, mission: MissionSpec, seed: int = 0,
     # candidate rejected here by monohull bands would starve the sampler for
     # a catamaran mission (R0.1 — the 2026-08-14 finding).
     vessel_cfg = getattr(mission, "vessel", None)
+    # THE MISSION CHOOSES THE PRISMATIC (R1.1): when the mission states a
+    # length, the Cp gene is drawn from `prismatic_target` across the hint's
+    # ±10% Froude window instead of the whole gene box — form follows
+    # function in the data feed, not only in the search. A hint-less mission
+    # draws the full box exactly as before (band is None), which remains the
+    # explicit exploration mode.
+    lo, hi = grammar.LOW.copy(), grammar.HIGH.copy()
+    hint = getattr(mission, "lwl_hint_m", None)
+    if hint:
+        band = mission_cp_band(mission, max(hint * 0.9, float(lo[grammar.NAMES.index("LWL")])),
+                               min(hint * 1.1, float(hi[grammar.NAMES.index("LWL")])))
+        if band is not None:
+            j = grammar.NAMES.index("Cp")
+            b_lo, b_hi = max(lo[j], band[0]), min(hi[j], band[1])
+            if b_lo <= b_hi:
+                lo[j], hi[j] = b_lo, b_hi
     X, y = [], []
     while len(X) < n:
-        x = rng.uniform(grammar.LOW, grammar.HIGH)
+        x = rng.uniform(lo, hi)
         if not grammar.check(x, vessel=vessel_cfg).ok:
             continue
         ev = evaluate(x, mission)
@@ -556,14 +574,33 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
     # tank is added it stops being zero, which is the whole point of carrying it.
     kg = agg.vcg_above_keel(t_design)
     fsc = agg.free_surface_correction()
+    # UNDEFINED IS NOT IDEAL (gap E11). trim/list used to fall back to 0.0
+    # — the best possible value of each — exactly where the physics behind
+    # them stopped existing. None here, INFEASIBLE_G below, and a violation
+    # naming the state.
+    #
+    # THE ATTITUDE IS SOLVED, NOT LINEARISED (R2.1 — audit P0 "no trim
+    # equilibrium; all hydrostatics upright-zero-trim"). The small-angle
+    # lever (LCG-LCB)/GM_L is demoted from answer to warm start:
+    # `solve_equilibrium` floats the hull on the TRIMMED plane until the
+    # buoyant mass matches the weight and lcb stands under lcg, and every
+    # quantity downstream — GM, freeboard, proportions, the resistance
+    # inputs — is reported at that attitude. The E11 guard keeps its
+    # meaning: GM_L <= 0 still has no equilibrium to solve about, and a hull
+    # whose lcg cannot be stood under within the solver's ±6 deg range is a
+    # refusal carried into the trim violation, not an endpoint answer.
+    gm_l_level = gm_long(hs, kg)
+    trim: float | None = None
+    trim_refusal: str | None = None
+    if is_real_finite(gm_l_level) and gm_l_level > 0.0:
+        try:
+            hs, wl, trim = solve_equilibrium(
+                hull, target, agg.lcg_m, rho, vessel=vessel_cfg,
+                warm=(hs, wl))
+        except ValueError as e:
+            trim_refusal = str(e)
     gm_m = gm(hs, kg) - fsc
     gm_l_m = gm_long(hs, kg)
-    # UNDEFINED IS NOT IDEAL (gap E11). Both of these used to fall back to 0.0
-    # — the best possible value of each — exactly where the physics behind them
-    # stopped existing, so the two constraints they feed were "satisfied" on
-    # precisely the hulls that had lost longitudinal or transverse stability.
-    # None here, INFEASIBLE_G below, and a violation naming the state.
-    trim = trim_angle_deg(agg, hs.lcb, hs.disp_kg, gm_l_m)
     # List from a transverse offset: tan(phi) = TCG / GM. Zero while every item
     # sits on centreline, non-zero as soon as an arrangement is asymmetric.
     heel = (math.degrees(math.atan(agg.tcg_m / gm_m))
@@ -750,11 +787,14 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
               f"(category {mission.design_category} floor, ISO 12217)",
         "bend_radius": f"panel bend radius {r_min:.2f} m < {r_req:.2f} m "
                        f"({t_ply * 1e3:.0f} mm ply cold-bend limit)",
-        "trim": (f"static trim is UNDEFINED: GM_L {gm_l_m:+.2f} m is not "
-                 f"positive, so the hull has no longitudinal equilibrium to "
-                 f"trim about (LCG {agg.lcg_m:.2f} m vs LCB {hs.lcb:.2f} m)"
+        "trim": ((f"static trim is UNDEFINED: {trim_refusal}"
+                  if trim_refusal is not None else
+                  f"static trim is UNDEFINED: GM_L {gm_l_level:+.2f} m is not "
+                  f"positive, so the hull has no longitudinal equilibrium to "
+                  f"trim about (LCG {agg.lcg_m:.2f} m vs LCB {hs.lcb:.2f} m)")
                  if trim is None else
-                 f"static trim {trim:+.2f} deg exceeds {TRIM_LIMIT_DEG:.1f} deg "
+                 f"static trim {trim:+.2f} deg (SOLVED equilibrium, R2.1) "
+                 f"exceeds {TRIM_LIMIT_DEG:.1f} deg "
                  f"(LCG {agg.lcg_m:.2f} m vs LCB {hs.lcb:.2f} m)"),
         "list": (f"static list is UNDEFINED: GM {gm_m:+.3f} m is not positive, "
                  f"so the hull has no upright equilibrium to heel about "

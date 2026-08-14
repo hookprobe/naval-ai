@@ -13,9 +13,12 @@ import re
 from dataclasses import asdict, dataclass, field
 from enum import Enum
 
+import numpy as np
+
 from . import grammar
 from .energy import EnergySpec
-from .formlib import Topology            # AXIS 1's enum has ONE home; see below
+from .limits import PRISMATIC_TOLERANCE, prismatic_target
+from .formlib import Topology, knots_to_fn  # AXIS 1's enum has ONE home; see below
 
 DESIGN_CATEGORIES = ("A", "B", "C", "D")   # ISO 12217 / CE categories
 WATERS = {"river": "D", "lake": "D", "coastal": "C", "offshore": "B", "ocean": "A"}
@@ -360,6 +363,16 @@ class MissionSpec:
     notes: str = ""
 
     def __post_init__(self) -> None:
+        # A vessel arriving as a plain mapping — `ui/server`'s
+        # `MissionSpec(**body)`, or any JSON caller that skips `from_json` —
+        # is rehydrated into the frozen type HERE, at the one boundary every
+        # construction path crosses. R0.1 made the vessel reach
+        # `limits.hull_role`, whose refusal of an object with no `n_hulls` is
+        # correct and stays; the fix belongs to the boundary, not to the
+        # judge. (`from_json` still rebuilds explicitly for the `.pop`
+        # reasons documented there.)
+        if isinstance(self.vessel, dict):
+            self.vessel = VesselConfig(**self.vessel)
         self.notes = "; ".join(n for n in [self.notes, *self.clamp()] if n)
 
     def clamp(self) -> list[str]:
@@ -415,6 +428,20 @@ class MissionSpec:
 
     def cruise_speed_ms(self) -> float:
         return self.cruise_speed_kn * 0.514444
+
+    def design_fn(self) -> float | None:
+        """Froude number at cruise on the stated length hint (R1.1).
+
+        This is the number that lets the mission CHOOSE its prismatic
+        target — `limits.prismatic_target(fn)` existed with zero production
+        consumers while Cp was uniform-sampled (audit P0-C: no
+        requirements->targets stage). None without a hint: no length, no
+        Froude, no target, and the search explores the full Cp gene as it
+        always did.
+        """
+        if not self.lwl_hint_m:
+            return None
+        return knots_to_fn(self.cruise_speed_kn, self.lwl_hint_m)
 
     def to_json(self) -> str:
         # `default=` because `formlib.Topology` is a plain `enum.Enum`, not a
@@ -541,3 +568,31 @@ def parse_mission(text: str) -> MissionSpec:
     unparsed.extend(m.clamp())
     m.notes = "; ".join(unparsed)
     return m
+
+
+def mission_cp_band(mission, lwl_lo: float,
+                    lwl_hi: float) -> tuple[float, float] | None:
+    """The Cp band the MISSION chooses, or None when it cannot choose (R1.1).
+
+    FORM FOLLOWS FUNCTION, made executable: `limits.prismatic_target(fn)` is
+    the one practice curve tying design Froude number to prismatic
+    coefficient, and until this function existed it had ZERO production
+    consumers — Cp was uniform-sampled over the whole gene box for every
+    mission alike (audit P0-C: no requirements->targets stage; the
+    requirements module was a post-hoc scorecard).
+
+    The band is the target's span across the LWL window the search is
+    actually allowed (the hint's ±tolerance, post-policy), sampled at the
+    window's ends and interior points because the practice table is
+    piecewise, widened by PRISMATIC_TOLERANCE on both sides — the same
+    tolerance the delivered-Cp acceptance measures against. A mission with
+    no length hint has no design Froude number and returns None: choosing a
+    target from a length the mission never stated would be the fabrication
+    defect, not form-follows-function.
+    """
+    if not mission.lwl_hint_m or mission.cruise_speed_kn <= 0.0:
+        return None
+    ls = np.linspace(max(lwl_lo, 1e-6), max(lwl_hi, 1e-6), 9)
+    cps = [prismatic_target(knots_to_fn(mission.cruise_speed_kn, float(L)))
+           for L in ls]
+    return (min(cps) - PRISMATIC_TOLERANCE, max(cps) + PRISMATIC_TOLERANCE)

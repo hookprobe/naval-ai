@@ -569,3 +569,41 @@ def test_the_optimizer_records_what_it_searched_R02f(tmp_path):
     pareto_front(MissionSpec(), pop=16, gens=4, seed=3, provenance=prov)
     n = prov.con.execute("SELECT COUNT(*) FROM hull").fetchone()[0]
     assert n > 0, "a full NSGA-II run recorded zero hull rows to provenance"
+
+
+def test_form_follows_function_the_mission_chooses_the_prismatic_R11():
+    """AUDIT P0-C (2026-08-14): `limits.prismatic_target(fn)` — the one
+    practice curve tying design Froude number to prismatic — had ZERO
+    production consumers; Cp was uniform-sampled over the whole gene box for
+    every mission alike, so a slow barge and a fast tender searched the same
+    fullness. Form follows function means the MISSION chooses the target:
+    distinct briefs must produce distinct, correctly-ordered Cp search
+    boxes, and the data-feed sampler must draw inside the chosen band.
+    """
+    from navalai.evaluate import sample_valid
+    from navalai.mission import mission_cp_band
+    from navalai.optimize import HullProblem
+
+    j = grammar.NAMES.index("Cp")
+    slow_ship = MissionSpec(cruise_speed_kn=3, lwl_hint_m=18.0)   # Fn ~0.12
+    coastal = MissionSpec(cruise_speed_kn=5, lwl_hint_m=10.0)     # Fn ~0.26
+    fast_tender = MissionSpec(cruise_speed_kn=10, lwl_hint_m=6.0)  # Fn ~0.67
+    unhinted = MissionSpec(lwl_hint_m=None)
+
+    box = {name: (float(HullProblem(m).xl[j]), float(HullProblem(m).xu[j]))
+           for name, m in [("slow", slow_ship), ("coastal", coastal),
+                           ("fast", fast_tender), ("none", unhinted)]}
+    # The practice curve orders them: faster brief -> fuller prismatic, and
+    # the bands must actually SEPARATE, not merely shift.
+    assert box["slow"][1] < box["coastal"][0], box
+    assert box["coastal"][1] < box["fast"][0], box
+    # No hint -> no design Froude -> the full gene box, the explicit
+    # exploration mode, bit-identical to what every caller always had.
+    assert box["none"] == (float(grammar.LOW[j]), float(grammar.HIGH[j])), box
+
+    # The data feed obeys the same choice: every sampled hull for the
+    # coastal brief carries a Cp inside the mission's band.
+    band = mission_cp_band(coastal, 9.0, 11.0)
+    X, _ = sample_valid(4, coastal, seed=7)
+    for x in X:
+        assert band[0] - 1e-9 <= x[j] <= band[1] + 1e-9, (x[j], band)

@@ -20,7 +20,7 @@ from .energy import shell_area_m2
 from .evaluate import CONSTRAINT_NAMES, INFEASIBLE_G, evaluate
 from .geometry import Hull
 from .limits import GM_OVER_BEAM_MAX, gm_floor
-from .mission import MissionSpec
+from .mission import MissionSpec, mission_cp_band
 
 
 def _score(x, mission: MissionSpec, policy, names, provenance=None):
@@ -129,8 +129,8 @@ class HullProblem(Problem):
         # start from the governed value.
         box_lo, box_hi = xl.copy(), xu.copy()
         hint = mission.lwl_hint_m
+        i = grammar.NAMES.index("LWL")
         if hint:
-            i = grammar.NAMES.index("LWL")
             xl[i] = max(xl[i], hint * (1.0 - length_tol))
             xu[i] = min(xu[i], hint * (1.0 + length_tol))
             if xl[i] > xu[i]:
@@ -141,6 +141,18 @@ class HullProblem(Problem):
                 # falling back to `grammar.LOW/HIGH` (which is what this line
                 # did when the grammar was the only box) would do exactly that.
                 xl[i], xu[i] = box_lo[i], box_hi[i]
+        # THE MISSION CHOOSES THE PRISMATIC (R1.1). Same composition law as
+        # the length hint: intersection with whatever box survives
+        # governance, so a target that would widen a governed edge cannot,
+        # and a window that misses the box entirely is dropped with the box
+        # left standing. Computed AFTER the LWL intersection so the Fn
+        # window reflects the lengths the search can actually draw.
+        band = mission_cp_band(mission, float(xl[i]), float(xu[i]))
+        if band is not None:
+            j = grammar.NAMES.index("Cp")
+            lo, hi = max(xl[j], band[0]), min(xu[j], band[1])
+            if lo <= hi:
+                xl[j], xu[j] = lo, hi
         # Constraint values (and therefore the GM floor, the freeboard floor
         # and the bend limit) come from evaluate() — see CONSTRAINT_NAMES, plus
         # the compiled policy's appended rows when there is one.
