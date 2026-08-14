@@ -536,9 +536,44 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
     # would be the `${VAR:-0}` pattern with a boat on top of it.
     shell = n_hulls * shell_area_m2(hull)       # computed once, not twice
     deck = hull.deck_area()
-    wb = weight_budget(p["LWL"], p["D"], shell, deck, mission.energy, t_ply)
-    items = weight_items(p["LWL"], p["D"], shell, deck, mission.energy,
+    # §11: the payload's CONTINUOUS DRAW joins the hotel load before either
+    # consumer reads the spec, so the battery-range and Wh/NM numbers
+    # describe the boat with its instruments on. One adjusted spec, used by
+    # BOTH the weight budget and the energy report — two readings of
+    # different specs would be the two-boats defect.
+    energy_spec = mission.energy
+    payload_spec = getattr(mission, "payload", None)
+    if payload_spec is not None and payload_spec.power_w > 0.0:
+        from dataclasses import replace as _dc_replace
+        energy_spec = _dc_replace(
+            energy_spec,
+            hotel_kwh_day=energy_spec.hotel_kwh_day
+            + payload_spec.power_w * 24.0 / 1000.0)
+    wb = weight_budget(p["LWL"], p["D"], shell, deck, energy_spec, t_ply)
+    items = weight_items(p["LWL"], p["D"], shell, deck, energy_spec,
                          t_design, t_ply)
+    # §10/§11: the mission's equipment payload enters the POSITIONED model —
+    # at its declared station, or at the budget's payload station with the
+    # defaulting SAID in the source string (nothing enters displacement
+    # without a declared position).
+    if payload_spec is not None and payload_spec.mass_kg > 0.0:
+        from .energy import LCG_FRACTION, VCG_FRACTION
+        xf = (payload_spec.x_frac_lwl if payload_spec.x_frac_lwl is not None
+              else LCG_FRACTION["payload"])
+        zf = (payload_spec.z_frac_depth
+              if payload_spec.z_frac_depth is not None
+              else VCG_FRACTION["payload"])
+        defaulted = (payload_spec.x_frac_lwl is None
+                     or payload_spec.z_frac_depth is None)
+        items.append(MassItem(
+            id="mission_payload", mass_kg=payload_spec.mass_kg,
+            x_m=xf * p["LWL"], z_m=zf * p["D"] - t_design, y_m=0.0,
+            sigma_kg=0.0, tier="L1",
+            source=("mission.PayloadSpec"
+                    + (" (position DEFAULTED to the budget's payload "
+                       "station — declare x_frac_lwl/z_frac_depth)"
+                       if defaulted else " (declared position)")),
+            basis="declared"))
     # THE UNACCOUNTED MASS IS DECLARED, NOT HIDDEN IN A max().
     # `target = max(budget, mission_target)` floated the hull at the mission's
     # displacement while KG, LCG and trim were computed from the budget alone.
@@ -681,7 +716,7 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
         cb=hs.cb, cp=hs.cp, awp=hs.awp, lcb_pct=hs.lcb_pct_lwl)
     holtrop_env = holtrop_envelope_violations(_hm_p, res.fn, hs.cp)
 
-    en = energy_report(res.total, u, hull.deck_area(), mission.energy,
+    en = energy_report(res.total, u, hull.deck_area(), energy_spec,
                        resistance_sigma_n=res.uncertainty)
 
     # hull_lwl_m is carried here too, not just on the returned Evaluation.

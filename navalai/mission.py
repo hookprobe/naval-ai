@@ -241,6 +241,45 @@ EVALUABLE_TOPOLOGIES = (Topology.MONOHULL, Topology.CATAMARAN)
 
 
 @dataclass(frozen=True)
+class PayloadSpec:
+    """Mission EQUIPMENT payload (§11) — a drone's instruments, a workboat's
+    cargo. DISTINCT, deliberately, from `EnergySpec.payload_kg`, which is
+    the crew/stores/water PROVISION: the two answer different questions
+    (what the mission carries vs what the people aboard consume), and for
+    an UNCREWED mission the provision is zeroed with a recorded note while
+    this object carries what the mission is FOR.
+
+    Declared quantities, not assessments: `sea_state` and `endurance_h`
+    are REQUIREMENTS the mission states; nothing in this tree can assess
+    operability in a sea state yet, and the receipt says what was declared
+    rather than pretending to have checked it. Position is optional — when
+    None, the mass sits at the budget's payload station and the item's
+    source string SAYS the position was defaulted, honoring §10's rule
+    that nothing enters displacement without a declared position.
+    """
+
+    mass_kg: float = 0.0
+    volume_m3: float = 0.0
+    power_w: float = 0.0            # continuous draw, added to hotel load
+    peak_power_w: float = 0.0
+    endurance_h: float | None = None
+    mission_distance_nm: float | None = None
+    sea_state: int | None = None    # declared requirement; NOT assessed
+    equipment_volume_m3: float = 0.0
+    x_frac_lwl: float | None = None   # position along LWL; None = defaulted
+    z_frac_depth: float | None = None
+
+    def __post_init__(self) -> None:
+        for name in ("mass_kg", "volume_m3", "power_w", "peak_power_w",
+                     "equipment_volume_m3"):
+            v = getattr(self, name)
+            if not (isinstance(v, (int, float)) and math.isfinite(v)
+                    and v >= 0.0):
+                raise ValueError(f"PayloadSpec.{name} = {v!r} is not a "
+                                 f"finite non-negative number")
+
+
+@dataclass(frozen=True)
 class VesselConfig:
     """The two DECLARED axes: topology and manning. Regime is derived, not here.
 
@@ -360,6 +399,9 @@ class MissionSpec:
     # describes exactly the vessel it described before multihull support
     # existed, and the ladder runs the identical arithmetic on it.
     vessel: VesselConfig = field(default_factory=VesselConfig)
+    # §11: the mission's equipment payload — see PayloadSpec's docstring for
+    # the deliberate split from EnergySpec.payload_kg (crew provision).
+    payload: PayloadSpec = field(default_factory=PayloadSpec)
     notes: str = ""
 
     def __post_init__(self) -> None:
@@ -373,7 +415,24 @@ class MissionSpec:
         # reasons documented there.)
         if isinstance(self.vessel, dict):
             self.vessel = VesselConfig(**self.vessel)
-        self.notes = "; ".join(n for n in [self.notes, *self.clamp()] if n)
+        if isinstance(self.payload, dict):
+            self.payload = PayloadSpec(**self.payload)
+        extra = []
+        # §11: an UNCREWED mission left with the CREWED default provision
+        # (800 kg of "crew + stores + water") describes a crew that does not
+        # exist. Only the untouched class default is zeroed — an explicit
+        # payload_kg is the caller's declaration and is respected — and the
+        # change is RECORDED, the clamp() rule this class already lives by.
+        from dataclasses import replace as _dc_replace
+        if (self.vessel.manning is Manning.UNCREWED
+                and self.energy.payload_kg == EnergySpec().payload_kg):
+            self.energy = _dc_replace(self.energy, payload_kg=0.0)
+            extra.append(
+                "uncrewed: EnergySpec.payload_kg default (crew/stores "
+                "provision) zeroed; declare equipment via "
+                "MissionSpec.payload")
+        self.notes = "; ".join(
+            n for n in [self.notes, *self.clamp(), *extra] if n)
 
     def clamp(self) -> list[str]:
         """Force every field into `FIELD_RANGES`; return one note per change.

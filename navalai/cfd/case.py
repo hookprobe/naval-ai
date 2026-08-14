@@ -1937,7 +1937,8 @@ def write_resistance_case(hull: Hull, speed: float, out_dir: str | Path,
                           np_procs: int = 8, symmetric: bool = False,
                           free_motion: dict | None = None,
                           lts: bool | None = None,
-                          n_layers: int | None = None) -> dict:
+                          n_layers: int | None = None,
+                          manifest=None) -> dict:
     """Generate a COMPLETE, runnable interFoam resistance case.
 
     scale: background-mesh refinement multiplier (1.0 / sqrt(2) steps give
@@ -2006,6 +2007,23 @@ def write_resistance_case(hull: Hull, speed: float, out_dir: str | Path,
                  "  # shortfall > 1 means the [80, 600] clamp bound. It binds\n"
                  "  # on every hull in the seed-0 batch, so stl_nx_shipped is\n"
                  "  # INDEPENDENT of lwl; see stl_resolution's docstring.\n")
+    if manifest is not None:
+        # §14: case.info RENDERS the manifest — and the writer must be
+        # describing the same vessel the manifest does, or the render would
+        # launder a mismatch into the record.
+        import hashlib as _hl
+
+        import numpy as _np
+        got = _hl.sha256(_np.asarray(hull.params,
+                                     float).tobytes()).hexdigest()
+        if got != manifest.genome_sha256:
+            raise ValueError(
+                "manifest/hull mismatch: the manifest fingerprints genome "
+                f"{manifest.genome_sha256[:12]}… but this case is being "
+                f"written for {got[:12]}… — a case.info rendered from the "
+                "wrong manifest is two boats in one directory")
+        with (out / "case.info").open("a") as fh:
+            fh.write(manifest.render_case_info())
     return info
 
 

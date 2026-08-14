@@ -667,3 +667,49 @@ def test_the_two_dead_unroll_helpers_stay_gone():
     src = (__import__("pathlib").Path(unroll.__file__)).read_text()
     # named in the comment recording WHY they went, and nowhere else
     assert "def perimeter" not in src and "def _interp_edge" not in src
+
+
+def test_the_drone_payload_is_a_real_mission_field_S11():
+    """Consolidation directive §11: PayloadSpec is first-class — its mass
+    enters the POSITIONED model (moving LCG), its continuous draw enters
+    the hotel load (moving the energy balance), an uncrewed mission's
+    crew-provision default is zeroed WITH A NOTE, and the whole thing
+    round-trips through JSON. Same hull kernel, no drone geometry engine.
+    """
+    from navalai.evaluate import evaluate
+    from navalai.mission import (Manning, MissionSpec, PayloadSpec,
+                                 VesselConfig)
+    from navalai.reference import reference_params
+
+    base = MissionSpec(vessel=VesselConfig(manning=Manning.UNCREWED))
+    loaded = MissionSpec(
+        vessel=VesselConfig(manning=Manning.UNCREWED),
+        payload=PayloadSpec(mass_kg=300.0, power_w=200.0, x_frac_lwl=0.40,
+                            z_frac_depth=0.55, endurance_h=72.0))
+    # the crewed provision is zeroed for BOTH (untouched default), recorded
+    assert base.energy.payload_kg == 0.0
+    assert "uncrewed" in base.notes
+    e0 = evaluate(reference_params(), base)
+    e1 = evaluate(reference_params(), loaded)
+    # the payload is a POSITIONED item, not a silent scalar
+    item = {i.id: i for i in e1.masses.items}["mission_payload"]
+    assert item.mass_kg == 300.0
+    assert "declared position" in item.source
+    assert item.x_m == pytest.approx(0.40 * 10.0)
+    # it MOVES the boat: LCG shifts toward the declared station
+    assert e1.masses.lcg_m < e0.masses.lcg_m
+    # and DRAINS the day: 200 W continuous = 4.8 kWh/day off the balance
+    assert e0.energy.net_kwh_day - e1.energy.net_kwh_day == pytest.approx(
+        4.8, rel=0.05)
+    # a payload with NO declared position says so on the item
+    e2 = evaluate(reference_params(),
+                  MissionSpec(payload=PayloadSpec(mass_kg=100.0)))
+    item2 = {i.id: i for i in e2.masses.items}["mission_payload"]
+    assert "DEFAULTED" in item2.source
+    # round trip
+    m2 = MissionSpec.from_json(loaded.to_json())
+    assert m2.payload == loaded.payload
+    # declared-not-assessed: an explicit refusal to fabricate
+    assert loaded.payload.sea_state is None
+    with pytest.raises(ValueError, match="finite non-negative"):
+        PayloadSpec(mass_kg=-5.0)

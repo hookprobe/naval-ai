@@ -1537,3 +1537,66 @@ def test_the_stl_resolution_cap_binds_at_every_lwl_and_is_recorded():
     assert reqs == {811}, f"the request is supposed to be lwl-free: {reqs}"
     assert ships == {(600, 120)}, ships
     assert 811 / 600 == pytest.approx(1.3517, abs=1e-3)
+
+
+def test_the_manifest_is_the_one_vessel_description_S13_S14(tmp_path):
+    """Consolidation directive §13/§14: a deliberately TRIMMED vessel, and
+    hydrostatics, resistance inputs and the CFD manifest must all reference
+    the SAME solved state — plus the case.info render is a rendering, not a
+    second source, and a manifest for the wrong hull is refused."""
+    import hashlib
+
+    import numpy as np
+
+    from navalai.cfd.manifest import manifest_from_evaluation
+    from navalai.evaluate import evaluate
+    from navalai.geometry import Hull
+    from navalai.mission import MissionSpec, PayloadSpec
+    from navalai.reference import reference_params
+
+    # a bow-heavy payload forces a real trim (position declared)
+    m = MissionSpec(payload=PayloadSpec(mass_kg=800.0, x_frac_lwl=0.85,
+                                        z_frac_depth=0.5))
+    ev = evaluate(reference_params(), m)
+    assert ev.trim_deg is not None and abs(ev.trim_deg) > 0.3, (
+        f"the fixture must trim; got {ev.trim_deg}")
+
+    man = manifest_from_evaluation(ev, m)
+    # ONE state: attitude, waterline, displacement, mass, centres
+    assert man.trim_deg == ev.trim_deg
+    assert man.waterline_m == ev.wl
+    assert man.displacement_kg == ev.hydro.disp_kg
+    assert man.mass_kg == ev.masses.total_kg
+    assert man.lcg_m == ev.masses.lcg_m
+    # the G7 fix, asserted: the manifest's mass model is the WEIGHT model,
+    # not rho * V at the design waterline
+    from navalai.hydrostatics import solve
+    v_design = solve(Hull(reference_params()), wl=0.0).disp_kg
+    assert abs(man.mass_kg - v_design) > 100.0, (
+        "manifest mass equals rho*V(design WL) — the parallel mass model "
+        "is back")
+    # the resistance the ladder reported consumed the same floated state
+    # (wetted/cb/draft come from ev.hydro by construction; the manifest
+    # records that wetted so the case and the ladder cannot disagree)
+    assert man.wetted_m2 == ev.hydro.wetted
+    # identity: the genome fingerprint matches the parameters evaluated
+    assert man.genome_sha256 == hashlib.sha256(
+        np.asarray(ev.params, float).tobytes()).hexdigest()
+    # free-motion: the solver would be handed the WEIGHT model's mass
+    fm = man.free_motion(beam_m=3.2, awp_m2=ev.hydro.awp)
+    assert fm["mass"] == pytest.approx(man.mass_kg / 2.0)  # symmetric half
+
+    # the render is a rendering: every line's value comes off the object
+    txt = man.render_case_info()
+    assert f"manifest_trim_deg={man.trim_deg}" in txt
+    assert f"manifest_mass_kg={man.mass_kg}" in txt
+
+    # and the writer REFUSES a manifest about a different hull
+    from navalai import grammar
+    from navalai.cfd.case import write_resistance_case
+    other = np.array(reference_params())
+    other[grammar.NAMES.index("LWL")] = 9.0
+    with pytest.raises(ValueError, match="manifest/hull mismatch"):
+        write_resistance_case(Hull(other), 2.5, tmp_path / "c",
+                              end_time=1.0, symmetric=True, n_layers=2,
+                              manifest=man)
