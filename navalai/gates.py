@@ -626,6 +626,16 @@ GATES = [
     # practice values are not blessed — is Gate 6R-mech and stays green.
     Gate("Gate 6R-mech", "review-record mechanics + basis routing",
          "tests/test_phase6r.py"),
+    # 2026-08-14 directive: "add regression tests so future architecture
+    # changes cannot make the generated forms progressively less boat-like
+    # while all software tests remain green." Six deterministic vessel cases
+    # (navalai/formcheck.py CASES), descriptors read off the kernel's own
+    # arrays, sourced-range verdicts, and a ratcheted baseline
+    # (tests/formcheck_baseline.json) that a form shift trips with a
+    # re-baseline instruction instead of drifting silently.
+    Gate("Gate PF", "physical form regression: six deterministic hulls stay "
+         "boat-like (descriptors, SAC shape, sourced bands, ratchet)",
+         "tests/test_physical_form.py"),
     # GAP D11, and HONESTY RULE 6 APPLIED TO THIS FILE'S OWN REGISTRY.
     #
     # Gate 4's suite passes everything it asserts, so the row printed a blanket

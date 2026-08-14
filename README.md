@@ -145,7 +145,7 @@ different Gate 2M numbers came to circulate at once (gap J1).
 
 | Gate | Scope | Verified by |
 |---|---|---|
-| Gate 0G | the ladder cannot be talked into passing | `tests/test_gate_integrity.py` (37 tests) |
+| Gate 0G | the ladder cannot be talked into passing | `tests/test_gate_integrity.py` (38 tests) |
 | Gate 0R | a missed clause is RED BY RECORD, never prose in a scope | `tests/test_red_by_record.py` (14 tests) |
 | Gate 0K | geometry kernel: SAC/DWL design curves + N-point section | `tests/test_geometry_kernel.py` (18 tests) |
 | Gate 1E | the stages agree with each other: one geometry, one resistance, one ply, tier+sigma across every handoff | `tests/test_end_to_end_flow.py` (14 tests) |
@@ -159,7 +159,7 @@ different Gate 2M numbers came to circulate at once (gap J1).
 | Gate 1H | Holtrop-Mennen vs the 1982 worked example | `tests/test_holtrop.py` (57 tests) |
 | Gate 1C | the constraint vector: complete, ordered, finite, and no undefined state reported as ideal | `tests/test_constraints_honest.py` (18 tests) |
 | Gate 1P | the L1 physics core says what it actually computed | `tests/test_gapfix_physics.py` (15 tests) |
-| Gate 1b | NSGA-II Pareto front | `tests/test_optimize.py` (8 tests) |
+| Gate 1b | NSGA-II Pareto front | `tests/test_optimize.py` (10 tests) |
 | Gate 2 | Capytaine BEM (Hulme anchor) | `tests/test_phase2.py` (18 tests) |
 | Gate 2R | CFD reference parity + GCI honesty | `tests/test_cfd_reference_parity.py` (97 tests) |
 | Gate 2P | slamming pressure is measurable: a bow patch that partitions the hull, a function object that refuses to point at nothing, and a Wagner C_p guarded at both limits | `tests/test_slamming.py` (14 tests) |
@@ -196,6 +196,7 @@ different Gate 2M numbers came to circulate at once (gap J1).
 | Gate 2H | surface repair on the import boundary, and generated geometry refused rather than healed | `tests/test_mesh_repair.py` (7 tests) |
 | Gate 2G | KCS benchmark geometry: present and accepted (scripts/fetch_benchmark_geom.py) | `tests/test_benchmark_geom.py` (4 tests) |
 | Gate 6R-mech | review-record mechanics + basis routing | `tests/test_phase6r.py` (10 tests) |
+| Gate PF | physical form regression: six deterministic hulls stay boat-like (descriptors, SAC shape, sourced bands, ratchet) | `tests/test_physical_form.py` (46 tests) |
 | Gate 4F | raw generative feasibility: UNFILTERED model draws vs the >=99% bar (BuildPlan Phase 4) | **RED** — `data/gate-ledger.json` |
 | Gate 3E | the L1 surrogate's held-out error bar, measured ACROSS query seeds rather than on one chosen draw | **RED** — `data/gate-ledger.json` |
 | Gate 2M | KCS/JBC OpenFOAM calibration w/ per-case GCI | **RED** — `data/gate-ledger.json` |
