@@ -82,6 +82,22 @@ instead, and every pre-existing failure met en route is classified below.
 - Pins re-based with measurement en route: multihull GM/I_T table (R2.1
   attitude), holtrop envelope B/T + cross-platform coverage counts,
   stageG density floor.
+## Phase 4 — pre-CFD screening directive (2026-08-14, §0-31): ledger
+- **§3 DONE** — docs/POST_REBUILD_L1_AUDIT.md (verified at c017851).
+- **§1/§4/§14/§15/§16/§25 CORE DONE** (f6eca26, Gate DC) — certify.py
+  (composition over Evaluation; Quantity receipts; validity-banded speed
+  curves; loading matrix incl. people-shift + honest UNKNOWN MAXIMUM;
+  GZ summary w/ assumptions; buildability report; regime router refusing
+  SEMI_DISPLACEMENT/PLANING by name; cfd_candidate single-design score) +
+  python -m navalai.design_report + 3 docs + 8 invariant tests.
+- OPEN (population layer, next): §5-6 geometry fingerprint (moments),
+  §7 design-space sweeps, §8-9 hydrostatic curves + Bonjean, §18 shape
+  improvement, §19 sensitivity table, §20 versioned dataset generator,
+  §21 baseline surrogate benchmark w/ MAE/RMSE/R2, §22 reference
+  adapters, §24 population factors (Pareto/novel/robust/uncertainty),
+  §26 wire-or-delete triage, §27 single-source second pass (STL readers,
+  weight_budget merge).
+
 - OPEN (next sessions): §7 bow-form comparator, §9 vessel-arrangement
   object, §10 full mass consolidation (payload done; weight_budget merge
   open), §12 energy/length governance beyond hint+policy, §17 timer
