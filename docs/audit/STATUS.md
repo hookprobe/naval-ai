@@ -57,6 +57,37 @@ instead, and every pre-existing failure met en route is classified below.
   which is additionally blocked on windage/superstructure the genome
   cannot express) and loading conditions (R2.3) + tier E/F mass admission
   (R2.4).
+## Phase 3 — consolidation directive (2026-08-14, §1-24): ledger
+- **§8/R2.2-prereq DONE** (dcc6f77) — GZ(phi) heeled-waterplane solve
+  (polygon clip anchored on analytic wedges; trim-0 == level solver
+  bit-for-bit; catamaran curve saturates/peaks/declines where GM.sin
+  claims 10m); NZ cl.1.4 (a)/(b) MEASURED via multihull_gz_assessment;
+  criterion stays refusal-first ((c) windage undeclarable, (d) unread).
+- **§5/§6 DONE** (aa621e3) — target/sampled/delivered Cp receipt on
+  Evaluation.targets (conformance judged on the EQUILIBRIUM state);
+  LCB target honestly UNKNOWN with the safe band + basis.
+- **§18/R3.1 DONE** (e90aad8) — navalai/constants.py, values bit-identical,
+  conventions named; fence test caught 3 more copies on first run.
+- **§11+§14 DONE** (4383493) — PayloadSpec first-class (positioned mass,
+  hotel-load wiring, uncrewed provision zeroed-with-note, JSON round-trip);
+  CFDManifest = the one vessel description (G7 disjoint-mass fix
+  structural; case.info renders it behind a genome-fingerprint guard);
+  §13 non-zero-trim one-state regression green.
+- **§19/§20 DONE** (0460b48, Gate VM) — vessel matrix end-to-end on
+  formcheck.CASES; trimaran refused by name; 12x0.8 demihull judged by
+  role.
+- **§3 DONE** (7209918) — README capability truth rewritten with the
+  IMPLEMENTED/PARTIAL/REFUSED/UNKNOWN taxonomy (four disproved absence
+  claims corrected).
+- Pins re-based with measurement en route: multihull GM/I_T table (R2.1
+  attitude), holtrop envelope B/T + cross-platform coverage counts,
+  stageG density floor.
+- OPEN (next sessions): §7 bow-form comparator, §9 vessel-arrangement
+  object, §10 full mass consolidation (payload done; weight_budget merge
+  open), §12 energy/length governance beyond hint+policy, §17 timer
+  policy, §18 remaining sweeps (ITTC-57 x4, STL readers x3), R2.3
+  loading conditions, R2.4 tier E/F admission, R2.5 BEM attitude.
+
 - Next rungs: R2.2 (GZ solver first), R2.3-2.5, R1.3 typology
   consolidation, R3.1 constants home, R3.2 CFD manifest from the floated
   state, R4 wire-or-delete, R5 five-case validation matrix + final
