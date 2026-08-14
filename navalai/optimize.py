@@ -16,10 +16,58 @@ from pymoo.optimize import minimize
 from pymoo.termination import get_termination
 
 from . import grammar
+from .energy import shell_area_m2
 from .evaluate import CONSTRAINT_NAMES, INFEASIBLE_G, evaluate
 from .geometry import Hull
 from .limits import GM_OVER_BEAM_MAX, gm_floor
 from .mission import MissionSpec
+
+
+def _score(x, mission: MissionSpec, policy, names, provenance=None):
+    """One design through the ladder -> (F_row, G_row), or None to REJECT.
+
+    THE ONE SCORING BODY for both problems (they had drifted into two
+    transcribed copies — R0.2e). None means "leave the caller's infeasible
+    defaults standing" (F = 1e9, G = INFEASIBLE_G), the same Fitness = inf
+    pattern the L0 reject has always used.
+
+    `ev.ok` IS CONSULTED (R0.2a — audit G6-01). The refusal classes that are
+    deliberately NOT constraint rows — `early` (speed outside the L1 model),
+    the multihull stability refusal, the manning refusals — used to leave
+    every g row satisfied, so NSGA-II ranked the design FEASIBLE and a
+    multihull front arrived 100% ok=False (audit G6-02). They are still not
+    rows: the E4 finding stands (a constant row carries no gradient while
+    occupying a dimension, and would change the vector's shape for
+    monohulls). Instead a design that is refused WITHOUT a positive g row is
+    rejected outright here. A design whose refusal IS a g row keeps its row —
+    that is the gradient NSGA-II descends out of the infeasible region — and
+    constraint domination already keeps it from dominating any feasible one.
+    """
+    ev = evaluate(x, mission, policy=policy, provenance=provenance)
+    if ev.tier == "L0" or ev.hydro is None or ev.energy is None:
+        return None
+    if not ev.ok and not any(ev.g[k] > 0.0 for k in names if k in ev.g):
+        return None
+    hull = Hull(x)
+    # Build material is the VESSEL's, not one moulded surface's (R0.2c —
+    # audit: the inline copy missed the hull count). `shell_area_m2` is the
+    # single home of the planked-to-the-sheer integral (gap C9); the bridge
+    # deck contributes nothing because the genome does not carry one, which
+    # is already a recorded caveat in `ev.vessel`.
+    n_hulls = int(ev.vessel.get("n_hulls", 1))
+    build_area = n_hulls * (shell_area_m2(hull) + hull.deck_area())
+    # GM is a BAND, not a maximisation target — above ~0.20*B it is a hazard
+    # (GM/B 0.82 gave a 1.5 s roll period on a boat sold as a dayboat). The
+    # band middle uses the FLOATED beam (R0.2d — the design chine beam is not
+    # the beam the metacentre was computed from). The monohull floor is the
+    # only floor that exists; a multihull cannot reach this line until a
+    # sourced multihull criterion lands (R2.2), because its stability refusal
+    # has no g row and is rejected above.
+    gm_mid = 0.5 * (gm_floor(mission.design_category)
+                    + GM_OVER_BEAM_MAX * float(ev.hydro.b_wl_max))
+    f_row = (ev.energy.wh_per_nm, build_area, abs(ev.gm_m - gm_mid))
+    g_row = [ev.g[k] for k in names]
+    return f_row, g_row
 
 
 class HullProblem(Problem):
@@ -29,8 +77,12 @@ class HullProblem(Problem):
     """
 
     def __init__(self, mission: MissionSpec, length_tol: float = 0.10,
-                 policy=None):
+                 policy=None, provenance=None):
         self.mission = mission
+        # WHAT THE SEARCH TOUCHED IS RECORDED (R0.2f — audit: three provenance
+        # mechanisms existed and the optimizer wrote to none of them). None
+        # keeps the un-recorded run identical to what it always was.
+        self.provenance = provenance
         # GOVERNANCE REACHES THE SEARCH, NOT ONLY THE LADDER (BuildPlan 3 §2.2).
         # `policy` is an optional COMPILED constitution
         # (`navalai.policy.compile_policy` / `reference_policy`). It is
@@ -101,27 +153,16 @@ class HullProblem(Problem):
         F = np.full((len(X), 3), 1e9)
         Gc = np.full((len(X), len(names)), INFEASIBLE_G)
         for i, x in enumerate(X):
-            ev = evaluate(x, self.mission, policy=self.policy)
-            if ev.tier == "L0" or ev.hydro is None or ev.energy is None:
-                continue  # Fitness = inf pattern: cheap reject stays worst
-            hull = Hull(x)
-            build_area = hull.wetted_surface(float(hull.z_sheer.max())) + hull.deck_area()
-            # GM is a BAND, not a maximisation target. Maximising it is not
-            # a naval-architecture goal — above ~0.20*B it is a hazard, and it
-            # produced GM/B 0.82 with a 1.5 s roll period on a boat sold as a
-            # dayboat. The objective is now distance from the middle of the
-            # band, pulling the search toward a comfortable boat.
-            b_wl = 2.0 * float(hull.y_chine.max())
-            gm_mid = 0.5 * (gm_floor(self.mission.design_category)
-                            + GM_OVER_BEAM_MAX * b_wl)
-            F[i] = (ev.energy.wh_per_nm, build_area, abs(ev.gm_m - gm_mid))
             # Constraints come from the ladder itself, so a check added there
             # (trim and list, most recently) constrains the search immediately
             # instead of producing optima the ladder then rejects. With a
             # compiled policy `names` is CONSTRAINT_NAMES + that policy's rows,
             # in `Evaluation.g_names` order, so a governance row constrains
             # NSGA-II by the same mechanism and with no second code path.
-            Gc[i] = [ev.g[k] for k in names]
+            scored = _score(x, self.mission, self.policy, names,
+                            provenance=self.provenance)
+            if scored is not None:
+                F[i], Gc[i] = scored
         out["F"] = F
         out["G"] = Gc
 
@@ -131,9 +172,10 @@ class LatentHullProblem(Problem):
     (original plan Phase 4: 'the optimizer explores the latent space')."""
 
     def __init__(self, mission: MissionSpec, genome, z_range: float = 2.5,
-                 policy=None):
+                 policy=None, provenance=None):
         self.mission = mission
         self.genome = genome
+        self.provenance = provenance
         # Output (2) only, and the asymmetry is the point rather than an
         # omission: the decision variables here are the 8-D genome, and the
         # parameter box is a box in GRAMMAR space. `genome.decode` is what
@@ -157,24 +199,10 @@ class LatentHullProblem(Problem):
         F = np.full((len(X), 3), 1e9)
         Gc = np.full((len(X), len(names)), INFEASIBLE_G)
         for i, x in enumerate(X):
-            ev = evaluate(x, self.mission, policy=self.policy)
-            if ev.tier == "L0" or ev.hydro is None or ev.energy is None:
-                continue
-            hull = Hull(x)
-            build_area = hull.wetted_surface(float(hull.z_sheer.max())) + hull.deck_area()
-            # GM is a BAND, not a maximisation target. Maximising it is not
-            # a naval-architecture goal — above ~0.20*B it is a hazard, and it
-            # produced GM/B 0.82 with a 1.5 s roll period on a boat sold as a
-            # dayboat. The objective is now distance from the middle of the
-            # band, pulling the search toward a comfortable boat.
-            b_wl = 2.0 * float(hull.y_chine.max())
-            gm_mid = 0.5 * (gm_floor(self.mission.design_category)
-                            + GM_OVER_BEAM_MAX * b_wl)
-            F[i] = (ev.energy.wh_per_nm, build_area, abs(ev.gm_m - gm_mid))
-            # Constraints come from the ladder itself, so a check added there
-            # (trim and list, most recently) constrains the search immediately
-            # instead of producing optima the ladder then rejects.
-            Gc[i] = [ev.g[k] for k in names]
+            scored = _score(x, self.mission, self.policy, names,
+                            provenance=self.provenance)
+            if scored is not None:
+                F[i], Gc[i] = scored
         out["F"] = F
         out["G"] = Gc
 
@@ -182,7 +210,7 @@ class LatentHullProblem(Problem):
 @dataclass
 class ParetoResult:
     X: np.ndarray
-    F: np.ndarray          # (wh_per_nm, build_area, -gm)
+    F: np.ndarray          # (wh_per_nm, build_area_m2, |GM - band middle|)
     n_evals: int
 
 
@@ -209,10 +237,12 @@ def _front(res, n_var: int) -> tuple[np.ndarray, np.ndarray]:
 
 
 def pareto_front(mission: MissionSpec, pop: int = 40, gens: int = 30,
-                 seed: int = 1, policy=None) -> ParetoResult:
+                 seed: int = 1, policy=None, provenance=None) -> ParetoResult:
     """`policy` is an optional compiled constitution; None is the ungoverned
-    search, unchanged. See `HullProblem.__init__`."""
-    problem = HullProblem(mission, policy=policy)
+    search, unchanged. `provenance` is an optional `db.Provenance`; every
+    ladder evaluation the search makes is recorded to it (R0.2f). See
+    `HullProblem.__init__`."""
+    problem = HullProblem(mission, policy=policy, provenance=provenance)
     algo = NSGA2(pop_size=pop)
     res = minimize(problem, algo, get_termination("n_gen", gens), seed=seed,
                    verbose=False)
@@ -222,9 +252,10 @@ def pareto_front(mission: MissionSpec, pop: int = 40, gens: int = 30,
 
 def pareto_front_latent(mission: MissionSpec, genome, pop: int = 40,
                         gens: int = 30, seed: int = 1,
-                        policy=None) -> ParetoResult:
+                        policy=None, provenance=None) -> ParetoResult:
     """NSGA-II in the 8-D genome; returns decoded (feasible) designs."""
-    problem = LatentHullProblem(mission, genome, policy=policy)
+    problem = LatentHullProblem(mission, genome, policy=policy,
+                                provenance=provenance)
     algo = NSGA2(pop_size=pop)
     res = minimize(problem, algo, get_termination("n_gen", gens), seed=seed,
                    verbose=False)
