@@ -366,26 +366,35 @@ def test_cheapest_admissible_finds_the_coarsest_valid_grid():
     assert not ok_c
 
 
-def test_seiche_is_froude_similar_and_survives_scaling():
+def test_tank_resonance_is_froude_similar_and_survives_scaling():
     """Point 2 of the brief: shrinking the model carries the resonance along.
 
-    T_seiche/T_wave depends only on Froude number, so it is identical at every
-    geometric scale — it cannot be scaled away, only designed away (longer
-    domain or outlet damping).
+    REWRITTEN 2026-08-14 (audit G8-P0): the still-water seiche this test
+    pinned at 10.0 s was REFUTED by scripts/tank_resonance.py — the tank
+    oscillates on the DOPPLER-SHIFTED tank mode (measured 5.53 s where the
+    Doppler model predicts 5.64 with the case's exact depth and this
+    module's derived depth gives 5.80; the seiche formula said 7.75 s at
+    both test speeds and matched neither). The physical claim SURVIVES the
+    model swap and that is the point of this test: with h = 0.6 L binding,
+    k_n h is dimensionless, so T_n/T_wave depends only on Froude number —
+    the resonance cannot be scaled away, only designed away (longer domain
+    or outlet damping).
     """
     ratios = []
     for lwl in (2.3, 7.2786, 230.0):
         c = Condition(lwl, 0.26 * math.sqrt(9.80665 * lwl))
-        t_s, t_w, _ = fidelity.seiche_check(c, FidelitySpec())
+        t_s, t_w, _ = fidelity.tank_resonance_check(c, FidelitySpec())
         ratios.append(t_s / t_w)
     assert max(ratios) - min(ratios) < 1e-9, f"not Froude-similar: {ratios}"
-    # measured on runs/kcs_sym: seiche 10.0 s against a 1.41 s wave period
-    t_s, t_w, verdict = fidelity.seiche_check(_model(), FidelitySpec())
-    assert t_s == pytest.approx(10.0, rel=0.05)
+    # the MEASURED mechanism: prediction within 10% of the 5.53 s the tank
+    # actually rang at (val_coarse5), and nowhere near the refuted 7.75/10.0
+    t_s, t_w, verdict = fidelity.tank_resonance_check(_model(), FidelitySpec())
+    assert t_s == pytest.approx(5.53, rel=0.10)
     assert t_w == pytest.approx(1.41, rel=0.05)
     assert "clear" in verdict, verdict
     # a short run is called out as unsettled rather than passed
-    _, _, short = fidelity.seiche_check(_model(), FidelitySpec(flow_throughs=0.4))
+    _, _, short = fidelity.tank_resonance_check(_model(),
+                                                FidelitySpec(flow_throughs=0.4))
     assert "damp" in short
 
 

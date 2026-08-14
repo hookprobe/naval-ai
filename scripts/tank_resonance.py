@@ -189,15 +189,10 @@ def speed(case: str | Path) -> float:
 # --------------------------------------------------------------------------
 
 def wave_speed(wavelength: float, depth: float, g: float) -> float:
-    """Linear free-surface phase speed, FULL dispersion relation.
-
-    Shallow water (sqrt(g h)) is not good enough here: for the fundamental
-    longitudinal mode of the KCS tank (lambda = 2L = 65.5 m over h = 7.28 m)
-    it gives 7.75 s where tanh(kh) gives 8.34 s, a 7.6% difference that sits
-    between two of the candidates being told apart.
-    """
-    k = 2.0 * np.pi / wavelength
-    return float(np.sqrt(g / k * np.tanh(k * depth)))
+    """Full-dispersion phase speed — IMPORTED from the one home (the model
+    this script's measurement promoted into `navalai.fidelity`)."""
+    from navalai.fidelity import wave_speed as _ws
+    return _ws(wavelength, depth, g)
 
 
 def apparent_period(wavelength: float, depth: float, u: float,

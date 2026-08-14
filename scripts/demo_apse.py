@@ -64,7 +64,7 @@ for d in (0.5, 0.7071, 1.0, 1.414, 2.0):
 spec, _ = fidelity.cheapest_admissible(MODEL, fidelity.MAC_M5)
 print(f"  cheapest admissible on this Mac: density {spec.mesh_density:.4f}"
       if spec else "  nothing fits this Mac")
-print("  seiche: " + fidelity.seiche_check(MODEL, FidelitySpec())[2])
+print("  tank resonance: " + fidelity.tank_resonance_check(MODEL, FidelitySpec())[2])
 
 rule("5. The planner: which experiment, and is it needed at all")
 for q, priors in [

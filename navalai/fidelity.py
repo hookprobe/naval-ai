@@ -190,7 +190,12 @@ def density_for_wave_resolution(fn: float,
     """
     if fn <= 0.0:
         return math.inf
-    return bar * 4.5 / (2.0 * math.pi * fn**2 * 4.0 * 54.0)
+    # THE FOURTH COPY OF _NX_BASE, RETIRED (audit: the sibling above narrates
+    # fixing 54 -> 57 while this inverse still carried 54.0 — the closed form
+    # and its own inverse disagreed by 5.6%). The base is imported from the
+    # mesh writer, the only place it is declared.
+    from .cfd.case import _NX_BASE
+    return bar * 4.5 / (2.0 * math.pi * fn**2 * 4.0 * float(_NX_BASE))
 
 
 @dataclass(frozen=True)
@@ -337,57 +342,104 @@ DOMAIN_LWL = 4.5
 SEICHE_SEPARATION = 3.0
 
 
-def seiche_period(cond: Condition, depth: float | None = None) -> float:
-    """Fundamental longitudinal sloshing period of the numerical tank [s].
+def wave_speed(wavelength: float, depth: float, g: float = 9.81) -> float:
+    """Linear free-surface phase speed, FULL dispersion relation [m/s].
 
-        T = 2 L_tank / sqrt(g h)
+        c = sqrt( g/k * tanh(k h) ),  k = 2 pi / lambda
 
-    Note what is NOT in that expression: the hull. It is a property of the BOX,
-    so it does not go away by choosing a better hull or a finer mesh, and — the
-    part that matters for a scaling engine — it is Froude-similar and therefore
-    survives scaling exactly. With the depth floor binding (h = 0.6 L) and the
-    domain at 4.5 L:
-
-        T_seiche / sqrt(L/g) = 2 * 4.5 / sqrt(0.6) = 11.62
-        T_wave   / sqrt(L/g) = 2 pi Fn
-
-    so their RATIO is a function of Froude number alone. Shrinking the model
-    carries the resonance along with it into every case, unchanged. Depth is
-    already sized against the wave (max(0.6 L, 1.5 lambda/2)); LENGTH is not,
-    and this is the check that says so.
+    ONE home (consolidation): `scripts/tank_resonance.py` measured with this
+    and imports it from here; a shallow-water sqrt(gh) shortcut differs by
+    7.6% on this project's own tank and was the first thing the measurement
+    retired.
     """
+    k = 2.0 * math.pi / max(wavelength, 1e-9)
+    return math.sqrt(g / k * math.tanh(k * depth))
+
+
+def _tank_depth(cond: Condition, depth: float | None) -> float:
     if depth is None:
         half_lambda = 0.5 * cond.wavelength
         depth = max(0.6 * cond.lwl, 1.5 * half_lambda)
-    return 2.0 * DOMAIN_LWL * cond.lwl / math.sqrt(cond.g * depth)
+    return depth
 
 
-def seiche_check(cond: Condition, spec: FidelitySpec) -> tuple[float, float, str]:
-    """(T_seiche, T_wave, verdict) for the generated domain.
+def tank_mode_periods(cond: Condition, depth: float | None = None,
+                      n_max: int = 12) -> dict[int, float]:
+    """Doppler-shifted apparent periods of the tank's standing modes [s].
 
-    MEASURED on runs/kcs_sym (Lwl 7.2786 m, U 2.196 m/s, depth 4.3672 m):
-    T_seiche = 10.0 s against a wave period of 1.41 s — a factor of 7.1 apart,
-    so the resonance does NOT sit on the wave frequency. But the run had only
-    reached t = 13.7 s when it stopped, i.e. 1.4 seiche periods: any force
-    average taken from that log is taken across an incompletely damped tank
-    oscillation, not across a settled flow. That is a settling-time finding,
-    not a frequency-contamination one, and the two are worth separating.
+    THE MEASURED MECHANISM (scripts/tank_resonance.py, 2026-08-13): the
+    low-frequency force oscillation is a TANK MODE lambda_n = 2 L_tank / n
+    carried on the current — T_n = lambda_n / (c(lambda_n) - U) — NOT the
+    still-water seiche 2L/sqrt(gh) this module used to compute. Same tank at
+    two speeds: measured 5.53 s and 3.67 s against Doppler predictions of
+    5.64 s and 3.66 s (0.3% / 1.9%), while the seiche formula said 7.75 s
+    for BOTH and matched neither. A mode whose phase speed does not outrun
+    the current (c <= U) is BLOCKED — its energy holds station and it has no
+    finite apparent period — and is omitted, which is itself the worst case:
+    the blocked wavelength is the one that cannot drain.
+
+    Still Froude-similar, so the resonance survives geometric scaling
+    exactly as the refuted formula did: with h = 0.6 L binding,
+    k_n h = 0.419 n is dimensionless, so T_n / sqrt(L/g) is a function of
+    Froude number alone.
     """
-    t_s = seiche_period(cond)
+    depth = _tank_depth(cond, depth)
+    L_tank = DOMAIN_LWL * cond.lwl
+    out: dict[int, float] = {}
+    for n in range(1, n_max + 1):
+        lam = 2.0 * L_tank / n
+        c = wave_speed(lam, depth, cond.g)
+        if c > cond.speed + 1e-9:
+            out[n] = lam / (c - cond.speed)
+    return out
+
+
+def tank_resonance_check(cond: Condition,
+                         spec: FidelitySpec) -> tuple[float, float, str]:
+    """(T_resonance, T_wave, verdict) for the generated domain.
+
+    REPLACES `seiche_check` (audit G8-P0, 2026-08-14): the still-water
+    seiche model was REFUTED BY MEASUREMENT — see `tank_mode_periods` — yet
+    this module still refused runs on it. The reported T is the mode the
+    tank actually selects: the one nearest the blocking condition c = 2U,
+    where the group velocity matches the current and the wave's energy
+    holds station (measured: n = 6 at Fn 0.26 on the KCS tank, 5.53 s).
+    The two verdicts keep their meanings: contamination if ANY mode's
+    apparent period sits on the wave period being measured; settling if the
+    run is shorter than three of the slowest finite mode period.
+    """
+    modes = tank_mode_periods(cond)
+    depth = _tank_depth(cond, None)
     t_w = cond.wavelength / max(cond.speed, 1e-6)
     sim = spec.flow_throughs * DOMAIN_LWL * cond.lwl / max(cond.speed, 1e-6)
-    if t_w > 0 and abs(t_s / t_w - 1.0) < 1.0 / SEICHE_SEPARATION:
-        v = (f"tank seiche {t_s:.2f} s sits ON the wave period {t_w:.2f} s — "
-             "the force signal is contaminated at exactly the frequency being "
-             "measured; lengthen the domain or add outlet damping")
-    elif sim < 3.0 * t_s:
-        v = (f"run is {sim / t_s:.1f} seiche periods long ({t_s:.2f} s each) — "
-             "too short for the tank oscillation to damp; early force averages "
-             "include it")
+    if not modes:
+        return (float("inf"), t_w,
+                "every tank mode is BLOCKED (c <= U): no finite resonance "
+                "period exists and no force average can outlast it — "
+                "lengthen the domain or add outlet damping")
+    # The selected mode: nearest to blocking, c(lambda) = 2 U.
+    def _c_gap(n: int) -> float:
+        return abs(wave_speed(2.0 * DOMAIN_LWL * cond.lwl / n, depth,
+                              cond.g) - 2.0 * cond.speed)
+    n_sel = min(modes, key=_c_gap)
+    t_res = modes[n_sel]
+    t_slow = max(modes.values())
+    on_wave = [n for n, t in modes.items()
+               if t_w > 0 and abs(t / t_w - 1.0) < 1.0 / SEICHE_SEPARATION]
+    if on_wave:
+        v = (f"tank mode n={on_wave[0]} ({modes[on_wave[0]]:.2f} s) sits ON "
+             f"the wave period {t_w:.2f} s — the force signal is contaminated "
+             "at exactly the frequency being measured; lengthen the domain or "
+             "add outlet damping")
+    elif sim < 3.0 * t_slow:
+        v = (f"run is {sim / t_slow:.1f} of the slowest tank-mode period "
+             f"({t_slow:.2f} s, n=1) long — too short for the tank "
+             "oscillation to damp; early force averages include it")
     else:
-        v = (f"seiche {t_s:.2f} s vs wave {t_w:.2f} s ({t_s / t_w:.1f}x apart), "
-             f"{sim / t_s:.1f} periods simulated: clear")
-    return t_s, t_w, v
+        v = (f"tank mode n={n_sel} {t_res:.2f} s vs wave {t_w:.2f} s "
+             f"({t_res / t_w:.1f}x apart), {sim / t_slow:.1f} slow-mode "
+             "periods simulated: clear")
+    return t_res, t_w, v
 
 
 @dataclass(frozen=True)
@@ -435,10 +487,14 @@ def admit(cond: Condition, spec: FidelitySpec,
             "resolved and the drag would ride on hull-local refinement",
             "CLAUDE.md: 'resolve the free surface or the whole run is "
             "decoration'"))
-    t_s, t_w, verdict = seiche_check(cond, spec)
-    if verdict.startswith("tank seiche"):
-        out.append(Refusal(verdict, f"T_seiche = 2 x {DOMAIN_LWL} Lwl / "
-                                    f"sqrt(g h) = {t_s:.2f} s"))
+    t_s, t_w, verdict = tank_resonance_check(cond, spec)
+    if verdict.startswith("tank mode") and "sits ON" in verdict:
+        out.append(Refusal(verdict,
+                           "T_n = lambda_n/(c(lambda_n) - U), the Doppler-"
+                           "shifted tank mode scripts/tank_resonance.py "
+                           "MEASURED (5.53 s vs 5.64 s predicted; the "
+                           "still-water seiche predicted 7.75 s and matched "
+                           "nothing)"))
     if (cost.wall_hours > THERMAL_SAFE_HOURS and not budget.resumable):
         out.append(Refusal(
             f"{cost.wall_hours:.1f} h exceeds the {THERMAL_SAFE_HOURS:.0f} h "
