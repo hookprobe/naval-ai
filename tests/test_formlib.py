@@ -323,19 +323,32 @@ def test_a_family_whose_two_expressibility_fields_disagree_is_REFUSED():
 def test_the_target_family_is_NOT_yet_expressible_and_says_why():
     """A statement about the CODE, not a status claim about the project: the
     mission's own form cannot be built by the current grammar, and the library
-    records the reasons rather than implying the hull is reachable. If this
-    ever flips to YES the test must be rewritten deliberately — a silent flip
-    would mean somebody emptied the list, not that the kernel grew.
+    records the reasons rather than implying the hull is reachable.
+
+    REWRITTEN DELIBERATELY 2026-08-14 (the rewrite this docstring demands):
+    the registry re-audit removed two of the five recorded absences because
+    their premises are DEAD IN CODE — the `roundness` gene ships a real
+    bilge fillet, and `total_resistance(..., separation=)` carries demihull
+    spacing into the production interference term. What remains missing is a
+    second hull AS GEOMETRY, the wet deck, and the sourced-evidence B/T
+    floor; the two retired reasons must NOT reappear, because a registry
+    that re-claims a shipped capability is impossible is exactly the defect
+    the audit caught (G0-P0).
     """
     tgt = F.target()
     assert tgt.expressible is not F.Expressible.YES
-    assert len(tgt.missing) >= 4, (
-        f"{tgt.key} names only {len(tgt.missing)} missing capabilities; the "
-        f"recorded set is a second hull, its separation, the wet deck, the "
-        f"L/B and B/T bands, and the round bilge")
+    assert len(tgt.missing) == 3, (
+        f"{tgt.key} names {len(tgt.missing)} missing capabilities; the "
+        f"recorded set is a second hull as geometry, the wet deck, and the "
+        f"Southampton B/T evidence floor")
     joined = " ".join(tgt.missing).lower()
-    for needle in ("second hull", "separation", "wet deck", "round bilge"):
+    for needle in ("second hull", "wet deck", "b/t"):
         assert needle in joined, f"target family does not name {needle!r}"
+    for retired in ("round bilge: there is no bilge radius",
+                    "total_resistance does not pass it"):
+        assert retired not in joined, (
+            f"a retired inexpressibility claim reappeared: {retired!r} — the "
+            f"kernel ships this; see geometry.roundness / resistance.py")
 
 
 def test_the_rebuild_backlog_is_DERIVED_from_the_library_not_restated():
@@ -541,16 +554,22 @@ def test_every_hull_ast_typology_is_named_by_exactly_one_family():
 
 
 def test_the_two_ast_typologies_are_the_grammars_reach_and_the_library_says_so():
-    """`hard_chine_displacement` is the ONE family marked expressible, and that
-    is a fact about the code rather than an argument for the hull — it is
-    EXCLUDED for this mission all the same. If a second family ever becomes
-    expressible this test must be rewritten deliberately.
+    """REWRITTEN DELIBERATELY 2026-08-14, per this test's own instruction
+    ("if a second family ever becomes expressible..."): the `roundness` gene
+    put a real quadratic-Bezier bilge into the section law, so the two
+    displacement-monohull families whose ONLY recorded absence was the round
+    bilge are now buildable. The registry said they were impossible while the
+    kernel shipped them — audit finding G0-P0 — and the YES set is the fact
+    about the code that fixes it. Candidacy is untouched: buildable is not an
+    argument for the mission, and all three stay EXCLUDED on the physics.
     """
-    yes = [f.key for f in F.FAMILIES if f.expressible is F.Expressible.YES]
-    assert yes == ["hard_chine_displacement"], yes
-    assert F.BY_KEY["hard_chine_displacement"].candidacy is F.Candidacy.EXCLUDED, (
-        "the only buildable family must still be judged on the physics; "
-        "'it is what we can build' is not a candidacy argument")
+    yes = sorted(f.key for f in F.FAMILIES if f.expressible is F.Expressible.YES)
+    assert yes == ["full_displacement", "hard_chine_displacement",
+                   "moderate_displacement"], yes
+    for key in yes:
+        assert F.BY_KEY[key].candidacy is F.Candidacy.EXCLUDED, (
+            f"{key}: a buildable family must still be judged on the physics; "
+            f"'it is what we can build' is not a candidacy argument")
 
 
 # ------------------------------------------------------ the speed-label conflict
@@ -815,3 +834,33 @@ def test_the_sourced_alpha_e_flat_band_records_that_its_low_edge_is_NOT_a_floor(
         "the sourced band's low edge rose above the unsourced 7 deg the audit "
         "uses; that would make the audit window look corroborated when §7.9 "
         "item 3 says it is not")
+
+
+def test_registry_claims_cannot_contradict_the_shipped_kernel_R04f():
+    """THE FENCE the 2026-08-14 audit asked for (G0-P0). The registry once
+    said "round bilge: there is no bilge radius" while `geometry` shipped the
+    `roundness` fillet, and "total_resistance does not pass it" while the
+    signature carried `separation=` into the production interference term —
+    a capability registry claiming a shipped feature is impossible, which is
+    strictly worse than no registry. Each check here couples the CLAIM text
+    to the LIVE capability probe, so the pair can only drift together.
+    """
+    import inspect
+    import pathlib as _pl
+
+    from navalai import grammar as _g
+    from navalai import resistance as _r
+
+    src = _pl.Path(F.__file__).read_text()
+    if "roundness" in _g.PARAMS:
+        for dead in ("there is no bilge radius", "only a chine crease"):
+            assert dead not in src, (
+                f"formlib claims {dead!r} while grammar carries a "
+                f"`roundness` gene and geometry ships the bilge fillet")
+    if "separation" in inspect.signature(_r.total_resistance).parameters:
+        assert "total_resistance does not pass it" not in src, (
+            "formlib claims separation never reaches total_resistance while "
+            "the signature carries it into the interference term")
+    # the 3-point-polyline description died with the P1/P2 kernel
+    assert "3-point keel/chine/sheer polyline" not in src, (
+        "formlib describes the retired three-point section law as current")

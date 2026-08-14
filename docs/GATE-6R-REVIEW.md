@@ -18,7 +18,6 @@ for the categories that need one.
 | **ISO 12217-1** — Small craft, stability and buoyancy assessment and categorization. Part 1: Non-sailing boats of hull length ≥ 6 m | R-CAT, R-DFH, R-GM, R-OLH | https://www.iso.org/standard/78514.html |
 | **ISO 12215-5** — Small craft, hull construction and scantlings. Part 5: Design pressures, design stresses, scantlings determination | R-PBM, R-TBM | https://www.iso.org/standard/65578.html |
 
-**confirmed
 
 Also relevant to the surrounding claim, though not implemented as checks:
 **Directive 2013/53/EU** (Recreational Craft Directive) — the legal instrument
@@ -38,23 +37,22 @@ text, often cheaper than the ISO store.
 | C | 2.0 | 0.35 | 0.45 | 10.0 |
 | D | 0.3 | 0.25 | 0.35 | 12.0 |
 
-**confirmed
 
 **To confirm against ISO 12217-1:**
 
 1. **Wave-height context** (§5, design categories). Category A is conventionally
    stated as "above 4 m" rather than "4 m" — confirm whether a single number is
    even the right representation, or whether this row should be a lower bound.
-   Note B and A currently carry the SAME 4.0, which cannot both be right.**confirmed
+   Note B and A currently carry the SAME 4.0, which cannot both be right.
 2. **Downflooding height** (§6.2). Confirm the floors, and confirm the
    measurement basis: we assume the lowest opening is at the sheer line, which
    is only conservative if no lower opening exists. Real openings must be
-   declared per boat.**confirmed
+   declared per boat.
 3. **GM floor** (annex). This is the value with the most drift history — it was
    hard-coded in four places and disagreed (0.35 vs 0.45 for category C). It is
    now single-sourced, but the VALUE is still practice, not text.
 4. **Offset-load heel limit** (§6.3). Confirm the limits, and confirm the crew
-   loading convention below.**confirmed
+   loading convention below.
 
 ## Row 2 — offset-load test parameters
 
@@ -68,7 +66,6 @@ text, often cheaper than the ISO store.
 Mechanics used (exact, no review needed): `sin φ = m_crew · b / (Δ · GM)`,
 from moment balance `m_crew · g · b = Δ · g · GM · sin φ`.
 
-**confirmed
 
 ## Row 3 — scantlings
 
@@ -93,8 +90,29 @@ so the reviewer can flag any that a standard actually governs:
 | `TRIM_LIMIT_DEG` | 2.0 deg | our own design bar, no ISO basis |
 | `LIST_LIMIT_DEG` | 2.0 deg | our own design bar, no ISO basis |
 
-**confirmed
 
+
+## Review status — the machine record owns this (2026-08-14 reconciliation)
+
+**`navalai/rules/review.py` is the record; this packet is the worksheet.**
+Stray inline `confirmed` markers that had accumulated in this file implied a
+blanket confirmation this project never made — the 2026-08-14 audit flagged
+the contradiction (nine markers here against a three-element confirmed set in
+the machine record), and the markers are now gone. As recorded there:
+
+- **Confirmed against ISO 12217-1:2015:** R-CAT, R-DFH, R-OLH — and for
+  R-DFH/R-OLH the confirmation CORRECTED THE MODEL (length-dependent
+  formulas, not the per-category constants the tables above show; see the
+  2026-08-12 finding in `review.py`).
+- **Not in the standard:** R-GM — no absolute GM requirement exists in the
+  2015 text; our floor stays a practice bar, basis `approx`, forever.
+- **Unconfirmable:** R-PBM, R-TBM (no ISO 12215-5 edition held; the 2008
+  BS EN text additionally shows our flat pressure floor and flat sigma_d are
+  the wrong SHAPE), and R-MHS (the multihull clause 6.6 body is behind the
+  paywall; the rule refuses by construction).
+
+A future reviewer updates `review.py` first; this file only explains what to
+look at and how.
 
 ## How to record the outcome
 

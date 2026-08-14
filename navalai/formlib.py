@@ -788,21 +788,30 @@ _D009 = "hull-example-009.png"
 _DEXP = "hull-designs.png"
 _DGEM = "hull-designs-gemini.png"
 
-# The section law the whole grammar is built on, said once so thirty rows can
-# point at it: `geometry.Hull.section` returns a literal (3, 2) array — keel,
-# chine, sheer — and the count is re-hardcoded in five consumers. Every family
-# whose section is not two straight segments is unreachable for this one
-# reason, so it is named once and referenced.
-_M_SECTION = ("a section whose SHAPE varies with x: the section law is one "
-              "3-point keel/chine/sheer polyline for the whole hull")
-_M_ROUND_BILGE = ("a round bilge: there is no bilge radius, only a chine "
-                  "crease, at every station from transom to stem")
-_M_SECOND_HULL = ("a second hull: no hull count, no separation, no "
-                  "cross-structure anywhere in the genome or the grammar")
+# The section law the whole grammar is built on, said once so the rows can
+# point at it. RE-AUDITED 2026-08-14 against the shipped P1/P2 kernel: the
+# section is now keel / bilge / sheer with a quadratic-Bezier BILGE FILLET
+# driven by the `roundness` gene (closed-form area; roundness == 0 reproduces
+# the legacy chine bit-for-bit) — so "round bilge" is EXPRESSIBLE and the
+# marker that claimed otherwise is gone (it described a kernel two rebuilds
+# old; the registry saying a shipped capability was impossible is audit
+# finding G0-P0). Likewise `total_resistance(..., separation=)` carries
+# demihull spacing into the production wave-interference term, so the
+# separation marker's premise is dead. What genuinely remains inexpressible
+# is stated below, in present-tense truth.
+_M_SECTION = ("a section whose SHAPE varies freely with x: deadrise warp is "
+              "forward-only and `flare`/`roundness` are single scalars "
+              "applied at every station, so no family needing per-station "
+              "section-shape control (NPL-style varying sections, multi-chine "
+              "transitions) can be built")
+_M_SECOND_HULL = ("a second hull as GEOMETRY: hull count and separation live "
+                  "in mission.VesselConfig and the physics evaluates n "
+                  "IDENTICAL translated demihulls (interference + "
+                  "parallel-axis stability terms), but the genome carries "
+                  "one moulded surface — no distinct demihull form, no "
+                  "cross-structure, no bridge deck")
 _M_WET_DECK = ("a wet deck: no clearance parameter, so "
                "resistance.wet_deck_clearance_g has nothing to score")
-_M_SEPARATION = ("hull separation: resistance.michell_rw accepts `separation` "
-                 "and total_resistance does not pass it")
 _M_FLARE = ("flare that varies along the length: `flare` is one scalar applied "
             "at every station")
 _M_STEM = ("stem rake, bow overhang or a counter stern: LOA == LWL by "
@@ -856,7 +865,7 @@ FAMILIES: tuple[FormFamily, ...] = (
             "is not a monohull — its slenderness and fine-entry rules "
             "transfer whole"),
         expressible=Expressible.PARTIAL,
-        missing=(_M_LB_BAND, _M_ROUND_BILGE),
+        missing=(_M_LB_BAND),
         drawings=(_D000, _DEXP, _D004),
         proportions={
             "l_over_b": _b(6.0, 12.0, Basis.APPROX,
@@ -886,8 +895,8 @@ FAMILIES: tuple[FormFamily, ...] = (
             "a beamier monohull buys volume the mission does not need and "
             "costs the wave-making advantage that is the entire reason a "
             "solar boat can move on 6-8 kWp"),
-        expressible=Expressible.PARTIAL,
-        missing=(_M_ROUND_BILGE,),
+        expressible=Expressible.YES,
+        missing=(),
         drawings=(_D000, _DEXP),
         proportions={
             "l_over_b": _b(4.0, 6.5, Basis.APPROX, "practice; no anchor"),
@@ -912,8 +921,8 @@ FAMILIES: tuple[FormFamily, ...] = (
             "0.3 a full body is squarely in the wave-making-dominant region "
             "and pays for the volume in propulsive power that solar cannot "
             "supply"),
-        expressible=Expressible.PARTIAL,
-        missing=(_M_ROUND_BILGE,),
+        expressible=Expressible.YES,
+        missing=(),
         drawings=(_D000, _DEXP),
         proportions={
             "l_over_b": _b(3.0, 5.0, Basis.APPROX, "practice; no anchor"),
@@ -939,7 +948,7 @@ FAMILIES: tuple[FormFamily, ...] = (
             "SECTION: MINIMIZES WETTED SURFACE AREA', 003, gemini panel 4); "
             "ADJACENT rather than TARGET because the topology is a catamaran"),
         expressible=Expressible.NO,
-        missing=(_M_ROUND_BILGE, _M_SECTION),
+        missing=(_M_SECTION),
         drawings=(_D000, _D003, _D004, _DEXP, _DGEM),
         proportions={
             "l_over_b": _NPL_L_OVER_B,
@@ -1033,7 +1042,7 @@ FAMILIES: tuple[FormFamily, ...] = (
             "Fn 0.2-0.3 in coastal service it costs reserve buoyancy forward "
             "and returns nothing"),
         expressible=Expressible.NO,
-        missing=(_M_FLARE, _M_ROUND_BILGE),
+        missing=(_M_FLARE),
         drawings=(_D000, _DGEM),
         proportions={
             "l_over_b": _b(7.0, 12.0, Basis.APPROX, "practice; no anchor"),
@@ -1088,7 +1097,7 @@ FAMILIES: tuple[FormFamily, ...] = (
             "along the length — is recorded as a grammar gap, not as a "
             "candidate hull"),
         expressible=Expressible.NO,
-        missing=(_M_SECTION, _M_ROUND_BILGE),
+        missing=(_M_SECTION),
         drawings=(_D003, _DGEM),
         proportions={
             "l_over_b": _b(3.5, 6.0, Basis.APPROX, "practice; no anchor"),
@@ -1296,8 +1305,7 @@ FAMILIES: tuple[FormFamily, ...] = (
             "catamaran at Fn 0.2-0.3, drawn five times in this set "
             "(001, 004, 005, 008, 009) and dimensioned twice"),
         expressible=Expressible.NO,
-        missing=(_M_SECOND_HULL, _M_SEPARATION, _M_WET_DECK, _M_LB_BAND,
-                 _M_ROUND_BILGE),
+        missing=(_M_SECOND_HULL, _M_WET_DECK, _M_LB_BAND),
         drawings=(_D001, _D004, _D005, _D008, _D009, _D000, _DEXP, _DGEM),
         proportions={
             "l_over_b": _b(12.0, 18.0, Basis.DRAWING,
@@ -1382,7 +1390,7 @@ FAMILIES: tuple[FormFamily, ...] = (
             "the same effect for one parameter instead of a new topology and "
             "a new interference derivation"),
         expressible=Expressible.NO,
-        missing=(_M_ASYMMETRIC, _M_SECOND_HULL, _M_SEPARATION, _M_LB_BAND),
+        missing=(_M_ASYMMETRIC, _M_SECOND_HULL, _M_LB_BAND),
         drawings=(_D001, _D008, _D009, _D000, _DEXP, _DGEM),
         proportions={
             "l_over_b": _b(12.0, 18.0, Basis.DRAWING,
@@ -1409,7 +1417,7 @@ FAMILIES: tuple[FormFamily, ...] = (
             "the regime is wrong and the direction is wrong — it trades away "
             "exactly the slenderness the solar power budget depends on"),
         expressible=Expressible.NO,
-        missing=(_M_SECOND_HULL, _M_SEPARATION, _M_WET_DECK),
+        missing=(_M_SECOND_HULL, _M_WET_DECK),
         drawings=(_D000, _DEXP),
         proportions={
             "l_over_b": _b(7.0, 12.0, Basis.APPROX, "practice; no anchor"),
@@ -1518,7 +1526,7 @@ FAMILIES: tuple[FormFamily, ...] = (
             "carries the copy-pasted 'Low L/B, High Fn, Dynamic lift "
             "dominant' block under 'FINE MAIN HULL ENTRY'"),
         expressible=Expressible.NO,
-        missing=(_M_SECOND_HULL, _M_SEPARATION, _M_LB_BAND, _M_ROUND_BILGE),
+        missing=(_M_SECOND_HULL, _M_LB_BAND),
         drawings=(_D006, _D000, _DEXP, _DGEM),
         proportions={
             "l_over_b": _b(12.0, 25.0, Basis.APPROX,
@@ -1540,7 +1548,7 @@ FAMILIES: tuple[FormFamily, ...] = (
         candidacy=Candidacy.EXCLUDED,
         candidacy_reason="not the stated topology, and the wrong regime",
         expressible=Expressible.NO,
-        missing=(_M_SECOND_HULL, _M_SEPARATION, _M_LB_BAND),
+        missing=(_M_SECOND_HULL, _M_LB_BAND),
         drawings=(_DGEM, _D000, _DEXP),
         proportions={
             "l_over_b": _b(12.0, 20.0, Basis.APPROX, "practice; no anchor"),
@@ -1563,7 +1571,7 @@ FAMILIES: tuple[FormFamily, ...] = (
             "not the stated topology; four hulls multiply the wetted surface "
             "that already dominates resistance at Fn 0.2-0.3"),
         expressible=Expressible.NO,
-        missing=(_M_SECOND_HULL, _M_SEPARATION),
+        missing=(_M_SECOND_HULL),
         drawings=(_DGEM,),
         proportions={
             "l_over_b": _b(10.0, 20.0, Basis.APPROX, "practice; no anchor"),
@@ -1589,7 +1597,7 @@ FAMILIES: tuple[FormFamily, ...] = (
             "entry and no pressure recovery, so drag per tonne is high exactly "
             "where the power budget is smallest"),
         expressible=Expressible.NO,
-        missing=(_M_SECOND_HULL, _M_ROUND_BILGE, _M_SECTION),
+        missing=(_M_SECOND_HULL, _M_SECTION),
         drawings=(_D000, _DEXP),
         proportions={
             "l_over_b": _b(6.0, 14.0, Basis.APPROX, "of one tube; no anchor"),
