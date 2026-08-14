@@ -427,9 +427,14 @@ def test_stated_budget_and_the_wave_resolution_bar_are_unsatisfiable_together():
     # nor the medium one
     spec_m, _ = fidelity.cheapest_admissible(cond, fidelity.STATED_MEDIUM)
     assert spec_m is None
-    # the cheapest physically-valid grid, and what it actually costs
+    # the cheapest physically-valid grid, and what it actually costs.
+    # RE-BASED 2026-08-14: this pinned ~0.98, a number computed with the
+    # DRIFTED fourth copy of _NX_BASE (54); with the inverse now importing
+    # the live 57 the floor is 57/54 lower, 0.9294 — verified round-trip:
+    # cells_per_wavelength(0.26, 0.9294) = 20.01 against the 20 bar.
     need = fidelity.density_for_wave_resolution(cond.fn)
-    assert need == pytest.approx(1.0, rel=0.05)
+    assert need == pytest.approx(0.9294, rel=0.02)
+    assert fidelity.cells_per_wavelength(cond.fn, need) >=         fidelity.MIN_CELLS_PER_WAVELENGTH - 0.05
     cost = fidelity.estimate(cond, FidelitySpec(mesh_density=1.0))
      # RE-BASED 2026-08-07: _NX_BASE moved 54 -> 57 when the four branches
     # were consolidated. 57 is the MEASURED fix -- it is divisible by 3 at
