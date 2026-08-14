@@ -50,7 +50,7 @@ import math
 class HullRole(enum.Enum):
     """What the parameter vector describes: a whole vessel, or one of a pair.
 
-    Two members, not six. `mission.SUPPORTED_HULL_COUNTS` is (1, 2) and refuses
+    Two members, not six. `mission.EVALUABLE_TOPOLOGIES` is (monohull, catamaran) and refuses
     three, so a TRIMARAN role would be a member this tree cannot construct and
     cannot band — and a role with no band would silently fall back to the
     monohull one, which is the `${VAR:-0}` defect (LESSONS.md #1) wearing an

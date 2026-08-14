@@ -13,6 +13,7 @@ import re
 from dataclasses import asdict, dataclass, field
 from enum import Enum
 
+from . import grammar
 from .energy import EnergySpec
 from .formlib import Topology            # AXIS 1's enum has ONE home; see below
 
@@ -75,7 +76,13 @@ FIELD_RANGES: dict[str, tuple[float, float]] = {
     "displacement_target_kg": (300.0, 200_000.0),
     "cruise_speed_kn": (1.0, 30.0),
     "crew": (1, 250),
-    "lwl_hint_m": (4.0, 20.0),
+    # DERIVED, not retyped (audit D1, fixed R1.2): this row froze at
+    # (4.0, 20.0) while the grammar's LWL box moved to (2.5, 24.0), so the
+    # mission contract silently refused hints for hulls the grammar builds.
+    # One length contract: whatever box the grammar declares IS the hint's
+    # legal range.
+    "lwl_hint_m": (float(grammar.LOW[grammar.NAMES.index("LWL")]),
+                   float(grammar.HIGH[grammar.NAMES.index("LWL")])),
 }
 
 # EnergySpec's writable ranges, for the same reason and with the same history:

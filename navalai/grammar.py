@@ -99,7 +99,7 @@ from .limits import (CP_GENE_BOUNDS, LCB_BAND_PCT_LWL,
 #   ceiling for a demihull is the same category error as the monohull ceiling
 #   that started this, pointed the other way. It corroborates; it does not band.
 #
-# THERE IS NO TRIMARAN ROW. `mission.SUPPORTED_HULL_COUNTS` is (1, 2) and
+# THERE IS NO TRIMARAN ROW. `mission.EVALUABLE_TOPOLOGIES` is (monohull, catamaran) and
 # refuses three, and `limits.HullRole` has two members for the same reason: a
 # role with no sourced band would fall through to the monohull one, which is an
 # unmeasured quantity scored as a passing one.

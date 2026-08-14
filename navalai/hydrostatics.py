@@ -241,7 +241,7 @@ def vessel_terms(hull: Hull, vessel=None) -> tuple[int, float, float]:
     # Two IDENTICAL demihulls at y = +-s/2, so every |d_j| is s/2 and the
     # parallel-axis term is the same for both. The `sum_j` in the docstring is
     # written out rather than collapsed because a trimaran would not have this
-    # symmetry — which is exactly why `mission.SUPPORTED_HULL_COUNTS` refuses
+    # symmetry — which is exactly why `mission.EVALUABLE_TOPOLOGIES` refuses
     # one instead of pretending three copies of one genome is a trimaran.
     return n, sep, 0.5 * sep
 
