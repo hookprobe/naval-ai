@@ -537,7 +537,9 @@ def test_the_ladder_names_its_resistance_method_and_why_holtrop_is_not_it():
     # reference hull is still outside on the same two clauses, and B/T is still
     # the killer at 7.34 against a 2.1-4.0 band.
     assert "L/B 3.17 outside [3.9, 9.5]" in joined
-    assert "B/T 7.34 outside [2.1, 4.0]" in joined
+    # RE-MEASURED 2026-08-14 (R2.1): the envelope reads the floated
+    # state, which is now the SOLVED equilibrium — B/T 7.34 -> 7.36.
+    assert "B/T 7.36 outside [2.1, 4.0]" in joined
     # each clause names its measured value, or "outside the envelope" is not
     # actionable
     for v in viol:
