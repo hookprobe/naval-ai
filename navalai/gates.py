@@ -794,8 +794,39 @@ def load_ledger(path: str | Path | None) -> dict:
     return json.loads(p.read_text())
 
 
-def judge_red(name: str, ledger: dict, today: date) -> tuple[str, bool]:
-    """Is this RED gate expected, regressed, or new? (label, is_failure)"""
+def _worse_than(measured: float, wm: float, better_is: str) -> bool | None:
+    """True/False, or None when `better_is` names no implemented direction."""
+    if better_is == "up":
+        return measured < wm
+    if better_is == "down":
+        return measured > wm
+    if better_is == "toward_zero":
+        return abs(measured) > abs(wm)
+    return None
+
+
+def judge_red(name: str, ledger: dict, today: date,
+              measured: float | None = None) -> tuple[str, bool]:
+    """Is this RED gate expected, regressed, or new? (label, is_failure)
+
+    THE REGRESSION RULE IS IMPLEMENTED HERE (audit 2026-08-14, G0-01). The
+    ledger's own README promised "a RED gate worse than watermark -> FAIL (it
+    regressed)" while this function never read `better_is` at all — the rule
+    the whole file exists for was prose. It cannot re-measure by itself (the
+    verify commands need the CFD node or hours of batch), so the fresh number
+    arrives as `measured` — from `--measured "Gate 2U=31.4"` on the CLI after
+    running the entry's own `verify` command — and:
+
+      - measured WORSE than watermark (per `better_is`)  -> FAIL, REGRESSED
+      - measured equal/better                            -> expected; better
+        prints "IMPROVED — update the watermark" so the ledger ratchets
+      - watermark not a number, or the entry carries `calibration_void`
+        (the population that produced it no longer exists — e.g. Gate 2U's
+        27.8% was measured on the 15-parameter genome, audit G0-02) ->
+        UNCOMPARABLE: with a fresh number that is a FAIL (the ledger must be
+        re-based before the number means anything); without one the label
+        says re-measurement is owed instead of implying a comparison held.
+    """
     entry = ledger.get(name)
     if entry is None:
         return ("RED (NEW — not in the ledger. Record it with a measured "
@@ -808,10 +839,40 @@ def judge_red(name: str, ledger: dict, today: date) -> tuple[str, bool]:
         return (f"RED (LEDGER EXPIRED — unreviewed since {due.isoformat()}. "
                 f"Re-measure or sign a dated extension.)", True)
     wm = entry.get("watermark")
+    void = entry.get("calibration_void")
+    comparable = isinstance(wm, (int, float)) and not void
+    if measured is not None:
+        if not comparable:
+            why = (str(void) if void else f"watermark is {wm!r}, not a number")
+            return (f"RED (measured {measured} but the watermark is "
+                    f"UNCOMPARABLE — {why}. Re-base the ledger entry with "
+                    f"this measurement and its config before comparing.)",
+                    True)
+        worse = _worse_than(float(measured), float(wm),
+                            str(entry.get("better_is", "")))
+        if worse is None:
+            return (f"RED (better_is {entry.get('better_is')!r} names no "
+                    f"implemented direction — fix the ledger entry)", True)
+        if worse:
+            return (f"RED (REGRESSED — measured {measured} is worse than the "
+                    f"watermark {wm} ({entry.get('better_is')} is better). "
+                    f"Fix it, or re-measure and sign a new watermark.)", True)
+        improved = _worse_than(float(wm), float(measured),
+                               str(entry.get("better_is", "")))
+        note = (" IMPROVED — update the watermark so the ratchet holds."
+                if improved else "")
+        return (f"RED (expected: measured {measured} vs watermark {wm}, not "
+                f"worse.{note} Owner {entry.get('owner', '?')}, review by "
+                f"{due.isoformat()})", False)
+    suffix = ""
+    if not comparable:
+        suffix = (" UNCOMPARABLE — no regression check is possible against "
+                  "this watermark; re-measurement owed via the entry's "
+                  "verify command.")
     return (f"RED (expected: {entry.get('metric', '?')} watermark {wm}, "
             f"measured {entry.get('measured_utc', '?')}, "
-            f"owner {entry.get('owner', '?')}, review by {due.isoformat()})",
-            False)
+            f"owner {entry.get('owner', '?')}, review by {due.isoformat()})"
+            + suffix, False)
 
 
 # --------------------------------------------------------------- the README
@@ -926,9 +987,23 @@ def main(argv: list[str] | None = None) -> int:
             print(block)
         return 0
     ledger_path = None
+    # --measured "Gate 2U=31.4" (repeatable): a fresh figure produced by
+    # running a red gate's own `verify` command, handed to `judge_red` so the
+    # ledger README's regression rule actually executes (audit G0-01). A
+    # malformed value is a hard error — a typo silently dropped would report
+    # "expected" for a gate the operator believed they had just re-measured.
+    fresh: dict[str, float] = {}
     for i, a in enumerate(argv):
         if a == "--ledger" and i + 1 < len(argv):
             ledger_path = argv[i + 1]
+        if a == "--measured" and i + 1 < len(argv):
+            spec = argv[i + 1]
+            gate_name, _sep, raw = spec.partition("=")
+            try:
+                fresh[gate_name.strip()] = float(raw)
+            except ValueError:
+                print(f"--measured {spec!r}: expected '<gate name>=<number>'")
+                return 2
     ledger = load_ledger(ledger_path)
     today = date.today()
 
@@ -939,7 +1014,8 @@ def main(argv: list[str] | None = None) -> int:
     for g in GATES:
         if g.suite is None:
             if g.status == Verdict.RED:
-                label, is_fail = judge_red(g.name, ledger, today)
+                label, is_fail = judge_red(g.name, ledger, today,
+                                           measured=fresh.get(g.name))
                 if not suites_only and is_fail:
                     red_gates += 1
             else:

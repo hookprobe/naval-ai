@@ -440,3 +440,54 @@ def test_every_ledger_verify_names_something_that_exists():
             checked += 1
     assert checked >= 5, (
         f"only {checked} verify references checked; the fence went blind")
+
+
+def test_judge_red_regression_rule_R03():
+    """AUDIT G0-01 (2026-08-14): the ledger README promised "a RED gate worse
+    than watermark -> FAIL (it regressed)" while `judge_red` never read
+    `better_is` at all — the rule the ledger exists for was prose. The fresh
+    figure arrives via `--measured` (this function cannot re-run a CFD
+    campaign); comparison per `better_is`, void/non-numeric watermarks are
+    UNCOMPARABLE, and a fresh number against an uncomparable watermark FAILS
+    so the ledger must be re-based before the number is read as a verdict."""
+    from datetime import date
+
+    led = {
+        "G-up": {"watermark": 50.0, "better_is": "up",
+                 "review_by": "2027-01-01"},
+        "G-dn": {"watermark": 10.0, "better_is": "down",
+                 "review_by": "2027-01-01"},
+        "G-tz": {"watermark": -3.0, "better_is": "toward_zero",
+                 "review_by": "2027-01-01"},
+        "G-void": {"watermark": 27.8, "better_is": "up",
+                   "review_by": "2027-01-01",
+                   "calibration_void": "measured on the retired genome"},
+        "G-str": {"watermark": "NONE", "better_is": "up",
+                  "review_by": "2027-01-01"},
+        "G-bad": {"watermark": 5.0, "better_is": "sideways",
+                  "review_by": "2027-01-01"},
+    }
+    t = date(2026, 8, 14)
+    # (gate, fresh measurement, must_fail, marker expected in the label)
+    cases = [
+        ("G-up", 40.0, True, "REGRESSED"),
+        ("G-up", 60.0, False, "IMPROVED"),
+        ("G-up", 50.0, False, "not worse"),
+        ("G-dn", 12.0, True, "REGRESSED"),
+        ("G-dn", 8.0, False, "IMPROVED"),
+        ("G-tz", -5.0, True, "REGRESSED"),
+        ("G-tz", 1.0, False, "IMPROVED"),
+        ("G-void", 33.0, True, "UNCOMPARABLE"),
+        ("G-void", None, False, "UNCOMPARABLE"),
+        ("G-str", 33.0, True, "UNCOMPARABLE"),
+        ("G-str", None, False, "UNCOMPARABLE"),
+        ("G-bad", 4.0, True, "no "),
+    ]
+    for name, m, must_fail, marker in cases:
+        label, fail = G.judge_red(name, led, t, measured=m)
+        assert fail is must_fail, (name, m, label)
+        assert marker in label, (name, m, label)
+    # Without a fresh measurement a comparable entry behaves as it always
+    # did: expected, not a failure, no comparison implied.
+    label, fail = G.judge_red("G-up", led, t)
+    assert fail is False and "REGRESSED" not in label
