@@ -444,13 +444,16 @@ def multihull_stability_refusal(state: HydroState, gm_m: float,
         f"multihull stability: the criterion that governs is "
         f"{MULTIHULL_CRITERION}: (a) GZ-curve area, (b) maximum GZ at a heel "
         f"of not less than 10 deg, (c) steady-wind heel not over 16 deg on the "
-        f"lever h_w = P.A.Z/(9800.disp_t), (d) a residual-area condition. NONE "
-        f"of them is computed here: (a) and (b) need a righting-arm curve at "
-        f"large heel and `hydrostatics` solves UPRIGHT metacentres only, and "
-        f"(c) needs the projected lateral area above the waterline, which on a "
-        f"solar catamaran is the roof and the bridge-deck house — neither is "
-        f"in the genome, and deriving A from the bare hull profile would "
-        f"understate the heeling moment, which is the flattering direction.",
+        f"lever h_w = P.A.Z/(9800.disp_t), (d) a residual-area condition. "
+        f"Clauses (a) and (b) ARE now computable — the heeled-waterplane "
+        f"solve landed 2026-08-14 and yields the righting-arm curve; ask `hydrostatics.multihull_gz_assessment` "
+        f"for the measured values — but the criterion still cannot PASS: "
+        f"(c) needs the projected lateral area above the waterline, which on "
+        f"a solar catamaran is the roof and the bridge-deck house — neither "
+        f"is in the genome, and deriving A from the bare hull profile would "
+        f"understate the heeling moment, the flattering direction — and "
+        f"(d)'s clause body is NOT READ. Two assessed clauses of four is a "
+        f"measurement, not a verdict.",
     ) + olh
 
 
@@ -771,3 +774,312 @@ def solve_equilibrium(hull: Hull, target_kg_mass: float, lcg_m: float,
         f"trim equilibrium did not converge: |lcb - lcg| = {abs(r):.5f} m "
         f"after 60 bisections at trim {theta:+.3f} deg — not an answer, and "
         f"not returned as one.")
+
+
+# ---------------------------------------------------------------------------
+# THE RIGHTING-ARM CURVE — GZ(phi) (audit P0 "no GZ(phi) anywhere"; R2.2's
+# prerequisite).
+#
+# Everything above is UPRIGHT hydrostatics: `bm` is the small-angle waterplane
+# inertia, and the multihull refusal block says precisely why that is not a
+# capsize story ("there is no heeled-waterplane solve anywhere in this
+# repository"). This is that solve. Each station's FULL closed section
+# (starboard polyline, deck closure at the sheer, port mirror) is clipped
+# against the heeled waterplane z = wl0 + tan(phi)*y [+ tan(trim)*(x-mid)],
+# the vessel is floated at each heel, and the righting arm is the
+# earth-horizontal separation of B and G.
+#
+# DECLARED ASSUMPTIONS, carried on the result so no consumer can mistake the
+# claim (honesty rule 1):
+#   * watertight to the SHEER, no superstructure or deckhouse buoyancy — the
+#     genome carries a hull and nothing above it, so beyond deck-edge
+#     immersion the curve is CONSERVATIVE for a real boat with a cabin and
+#     exact for an open one with a sealed deck;
+#   * fixed longitudinal attitude (the caller's trim, not re-solved per
+#     heel) — free-to-trim coupling is not computed and is said so;
+#   * no downflooding openings are declared anywhere in the genome, so the
+#     deck-edge immersion angle is reported as the conservative proxy.
+# ---------------------------------------------------------------------------
+
+def _station_polygon(hull: Hull, i: int, y_offset: float = 0.0) -> np.ndarray:
+    """Full closed section at station i as a CCW (M, 2) polygon of (y, z).
+
+    Starboard keel -> bilge -> sheer from `Hull.section` (the kernel's own
+    sampled boundary — no geometry re-transcription), a straight deck edge
+    to the port sheer, and the port mirror back down to the keel."""
+    half = hull.section(i)
+    port = half[::-1].copy()
+    port[:, 0] = -port[:, 0]
+    poly = np.vstack([half, port[:-1]])
+    if y_offset:
+        poly = poly.copy()
+        poly[:, 0] += y_offset
+    return poly
+
+
+def _clip_below_line(poly: np.ndarray, c: float,
+                     m: float) -> tuple[float, float, float]:
+    """(area, y_centroid, z_centroid) of the polygon region with
+    z <= c + m*y — Sutherland-Hodgman against the half-plane, then the
+    shoelace area and centroid. Returns (0, 0, 0) for a dry section."""
+    f = poly[:, 1] - (c + m * poly[:, 0])
+    if (f >= 0.0).all():
+        return 0.0, 0.0, 0.0
+    if (f <= 0.0).all():
+        kept = poly
+    else:
+        pts = []
+        n = len(poly)
+        for k in range(n):
+            a, b = poly[k], poly[(k + 1) % n]
+            fa, fb = f[k], f[(k + 1) % n]
+            if fa <= 0.0:
+                pts.append(a)
+            if (fa <= 0.0) != (fb <= 0.0):
+                t = fa / (fa - fb)
+                pts.append(a + t * (b - a))
+        kept = np.asarray(pts)
+        if len(kept) < 3:
+            return 0.0, 0.0, 0.0
+    y, z = kept[:, 0], kept[:, 1]
+    y1, z1 = np.roll(y, -1), np.roll(z, -1)
+    cross = y * z1 - y1 * z
+    area2 = cross.sum()
+    if abs(area2) < 1e-14:
+        return 0.0, 0.0, 0.0
+    yc = ((y + y1) * cross).sum() / (3.0 * area2)
+    zc = ((z + z1) * cross).sum() / (3.0 * area2)
+    return abs(area2) / 2.0, yc, zc
+
+
+def heeled_displacement(hull: Hull, wl0: float, heel_deg: float,
+                        trim_deg: float = 0.0,
+                        vessel=None) -> tuple[float, float, float]:
+    """(volume, yB, zB) with the waterplane heeled about the x-axis.
+
+    Plane in body coordinates: z = wl0 + tan(heel)*y + tan(trim)*(x - mid).
+    Positive heel puts the STARBOARD side (y > 0) deeper. A multihull is the
+    same integral over each demihull's polygon offset to ±separation/2 —
+    which is exactly the mechanism the upright parallel-axis term
+    approximates, now computed instead of linearised: as the windward hull
+    emerges the integral loses it, and the righting moment collapses past
+    the peak, which no GM can express."""
+    x = hull.x
+    L = float(x[-1] - x[0])
+    mid = float(x[0]) + 0.5 * L
+    m_heel = math.tan(math.radians(heel_deg))
+    m_trim = math.tan(math.radians(trim_deg))
+    n_hulls, _sep, d = vessel_terms(hull, vessel)
+    offsets = (0.0,) if n_hulls == 1 else (+d, -d)
+    n = hull.n_stations
+    a = np.zeros(n)
+    my = np.zeros(n)
+    mz = np.zeros(n)
+    for i in range(n):
+        c_i = wl0 + m_trim * (float(x[i]) - mid)
+        for off in offsets:
+            ai, yi, zi = _clip_below_line(_station_polygon(hull, i, off),
+                                          c_i, m_heel)
+            a[i] += ai
+            my[i] += ai * yi
+            mz[i] += ai * zi
+    vol = float(np.trapezoid(a, x))
+    if vol <= 1e-9:
+        return 0.0, 0.0, 0.0
+    yb = float(np.trapezoid(my, x)) / vol
+    zb = float(np.trapezoid(mz, x)) / vol
+    return vol, yb, zb
+
+
+def _float_at_heel(hull: Hull, target_kg: float, heel_deg: float,
+                   trim_deg: float, rho: float, vessel,
+                   tol: float = 1e-3) -> tuple[float, float, float, float]:
+    """Bisect wl0 until the heeled displacement carries `target_kg`.
+    Returns (wl0, volume, yB, zB); raises when the hull cannot carry it."""
+    m_heel = abs(math.tan(math.radians(heel_deg)))
+    n_hulls, _sep, d = vessel_terms(hull, vessel)
+    reach = (float(hull.y_sheer.max()) + (d if n_hulls > 1 else 0.0))
+    z_min = float(hull.z_keel.min())
+    z_max = float(hull.z_sheer.max())
+    lo = z_min - m_heel * reach - 0.05
+    hi = z_max + m_heel * reach + 0.05
+    v_hi, _, _ = heeled_displacement(hull, hi, heel_deg, trim_deg, vessel)
+    if rho * v_hi < target_kg:
+        raise ValueError(
+            f"hull swamps at heel {heel_deg:+.1f} deg: fully-immersed "
+            f"buoyant mass {rho * v_hi:.0f} kg < target {target_kg:.0f} kg")
+    target_v = target_kg / rho
+    vol = yb = zb = 0.0
+    for _ in range(70):
+        mid_wl = 0.5 * (lo + hi)
+        vol, yb, zb = heeled_displacement(hull, mid_wl, heel_deg, trim_deg,
+                                          vessel)
+        if abs(vol - target_v) < tol * target_v:
+            return mid_wl, vol, yb, zb
+        if vol < target_v:
+            lo = mid_wl
+        else:
+            hi = mid_wl
+    raise ValueError(
+        f"heeled flotation did not converge at {heel_deg:+.1f} deg: "
+        f"{rho * vol:.1f} kg against target {target_kg:.1f} kg — not an "
+        f"answer, and not returned as one.")
+
+
+@dataclass(frozen=True)
+class GZCurve:
+    """The righting-arm curve and what it implies, with its assumptions."""
+    heels_deg: tuple[float, ...]
+    gz_m: tuple[float, ...]
+    gz_max_m: float
+    heel_at_gz_max_deg: float
+    avs_deg: float | None            # first GZ downcrossing past the peak
+    area_to_30_m_rad: float          # integral of GZ dphi, 0..min(30, range)
+    deck_edge_deg: float | None      # first heel immersing a sheer point
+    assumptions: tuple[str, ...]
+
+    def area_m_rad(self, to_deg: float) -> float:
+        """Integral of GZ dphi from 0 to `to_deg` [m.rad], trapezoid on the
+        computed grid, clamped to the grid's range."""
+        h = np.radians(np.asarray(self.heels_deg))
+        g = np.asarray(self.gz_m)
+        top = min(math.radians(to_deg), float(h[-1]))
+        hh = np.linspace(0.0, top, 121)
+        return float(np.trapezoid(np.interp(hh, h, g), hh))
+
+
+GZ_ASSUMPTIONS = (
+    "watertight to the sheer; no superstructure or deckhouse buoyancy (the "
+    "genome carries none) — conservative past deck-edge immersion",
+    "fixed longitudinal attitude: the caller's trim, not re-solved per heel",
+    "no downflooding openings are declared; deck-edge immersion is the "
+    "conservative proxy angle",
+)
+
+
+def gz_curve(hull: Hull, disp_kg: float, kg_above_keel: float,
+             rho: float = RHO_WATER, vessel=None, trim_deg: float = 0.0,
+             tcg_m: float = 0.0,
+             heels_deg: tuple[float, ...] | None = None) -> GZCurve:
+    """Righting arm GZ(phi) for the vessel floated at each heel.
+
+    GZ = (yB - yG) cos(phi) + (zB - zG) sin(phi) — the earth-horizontal
+    separation of the centre of buoyancy from the centre of gravity, in the
+    body frame whose z = 0 is the design waterline. Positive GZ restores a
+    positive (starboard-down) heel. `kg_above_keel` is the same KG every GM
+    in this module consumes; `tcg_m` admits an asymmetric loading.
+
+    VALIDATED (tests/test_gapfix_physics.py): the small-angle slope
+    reproduces gm() to a few percent; the wall-sided formula
+    GZ = sin(phi) (GM + BM tan^2(phi)/2) is matched in its regime; the
+    curve is odd in phi; and a catamaran's curve PEAKS near windward-hull
+    emergence and falls — the shape the refusal block above describes and
+    upright GM cannot express.
+    """
+    if heels_deg is None:
+        heels_deg = (0.0, 2.0, 5.0, 7.5, 10.0, 12.5, 15.0, 20.0, 25.0,
+                     30.0, 35.0, 40.0, 45.0, 50.0, 55.0, 60.0)
+    t_design = -float(hull.z_keel.min())
+    z_g = kg_above_keel - t_design
+    gz = []
+    deck_edge = None
+    m_trim = math.tan(math.radians(trim_deg))
+    x = hull.x
+    mid = float(x[0]) + 0.5 * float(x[-1] - x[0])
+    n_hulls, _sep, d = vessel_terms(hull, vessel)
+    for phi in heels_deg:
+        wl0, _vol, yb, zb = _float_at_heel(hull, disp_kg, phi, trim_deg,
+                                           rho, vessel)
+        c, s = math.cos(math.radians(phi)), math.sin(math.radians(phi))
+        gz.append((yb - tcg_m) * c + (zb - z_g) * s)
+        if deck_edge is None and phi > 0.0:
+            m_heel = math.tan(math.radians(phi))
+            offs = (0.0,) if n_hulls == 1 else (+d, -d)
+            for off in offs:
+                y_sh = hull.y_sheer + off
+                z_wl_at_sheer = (wl0 + m_heel * y_sh
+                                 + m_trim * (x - mid))
+                if (hull.z_sheer <= z_wl_at_sheer).any():
+                    deck_edge = phi
+                    break
+    gz_arr = np.asarray(gz)
+    k_max = int(np.argmax(gz_arr))
+    avs = None
+    for k in range(k_max, len(gz_arr) - 1):
+        if gz_arr[k] > 0.0 >= gz_arr[k + 1]:
+            f0, f1 = gz_arr[k], gz_arr[k + 1]
+            avs = heels_deg[k] + (heels_deg[k + 1] - heels_deg[k]) * (
+                f0 / (f0 - f1))
+            break
+    curve = GZCurve(tuple(heels_deg), tuple(float(g) for g in gz_arr),
+                    float(gz_arr[k_max]), float(heels_deg[k_max]), avs,
+                    0.0, deck_edge, GZ_ASSUMPTIONS)
+    # area_to_30 needs the finished arrays; frozen dataclass -> replace
+    from dataclasses import replace as _replace
+    return _replace(curve, area_to_30_m_rad=curve.area_m_rad(30.0))
+
+
+@dataclass(frozen=True)
+class MultihullGZAssessment:
+    """NZ Part 40A App. 1 cl. 1.4 assessed AS FAR AS THE TREE CAN — and no
+    further. `passes` is None, deliberately not a bool: clauses (c) and (d)
+    cannot be assessed (windage is not declared anywhere in the genome or
+    the mission; (d)'s text is NOT READ past the paywall), and a criterion
+    with unassessed clauses has no pass to report. What this object adds
+    over the old blanket refusal is MEASUREMENT: (a) and (b) now carry
+    computed values against their sourced bars instead of the sentence
+    "none of them is computed here"."""
+    curve: GZCurve
+    theta_deg: float                 # the three-way minimum of clause (a)
+    theta_basis: str
+    area_to_theta_m_rad: float       # measured, clause (a) LHS
+    area_required_m_rad: float       # 0.055 * 30/theta, clause (a) RHS
+    clause_a_satisfied: bool
+    heel_at_gz_max_deg: float        # measured, clause (b) LHS
+    clause_b_satisfied: bool         # >= 10 deg
+    unassessable: tuple[str, ...]
+    passes: None = None
+
+
+def multihull_gz_assessment(hull: Hull, disp_kg: float, kg_above_keel: float,
+                            rho: float = RHO_WATER, vessel=None,
+                            trim_deg: float = 0.0) -> MultihullGZAssessment:
+    """Clauses (a) and (b) of NZ Maritime Rules Part 40A App. 1 cl. 1.4,
+    COMPUTED from the righting-arm curve (docs/research/standards/
+    NATIONAL-CODES.md §8.4, read verbatim; cross-attested by AMSA NSCV C6A
+    ch. 5B Table 11 cl. 5B.2). theta is the clause's own three-way minimum;
+    with no downflooding openings declared, the deck-edge immersion angle
+    stands in as the CONSERVATIVE proxy for the downflooding angle and the
+    basis says so."""
+    n_hulls, _sep, _d = vessel_terms(hull, vessel)
+    if n_hulls <= 1:
+        raise ValueError("multihull_gz_assessment is for n_hulls > 1; a "
+                         "monohull is governed by different criteria")
+    curve = gz_curve(hull, disp_kg, kg_above_keel, rho, vessel=vessel,
+                     trim_deg=trim_deg)
+    candidates = {"angle of maximum GZ": curve.heel_at_gz_max_deg,
+                  "30 deg": 30.0}
+    if curve.deck_edge_deg is not None:
+        candidates["deck-edge immersion (downflooding PROXY — no openings "
+                   "declared)"] = curve.deck_edge_deg
+    theta_basis = min(candidates, key=candidates.get)
+    theta = candidates[theta_basis]
+    area = curve.area_m_rad(theta)
+    area_req = 0.055 * 30.0 / max(theta, 1e-9)
+    return MultihullGZAssessment(
+        curve=curve, theta_deg=theta, theta_basis=theta_basis,
+        area_to_theta_m_rad=area, area_required_m_rad=area_req,
+        clause_a_satisfied=area >= area_req,
+        heel_at_gz_max_deg=curve.heel_at_gz_max_deg,
+        clause_b_satisfied=curve.heel_at_gz_max_deg >= 10.0,
+        unassessable=(
+            "(c) steady-wind heel <= 16 deg on h_w = P.A.Z/(9800.disp_t): "
+            "the projected lateral area A above the waterline is not "
+            "declared in the genome or the mission — on a solar catamaran "
+            "the roof and bridge-deck house ARE the windage, and deriving A "
+            "from the bare hull profile would understate the heeling "
+            "moment, the flattering direction",
+            "(d) the residual-area condition: the clause body is NOT READ "
+            "(NATIONAL-CODES.md §8.4 records the paywall cut) — an "
+            "unread requirement cannot be implemented",
+        ))

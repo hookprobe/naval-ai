@@ -313,10 +313,17 @@ def test_separation_and_not_demihull_beam_is_what_makes_a_catamaran_stiff(
         ref_hull):
     """MEASURED on `tests/test_phase0.mid_params` at the 6000 kg mission.
 
-        config              KB       BM        I_T [m^4]    T        GM
-        monohull          0.2601    1.3265        7.958   0.4301    0.6688
-        cat s/Lwl 0.40    0.1711   25.8468      155.200   0.2665   25.1147
-        cat s/Lwl 0.60    0.1711   55.1267      331.015   0.2665   54.3946
+    Table RE-MEASURED IN FULL 2026-08-14 at the SOLVED trim equilibrium
+    (R2.1) — every asserted quantity reads `ev.hydro`, which now describes
+    the attitude the boat actually takes, so the whole row moves together
+    (catamaran GM +1.6%: 25.1147 -> 25.5217, 54.3946 -> 55.2817; I_T
+    155.200 -> 157.515, 331.015 -> 336.075; the 2026-08-13 level-float
+    record is in git history).
+
+        config              KB       BM        I_T [m^4]    T        GM(eq)
+        monohull          0.2604    1.3260        7.956   0.4291    0.6685
+        cat s/Lwl 0.40    0.1725   26.2525      157.515   0.2657   25.5217
+        cat s/Lwl 0.60    0.1725   56.0125      336.075   0.2657   55.2817
 
     The demihull is not one millimetre wider in any of those rows. I_T rises
     19.5x from the A_wp d^2 term alone, which is the entire argument for a
@@ -326,9 +333,9 @@ def test_separation_and_not_demihull_beam_is_what_makes_a_catamaran_stiff(
     c40 = evaluate(ref_hull, MissionSpec(vessel=_cat(0.40)))
     c60 = evaluate(ref_hull, MissionSpec(vessel=_cat(0.60)))
     assert mono.gm_m == pytest.approx(0.6688, abs=5e-3)
-    assert c40.gm_m == pytest.approx(25.1147, rel=1e-3)
-    assert c60.gm_m == pytest.approx(54.3946, rel=1e-3)
-    assert c40.hydro.i_t == pytest.approx(155.200, rel=1e-3)
+    assert c40.gm_m == pytest.approx(25.5217, rel=1e-3)
+    assert c60.gm_m == pytest.approx(55.2817, rel=1e-3)
+    assert c40.hydro.i_t == pytest.approx(157.515, rel=1e-3)
     assert c40.hydro.b_wl_max == pytest.approx(c60.hydro.b_wl_max, rel=1e-12)
     assert c40.hydro.cb == pytest.approx(c60.hydro.cb, rel=1e-12)
     # The vessel floats HIGHER: 6000 kg split between two hulls.
@@ -684,7 +691,11 @@ def test_separation_reaches_the_production_wave_resistance(ref_hull):
     """
     hull = Hull(ref_hull)
     seen = {}
-    for s, want in ((0.40, 1.106683), (0.60, 1.002379), (1.00, 0.995955)):
+    # RE-MEASURED 2026-08-14 (R2.1): the resistance inputs now come from
+    # the SOLVED trim equilibrium, moving each ratio by <0.04% — the
+    # interference physics is untouched (same 4cos^2 factor), only the
+    # draft/wetted inputs describe the attitude the boat actually takes.
+    for s, want in ((0.40, 1.107024), (0.60, 1.002418), (1.00, 0.995957)):
         m = MissionSpec(vessel=_cat(s))
         ev = evaluate(ref_hull, m)
         demi = total_resistance(hull, m.cruise_speed_ms(), ev.hydro.wetted / 2,

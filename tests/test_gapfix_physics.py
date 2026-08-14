@@ -698,3 +698,119 @@ def test_equilibrium_floats_the_vessel_not_the_demihull():
     assert eq.disp_kg == pytest.approx(target, rel=2e-3)
     assert eq.draft < st_mono.draft          # half the mass per hull
     assert eq.lcb == pytest.approx(st_mono.lcb, abs=2e-3)
+
+
+# ---------------------------------------------------------------------------
+# GZ(phi) — the heeled-waterplane solve (audit P0 "no GZ(phi) anywhere";
+# R2.2's prerequisite). Anchors, not float pins.
+# ---------------------------------------------------------------------------
+
+def test_the_heel_clip_matches_analytic_wedges_on_a_square():
+    """Unit anchor for the polygon clip: a 2x2 square centred on the origin
+    against known lines — full, half, wedge — with exact areas/centroids."""
+    import numpy as np
+
+    from navalai.hydrostatics import _clip_below_line
+    sq = np.array([(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)])
+    a, y, z = _clip_below_line(sq, 2.0, 0.0)          # fully submerged
+    assert (a, y, z) == pytest.approx((4.0, 0.0, 0.0))
+    a, y, z = _clip_below_line(sq, 0.0, 0.0)          # lower half
+    assert (a, y, z) == pytest.approx((2.0, 0.0, -0.5))
+    a, y, z = _clip_below_line(sq, -2.0, 0.0)         # dry
+    assert a == 0.0
+    a, y, z = _clip_below_line(sq, 0.0, 1.0)          # 45-deg line z <= y
+    # region of the square below z = y: half the square, centroid at
+    # (+1/3, -1/3) by symmetry of the triangle pair
+    assert a == pytest.approx(2.0)
+    assert (y, z) == pytest.approx((1.0 / 3.0, -1.0 / 3.0))
+
+
+def test_heeled_displacement_at_zero_heel_IS_the_level_solver():
+    """phi = 0 reproduces `solve` — volume to <0.05% (polygon sampling of
+    the fillet arc is the only difference) and zB to the same, with yB on
+    centreline to machine precision."""
+    from navalai import hydrostatics as H
+    h = _ref_hull()
+    st, wl = H.solve_to_displacement(h, 2800.0)
+    v, yb, zb = H.heeled_displacement(h, wl, 0.0)
+    assert v == pytest.approx(st.volume, rel=5e-4)
+    assert abs(yb) < 1e-12
+    assert zb == pytest.approx(st.kb - (-float(h.z_keel.min())), abs=1e-3)
+
+
+def test_gz_small_angle_slope_IS_the_metacentric_height():
+    """GZ(2 deg)/sin(2 deg) must reproduce gm() — the same identity that
+    validates both the clip and the sign convention. MEASURED 2026-08-14 on
+    the reference hull at 2800 kg, KG 0.9: GZ(2) = 0.0642 vs GM.sin(2) =
+    0.0643 (0.2%)."""
+    import numpy as np
+
+    from navalai import hydrostatics as H
+    h = _ref_hull()
+    st, _ = H.solve_to_displacement(h, 2800.0)
+    kg = 0.9
+    crv = H.gz_curve(h, 2800.0, kg, heels_deg=(0.0, 2.0))
+    assert crv.gz_m[0] == pytest.approx(0.0, abs=1e-9)
+    assert crv.gz_m[1] / np.sin(np.radians(2.0)) == pytest.approx(
+        H.gm(st, kg), rel=0.02)
+
+
+def test_gz_is_odd_in_heel():
+    """A symmetric hull with centreline G rights port exactly as starboard:
+    GZ(-phi) = -GZ(phi)."""
+    from navalai import hydrostatics as H
+    h = _ref_hull()
+    plus = H.gz_curve(h, 2800.0, 0.9, heels_deg=(0.0, 10.0))
+    minus = H.gz_curve(h, 2800.0, 0.9, heels_deg=(0.0, -10.0))
+    assert minus.gz_m[1] == pytest.approx(-plus.gz_m[1], abs=1e-6)
+
+
+def test_the_catamaran_curve_peaks_and_collapses_where_gm_says_nothing():
+    """THE MECHANISM THE REFUSAL BLOCK DESCRIBES, now computed. MEASURED
+    2026-08-14 (reference genome as demihulls, s/Lwl 0.45, 2800 kg, KG 0.9):
+    the upright parallel-axis GM is 59.4 m, whose linearisation claims
+    GZ(10 deg) = 10.3 m; the real curve saturates at ~2.46 m as the
+    windward hull unloads, peaks 2.479 m at 15 deg, and DECLINES —
+    monotonically — past it. The asserts are the shape, not the floats:
+    (i) at 1 deg the slope reproduces the parallel-axis GM (validating the
+    multihull composition), (ii) at 10 deg the curve is under a THIRD of
+    the linear claim, (iii) past the peak it falls."""
+    import numpy as np
+
+    from navalai import hydrostatics as H
+    from navalai.mission import Topology, VesselConfig
+    h = _ref_hull()
+    cat = VesselConfig(topology=Topology.CATAMARAN, separation_over_lwl=0.45)
+    st, _ = H.solve_to_displacement(h, 2800.0, vessel=cat)
+    kg = 0.9
+    gm_up = H.gm(st, kg)
+    crv = H.gz_curve(h, 2800.0, kg, vessel=cat,
+                     heels_deg=(0.0, 1.0, 10.0, 15.0, 25.0, 40.0, 60.0))
+    assert crv.gz_m[1] / np.sin(np.radians(1.0)) == pytest.approx(gm_up,
+                                                                  rel=0.05)
+    assert crv.gz_m[2] < gm_up * np.sin(np.radians(10.0)) / 3.0
+    k = crv.gz_m.index(max(crv.gz_m))
+    assert list(crv.gz_m[k:]) == sorted(crv.gz_m[k:], reverse=True), (
+        "the curve must DECLINE past the windward-hull peak")
+
+
+def test_multihull_clauses_a_b_are_measured_and_the_verdict_stays_open():
+    """NZ Part 40A App. 1 cl. 1.4 (a)/(b) computed against their sourced
+    bars; (c)/(d) named unassessable; and `passes` is None BY TYPE — a
+    criterion with unassessed clauses has no pass to report (the directive:
+    do not replace the refusal with a guessed floor)."""
+    from navalai import hydrostatics as H
+    from navalai.mission import Topology, VesselConfig
+    h = _ref_hull()
+    cat = VesselConfig(topology=Topology.CATAMARAN, separation_over_lwl=0.45)
+    a = H.multihull_gz_assessment(h, 2800.0, 0.9, vessel=cat)
+    assert a.theta_deg <= 30.0
+    assert a.area_required_m_rad == pytest.approx(0.055 * 30.0 / a.theta_deg)
+    assert a.area_to_theta_m_rad > 0.0
+    assert isinstance(a.clause_a_satisfied, bool)
+    assert isinstance(a.clause_b_satisfied, bool)
+    assert a.passes is None
+    joined = " ".join(a.unassessable)
+    assert "projected lateral area" in joined and "NOT READ" in joined
+    with pytest.raises(ValueError, match="n_hulls > 1"):
+        H.multihull_gz_assessment(h, 2800.0, 0.9)     # monohull refused
