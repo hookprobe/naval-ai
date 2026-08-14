@@ -570,6 +570,35 @@ def parse_mission(text: str) -> MissionSpec:
     return m
 
 
+def mission_cp_target(mission) -> float | None:
+    """The Cp the MISSION asks for — `limits.prismatic_target` at the design
+    Froude number — or None when the mission states no length (no Fn, no
+    target; consolidation directive §5: target, sampled and delivered Cp are
+    three different numbers and each is named)."""
+    fn = mission.design_fn() if hasattr(mission, "design_fn") else None
+    return None if fn is None else prismatic_target(fn)
+
+
+def mission_lcb_band(mission) -> tuple[float, float, str]:
+    """(lo_pct, hi_pct, basis) for LCB as %LWL from midships.
+
+    HONESTY OVER PRECISION (directive §6: 'do not invent arbitrary
+    naval-architecture formulas'). This tree holds NO defensible law tying
+    an LCB target to Froude number or topology — no source, no series, no
+    measurement — so the band is the EXISTING safe band every hull is
+    already judged by (`limits.LCB_BAND_PCT_LWL`, the same ±3 %LWL the lcb
+    constraint row enforces) and the basis SAYS the target law is UNKNOWN.
+    When a sourced law lands, it lands here, in the one home, with its
+    citation; until then a mission-dependent number would be fabricated
+    precision.
+    """
+    from .limits import LCB_BAND_PCT_LWL
+    return (-LCB_BAND_PCT_LWL, LCB_BAND_PCT_LWL,
+            "UNKNOWN target law — no sourced Fn/topology->LCB relation in "
+            "tree; band = limits.LCB_BAND_PCT_LWL, the ladder's own "
+            "constraint row (basis approx)")
+
+
 def mission_cp_band(mission, lwl_lo: float,
                     lwl_hi: float) -> tuple[float, float] | None:
     """The Cp band the MISSION chooses, or None when it cannot choose (R1.1).

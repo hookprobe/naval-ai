@@ -655,3 +655,39 @@ def _all_results(prov) -> list[tuple[str, float, float]]:
     """(quantity, value, uncertainty) for every row in the provenance DB."""
     return [(str(q), v, u) for q, v, u in prov.con.execute(
         "SELECT quantity, value, uncertainty FROM result")]
+
+
+def test_target_sampled_and_delivered_cp_are_three_named_numbers():
+    """Consolidation directive §5: a candidate must never be counted
+    mission-conformant merely because its GENE started inside the sampling
+    band — conformance is measured on the FLOATED equilibrium. The receipt
+    carries all three numbers with bases; §6's LCB half says UNKNOWN
+    instead of inventing a target law (no sourced relation in tree)."""
+    from navalai.evaluate import evaluate
+    from navalai.limits import PRISMATIC_TOLERANCE
+    from navalai.mission import MissionSpec, mission_cp_target
+    from navalai.reference import reference_params
+
+    m = MissionSpec(cruise_speed_kn=5, lwl_hint_m=10.0)
+    ev = evaluate(reference_params(), m)
+    t = ev.targets
+    assert t["cp_target"] == pytest.approx(mission_cp_target(m))
+    assert t["cp_gene"] == pytest.approx(0.6)
+    assert t["cp_delivered"] == pytest.approx(float(ev.hydro.cp))
+    assert t["cp_error"] == pytest.approx(t["cp_delivered"] - t["cp_target"])
+    assert t["cp_tolerance"] == PRISMATIC_TOLERANCE
+    # MEASURED: the reference genome was not drawn for this mission — gene
+    # 0.60 delivers 0.596 floated against the target 0.558, so the receipt
+    # must say NON-conformant even though three other numbers look healthy.
+    assert t["cp_conformant"] is False
+    # the gene alone would NOT have told you that; the delivered state did
+    assert abs(t["cp_gene"] - t["cp_target"]) > PRISMATIC_TOLERANCE
+    # §6: no fabricated LCB law — UNKNOWN, with the safe band and its basis
+    assert t["lcb_target_pct"] is None
+    assert "UNKNOWN" in t["lcb_basis"]
+    assert t["lcb_band_pct"] == (-3.0, 3.0)
+    # a mission with no length has no Froude number and NO target — the
+    # receipt says so instead of inventing one
+    ev2 = evaluate(reference_params(), MissionSpec())
+    assert ev2.targets["cp_target"] is None
+    assert ev2.targets["cp_conformant"] is None

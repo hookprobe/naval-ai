@@ -46,9 +46,10 @@ from .hydrostatics import (HydroState, gm, gm_long,
                            solve_equilibrium, solve_to_displacement,
                            vessel_terms)
 from .limits import (FREEBOARD_FLOOR_M, LCB_BAND_PCT_LWL, LIST_LIMIT_DEG,
-                     TRIM_LIMIT_DEG, gm_floor, min_bend_radius_m)
+                     PRISMATIC_TOLERANCE, TRIM_LIMIT_DEG, gm_floor,
+                     min_bend_radius_m)
 from .mission import (EVALUABLE_TOPOLOGIES, Manning, MissionSpec,
-                      mission_cp_band)
+                      mission_cp_band, mission_cp_target, mission_lcb_band)
 from .resistance import (FN_MICHELL_MAX, ResistanceResult, bow_wave_rise,
                          total_resistance)
 from .rules import report as rules_report
@@ -259,6 +260,13 @@ class Evaluation:
     # it in too, saying n_hulls 1, so a reader never has to infer the
     # configuration from a missing key.
     vessel: dict = field(default_factory=dict)
+    # WHAT THE MISSION ASKED FOR vs WHAT THE FLOATED HULL DELIVERS
+    # (consolidation directive §5/§6). Target, sampled and delivered Cp are
+    # THREE different numbers; a candidate is never mission-conformant
+    # merely because its gene started inside the sampling band, so the
+    # receipt measures conformance on the EQUILIBRIUM state. A REPORT with
+    # bases, not a constraint vector — no new bars (§24).
+    targets: dict = field(default_factory=dict)
     # AXIS 3's receipts: every L1 model that is outside its SUPPORT at this
     # size and speed. Distinct from `violations` on purpose — a model inside
     # its validity flag but outside the band it was correlated on (ITTC-57 in
@@ -962,6 +970,28 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
             "viscous form interference between the demihulls is not modelled",
         )),
     }
+    # §5/§6 targets receipt: delivered = the FLOATED equilibrium state.
+    cp_target = mission_cp_target(mission)
+    lcb_lo, lcb_hi, lcb_basis = mission_lcb_band(mission)
+    targets_report = {
+        "cp_target": cp_target,
+        "cp_gene": float(p["Cp"]),
+        "cp_delivered": float(hs.cp),
+        "cp_error": (float(hs.cp) - cp_target if cp_target is not None
+                     else None),
+        "cp_tolerance": PRISMATIC_TOLERANCE,
+        "cp_conformant": (abs(float(hs.cp) - cp_target)
+                          <= PRISMATIC_TOLERANCE
+                          if cp_target is not None else None),
+        "cp_basis": ("target = limits.prismatic_target(mission.design_fn), "
+                     "practice curve, basis approx; delivered = demihull "
+                     "prismatic of the SOLVED equilibrium (HydroState.cp); "
+                     "no target without a stated length"),
+        "lcb_target_pct": None,
+        "lcb_band_pct": (lcb_lo, lcb_hi),
+        "lcb_delivered_pct": float(hs.lcb_pct_lwl),
+        "lcb_basis": lcb_basis,
+    }
     ev = Evaluation(
         ok=len(viol) == 0, tier="L1", violations=tuple(viol), hydro=hs, wl=wl,
         weights=wb, masses=agg, gm_m=gm_m, gm_l_m=gm_l_m,
@@ -969,7 +999,8 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
         ply_thickness_m=t_ply, unaccounted_frac=unaccounted_frac,
         hull_lwl_m=float(p["LWL"]), rules=rules_rep, params=np.asarray(params),
         eval_ms=(time.perf_counter() - t0) * 1e3, badges=badges,
-        vessel=vessel_report, resistance_envelope=flow_envelope,
+        vessel=vessel_report, targets=targets_report,
+        resistance_envelope=flow_envelope,
         resistance_method=("michell+ittc57" if n_hulls == 1 else
                            "michell+ittc57 (catamaran: wave interference "
                            "exact in thin-ship theory, viscous form "
