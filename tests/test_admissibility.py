@@ -419,3 +419,38 @@ def test_a_grammar_valid_hull_is_not_the_same_thing_as_a_meshable_one():
     X, _ = sample_valid(60, MissionSpec(), seed=11)
     assert all(grammar.check(x).ok for x in X)
     assert any(screen(x, SPEED, SCALE).verdict is Verdict.DANGEROUS for x in X)
+
+
+def test_the_screen_guards_the_case_writer_C18(tmp_path):
+    """Forensics C-18: the meshability screen and the case writer were two
+    disconnected halves — a DANGEROUS hull sailed into a case write. The
+    writer now refuses a DANGEROUS/UNMEASURED verdict with the screen's
+    own metric receipt, writes it as a DECLARED experiment only under
+    allow_dangerous_mesh=True, and records the verdict in case.info."""
+    import numpy as np
+    import pytest
+
+    from navalai import formcheck
+    from navalai.admissibility import Verdict, screen
+    from navalai.cfd.case import write_resistance_case
+    from navalai.evaluate import sample_valid
+    from navalai.geometry import Hull
+    from navalai.mission import MissionSpec
+
+    # find a DANGEROUS hull the way the screen's own calibration did
+    X, _ = sample_valid(30, MissionSpec(), seed=0)
+    bad = next((x for x in X
+                if screen(Hull(x), speed=2.57).verdict
+                in (Verdict.DANGEROUS, Verdict.UNMEASURED)), None)
+    if bad is None:
+        pytest.skip("no DANGEROUS hull in 30 draws at this seed — "
+                    "recalibrate the fixture, do not delete the guard test")
+    with pytest.raises(ValueError, match="admissibility screen"):
+        write_resistance_case(Hull(bad), 2.57, tmp_path / "refused",
+                              end_time=1.0, symmetric=True, n_layers=2)
+    # the declared-experiment override writes, and says so in the receipt
+    write_resistance_case(Hull(bad), 2.57, tmp_path / "declared",
+                          end_time=1.0, symmetric=True, n_layers=2,
+                          allow_dangerous_mesh=True)
+    info = (tmp_path / "declared" / "case.info").read_text()
+    assert "admissibility_verdict=" in info

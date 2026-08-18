@@ -1956,7 +1956,8 @@ def write_resistance_case(hull: Hull, speed: float, out_dir: str | Path,
                           free_motion: dict | None = None,
                           lts: bool | None = None,
                           n_layers: int | None = None,
-                          manifest=None) -> dict:
+                          manifest=None,
+                          allow_dangerous_mesh: bool = False) -> dict:
     """Generate a COMPLETE, runnable interFoam resistance case.
 
     scale: background-mesh refinement multiplier (1.0 / sqrt(2) steps give
@@ -1976,6 +1977,30 @@ def write_resistance_case(hull: Hull, speed: float, out_dir: str | Path,
     target_edge = 0.5 * bg_dx / 2 ** _HULL_REFINE[1]
     nx, nz = stl_resolution(lwl, target_edge)
     nx_req = stl_resolution_request(lwl, target_edge)
+    # C-18 (forensics: 'the screen and the case-writer were two
+    # disconnected halves of one pipeline'): the admissibility screen
+    # predicts checkMesh refusals WITHOUT meshing, is gate-tested (Gate
+    # 2A), and nothing on this path consulted it — a DANGEROUS hull sailed
+    # straight into a case write. It now guards the mesher: DANGEROUS
+    # refuses with the screen's own metric receipt unless the caller
+    # explicitly declares the experiment (`allow_dangerous_mesh=True`),
+    # and the verdict is recorded in case.info either way. UNMEASURED is
+    # treated as DANGEROUS (it is strictly worse — admissibility.py:124).
+    from ..admissibility import Verdict as _AdmVerdict
+    from ..admissibility import screen as _adm_screen
+    _adm = _adm_screen(hull, speed=speed, scale=scale)
+    if (_adm.verdict in (_AdmVerdict.DANGEROUS, _AdmVerdict.UNMEASURED)
+            and not allow_dangerous_mesh):
+        worst = [f"{m.name}={m.value:.3g}{m.unit} ({m.verdict.name})"
+                 for m in _adm.metrics
+                 if m.verdict in (_AdmVerdict.DANGEROUS,
+                                  _AdmVerdict.UNMEASURED)][:4]
+        raise ValueError(
+            f"admissibility screen: {_adm.verdict.name} at speed {speed}, "
+            f"scale {scale} — expect a checkMesh refusal at the derived "
+            f"layer count ({'; '.join(worst)}). Pass "
+            f"allow_dangerous_mesh=True to write the case as a DECLARED "
+            f"experiment; do not delete this guard.")
     stl_path = out / "constant" / "triSurface" / "hull.stl"
     # C-06: with a manifest, the case is written IN THE FLOATED FRAME the
     # manifest certifies (waterline + solved trim onto the tank's z = 0);
@@ -2021,6 +2046,7 @@ def write_resistance_case(hull: Hull, speed: float, out_dir: str | Path,
     # `Hull.closed_mesh` interpolates linearly between them, so nx buys
     # triangles, not geometry.
     with (out / "case.info").open("a") as fh:
+        fh.write(f"admissibility_verdict={_adm.verdict.name}\n")
         fh.write(f"stl_nx_requested={nx_req}\nstl_nx_shipped={nx}\n"
                  f"stl_nz_shipped={nz}\n"
                  f"stl_target_edge_m={target_edge:.6f}\n"
