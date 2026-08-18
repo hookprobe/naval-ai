@@ -112,6 +112,15 @@ def manifest_from_evaluation(ev, mission, *, mesh_scale: float = 1.0,
             "manifest_from_evaluation needs a floated evaluation "
             "(hydro + masses); this one stopped at "
             f"tier {ev.tier}: {ev.violations[:1]}")
+    if ev.trim_deg is None:
+        # C-02: a refused trim equilibrium must not become an even-keel CFD
+        # case — the geometry the solver would mesh is not the geometry the
+        # ladder refused (E11: undefined is never the ideal value).
+        raise ValueError(
+            "manifest_from_evaluation: the trim equilibrium was REFUSED "
+            f"({[v for v in ev.violations if 'trim' in v][:1]}) — a manifest "
+            "at a fabricated even keel would certify an attitude that does "
+            "not exist")
     u = mission.cruise_speed_ms()
     lwl = float(ev.hull_lwl_m)
     fn = u / math.sqrt(G_OPENFOAM * lwl)
@@ -125,7 +134,7 @@ def manifest_from_evaluation(ev, mission, *, mesh_scale: float = 1.0,
         genome_sha256=hashlib.sha256(genome.tobytes()).hexdigest(),
         lwl_m=lwl,
         waterline_m=float(ev.wl),
-        trim_deg=float(ev.trim_deg or 0.0),
+        trim_deg=float(ev.trim_deg),
         displacement_kg=float(ev.hydro.disp_kg),
         mass_kg=float(ev.masses.total_kg),
         lcg_m=float(ev.masses.lcg_m),

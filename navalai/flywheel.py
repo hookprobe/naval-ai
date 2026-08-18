@@ -161,23 +161,39 @@ def transform_for(quantity: str) -> Transform:
 _LWL, _BWL = 0, 1                       # grammar indices
 
 
+# The slender corridor the held-out wedge lives in. Anchored to the
+# PROPORTION BAND, not to raw box quantiles: the old definition (top-quarter
+# LWL x bottom-quarter BWL) was written against a narrower box and EMPTIED
+# when the kernel rebuild widened LWL to 24 m — its best corner became
+# L/B 11.47 against the 8.5 ceiling, so the wedge contained ZERO L0-feasible
+# hulls (MEASURED 2026-08-18: 0 of 60,000 draws, at HEAD and at the audit
+# base) and `frozen_suite`'s sampler spun forever — two verification runs
+# hung 4 days on exactly this. A region defined by the QUANTITY that must
+# stay feasible cannot be emptied by a box move.
+HELDOUT_L_OVER_B = (7.0, 8.4)     # slender corridor, inside the (2.2, 8.5) band
+
+
 def in_heldout_region(X: np.ndarray) -> np.ndarray:
     """The design-space wedge deliberately WITHHELD from training.
 
-    Long and narrow: LWL in the top quarter of the grammar box and BWL in the
-    bottom quarter. It is a real region (L/B ~ 6.7 at the corner, inside the
-    2.2-8.5 slenderness band, so L0-feasible hulls exist there) and it is ~6%
-    of the box, so `harvest` loses little by refusing it while `frozen_suite`
-    gets a genuinely unseen population to test on.
+    Long and narrow: LWL in the top quarter of the grammar box AND L/B in
+    the `HELDOUT_L_OVER_B` slender corridor (see the block above for why
+    the corridor is defined on L/B rather than on a raw BWL quantile — the
+    2026-08-18 empty-wedge incident). MEASURED at the current box
+    (2026-08-18, 60,000 draws, seed 0): the wedge is 2.20% of the box and
+    wedge-AND-L0 acceptance is 0.28% of uniform draws (165/60,000), so
+    `harvest` loses little by refusing it while
+    `frozen_suite` gets a genuinely unseen slender-and-long population.
 
     This is what makes the deployment gate able to see DISTRIBUTION SHIFT
-    rather than sampling noise: a retrain that has quietly specialised on the
-    middle of the box degrades here first.
+    rather than sampling noise: a retrain that has quietly specialised on
+    the middle of the box degrades here first.
     """
     X = np.atleast_2d(np.asarray(X, float))
     lwl_hi = grammar.LOW[_LWL] + 0.75 * (grammar.HIGH[_LWL] - grammar.LOW[_LWL])
-    bwl_lo = grammar.LOW[_BWL] + 0.25 * (grammar.HIGH[_BWL] - grammar.LOW[_BWL])
-    return (X[:, _LWL] >= lwl_hi) & (X[:, _BWL] <= bwl_lo)
+    lb = X[:, _LWL] / np.maximum(X[:, _BWL], 1e-9)
+    return ((X[:, _LWL] >= lwl_hi)
+            & (lb >= HELDOUT_L_OVER_B[0]) & (lb <= HELDOUT_L_OVER_B[1]))
 
 
 # Principal dimensions read out of `benchmarks/`, expressed in THIS grammar.
@@ -301,7 +317,23 @@ def frozen_suite(mission: MissionSpec, quantity: str = "wh_per_nm",
 
     rng = np.random.default_rng(seed)
     got = 0
+    draws = 0
+    # THE 4-DAY LESSON (2026-08-18): this loop once had no bound, the wedge
+    # emptied when the box moved, and two verification runs spun here for
+    # four days. At the measured 0.28% acceptance, 25 points cost ~9,000
+    # draws; the budget is ~50x that, so hitting it means the wedge is
+    # empty or nearly so — and an empty held-out region is a FINDING to
+    # raise, never a loop to live in.
+    max_draws = max(500_000, n_region * 100_000)
     while got < n_region:
+        draws += 1
+        if draws > max_draws:
+            raise RuntimeError(
+                f"frozen_suite: only {got} of {n_region} held-out points "
+                f"found in {draws - 1} draws — the held-out wedge is empty "
+                f"or nearly empty under the CURRENT grammar box (see "
+                f"in_heldout_region's 2026-08-18 incident note). Re-anchor "
+                f"the wedge and re-measure; do not widen this budget.")
         x = rng.uniform(grammar.LOW, grammar.HIGH)
         if (not in_heldout_region(x[None, :])[0]
                 or not grammar.check(x, vessel=vessel_cfg).ok):

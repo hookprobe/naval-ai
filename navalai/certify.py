@@ -310,8 +310,11 @@ def certify(params, mission: MissionSpec,
                                 "HydroState at the solved attitude"),
         "gm": Quantity(float(ev.gm_m), "m", "L1", None,
                        "upright metacentre minus KG, free-surface corrected"),
-        "trim": Quantity(float(ev.trim_deg or 0.0), "deg", "L1", None,
-                         "solved (wl0, theta) equilibrium"),
+        # E11 discipline (forensics C-02): a REFUSED equilibrium is not an
+        # even keel. The quantity exists only when the solve produced it.
+        **({"trim": Quantity(float(ev.trim_deg), "deg", "L1", None,
+                             "solved (wl0, theta) equilibrium")}
+           if ev.trim_deg is not None else {}),
         "fairness": Quantity(fair, "1", "geometry",
                              None, "Hull.fairness strain-energy functional "
                              "(§26: wired into certification)"),
@@ -332,12 +335,20 @@ def certify(params, mission: MissionSpec,
     # --- stability: GZ where affordable, refusal where the criterion is ---
     stability: dict = {"gm_m": float(ev.gm_m)}
     n_hulls = int(ev.vessel.get("n_hulls", 1))
+    if with_gz and ev.trim_deg is None:
+        # C-02: the trim equilibrium was REFUSED — computing a righting-arm
+        # curve at a fabricated even keel would be stability numbers for an
+        # attitude the solver said does not exist.
+        stability["refused"] = (
+            "no longitudinal equilibrium (see violations) — GZ not computed "
+            "at a fabricated attitude")
+        with_gz = False
     if with_gz:
         kg = ev.masses.vcg_above_keel(float(grammar.named(x)["T"]))
         if n_hulls > 1:
             a = multihull_gz_assessment(hull, float(hs.disp_kg), kg,
                                         vessel=mission.vessel,
-                                        trim_deg=float(ev.trim_deg or 0.0))
+                                        trim_deg=float(ev.trim_deg))
             stability.update({
                 "criterion": "NZ Part 40A App.1 cl.1.4 — PARTIAL (a/b "
                              "measured; c windage undeclarable; d unread)",
@@ -354,7 +365,7 @@ def certify(params, mission: MissionSpec,
             assumptions.extend(a.curve.assumptions)
         else:
             crv: GZCurve = gz_curve(hull, float(hs.disp_kg), kg,
-                                    trim_deg=float(ev.trim_deg or 0.0))
+                                    trim_deg=float(ev.trim_deg))
             stability.update({
                 "criterion": "ISO 12217-1 GM floor (practice bar; R-GM is "
                              "not in the standard) + reported GZ curve",

@@ -157,3 +157,33 @@ def test_certification_composes_it_does_not_fork():
     assert cert.violations == ev.violations
     assert cert.evaluation_ok == ev.ok
     assert cert.targets == dict(ev.targets)
+
+
+def test_a_refused_trim_equilibrium_is_never_an_even_keel_C02():
+    """Forensics C-02 (E11 reborn): four sites collapsed a REFUSED trim
+    (None) into 0.0 — one of them fed CFD manifests. A hull whose
+    equilibrium the solver refused must not carry a 'solved equilibrium'
+    quantity, must not get a GZ curve at a fabricated attitude, and must
+    not become an even-keel CFD case."""
+    from navalai.cfd.manifest import manifest_from_evaluation
+    from navalai.evaluate import evaluate
+    from navalai.mission import PayloadSpec
+    from navalai.reference import reference_params
+
+    m = MissionSpec(payload=PayloadSpec(mass_kg=3000.0, x_frac_lwl=0.99,
+                                        z_frac_depth=0.5))
+    ev = evaluate(reference_params(), m)
+    assert ev.trim_deg is None and ev.hydro is not None, (
+        "fixture must float but refuse the trim equilibrium")
+
+    cert = certify(reference_params(), m)
+    assert cert.verdict == "REFUSE"
+    assert "trim" not in cert.quantities, (
+        "a refused equilibrium reappeared as a 'solved' trim quantity")
+    assert "refused" in cert.stability
+    assert "fabricated attitude" in cert.stability["refused"]
+    assert "gz_max_m" not in cert.stability, (
+        "a GZ curve was computed at an attitude the solver refused")
+
+    with pytest.raises(ValueError, match="REFUSED"):
+        manifest_from_evaluation(ev, m)
