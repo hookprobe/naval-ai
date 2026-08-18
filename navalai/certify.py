@@ -20,12 +20,14 @@ NO CFD. Nothing in this module launches or needs a solver; the
 
 from __future__ import annotations
 
+import hashlib
 import math
 from dataclasses import dataclass, field
 
 import numpy as np
 
 from . import formcheck, grammar
+from . import __version__ as _NAVALAI_VERSION
 from .buildability import BuildabilityError, shell_complexity
 from .energy import energy_report
 from .evaluate import evaluate
@@ -246,6 +248,11 @@ class DesignCertification:
     """§4: the single machine-readable pre-CFD result."""
 
     verdict: str                             # ACCEPT | MARGINAL | REFUSE
+    # C-22: the certification names the exact hull and code that produced
+    # it (the gate2u lesson: an artifact without identity is unverifiable
+    # the moment the geometry moves).
+    genome_sha256: str
+    code_version: str
     reasons: tuple[str, ...]
     regime: str
     regime_supported: bool
@@ -288,7 +295,10 @@ def certify(params, mission: MissionSpec,
 
     if ev.hydro is None:
         return DesignCertification(
-            verdict="REFUSE", reasons=tuple(reasons) + tuple(ev.violations),
+            verdict="REFUSE",
+            genome_sha256=hashlib.sha256(x.tobytes()).hexdigest(),
+            code_version=_NAVALAI_VERSION,
+            reasons=tuple(reasons) + tuple(ev.violations),
             regime=regime, regime_supported=supported, quantities={},
             descriptors={}, targets=dict(ev.targets), speed_curve=(),
             loading={}, stability={}, buildability={}, cfd_candidate={
@@ -471,7 +481,10 @@ def certify(params, mission: MissionSpec,
     }
 
     return DesignCertification(
-        verdict=verdict, reasons=tuple(reasons), regime=regime,
+        verdict=verdict,
+        genome_sha256=hashlib.sha256(x.tobytes()).hexdigest(),
+        code_version=_NAVALAI_VERSION,
+        reasons=tuple(reasons), regime=regime,
         regime_supported=supported, quantities=quantities,
         descriptors=desc if isinstance(desc, dict) else desc,
         targets=dict(ev.targets), speed_curve=curve, loading=loading,

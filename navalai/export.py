@@ -329,6 +329,13 @@ def export_receipt(hull: Hull, n_stations: int, solid=None) -> dict:
     exported = measure_lofted_displacement(hull, n_stations, 0.0)
     ladder = float(_H.solve(hull, 0.0).volume)
     rec = {
+        # C-22 (forensics S4): a receipt that cannot NAME the hull it
+        # certifies repeats the gate2u mistake in miniature — genome
+        # fingerprint + code version make it answerable years later.
+        "genome_sha256": __import__("hashlib").sha256(
+            __import__("numpy").asarray(hull.params,
+                                        float).tobytes()).hexdigest(),
+        "code_version": __import__("navalai").__version__,
         "n_stations_exported": int(n_stations),
         "n_stations_validated": int(hull.n_stations),
         "section_rows": int(_section_rows(hull)),
