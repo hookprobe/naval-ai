@@ -151,7 +151,20 @@ history -> classify -> migrate -> only then delete/archive.
   26/26, first fully-green run on this box).
 - IN FLIGHT: full-suite baseline (minus the two formerly-hanging suites,
   now fixed) + test_surrogate_honesty on the fresh baselines.
-- REMAINING (plan): C-06 manifest-applied + make_case --mission lane,
+- **C-06 DONE** (12e1ba9) — the manifest is APPLIED: hull_to_stl gains
+  the floated frame; the writer meshes the certified attitude and
+  VERIFIES displacement (receipt + 2% refusal; case a 0.13%, was
+  +122.9%); make_case --case a..f = the canonical genome lane;
+  --free-motion via manifest.free_motion (G7 fix reachable at last).
+- **C-15 DONE** (653c17e) — code defects labelled 'checker error', not
+  dressed as design refusals.
+- **C-16 DONE** (2fa02e5) — gate runner per-suite timeout (default 3600s;
+  a hung suite prints RED instead of wedging the ladder).
+- **C-32 CLOSED** (2fa02e5) — the mark no longer refuses its own seed
+  (resolved by C-01's rebaseline; T3 restated per its own instruction,
+  position-agnostic across three measured tables).
+- test_surrogate_honesty 18/18 + test_phase7 15/15 (both were: infinite).
+- REMAINING (plan): C-07 manifest Fn/Re from ev,
   C-07 manifest Fn/Re from ev, C-15 broad-except, C-16 gate-runner
   timeout, C-18 screen wired, C-12/34/35 wire fronts, C-25 labels,
   C-28 docs wave, C-29..C-36.
