@@ -49,11 +49,16 @@ CLAUSE_ROW = "Gate 4F"
 REFOLD_ROW = "Gate 6D"
 REFOLD_PARENT = "Gate 6M"
 
-# A number with a decimal point followed by a percent sign. This is what a
+# A number with a decimal point followed by a UNIT. This is what a
 # MEASUREMENT looks like in prose; the bars in this registry ("<50ms",
-# ">=95% of a 200-hull batch", ">=99%") are round and carry no decimal, which is
-# what makes the distinction mechanical rather than a matter of taste.
-_MEASUREMENT_IN_PROSE = re.compile(r"\d+\.\d+\s*%")
+# ">=95% of a 200-hull batch", ">=99%") are round and carry no decimal, which
+# is what makes the distinction mechanical rather than a matter of taste.
+# WIDENED 2026-08-18 (C-36): the fence matched N.N% ONLY, so "124.1 mm" or
+# "0.18 kg" in a scope string would have sailed past the fence that exists
+# because "GMM 79.3%" did. Measured against the whole registry before
+# widening: zero false positives.
+_MEASUREMENT_IN_PROSE = re.compile(
+    r"\d+\.\d+\s*(?:%|mm\b|ms\b|kg\b|kn\b|kWh\b|x\b|s\b)")
 
 
 def _ledger() -> dict:

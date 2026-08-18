@@ -814,11 +814,11 @@ def test_the_constant_x_refold_at_161_stations_is_decided_by_roundoff():
     was removed (a noise-floor snap in `_trilaterate` was measured NOT to do
     this) and the n>=81 figures could be quoted again.
 
-    STILL OWED, and NOT fixed here because these files belong to other owners:
-    `navalai/unroll.py:864` still tabulates 143.8 mm at 161 stations,
-    `tests/test_gaps.py:523` repeats it, and `data/gate-ledger.json`'s Gate 6D
-    `measured_on` prose cites 143.1 / 203.4 mm at 161 stations. All three are
-    roundoff-decided and should be withdrawn.
+    THE THREE OWED WITHDRAWALS ARE DONE (C-36, 2026-08-18): `navalai/
+    unroll.py` records "143.8 mm stood here until 2026-08-12 and IS NOT A
+    COMPUTABLE NUMBER"; `tests/test_gaps.py`'s alignment text quotes the
+    bistable RANGE instead of a figure; and the Gate 6D ledger prose now
+    withdraws its 143.1 / 203.4 by name.
 
     ~~GATE 6D'S WATERMARK ITSELF DOES NOT MOVE: 66.2 mm is the DEVELOPABLE
     family at 41 stations, which is stable (spread 1.000x), and it is
