@@ -241,6 +241,34 @@ no `navalai/` change made from here.
   case a is a good design.
 - No ledger row touched. No Gate 2M or 2U number exists yet.
 
+## Mac: METAL PROOF OF THE BACKOFF LOOP — DELIVERED. The runner recovered the fatal case unattended.
+
+d5f9d7c said "Metal proof of the runner loop is owed to the Mac". Paid,
+2026-08-18 21:53, on the exact configuration that motivated the wiring:
+`make_case.py --case a` with the DERIVED n=6, `MESH_ONLY=1`, LAYER_BACKOFF at
+its default 3.
+
+    attempt 1  n=6   FATAL: 0 zero-volume, 16 wrongly-oriented, skew 6.61529
+               "layer backoff 1/3 ... restoring the pre-layer mesh, retrying at n=5"
+    attempt 2  n=5   CLEAN: 0 wrongly-oriented, skew 3.02515,
+               coverage 92.6%, 4.63 of 5 layers, 530296 cells
+
+case.info receipts, verbatim: `layer_backoff_ladder=5,4,3`,
+`layer_backoff_attempt_1=n=6 zerovol=0 wrongor=16 skew=6.61529 retry_n=5`,
+`layer_backoff_attempts=1`, `n_layers_meshed=5`. One attempt used of three; the
+failure record matches the standalone n=6 run bit-for-bit (16/6.61529), so the
+snapshot-restore did not perturb the castellated mesh.
+
+WORTH A LINE: the backoff-produced n=5 mesh is BETTER than the hand-overridden
+n=5 from the earlier check — coverage 92.6% vs 85.6%, layers 4.63 vs 4.3 of 5,
+on the same hull. Same bar, cleaner stack. No explanation offered; recorded as
+measured, two runs, one machine.
+
+With this, the canonical lane no longer needs a human to override its own
+derived layer count — the defect the first metal check found is closed by
+fortress001's wiring and proven in metal here. Item 2 can now run under
+decision (c) with the lane self-recovering.
+
 ## Mac: item 4 C-06 metal check COMPLETE — solved through, settled at 4.50% vs the 5% bar
 
 The n=5 case ran to its full LTS budget (2000 iterations, 27 min wall on 10
