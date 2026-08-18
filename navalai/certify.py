@@ -380,7 +380,13 @@ def certify(params, mission: MissionSpec,
 
     # --- §17 buildability: report, not just a score -----------------------
     try:
-        sc = shell_complexity(hull, wl=float(ev.wl), spec=mission.energy)
+        # C-05 (forensics B2): shell_complexity used to run at the DEFAULT
+        # 15 mm sheet with its own weight budget — a 29% structure-mass
+        # divergence inside one certification on the case-b chine variant.
+        # It now consumes the ladder's own derived sheet, so the build
+        # report and the ladder plank the same boat.
+        sc = shell_complexity(hull, wl=float(ev.wl), spec=mission.energy,
+                              panel_thickness_m=float(ev.ply_thickness_m))
         buildability = {
             "shell_area_m2": sc.shell_area_m2,
             "deck_area_m2": sc.deck_area_m2,
@@ -394,7 +400,14 @@ def certify(params, mission: MissionSpec,
                     "scantlings (§17)",
         }
     except BuildabilityError as e:
-        buildability = {"refused": str(e)}
+        # C-19: the strip analyser is a SHEET-DEVELOPMENT tool; a round
+        # bilge (roundness > 0) is outside its scope by construction, which
+        # is a MISSING metric, not a defect of the hull — the project's own
+        # target class is round-bilge. The refusal is recorded verbatim and
+        # must not zero CFD eligibility (see the cfd_candidate block).
+        buildability = {"refused": str(e),
+                        "note": "developability analysis inapplicable "
+                                "(sheet-built tool); NOT a physics verdict"}
 
     # --- verdict ----------------------------------------------------------
     marginal: list[str] = []
@@ -429,21 +442,31 @@ def certify(params, mission: MissionSpec,
 
     # --- §24 CFD-worthiness (single-design factors; population factors —
     # Pareto rank, novelty — belong to the dataset layer and say so) -------
+    # C-19 (forensics B13): buildability's REFUSAL (a sheet-development
+    # analyser refusing a round bilge) is a missing metric, never an
+    # eligibility veto — the old conjunct made the project's own
+    # round-bilge target class structurally CFD-ineligible. Eligibility is
+    # physics + validity; when the buildable metric is missing, the score
+    # is the mean of the parts that exist and the omission is named.
     eligible = (ev.ok and supported
-                and all(p.validity != "UNSUPPORTED" for p in curve[:1])
-                and "refused" not in buildability)
+                and all(p.validity != "UNSUPPORTED" for p in curve[:1]))
     score = 0.0
     parts: dict[str, float] = {}
     if eligible:
         parts["validity"] = 1.0 if ev.resistance.valid else 0.0
         parts["certainty"] = max(0.0, 1.0 - rel_sigma)
         parts["mission"] = 1.0 if ev.targets.get("cp_conformant") else 0.5
-        parts["buildable"] = max(
-            0.0, 1.0 - 2.0 * buildability.get("non_developable_frac", 0.5))
+        if "refused" not in buildability:
+            parts["buildable"] = max(
+                0.0, 1.0 - 2.0 * buildability.get("non_developable_frac",
+                                                  0.5))
         score = sum(parts.values()) / len(parts)
     cfd_candidate = {
         "score": round(score, 3), "eligible": eligible, "parts": parts,
-        "note": "single-design factors only; Pareto/novelty rank requires "
+        "note": ("buildable part omitted: developability analyser "
+                 "inapplicable to this hull; " if "refused" in
+                 buildability else "")
+                + "single-design factors only; Pareto/novelty rank requires "
                 "the population layer (dataset generator)",
     }
 

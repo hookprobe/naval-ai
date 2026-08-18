@@ -187,3 +187,32 @@ def test_a_refused_trim_equilibrium_is_never_an_even_keel_C02():
 
     with pytest.raises(ValueError, match="REFUSED"):
         manifest_from_evaluation(ev, m)
+
+
+def test_the_certification_and_the_ladder_plank_the_same_boat_C05():
+    """Forensics B2/C-05: certify's buildability ran the DEFAULT 15mm sheet
+    with its own weight budget — 29% structure-mass divergence inside one
+    certification. It now consumes the ladder's derived sheet."""
+    from navalai.evaluate import evaluate
+
+    case = CASES["a"]
+    ev = evaluate(case.params, case.mission)
+    cert = certify(case.params, case.mission, with_gz=False)
+    assert "refused" not in cert.buildability
+    assert cert.buildability["structure_kg"] == pytest.approx(
+        ev.weights.structure_kg, abs=0.5)
+
+
+def test_a_round_bilge_hull_can_be_cfd_worthy_C19():
+    """Forensics B13/C-19: the sheet-development analyser's refusal of
+    roundness>0 zeroed CFD eligibility, making the project's own round-
+    bilge target class structurally un-selectable. The refusal is now a
+    MISSING metric with a note; eligibility is physics + validity."""
+    case = CASES["b"]                     # 15 m round-bilge cruiser
+    cert = certify(case.params, case.mission, with_gz=False)
+    assert "refused" in cert.buildability
+    assert "NOT a physics verdict" in cert.buildability["note"]
+    assert cert.cfd_candidate["eligible"] is True
+    assert "buildable" not in cert.cfd_candidate["parts"]
+    assert "buildable part omitted" in cert.cfd_candidate["note"]
+    assert cert.cfd_candidate["score"] > 0
