@@ -127,6 +127,35 @@ PLAN (Phase 2), incremental fixes (Phase 3), verification + the 17-question
 answer (Phase 4). Deletion rule: find -> trace consumers -> gates -> docs ->
 history -> classify -> migrate -> only then delete/archive.
 
+## Phase 6 — forensics Phase 3 execution (2026-08-18): ledger
+- **C-01 DONE** (d30270e + f680750) — the 4-day infinite loop: held-out
+  wedge re-anchored to the L/B corridor (box moves cannot empty a
+  proportion region); draw-budget guard RAISES on an empty wedge;
+  baselines.json regenerated (8-seed ensemble, fresh fingerprints);
+  test_phase7 15/15 (was: infinite).
+- **C-02 DONE** (d30270e) — refused trim is never an even keel (certify
+  quantity/GZ block + manifest raise + regression fixture).
+- **C-03+C-09 DONE** (20a4d33) — dead assertion asserts again;
+  grammar_version derives from the genome (genome-16).
+- **C-04 DONE** (6a5823b) — one mLDC: stock sheet = fixed point on the
+  ACTUAL loaded displacement; R-TBM sliver dead; blast radius 121 green.
+- **C-05+C-19 DONE** (61ff4e8) — certification consumes the ladder's
+  sheet (structure mass identical); buildability refusal = missing
+  metric, round-bilge class CFD-eligible (case b REFUSE-by-veto ->
+  MARGINAL 0.777).
+- **C-20 DONE** (f680750) — renders untracked; J6 guard probes ls-files;
+  reconcile C3 predicate follows the invariant; cycle_time seed re-based
+  with measurement.
+- **C-11 DONE** (41e2a4d) — NU_SEA one-name-one-number; Michell
+  population pins re-based as cross-platform bands (gapfix_physics
+  26/26, first fully-green run on this box).
+- IN FLIGHT: full-suite baseline (minus the two formerly-hanging suites,
+  now fixed) + test_surrogate_honesty on the fresh baselines.
+- REMAINING (plan): C-06 manifest-applied + make_case --mission lane,
+  C-07 manifest Fn/Re from ev, C-15 broad-except, C-16 gate-runner
+  timeout, C-18 screen wired, C-12/34/35 wire fronts, C-25 labels,
+  C-28 docs wave, C-29..C-36.
+
 ## Pre-existing failures classified en route (not caused by the rebuild)
 - Wall-clock bars on this box (fortress001 is slower than the bar-setting
   machine; all reproduce on the UNMODIFIED tree): catamaran latency 120ms
