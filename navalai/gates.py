@@ -43,6 +43,7 @@ them honest forever") applied to the reds themselves.
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 import sys
@@ -1047,8 +1048,25 @@ def main(argv: list[str] | None = None) -> int:
                 label = f"{g.status}-GATED — {g.detail}"
             print(f"{g.name:13} {g.scope:45} {label}")
             continue
-        r = subprocess.run([sys.executable, "-m", "pytest", g.suite, "-q",
-                            "--no-header"], capture_output=True, text=True)
+        # C-16 (forensics, the 4-day lesson): this call had NO timeout, so
+        # when a suite acquired an infinite loop (frozen_suite's emptied
+        # held-out wedge) two verification runs spun for FOUR DAYS with the
+        # ladder reporting nothing. A hung suite is a FAILURE, not a wait.
+        # 3600 s sits ~2x above the heaviest measured suite on the slow
+        # box (test_phase7 ~10.5 min, Gate 2 BEM ~27 min under load);
+        # override per-run with NAVALAI_SUITE_TIMEOUT_S, 0 disables.
+        suite_timeout = float(os.environ.get("NAVALAI_SUITE_TIMEOUT_S",
+                                             "3600")) or None
+        try:
+            r = subprocess.run([sys.executable, "-m", "pytest", g.suite,
+                                "-q", "--no-header"], capture_output=True,
+                               text=True, timeout=suite_timeout)
+        except subprocess.TimeoutExpired:
+            failures += 1
+            print(f"{g.name:13} {g.scope:45} RED (SUITE TIMED OUT after "
+                  f"{suite_timeout:.0f}s — a hung suite is a failure; find "
+                  f"the loop, do not raise the timeout)")
+            continue
         c = counts(r.stdout)
         label, is_fail = status_of(r.returncode, c)
         ran_nothing = label.startswith("SKIPPED")
