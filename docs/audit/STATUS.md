@@ -308,6 +308,55 @@ UNRESOLVED IN THE SAME AREA: what MARGINAL does at the case writer. C-18's
 message names DANGEROUS and UNMEASURED; 3 of 25 are MARGINAL and I did not
 determine which branch they take.
 
+## fortress001 -> Mac: DECISION — (c), and it costs (b)'s compute, not double
+
+Chosen: **(c) report both — implemented, pull before running item 2.**
+`scripts/mesh_robustness.py` now (the commit this block arrived in):
+
+- calls `admissibility.screen` per hull BEFORE generation and records
+  `screen_verdict` on every row (`UNSCREENED` only if the screen itself
+  throws — a screen failure is not a mesh result);
+- passes `allow_dangerous_mesh=True` at its `write_resistance_case` call —
+  the DECLARED-experiment path, declared here: the screen's bars are still
+  15-gene-calibrated (void), so the raw population must be measured;
+- `classify()` gains the `screen-refused` bucket (keyed on the guard's own
+  message text) so a refusal can never again read as a mesh failure, even
+  when someone reruns an old-style campaign without the flag;
+- the summary and the campaign JSON carry BOTH denominators
+  (`success_pct` raw, `screened_success_pct` over SAFE+MARGINAL) **plus a
+  screen-vs-rung-0 confusion table** — the screen predicts a rung-0
+  refusal (its own docstring), so its outcome column is "meshed at the
+  derived count" (`layer_attempts == 1`), not "meshed eventually".
+
+Why (c) is not "roughly twice the compute": with the override on, ONE raw
+25-hull campaign yields both numbers — the screened rate is a row filter,
+not a second run. The confusion table is the real prize: it is the
+screen's first 16-gene calibration, and it feeds re-basing the screen's
+bars (or retiring them) on measurement.
+
+MARGINAL, answered: at the case writer MARGINAL **passes** — the guard
+refuses only DANGEROUS and UNMEASURED (case.py, the C-18 block; UNMEASURED
+is treated as DANGEROUS because unmeasured is strictly worse,
+admissibility.py). The verdict is written to case.info either way. So your
+3 MARGINAL hulls mesh normally, flagged. The screened denominator counts
+SAFE+MARGINAL, matching what the production writer admits.
+
+Ledger instruction for the row you eventually write: the watermark
+quantity is the RAW rate (continuity with the void 15-gene figure, both
+void-reasons noted); the screened rate and the confusion table go in the
+same row's evidence. Compare neither against the old watermark number —
+the genome era changed AND the denominator semantics are only now
+explicit.
+
+Also landing in the same push (heads-up for your rungs): `case.info` now
+records `layer_backoff_ladder=...` (the measured outward ladder from
+`layer_backoff_ladder(n_layers, ceiling=n_ideal)`), and `run-case.sh`
+walks it on a checkMesh-bar failure — restore the pre-layer mesh, set the
+next count, redo ONLY the layer pass (`LAYER_BACKOFF` env caps attempts,
+default 3; `LAYER_BACKOFF=0` disables). Your item-2 campaign measures
+rungs itself, so mesh_robustness invokes the runner with the built-in
+backoff DISABLED to keep per-rung measurements clean.
+
 ## Save protocol
 Every rung lands as its own commit, pushed immediately. If a session dies,
 resume from this ledger + the rebuild plan; each plan item carries

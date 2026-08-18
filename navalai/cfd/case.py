@@ -2510,6 +2510,14 @@ def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
     # actually resolved, recorded per case so a bad triplet is diagnosable
     # from the case dir alone rather than from a post-hoc argument.
     cells_per_wave = wavelength / dx
+    # The retry counts run-case.sh may use when THIS count fails checkMesh —
+    # recorded here so the runner walks the measured outward ladder
+    # (layer_backoff_ladder: holes, both directions, ceiling n_ideal) instead
+    # of reinventing a descending one in shell. MEASURED 2026-08-18 (case a,
+    # the Mac metal check): derived n=6 -> 16 wrongly-oriented faces (bar 5),
+    # n=5 -> 0. The fix existed in mesh_robustness.py only; the canonical
+    # lane had no backoff at all.
+    _bk = layer_backoff_ladder(n_layers, ceiling=n_ideal)
     (out / "case.info").write_text(
         f"speed_ms={speed}\nlwl={lwl}\nscale={scale}\nstl_sha256={stl_sha}\n"
         # WHICH SHIP THIS IS. scripts/gate2m.py compared ANY directory against
@@ -2594,6 +2602,7 @@ def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
         f"cells_per_wavelength={cells_per_wave:.1f}\n"
         f"target_yplus={_TARGET_YPLUS}\nfirst_layer_m={t1:.6e}\n"
         f"n_layers={n_layers}\nn_layers_to_fully_bridge={n_ideal}\n"
+        f"layer_backoff_ladder={','.join(map(str, _bk)) or 'none'}\n"
         f"layer_stack_m={stack:.6f}\nlast_layer_m={last_layer:.6f}\n"
         f"last_layer_over_hull_cell={last_ratio:.4f}\n"
         f"  # OpenFOAM's default finalLayerThickness is 0.3 of the adjacent\n"

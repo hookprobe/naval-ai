@@ -285,11 +285,40 @@ if [ "$ROUNDS" -gt 0 ]; then
         constant/polyMesh/level0Edge constant/polyMesh/surfaceIndex \
         constant/polyMesh/refinementHistory
 
-  say "snappyHexMesh pass 2 (layers only, on the z-refined mesh) ..."
-  snappyHexMesh -overwrite -dict system/snappyHexMeshDict.layers \
-    > log.snappy.layers 2>&1 || \
-    { say "FATAL: layer pass failed — see log.snappy.layers"; exit 1; }
+  # Snapshot the layer-less mesh so a refused layer count can be retried by
+  # redoing ONLY the layer pass — castellate/snap/z-refine are the expensive
+  # stages and do not depend on the count. Removed after the quality gate.
+  rm -rf constant/polyMesh.prelayer
+  cp -a constant/polyMesh constant/polyMesh.prelayer
+  _LAYERS_DICT=system/snappyHexMeshDict.layers
 fi
+
+# LAYER BACKOFF (MEASURED 2026-08-18, the case-a metal check): the derived
+# count n=6 produced 16 wrongly-oriented faces (bar 5) and n=5 produced 0 —
+# and the ladder that recovers this existed only in scripts/mesh_robustness.py
+# while this lane could only print "pass n_layers to the generator" and stop.
+# The generator records the measured outward ladder in case.info
+# (layer_backoff_ladder=..., holes and both directions — see
+# navalai.cfd.case.layer_backoff_ladder); on a quality-bar failure the loop
+# below restores the pre-layer snapshot, sets the next recorded count in the
+# layers dict, and redoes the layer pass only. LAYER_BACKOFF caps attempts
+# (default 3; 0 disables — mesh_robustness.py sets 0 because it measures one
+# rung per invocation and a silent re-mesh would corrupt the measurement).
+# The loop spans pass 2 -> checkMesh -> the quality gate; every receipt
+# inside is written with _mq_record (rewrite, not append), so a retry
+# overwrites the failed attempt's lines and the per-attempt history lives in
+# layer_backoff_attempt_N.
+_BK_LADDER=$(awk -F= '/^layer_backoff_ladder=/ {print $2}' case.info 2>/dev/null | tail -1 | tr ',' ' ' || true)
+if [ "$_BK_LADDER" = "none" ]; then _BK_LADDER=""; fi
+_BK_MAX="${LAYER_BACKOFF:-3}"
+_BK_TRY=0
+while :; do
+  if [ -n "${_LAYERS_DICT:-}" ]; then
+    say "snappyHexMesh pass 2 (layers only, on the z-refined mesh) ..."
+    snappyHexMesh -overwrite -dict "$_LAYERS_DICT" \
+      > log.snappy.layers 2>&1 || \
+      { say "FATAL: layer pass failed — see log.snappy.layers"; exit 1; }
+  fi
 
 say "checkMesh ..."
 checkMesh > log.checkMesh 2>&1 || true
@@ -461,9 +490,38 @@ else
   _MQ_SKEWBAD=$(awk -v s="$_MQ_SKEW" 'BEGIN{print (s+0 > 20.0) ? 1 : 0}')
 fi
 if [ "$_MQ_ZEROVOL" -gt 0 ] || [ "$_MQ_WRONGOR" -gt 5 ] || [ "$_MQ_SKEWBAD" = "1" ]; then
+  # Try the next recorded backoff rung before declaring FATAL — but only when
+  # a layer pass exists to redo, a pre-layer snapshot is present, and the
+  # attempt budget is not spent. An UNPARSED skewness is NOT retried: it is a
+  # broken parse, not a layer defect, and re-meshing cannot fix a grep.
+  _BK_NEXT=""
+  if [ -n "${_LAYERS_DICT:-}" ] && [ -d constant/polyMesh.prelayer ] && \
+     [ "$_BK_TRY" -lt "$_BK_MAX" ] && [ "$_MQ_SKEW" != "UNPARSED" ]; then
+    _BK_NEXT=$(printf '%s\n' $_BK_LADDER | sed -n "$((_BK_TRY + 1))p" || true)
+  fi
+  if [ -n "$_BK_NEXT" ]; then
+    _BK_CUR=$(grep -o 'nSurfaceLayers [0-9]*' "$_LAYERS_DICT" | awk '{print $2}' | head -1 || true)
+    _BK_TRY=$((_BK_TRY + 1))
+    say "layer backoff ${_BK_TRY}/${_BK_MAX}: quality bar failed at n=${_BK_CUR:-?}"
+    say "       (${_MQ_ZEROVOL} zero-volume, ${_MQ_WRONGOR} wrongly-oriented, skew ${_MQ_SKEW})"
+    say "       -> restoring the pre-layer mesh, retrying at n=${_BK_NEXT}"
+    _mq_record "layer_backoff_attempt_${_BK_TRY}" "n=${_BK_CUR:-?} zerovol=${_MQ_ZEROVOL} wrongor=${_MQ_WRONGOR} skew=${_MQ_SKEW} retry_n=${_BK_NEXT}"
+    rm -rf constant/polyMesh
+    cp -a constant/polyMesh.prelayer constant/polyMesh
+    # -i.bak works on both GNU and BSD sed (this script runs on the Mac).
+    sed -i.bak "s/nSurfaceLayers [0-9][0-9]*;/nSurfaceLayers ${_BK_NEXT};/" "$_LAYERS_DICT"
+    rm -f "${_LAYERS_DICT}.bak"
+    continue
+  fi
   say "FATAL: mesh quality below the bar (${_MQ_ZEROVOL} zero-volume cells,"
   say "       ${_MQ_WRONGOR} incorrectly-oriented faces, max skewness ${_MQ_SKEW};"
   say "       bars are 0, 5 and 20)."
+  [ "$_BK_TRY" -gt 0 ] && \
+    say "       ${_BK_TRY} layer-backoff attempt(s) already tried and failed —"
+  [ "$_BK_TRY" -gt 0 ] && \
+    say "       see layer_backoff_attempt_* in case.info; the defect is likely"
+  [ "$_BK_TRY" -gt 0 ] && \
+    say "       not the layer count."
   [ "$_MQ_SKEW" = "UNPARSED" ] && \
     say "       max skewness could NOT BE READ from log.checkMesh. An unmeasured"
   [ "$_MQ_SKEW" = "UNPARSED" ] && \
@@ -477,6 +535,17 @@ if [ "$_MQ_ZEROVOL" -gt 0 ] || [ "$_MQ_WRONGOR" -gt 5 ] || [ "$_MQ_SKEWBAD" = "1
   say "       Pass --force (or FORCE=1) to run it anyway, deliberately."
   [ "$FORCE" = "1" ] || exit 1
   say "       --force given: proceeding on a mesh that failed the bar."
+fi
+break
+done
+# The quality gate passed (or --force). Record what the mesh actually carries:
+# after a backoff, case.info's n_layers= line still names the DERIVED count,
+# so the meshed count gets its own receipt instead of silently rewriting it.
+rm -rf constant/polyMesh.prelayer
+if [ "$_BK_TRY" -gt 0 ]; then
+  _mq_record layer_backoff_attempts "$_BK_TRY"
+  _BK_FINAL=$(grep -o 'nSurfaceLayers [0-9]*' "${_LAYERS_DICT:-/dev/null}" 2>/dev/null | awk '{print $2}' | head -1 || true)
+  _mq_record n_layers_meshed "${_BK_FINAL:-UNPARSED}"
 fi
 # TET-DECOMPOSITION RECEIPT. minTetQuality is DISABLED during layer addition
 # (see the meshQualityControls comment in case.py: enforcing it there made the

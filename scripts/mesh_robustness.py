@@ -35,6 +35,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from navalai.admissibility import screen
 from navalai.cfd.case import (layer_backoff_ladder, layer_spec,
                               write_resistance_case)
 from navalai.evaluate import sample_valid
@@ -61,6 +62,10 @@ def mesh_one(case: Path, np_procs: int = 1, mesh_only: bool = True,
     # layerless mesh and reported it as the unattended success rate.
     runner = Path(__file__).resolve().parents[1] / "navalai/cfd/run-case.sh"
     env = {**os.environ}
+    # This harness measures ONE rung per invocation (its own ladder, above),
+    # so the runner's built-in layer backoff must not silently re-mesh the
+    # case at a different count than the one being measured.
+    env["LAYER_BACKOFF"] = "0"
     if mesh_only:
         env["MESH_ONLY"] = "1"
     t0 = time.time()
@@ -292,6 +297,13 @@ def classify(r: dict) -> str:
     Order matters: the pipeline stops at its first refusal, so the earliest
     stage that refused is the cause, and the later fields are simply absent.
     """
+    if "admissibility screen:" in (r.get("error") or ""):
+        # The C-18 guard refused BEFORE meshing (a campaign without
+        # allow_dangerous_mesh=True). A hull the screen refused did not fail
+        # to mesh — it never attempted to — and letting it fall into
+        # "generation" is how a screen refusal lands in the ledger as a
+        # meshing rate (the Mac's 2026-08-18 Gate 2U item-2 hold).
+        return "screen-refused"
     if r.get("error"):
         return "generation"                 # write_resistance_case itself threw
     if r.get("timed_out"):
@@ -527,6 +539,23 @@ def main() -> int:
         if i in done:
             rows.append(done[i])
             continue
+        # C-18 wired the admissibility screen into write_resistance_case, and
+        # a campaign that measures the RAW population is exactly the DECLARED
+        # experiment the override exists for: the screen's own bars are still
+        # calibrated on the 15-gene era (calibration void), and its verdict
+        # predicts a RUNG-0 checkMesh refusal, not unmeshability. So the
+        # verdict is recorded on every row (the gate report gives both the
+        # raw and the screened denominator, plus the screen-vs-outcome
+        # confusion counts — the screen's first 16-gene calibration), and the
+        # writer is told allow_dangerous_mesh=True below so a refusal can
+        # never again be recorded as a MESH failure (2026-08-18, the Mac's
+        # Gate 2U item-2 hold).
+        _scr_verdict = "UNSCREENED"
+        try:
+            _scr_verdict = screen(Hull(x), speed=args.speed,
+                                  scale=args.scale).verdict.name
+        except Exception:
+            pass                    # the screen failing is not a mesh result
         try:
             # THE LAYER-COUNT LADDER. rung 0 is the DERIVED count, i.e. exactly
             # what the pipeline does today; --layer-backoff adds the rungs
@@ -581,7 +610,10 @@ def main() -> int:
                                       end_time=args.solve or 1.0,
                                       scale=args.scale, np_procs=args.np_procs,
                                       lts=False if args.transient else None,
-                                      n_layers=n_lay)
+                                      n_layers=n_lay,
+                                      # the declared experiment — see the
+                                      # screen_verdict comment above the loop
+                                      allow_dangerous_mesh=True)
                 r = mesh_one(case, np_procs=args.np_procs,
                              mesh_only=not args.solve, timeout=args.timeout)
                 r["layer_attempts"] = attempt + 1
@@ -645,6 +677,7 @@ def main() -> int:
             r = {"cells": -1, "zero_volume_cells": -1, "layer_pct": -1.0,
                  "max_skewness": -1.0, "seconds": 0.0, "meshed": False,
                  "error": repr(exc)[:200]}
+        r["screen_verdict"] = _scr_verdict
         r["hull"] = i
         r["solve_requested"] = bool(args.solve)
         r["lwl"] = round(float(Hull(x).x[-1]), 3)
@@ -687,6 +720,33 @@ def main() -> int:
     print("\nfailure taxonomy (hull ids):")
     for why in sorted(tax, key=lambda k: (-len(tax[k]), k)):
         print(f"  {len(tax[why]):3d}  {why:<28} {tax[why]}")
+    # BOTH DENOMINATORS, PLUS THE SCREEN'S OWN SCORECARD (2026-08-18, the
+    # Gate 2U item-2 decision). The raw rate above is the gate's continuity
+    # number; the screened rate is what the production pipeline (which
+    # refuses DANGEROUS at the writer since C-18) would deliver; and the
+    # confusion counts are the screen's first 16-gene calibration. The
+    # screen predicts a RUNG-0 refusal, so its outcome column is "meshed at
+    # the derived count" (layer_attempts == 1), not "meshed eventually".
+    scr_rows = [r for r in rows if r.get("screen_verdict", "UNSCREENED")
+                not in ("UNSCREENED",)]
+    if scr_rows:
+        passable = [r for r in scr_rows
+                    if r["screen_verdict"] in ("SAFE", "MARGINAL")]
+        p_ok = sum(1 for r in passable if r["meshed"])
+        print(f"\nscreened denominator (SAFE+MARGINAL only, what the C-18 "
+              f"production writer admits):")
+        print(f"  {p_ok}/{len(passable)} meshed = "
+              f"{100.0 * p_ok / max(len(passable), 1):.1f}%   "
+              f"(raw above: {ok}/{len(rows)})")
+        conf: dict[str, list] = {}
+        for r in scr_rows:
+            rung0_ok = bool(r["meshed"]) and r.get("layer_attempts", 1) == 1
+            conf.setdefault(f"{r['screen_verdict']}/"
+                            f"{'rung0-ok' if rung0_ok else 'rung0-refused'}",
+                            []).append(r["hull"])
+        print("screen-vs-rung-0 confusion (verdict/outcome: hull ids):")
+        for key in sorted(conf):
+            print(f"  {len(conf[key]):3d}  {key:<28} {conf[key]}")
     if rate < 95.0:
         print("BELOW THE BAR — recorded, not softened. "
               "See PLM.md roadmap: unattended-meshing robustness.")
@@ -714,12 +774,20 @@ def _write_json(args, rows) -> None:
     tax: dict[str, int] = {}
     for r in rows:
         tax[r.get("why", "?")] = tax.get(r.get("why", "?"), 0) + 1
+    # The screened denominator beside the raw one, so the ledger row can
+    # never again read a screen refusal as a meshing rate (Gate 2U item 2).
+    passable = [r for r in rows
+                if r.get("screen_verdict") in ("SAFE", "MARGINAL")]
+    p_ok = sum(1 for r in passable if r["meshed"])
     Path(args.json).write_text(json.dumps(
         {"n": len(rows), "scale": args.scale, "speed": args.speed,
          "seed": args.seed, "np": args.np_procs,
          "regime": "transient" if args.transient else "LTS",
          "solve_requested": args.solve,
          "success_pct": 100.0 * ok / max(len(rows), 1),
+         "screened_n": len(passable),
+         "screened_success_pct": (100.0 * p_ok / len(passable))
+         if passable else None,
          "solve_pct": (100.0 * sok / max(len(rows), 1)) if args.solve else None,
          "bar_pct": 95.0, "taxonomy": tax, "rows": rows}, indent=2))
 

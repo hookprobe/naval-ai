@@ -231,3 +231,49 @@ def test_no_negative_sentinel_ever_produces_the_string_ok(sentinel_field):
         f"{sentinel_field} = -1.0 means UNMEASURED; a verdict of `ok` on it is "
         "an unmeasurable value scored as a passing one"
     )
+
+
+def test_a_screen_refusal_is_never_recorded_as_a_mesh_failure():
+    """The Mac's 2026-08-18 Gate 2U item-2 hold: C-18 made the case writer
+    refuse a DANGEROUS hull, mesh_robustness caught the refusal in its bare
+    `except Exception`, and 10 of the 25 campaign hulls would have landed in
+    the ledger as MESH failures -- a wrong number that looks like a real one.
+
+    A hull the screen refused did not fail to mesh; it never attempted to.
+    The bucket is distinct, and it outranks `generation` because the guard's
+    ValueError is raised BY write_resistance_case, i.e. it satisfies the
+    `generation` predicate too.
+    """
+    refusal = ("ValueError('admissibility screen: DANGEROUS at speed 2.57, "
+               "scale 1.0 — expect a checkMesh refusal at the derived layer "
+               "count (min_dihedral_deg=2.1deg (DANGEROUS)). Pass "
+               "allow_dangerous_mesh=True to write the case as a DECLARED "
+               "experiment; do not delete this guard.')")
+    row = {"cells": -1, "zero_volume_cells": -1, "layer_pct": -1.0,
+           "max_skewness": -1.0, "seconds": 0.0, "meshed": False,
+           "error": refusal}
+    assert classify(row) == "screen-refused", (
+        f"a C-18 screen refusal classified as {classify(row)!r} -- it will be "
+        "counted against the meshing rate")
+    # An UNRELATED generation error must still be `generation`.
+    row["error"] = "ValueError('L0: demihull B/T 1.2 below the 1.5 band')"
+    assert classify(row) == "generation"
+
+
+def test_the_campaign_measures_the_raw_population_as_a_declared_experiment():
+    """Decision (c) on the item-2 hold: ONE raw campaign yields both
+    denominators, so mesh_robustness must (1) declare the experiment at the
+    writer instead of letting the guard refuse mid-batch, and (2) pin the
+    runner's own layer backoff OFF, because this harness measures one rung
+    per invocation and a silent re-mesh corrupts the rung's measurement.
+    """
+    src = _SRC.read_text()
+    assert "allow_dangerous_mesh=True" in src, (
+        "the campaign no longer declares the experiment; DANGEROUS hulls "
+        "will be refused mid-batch and counted as mesh failures")
+    assert 'env["LAYER_BACKOFF"] = "0"' in src, (
+        "the campaign no longer disables run-case.sh's built-in backoff; "
+        "per-rung measurements can silently re-mesh at a different count")
+    assert '"screen_verdict"' in src or "'screen_verdict'" in src, (
+        "rows no longer record the screen's verdict; the confusion table "
+        "(the screen's first 16-gene calibration) cannot be built")

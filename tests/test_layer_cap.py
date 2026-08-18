@@ -112,3 +112,50 @@ def test_the_search_never_leaves_the_measured_envelope():
         for n in layer_backoff_ladder(n0, ceiling=ceil):
             assert _LAYER_FLOOR <= n <= ceil, f"rung {n} outside [{_LAYER_FLOOR}, {ceil}]"
             assert n != n0, "rung 0 must not repeat inside the ladder"
+
+
+def test_the_case_records_the_ladder_the_runner_will_walk(tmp_path):
+    """MEASURED 2026-08-18 (the case-a metal check): the derived n=6 gave 16
+    wrongly-oriented faces (bar 5) and n=5 gave 0 -- and the recovery ladder
+    existed only in scripts/mesh_robustness.py, so the canonical lane's only
+    move was a FATAL telling the operator to re-generate by hand.
+
+    The generator now writes the measured outward ladder into case.info;
+    run-case.sh walks THAT, so shell never re-derives (and never disagrees
+    with) the Python truth. This test pins both halves of the contract:
+    the receipt exists and equals `layer_backoff_ladder(n_layers, ceiling=
+    n_ideal)`, and the runner parses the same key.
+    """
+    from navalai.evaluate import sample_valid
+    from navalai.geometry import Hull
+    from navalai.mission import MissionSpec
+
+    X, _ = sample_valid(1, MissionSpec(), seed=0)
+    case = tmp_path / "ladder-receipt"
+    C.write_resistance_case(Hull(X[0]), 2.57, case,
+                            allow_dangerous_mesh=True)
+    info = dict(
+        line.split("=", 1)
+        for line in (case / "case.info").read_text().splitlines()
+        if "=" in line and not line.lstrip().startswith("#"))
+    n = int(info["n_layers"])
+    n_ideal = int(info["n_layers_to_fully_bridge"])
+    want = C.layer_backoff_ladder(n, ceiling=n_ideal)
+    got = ([] if info["layer_backoff_ladder"] == "none"
+           else [int(s) for s in info["layer_backoff_ladder"].split(",")])
+    assert got == want, (
+        f"case.info records ladder {got} while layer_backoff_ladder({n}, "
+        f"ceiling={n_ideal}) says {want} -- the runner would walk stale rungs")
+
+    runner = (_ROOT / "navalai" / "cfd" / "run-case.sh").read_text()
+    for marker, why in [
+        ("layer_backoff_ladder=", "the runner no longer reads the receipt"),
+        ("polyMesh.prelayer", "no pre-layer snapshot: a retry would redo "
+         "castellate/snap or relayer a layered mesh"),
+        ('LAYER_BACKOFF:-3', "the attempt cap (and the harness's =0 off "
+         "switch) is gone"),
+        ("layer_backoff_attempt_", "failed attempts leave no receipt"),
+        ("n_layers_meshed", "after a backoff, nothing records the count the "
+         "final mesh actually carries"),
+    ]:
+        assert marker in runner, f"run-case.sh: {why} (marker {marker!r})"
