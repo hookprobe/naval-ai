@@ -81,12 +81,21 @@ PRODUCES: a new watermark, `calibration_void` REMOVED, `measured_on` naming the
 16-gene genome and the STL hashes. The fence now requires a geometry hash per
 row — a row without one is refused.
 
-CAUTION THIS SESSION ADDED: `hull_to_stl`'s girth default is no longer a fixed
-`nz=16`; it is `stl_girth_resolution(hull)` = 16 hard chine / **96 filleted**,
-because 16 under-enclosed a filleted hull by 0.71% against a 0.35% bar. Every
-round-bilge hull in this campaign therefore meshes at 6x the girth density of
-any pre-`f18fcba` run. Expect different cell counts and different solve times;
-do NOT compare against the old batch except as history.
+WHY THE RE-CAMPAIGN IS STILL NOT COMPARABLE TO THE OLD BATCH: the GENOME
+changed, 15 parameters to 16. That is the ledger row's own stated reason and it
+is sufficient on its own.
+
+**AND A CAUTION I WROTE HERE FIRST TIME ROUND WAS WRONG — CORRECTED BY
+MEASUREMENT 2026-08-18.** I claimed every round-bilge hull would now mesh at 6x
+the girth density because `hull_to_stl`'s default moved from a fixed `nz=16` to
+`stl_girth_resolution(hull)` (16 hard chine / 96 filleted). It does not. THE CFD
+CASE PATH NEVER READS THAT DEFAULT: `write_resistance_case` calls
+`stl_resolution()`, and the probe's own receipt records what actually shipped --
+`stl_nx_shipped=600`, `stl_nz_shipped=120`. 120 already exceeds the new 96, so
+the change is INERT here by construction. It governs the BARE default, which is
+what `evaluate.l3_case_evidence` writes when it checks whether a recorded RANS
+campaign is about this hull -- a different job. Cell counts in this campaign move
+because the genome moved, not because the tessellation did.
 
 ### 3 — Gate 2M calibration. Watermark is the string `NONE`.
 Use the NEW canonical lane, not the old `--stl` path: `make_case.py --case a..f`
@@ -106,6 +115,43 @@ mesh, and the forensics measured the recorded-never-applied error at
 **+122.9%** — so this check is what proves C-06 actually landed in metal.
 Record the verdict in `docs/audit/STATUS.md` (fortress owns the file; land a
 note, not a code change).
+
+### 4b — C-06 METAL CHECK: FIRST RESULT, 2026-08-18. The attitude is fine; the DERIVED LAYER COUNT IS FATAL.
+
+`make_case.py --case a` (5 m hard-chine dayboat, 903 kg, trim -0.0095) derives
+`n_layers = 6`, and that mesh is REFUSED by `run-case.sh`'s own quality bar. Same
+hull, same certified attitude, same everything — only `n_layers` differs:
+
+    n_layers      wrongly-oriented   max skew   non-ortho max   cells    verdict
+    6 (DERIVED)         16             6.615       96.67       548516   FATAL
+    5 (--n-layers)       0             3.025       69.95       532740   CLEAN
+
+Bars are 0 zero-volume, 5 wrongly-oriented, 20 skewness. Both meshes had ZERO
+zero-volume cells; the derived one fails on wrongly-oriented faces alone, at 16
+against a bar of 5 — WORSE than the n=7 KCS case that dies at t = 0.0072 s
+(10 faces). The failure signature is the documented one: PARTIAL STACKS. At n=6
+coverage is 84.3% with 5.12 of 6 layers achieved; at n=5 it is 85.6% with 4.3 of
+5. Full stacks and no stacks both mesh; partial stacks fold cells.
+
+**SO THE C-06 VERDICT SPLITS.** The manifest's trimmed attitude reaches a mesher
+and behaves — that half passes, and it is the half C-06 claimed. What does NOT
+work is the generator's own default: the canonical lane produces an unsolvable
+mesh unless a human overrides the layer count it derived.
+
+**AND THE FIX ALREADY EXISTS IN THE TREE, UNWIRED.** `navalai/cfd/case.py`
+exports `layer_backoff_ladder`. `scripts/mesh_robustness.py` imports it and
+exposes `--layer-backoff` / `--cap-layers`, so the CAMPAIGN lane recovers from a
+bad derived count automatically. `scripts/make_case.py` — the lane C-06 made the
+production path — has ZERO backoff or retry (grep: 0 matches). This is a wiring
+gap, not a missing feature, and it is a NOTE FOR fortress001 rather than a change
+from here: `navalai/` is theirs.
+
+Also RECORDED, not a bar: the case-a STL enters the mesher with 7
+self-intersections. `run-case.sh` prints them and continues, by design.
+
+CAVEAT ON READING THIS AS A GREEN LIGHT: case a evaluates `ok=False` at L1. It is
+a legitimate mesh-behaviour probe (escalation does not require feasibility) and
+it is NOT evidence that case a is a good design.
 
 ### 5 — Gate 3E re-measure. OWNERSHIP CONTRADICTION, do not act unilaterally.
 §0 grants macOS "Gate 2M / Gate 2U / Gate 3E only (the `owner` field marks
