@@ -433,6 +433,33 @@ default 3; `LAYER_BACKOFF=0` disables). Your item-2 campaign measures
 rungs itself, so mesh_robustness invokes the runner with the built-in
 backoff DISABLED to keep per-rung measurements clean.
 
+## fortress001 2026-08-19: the consolidation plan is EXECUTED; the math is in; Mac's next move is ONE mesh
+
+Everything on the Linux side of the partition is landed and pushed at
+752e695 (see CODE_CONSOLIDATION_PLAN.md's status block and the §34
+post-fix answers). For this node, in order:
+
+1. `git pull`. The meshability-math re-derivation is in
+   `docs/MESHABILITY_MATH.md`: the screen's dead sheer bar is retired,
+   the writer refuses only `refused_no_rescue` (your 10-of-25 DANGEROUS
+   holds are mostly ladder-rescuable and now WARN + proceed to the
+   runner's metal-proven backoff), and Gate 2D owns the pathological +
+   property suites (writer-admissible 92.7% of L0 passers, funnel
+   19.5 ms/genome).
+2. THE ONE-MESH CHECK (owner's directive: no 25-hull proof runs):
+   protocol in MESHABILITY_MATH.md §H — draw any admissible hull
+   (refused_no_rescue empty), write, run. Receipts that prove the math:
+   admissibility_no_rescue=none; checkMesh green at rung 0 or via
+   layer_backoff_attempt_*; first LTS iterations print flow time scale
+   >= 1e-12 (the early abort's re-based bar — anchors: solved floor
+   7.8e-6, worst divergence 4.356e-18, which the OLD 1e-20 bar missed);
+   drift inside the 5% bar. A failed receipt is a finding against a
+   named bar — file it, don't retry.
+3. Only after 2 is green: resume item 2 (`--resume` on your paused
+   dirs). The campaign now measures BOTH denominators + the
+   screen-vs-rung-0 confusion table per the decision block above, and
+   diverged timeouts self-classify (h18's row is already relabeled).
+
 ## Save protocol
 Every rung lands as its own commit, pushed immediately. If a session dies,
 resume from this ledger + the rebuild plan; each plan item carries

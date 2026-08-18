@@ -1,5 +1,19 @@
 # Code consolidation plan — dependency-ordered (forensics Phase 2)
 
+> **STATUS 2026-08-19 — EXECUTED.** Every item below is landed except the
+> two that require the CFD node (Gate 2U item-2 campaign, Gate 2M) and
+> the wall-clock bars this box has never met (documented, not softened).
+> C-13/C-14 landed with the consolidation-directive work; C-17 (timer
+> policy) remains an open next-session item with §17 of the screening
+> directive. Landed highlights by commit: C-01..05/09/11/19/20/22 (Phase
+> 3 opening), C-06/07 (floated-frame cases), C-18+rescue-axis (54031fa →
+> 2e9c2f4), C-15/16, C-10 (fbc1ed7), C-33 (b0b61bc), C-23..28 wave + C-30
+> (6ce2ec7), C-29/3E retired (c36b4e3), C-12/34/35 + C-31 (e884dc6),
+> C-36 + C-21 (fbb0237), §31 chain test (cf20def), Gate 3 re-measures
+> (5b6fda5), C-08 last (752e695). Phase-I full verification at 752e695:
+> see docs/audit/STATUS.md and the §34 post-fix answers in
+> CODE_FORENSICS_REPORT.md.
+
 Basis: nine banked forensics reports (`docs/forensics/*.md`), HEAD at plan
 time `f0ccc5f`. Every item: finding → evidence → change → proof required.
 Rules: one migration at a time, tests after each, no deletion before

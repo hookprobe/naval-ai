@@ -92,6 +92,59 @@ declares the 15-gene calibration void); renders/: tracked despite ignore +
 path found; ladder-consumed artifacts carry strong provenance while
 operator-facing receipts carry none.
 
+## The §34 questions — answered at Phase-4 (post-fix) state, 2026-08-19
+
+Post-fix state at 752e695 (the pre-fix answers are kept below for the
+record). Items landed since Phase 2: C-01..07, C-09..12, C-15/16,
+C-18..23(label)/24(label)/25/26/27, C-28(PLM wave), C-29(3E retired),
+C-30/31/32/33/34/35/36, C-08 (last), the §31 four-class chain test, the
+meshability-math re-derivation (Gate 2D), and the solvability chain
+(early abort + reclassify + re-based 1e-12 bar).
+
+1. ONE production E2E path? **YES for design AND for CFD** — make_case's
+   `--case` lane runs mission→evaluate→certify-state→manifest→case; the
+   §31 test pins the chain for all four canonical classes.
+2. One geometry truth? **YES** (unchanged).
+3. One hydrostatics truth? **YES** (unchanged).
+4. One resistance truth? **YES, completed** — C-08 put the floated
+   length into the one-state contract (measured: median +0.000%, worst
+   +1.279%); C-31 unified the ITTC envelope on one band.
+5. One mass/loading truth? **YES everywhere** — the manifest lane
+   carries the certified mass; free_motion comes from the manifest.
+6. One CFD-input truth? **YES** — the manifest is APPLIED and verified
+   at write (2% displacement refusal bar); case.info renders it.
+7. Can a candidate bypass validation? **Not on the canonical lane** —
+   the admissibility screen guards the writer (refused_no_rescue;
+   rescuable predictions warn + record and the runner's metal-proven
+   ladder recovers them); Hull() still builds anything for research,
+   which is a declared property, not a leak.
+8. Physics failure silently valid? **The trim-`or 0.0` cluster is
+   gone** (C-02); the swamped-hull path is violations-first and the
+   pipeline guard reads it (2026-08-19).
+9. Old artifacts consumed accidentally? **No** — baselines regenerated
+   on the live wedge, grammar_version derives from N_PARAMS, the gate2u
+   corpus rows re-derive their own labels (h18 relabeled a divergence).
+10. Orphaned production modules? **None unlabeled** — the experiment
+    island, policy kernel, waves, demo_mission and estrin all carry
+    their classification and promotion path in their own docstrings.
+11. Duplicate quantity implementations? **Closed** — one facet emitter,
+    two STL parsers with DECLARED distinct weld jobs, PV area one
+    expression, constants fences extended to scripts/, the
+    formlib↔Michell edge identity is executable.
+12. All supported families through one pipeline? **YES** — Gate VM +
+    the §31 chain test (cats refusal-first by name until R2.2).
+13. Production files? `PRODUCTION_CORE.md` (unchanged).
+14. Delete? Nothing further — zero DEAD stands.
+15. Research/experimental labels? **Done** (C-25 banners).
+16. Before production testing? **Done** — Phases B–D landed, §31 tests
+    landed, receipts carry identity (C-22), suites that hung now
+    bounded (C-01/C-16).
+17. Before CFD testing? **This box's half is done** (screen wired with
+    the rescue axis, math re-derived, Gate 2D, solvability receipts).
+    Remaining is CFD-node work: the one-random-admissible-mesh check
+    (protocol in docs/MESHABILITY_MATH.md §H), then the Gate 2U item-2
+    dual-denominator campaign and Gate 2M calibration.
+
 ## The §34 questions — answered at Phase-2 (pre-fix) state
 
 1. ONE production E2E path? **YES for design** (mission→evaluate→certify),
