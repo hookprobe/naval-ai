@@ -320,7 +320,12 @@ def test_stl_resolution_is_clamped_for_every_hull_in_the_batch():
     # is asserted as one.
     from navalai.evaluate import sample_valid
     from navalai.mission import MissionSpec
-    X, _ = sample_valid(8, MissionSpec(), seed=0)
+    # n=8 -> 24 (2026-08-19): the identity below is hull-independent; the
+    # sample only needs to SPAN sizes. After the physics-correction campaign
+    # moved the sampler's trajectory, the first 8 seed-0 draws span 1.875x
+    # (10.7..20.0 m) against the 2.0x precondition — draw luck, not a
+    # property change. MEASURED at n=24: span 3.78x.
+    X, _ = sample_valid(24, MissionSpec(), seed=0)
     hulls = [Hull(np.asarray(x, float)) for x in X]
     lwls = np.array([float(h.x[-1]) for h in hulls])
     counts = np.array([len(h.closed_mesh(nx=80, nz=16)[1]) for h in hulls])

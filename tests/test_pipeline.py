@@ -266,7 +266,14 @@ def test_the_hydrostatics_guard_is_exactly_the_ladders_constraint_vector():
         ev = evaluate(g.vector(), mission)
         if ev.tier == "L0":
             continue
-        expected = all(ev.g[k] <= 0.0 for k in CONSTRAINT_NAMES)
+        # The ladder's verdict is violations AND g: a swamped hull refuses
+        # via `violations` with g EMPTY (seed 111 here: "hull swamps: max
+        # buoyant mass 1064 kg < target 6000 kg"), and the old expression
+        # KeyError'd on it — asserting g is always populated, which the
+        # ladder never promised for a refused float.
+        expected = (not ev.violations
+                    and all(k in ev.g and ev.g[k] <= 0.0
+                            for k in CONSTRAINT_NAMES))
         assert check.ok is expected, (
             f"verdict disagrees with the ladder's own g vector for {g.id}")
         if not check.ok:

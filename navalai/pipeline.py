@@ -664,6 +664,13 @@ def check_hydrostatics(genome: Genome, mission) -> StageCheck:
             reasons.append(f"constraint {k!r} is {g[k]!r}, not a finite number")
         elif g[k] > 0.0:
             reasons.append(f"constraint {k!r} violated by {g[k]:+.4g}")
+    # The ladder's own refusals are part of its verdict, not just g. A
+    # swamped hull refuses via `violations` with g EMPTY (constraints are
+    # not computable for a hull that does not float); reading g alone would
+    # let a hypothetical violation-with-clean-g slip. Still pure
+    # delegation: these strings are the ladder's, not this module's.
+    for v in ev.violations:
+        reasons.append(f"ladder violation: {v}")
     if reasons:
         return _failed("hydrostatics", Stage.HYDROSTATICS,
                        Terminal.FAILED_HYDROSTATICS, reasons, evidence)
