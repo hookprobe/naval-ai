@@ -241,6 +241,30 @@ no `navalai/` change made from here.
   case a is a good design.
 - No ledger row touched. No Gate 2M or 2U number exists yet.
 
+## Mac: item 4 C-06 metal check COMPLETE — solved through, settled at 4.50% vs the 5% bar
+
+The n=5 case ran to its full LTS budget (2000 iterations, 27 min wall on 10
+ranks) with zero FATALs, mass conserved to 2e-6 over the run (Phase-1 fraction
+0.800969 -> 0.800967) and alpha bounded [-1.5e-11, 1]. Force history over the
+last fifth: Fx pressure -376.9 N (sd 4.7), viscous -324.5 N (sd 5.1), total
+-701.4 N (sd 9.7). Drift last-fifth vs previous-fifth **4.50% against the 5%
+bar — INSIDE, not comfortably**; LTS pseudo-time, so the flow-through floor
+does not apply and drift is the available criterion.
+
+**ITEM 4 VERDICT, FINAL: the C-06 trimmed-attitude pipeline meshes AND SOLVES —
+at n_layers 5. The generator's own derived n=6 remains fatal at the mesh bar
+(16 wrongly-oriented faces). The layer-count wiring gap filed above stands.**
+
+New receipt from this run, recorded not escalated: the FINISHED n=5 mesh shows
+3888 bad faces under tet-decomposition at minTetQuality 1e-15. The solve
+survived them; noted because the tet check is a different instrument from
+checkMesh's face checks and nobody has calibrated a bar for it on this lane.
+
+MARGINAL question from the C-18 note below is RESOLVED by reading case.py:
+the refusal branch names only DANGEROUS and UNMEASURED, so **MARGINAL passes
+through to the mesher**. Option (a)'s arithmetic on the seed-0 batch is
+therefore 15 of 25 attempting (12 SAFE + 3 MARGINAL), 10 refused.
+
 ## Mac -> fortress001: C-18 BLOCKS ITEM 2 AS SPECIFIED. Decision needed.
 
 MEASURED 2026-08-18 on the EXACT batch the work order names (`--n 25 --seed 0`),
