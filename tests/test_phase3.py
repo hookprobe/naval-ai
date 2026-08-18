@@ -225,6 +225,26 @@ def test_calibration_is_measured_as_a_curve_with_sharpness_beside_it(l1_gp):
     clearest open finding in this file: the Gate 3 GP's uncertainty is now
     materially optimistic and nothing in the ladder is gated on that yet.
 
+    RE-MEASURED 2026-08-19, AND THE OPEN FINDING ABOVE IS RESOLVED — by the
+    physics-correction campaign, not by any change to the GP. On the same
+    fixture (train seed 7, fit seed 1, query seed 991) the OOD filter now
+    keeps 30 of 35 (was 26) and:
+
+        calibration_error  0.1135 -> 0.0156   (7.3x better)
+        sharpness          0.1832 -> 0.1802   (essentially unmoved)
+        PIT KS             0.1663 -> 0.2171
+        coverage           0.500 / 0.800 / 0.867 / 0.933 / 0.967
+                           at nominal 0.50 / 0.80 / 0.90 / 0.9545 / 0.99
+
+    The curve is EXACT at the two lower levels and mildly over-confident
+    only at the top three. The residuals fell (the 3E bar is now met,
+    0.1323 across seeds — see that test's retirement record) while the
+    band width stayed put, so the band caught up with the error it has to
+    contain. Consequences pinned below: the x2.0 "broken model better
+    calibrated than shipped" inversion NO LONGER HOLDS (doubled sigma now
+    reads 0.1244 against the honest 0.0156 — 8x worse, the way it should
+    be), and the directional claim narrows to the three upper levels.
+
     AND IT HAS A CONSEQUENCE THAT IS WORTH STATING ON ITS OWN, BECAUSE IT
     WEAKENS ANY TEST THAT USES `calibration_error` AS A DISCRIMINATOR. MEASURED
     below on the same 26 hulls: scaling this model's sigma by 2.0 — a
@@ -264,24 +284,25 @@ def test_calibration_is_measured_as_a_curve_with_sharpness_beside_it(l1_gp):
     Xt, yt = sample_valid(35, m, seed=991)
     keep = ~gp.is_ood(Xt, 0.5)
     Xk, yk = Xt[keep], np.log(yt[keep])
-    assert keep.sum() == 26, "the measured table above is for 26 in-support hulls"
+    assert keep.sum() == 30, "the measured table above is for 30 in-support hulls"
 
     rep = calibration(gp, Xk, yk)
-    assert rep["n"] == 26 and rep["levels"] == COVERAGE_LEVELS
+    assert rep["n"] == 30 and rep["levels"] == COVERAGE_LEVELS
     curve = rep["coverage_curve"]
-    for lv, want in ((0.50, 0.423), (0.80, 0.615), (0.90, 0.808),
-                     (0.9545, 0.846), (0.99, 0.885)):
+    for lv, want in ((0.50, 0.500), (0.80, 0.800), (0.90, 0.867),
+                     (0.9545, 0.933), (0.99, 0.967)):
         assert curve[lv] == pytest.approx(want, abs=0.02), (
             f"coverage at nominal {lv} moved to {curve[lv]:.3f}; re-measure "
             f"the table above rather than widening this")
-    assert rep["calibration_error"] == pytest.approx(0.1135, abs=0.005)
-    assert rep["sharpness"] == pytest.approx(0.1832, rel=0.02)
-    assert rep["pit_ks"] == pytest.approx(0.1663, abs=0.02)
-    # the curve is OVER-confident at every level, which the aggregate above
-    # cannot say and which is the direction that matters for a consumer
-    assert all(curve[lv] < lv for lv in (0.80, 0.90, 0.9545, 0.99)), (
-        f"the model is no longer over-confident across the curve: {curve} — "
-        f"that is good news and the docstring's finding must be re-measured")
+    assert rep["calibration_error"] == pytest.approx(0.0156, abs=0.005)
+    assert rep["sharpness"] == pytest.approx(0.1802, rel=0.02)
+    assert rep["pit_ks"] == pytest.approx(0.2171, abs=0.02)
+    # RE-MEASURED 2026-08-19: exact at 0.50/0.80, over-confident only at
+    # the top three levels — the residual direction that matters for a
+    # consumer reading the 2-sigma band.
+    assert all(curve[lv] < lv for lv in (0.90, 0.9545, 0.99)), (
+        f"the model is no longer over-confident at the upper levels: {curve} "
+        f"— re-measure the table above (both directions are findings)")
 
     # The curve and the standalone helpers cannot disagree about what the
     # model said — they are one computation, not two.
@@ -315,12 +336,12 @@ def test_calibration_is_measured_as_a_curve_with_sharpness_beside_it(l1_gp):
     # terms, which is what the second assertion pins — a ratio alone would
     # have quietly rewarded a worsening baseline.
     assert tight["calibration_error"] > 4.0 * rep["calibration_error"]
-    assert tight["calibration_error"] == pytest.approx(0.590, abs=0.03), (
+    assert tight["calibration_error"] == pytest.approx(0.4956, abs=0.03), (
         "the miscalibrated control's absolute error moved; it is the anchor "
         "that keeps the ratio above from being satisfied by a bad baseline")
     # RE-MEASURED: the quarter-width model's 2-sigma coverage went
-    # 0.481 -> 0.241 -> 0.346.
-    assert tight["coverage_curve"][0.9545] == pytest.approx(0.346, abs=0.02)
+    # 0.481 -> 0.241 -> 0.346 -> 0.367 (2026-08-19, kept set now 30).
+    assert tight["coverage_curve"][0.9545] == pytest.approx(0.367, abs=0.02)
     assert tight["sharpness"] < 0.3 * rep["sharpness"]
 
     # THE "TOO VAGUE" CONTROL NO LONGER SEPARATES ON calibration_error, AND
@@ -351,12 +372,19 @@ def test_calibration_is_measured_as_a_curve_with_sharpness_beside_it(l1_gp):
         "sharpness is what stops a coverage target being bought by widening "
         "the band, and it must scale exactly with the width that bought it")
     doubled = calibration(_Scaled(gp, 2.0), Xk, yk)
-    assert doubled["calibration_error"] < rep["calibration_error"], (
-        f"a 2x-too-wide model is no longer better calibrated than the "
-        f"production GP ({doubled['calibration_error']:.4f} vs "
-        f"{rep['calibration_error']:.4f}). That is GOOD NEWS — the GP has "
-        f"stopped being over-confident — and it means the table above and the "
-        f"docstring's open finding must be re-measured, not re-worded.")
+    # THE INVERSION RESOLVED (2026-08-19): this assert used to pin the
+    # docstring's sharpest finding — a deliberately doubled sigma scoring
+    # BETTER than the shipped model (0.0557 vs 0.1135), the signature of an
+    # over-confident baseline. The physics campaign fixed the baseline
+    # (0.0156), so widening now WORSENS calibration (0.1244, 8x) — the way
+    # a healthy metric behaves. Asserted in the healthy direction, with the
+    # old direction's message kept as the re-open instruction.
+    assert doubled["calibration_error"] > 4.0 * rep["calibration_error"], (
+        f"a 2x-too-wide model reads {doubled['calibration_error']:.4f} "
+        f"against the production {rep['calibration_error']:.4f} — if the "
+        f"wide model is again close to (or better than) the honest one, the "
+        f"GP has gone back to over-confidence: re-measure the docstring's "
+        f"table and re-open the finding, do not re-word this assert.")
 
     # AN UNMEASURABLE CALIBRATION POINT IS REFUSED, never scored as 0.5.
     class _NoBand:
@@ -451,6 +479,20 @@ def test_a_saturated_ard_lengthscale_is_reported_and_not_silently_absorbed():
                                      beta_len                                   beta_bow, beta_len,
                                                                                 flare, sheer_rise
 
+    RE-MEASURED 2026-08-19 after the physics-correction campaign (trim
+    equilibrium, R-TBM one-displacement, energy wiring — the Wh/NM surface
+    itself moved, the GP knobs did not):
+
+        full box            3 of 16  D, beta_len, x_mb
+        LWL <= 12 m         7 of 16  D, beta_len, beta_mid, flare, lcb,
+                                     sheer_rise, x_mb
+        beta_mid >= 12 deg  3 of 16  D, beta_len, lcb
+
+    x_mb SATURATES AGAIN on the full box and sheer_rise no longer does —
+    the campaign moved which axes carry redundant information, exactly the
+    kind of shift this table exists to record. The restricted fit still
+    saturates harder (7 > 3), so the pair still demonstrates the claim.
+
     MECHANISM, first move: `p_bow`/`p_stern` are gone and `Cp`, `lcb` and
     `roundness` are new, so there is one more axis to saturate on and the axes
     themselves are different quantities. Cp and lcb now carry the displacement
@@ -501,7 +543,7 @@ def test_a_saturated_ard_lengthscale_is_reported_and_not_silently_absorbed():
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         gp = GP.fit(X, np.log(y), seed=1)
-    assert saturated(gp) == {"D", "beta_len", "sheer_rise"}, (
+    assert saturated(gp) == {"D", "beta_len", "x_mb"}, (
         f"the saturating axes moved to {sorted(saturated(gp))} — re-measure the "
         f"table in this docstring rather than loosening the assertion")
     assert all(e == "upper" for _i, e in gp.ls_at_bound)
@@ -513,8 +555,8 @@ def test_a_saturated_ard_lengthscale_is_reported_and_not_silently_absorbed():
     # property of the kernel, which has never been told what its columns mean.
     # Checked on a multi-character name: `D` and `T` are single letters and a
     # substring test on them says nothing about anything.
-    assert "sheer_rise" not in rep and "beta_len" not in rep
-    assert f"input {grammar.NAMES.index('sheer_rise')}" in rep
+    assert "x_mb" not in rep and "beta_len" not in rep
+    assert f"input {grammar.NAMES.index('x_mb')}" in rep
     assert "blind" in rep
     assert f"3 of {grammar.N_PARAMS}" in rep
 
@@ -524,9 +566,10 @@ def test_a_saturated_ard_lengthscale_is_reported_and_not_silently_absorbed():
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", ARDSaturation)
         gp_r = GP.fit(X[inside], np.log(y[inside]), seed=1)
-    assert saturated(gp_r) == {"D", "lcb", "beta_mid", "rocker", "flare"}
+    assert saturated(gp_r) == {"D", "beta_len", "beta_mid", "flare", "lcb",
+                               "sheer_rise", "x_mb"}
     assert all(e == "upper" for _i, e in gp_r.ls_at_bound)
-    assert f"5 of {grammar.N_PARAMS}" in gp_r.saturation_report()
+    assert f"7 of {grammar.N_PARAMS}" in gp_r.saturation_report()
     assert len(gp_r.ls_at_bound) > len(gp.ls_at_bound), (
         "the restricted fit no longer saturates harder than the full-box one, "
         "so this pair has stopped demonstrating anything")
