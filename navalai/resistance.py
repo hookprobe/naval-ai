@@ -930,7 +930,8 @@ def total_resistance(hull: Hull, speed: float, wetted: float, cb: float,
                      nz: int | None = None, n_stations: int | None = None,
                      beam_wl: float | None = None,
                      draft: float | None = None,
-                     separation: float | None = None) -> ResistanceResult:
+                     separation: float | None = None,
+                     lwl_eff: float | None = None) -> ResistanceResult:
     """Michell wave resistance + ITTC-57 friction on the PRODUCTION grid.
 
     `beam_wl` and `draft` are the FLOATED waterline beam and draft — pass them
@@ -938,6 +939,16 @@ def total_resistance(hull: Hull, speed: float, wetted: float, cb: float,
     falls back to the design beam and design draft, which is the inconsistent
     state gap E7 measured; the fallback exists so a caller holding only a hull
     still gets an answer, and it is the caller's job not to be `evaluate()`.
+
+    `lwl_eff` is the FLOATED waterline length from the same HydroState —
+    C-08, the last member of the E7 family: this function used the DESIGN
+    length (hull.x[-1]) for Fn, Cf's Reynolds number, the form factor and
+    the regime envelope while every other flow quantity came from the
+    floated state. Rocker and trim lift the ends, so the flow sees
+    lwl_eff < design length (documented worst +2.575% Rt from the mix).
+    Same fallback contract as beam/draft: None = design length. The
+    Michell integral is UNAFFECTED either way — it consumes the offsets
+    grid shifted to the floated frame, not this scalar.
 
     `separation` [m] makes this a CATAMARAN of two identical demihulls of
     `hull`, and the return is then the WHOLE VESSEL's resistance. Every
@@ -984,7 +995,10 @@ def total_resistance(hull: Hull, speed: float, wetted: float, cb: float,
     xs, zs, Y = grid_hull.offsets_grid(nz=nz, wl=wl)
     # Michell frame: free surface at z=0 — shift the grid by the floated WL
     rw = michell_rw(xs, zs - wl, Y, speed, rho, separation=separation)
-    lwl = float(hull.x[-1])
+    # C-08: the flow-length quantities (Fn, Re, form factor, regime) read
+    # the floated waterline length when the caller supplies it; the design
+    # length remains only as the holding-only-a-hull fallback.
+    lwl = float(hull.x[-1]) if lwl_eff is None else float(lwl_eff)
     cf = ittc57_cf(speed, lwl, rho=rho)
     beam = (2.0 * float(hull.y_chine.max()) if beam_wl is None
             else float(beam_wl))

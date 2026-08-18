@@ -711,7 +711,8 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
     # documents and Watanabe's regression needs.
     res = total_resistance(hull, u, hs.wetted, hs.cb, rho, wl,
                            beam_wl=hs.b_wl_max, draft=hs.draft,
-                           separation=(separation_m if n_hulls > 1 else None))
+                           separation=(separation_m if n_hulls > 1 else None),
+                           lwl_eff=hs.lwl_eff)
     early: list[str] = []
     if not res.valid:
         # Reported as a violation, not buried in a badge: outside its envelope

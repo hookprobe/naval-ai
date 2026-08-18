@@ -522,22 +522,25 @@ def test_the_floated_state_reaches_the_resistance_model():
     sqrt(B/T). The fix passes `beam_wl` and `draft` from the same `HydroState`,
     and this asserts the four arguments still describe one state.
 
-    ONE ARGUMENT IS NOT ASSERTED HERE AND THE OMISSION IS DELIBERATE: the
-    LENGTH. `total_resistance` re-derives it as `hull.x[-1]` — the DESIGN
-    waterline length — while `hs.lwl_eff` sits in the same `HydroState` as the
-    four quantities below. MEASURED over 12 ok designs at seed 0: they differ by
-    up to 15.0%, which moves the friction term by up to 8.55%, the Watanabe form
-    factor from 0.0003 to 0.0227, and total resistance by 2.575%. That is a
-    defect, not a tolerance, so it is recorded in docs/research/FLOW-AUDIT.md
-    section 4 with the gate row it needs rather than pinned here as an accepted
-    watermark. When it is fixed, add `lwl_eff` to the loop below.
+    THE LENGTH JOINED THE STATE (C-08, 2026-08-19). Its omission above was
+    deliberate while `total_resistance` re-derived it as `hull.x[-1]` (the
+    DESIGN length; measured up to 15.0% off the floated `hs.lwl_eff`,
+    moving friction 8.55% and total resistance 2.575% at the worst) —
+    docs/research/FLOW-AUDIT.md section 4 carried it as a defect. It is
+    fixed: `evaluate()` and `certify()` pass `lwl_eff=hs.lwl_eff`, the
+    design length remains only as the holding-only-a-hull fallback, and
+    per this docstring's own instruction `lwl_eff` is now in the loop
+    below. MEASURED delta on the seed-0 ok-population at the fix: median
+    +0.000% (most hulls float at full length), worst +1.279% — the Michell
+    term is untouched (it consumes the frame-shifted offsets grid).
     """
     from navalai.resistance import form_factor, total_resistance
 
     for x, ev in _validated(4):
         h, hs, res = Hull(x), ev.hydro, ev.resistance
         again = total_resistance(h, MISSION.cruise_speed_ms(), hs.wetted, hs.cb,
-                                 wl=ev.wl, beam_wl=hs.b_wl_max, draft=hs.draft)
+                                 wl=ev.wl, beam_wl=hs.b_wl_max, draft=hs.draft,
+                                 lwl_eff=hs.lwl_eff)
         assert again.total == pytest.approx(res.total, rel=1e-12), (
             "re-running the resistance model on the floated state does not "
             "reproduce the ladder's number, so the ladder passed it something "
@@ -547,7 +550,7 @@ def test_the_floated_state_reaches_the_resistance_model():
             "tell whether Watanabe produced it or the clamp did")
         # The k that was USED must be the k Watanabe gives for the FLOATED beam
         # and draft. If a design beam were reaching the estimator this diverges.
-        f_floated = form_factor(hs.cb, float(h.x[-1]), hs.b_wl_max, hs.draft)
+        f_floated = form_factor(hs.cb, hs.lwl_eff, hs.b_wl_max, hs.draft)
         assert res.form.k == pytest.approx(f_floated.k, rel=1e-12), (
             f"the form factor used k={res.form.k:.6f} and the floated state "
             f"(B={hs.b_wl_max:.4f} m, T={hs.draft:.4f} m) gives "

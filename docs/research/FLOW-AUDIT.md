@@ -328,12 +328,16 @@ rocker lifts the transom clear — so it never averages out.
 Wh/NM is linear in `total`, so this is a systematic bias on the optimiser's
 first objective.
 
-**The fix is one line** (`lwl = float(hs.lwl_eff)` reaching `total_resistance` as
-an argument beside `beam_wl` and `draft`), but it MOVES EVERY L1 RESISTANCE
-NUMBER IN THE REPOSITORY, so it needs its own change with its own gate row and
-its own re-measured anchors. It is recorded here rather than pinned as an
-accepted watermark in the smoke test, and
-`test_the_floated_state_reaches_the_resistance_model` says so in its docstring.
+**FIXED 2026-08-19 (C-08).** `total_resistance` gained `lwl_eff=` beside
+`beam_wl`/`draft` (same E7 contract: None = design-length fallback for a
+caller holding only a hull); `evaluate()` and `certify()` pass
+`hs.lwl_eff`; the Michell term is untouched (it consumes the frame-shifted
+offsets grid, not the scalar). The predicted move was real but small on
+the CURRENT population: MEASURED at the fix over the seed-0 ok-population,
+dRt median +0.000% (most hulls now float at full length — the trim
+equilibrium and the kernel rebuild shrank the rocker-lift), worst +1.279%.
+`test_the_floated_state_reaches_the_resistance_model` now asserts the
+length parity in its loop, per its own docstring's instruction.
 
 ### FINDING 4.2 — the beam for the ISO 12217 offset-load test is re-derived per call site
 

@@ -150,7 +150,7 @@ def speed_curve(params, mission: MissionSpec, ev, n: int = 12,
                          * u_cruise, n):
         res = total_resistance(hull, float(u), hs.wetted, hs.cb, wl=ev.wl,
                                beam_wl=hs.b_wl_max, draft=hs.draft,
-                               separation=sep)
+                               separation=sep, lwl_eff=hs.lwl_eff)
         notes = tuple(res.flow.envelope) if res.flow is not None else ()
         if not res.valid:
             band = "UNSUPPORTED"
