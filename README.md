@@ -33,6 +33,23 @@ state, sensor package). The drone family is DECLARED, not built; `PLM.md` §2.0
 says exactly what is missing and why it is the mission layer rather than the
 physics.
 
+<p align="center">
+  <img src="docs/assets/naval-ai-examples.png"
+       alt="The design vocabulary: leisure and exploration vessels (solar catamaran, performance trimaran, explorer yacht, electric day boat, expedition boat, sailing yacht), maritime drones (surface, survey, cargo, patrol, solar USVs), and ten hull-form families from displacement to multi-hull drone"
+       width="100%">
+</p>
+
+**What the picture is, and is not.** These renders are the project's **visual
+vocabulary** — the vessel families and hull forms the two product lines aim at,
+from the solar catamaran and electric day boat through the survey and solar
+USVs, down to the ten hull-form families along the bottom row. They are
+REFERENCE IMAGERY, not generator output: in this project a rendered image never
+defines Cp, LCB, displacement, stability or resistance — geometry comes from
+the mathematical kernel and every claim above carries its evidence. (Of the ten
+hull forms pictured, the grammar today expresses the chined families and the
+round bilge; multi-chine and SWATH are on the roadmap — `docs/BUILD-PLAN.md`
+§16 phase PV.)
+
 Licensed under **GNU AGPL-3.0** (see `LICENSE`).
 
 ## Quickstart
@@ -177,7 +194,7 @@ different Gate 2M numbers came to circulate at once (gap J1).
 | Gate V2.1 | arrangement grammar: envelope, spaces, deck zones, and an L0-A that names the space it refuses | `tests/test_arrangement.py` (42 tests) |
 | Gate V3.0 | governance compiles to a parameter box and to constraint rows, ratchets only tighter, and the ladder never imports it | `tests/test_policy.py` (48 tests) |
 | Gate 6P | the product surface: scope guards refuse what does not govern, and the mission contract binds | `tests/test_gapfix_product.py` (26 tests) |
-| Gate L | one limit, one home; scantling derived from the rule | `tests/test_limits_single_source.py` (18 tests) |
+| Gate L | one limit, one home; scantling derived from the rule | `tests/test_limits_single_source.py` (21 tests) |
 | Gate 6M | manufacturing back end: nesting, BOM, developability controls, export receipt (refold onto the hull: Gate 6D) | `tests/test_manufacturing.py` (34 tests) |
 | Gate R3 | the ladder is climbable: L2 escalation, monotone tier promotion, honest refusal of L3 | `tests/test_ladder.py` (8 tests) |
 | Gate S | the MDO spine: one terminal state per genome, append-only archive, legal-transition graph, unmeasured metric refused | `tests/test_pipeline.py` (48 tests) |
@@ -189,10 +206,10 @@ different Gate 2M numbers came to circulate at once (gap J1).
 | Gate 2T | tank resonance is diagnosed, and a period is never claimed from too few cycles | `tests/test_tank_resonance.py` (25 tests) |
 | Gate V2.0 | refdata spine: every constant carries source + basis | `tests/test_refdata.py` (27 tests) |
 | Gate 2A | CFD-admissibility screen: a grammar-valid hull is not a CFD-meshable one | `tests/test_admissibility.py` (22 tests) |
-| Gate 2L | the prism-layer cap is a measured value, and a clean mesh with no boundary layer is not a pass | `tests/test_layer_cap.py` (6 tests) |
+| Gate 2L | the prism-layer cap is a measured value, and a clean mesh with no boundary layer is not a pass | `tests/test_layer_cap.py` (7 tests) |
 | Gate 2F | STL forensics: watertight is not valid, and the surface handed to snappy is measured rather than assumed | `tests/test_stl_forensics.py` (16 tests) |
 | Gate 2B | Blender-native hull generation, measured and REFUSED on the hull path: a 0.05 m voxel remesh destroys the chine | `tests/test_blender_hull.py` (10 tests) |
-| Gate 2C | the campaign classifier names the mechanism that actually failed, and refuses one it cannot measure | `tests/test_campaign_classifier.py` (11 tests) |
+| Gate 2C | the campaign classifier names the mechanism that actually failed, and refuses one it cannot measure | `tests/test_campaign_classifier.py` (13 tests) |
 | Gate 2H | surface repair on the import boundary, and generated geometry refused rather than healed | `tests/test_mesh_repair.py` (7 tests) |
 | Gate 2G | KCS benchmark geometry: present and accepted (scripts/fetch_benchmark_geom.py) | `tests/test_benchmark_geom.py` (4 tests) |
 | Gate 6R-mech | review-record mechanics + basis routing | `tests/test_phase6r.py` (10 tests) |
