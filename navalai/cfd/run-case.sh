@@ -28,6 +28,16 @@ NP="${2:-4}"
 # magnitude to spare; 0 disables it for a deliberately long campaign.
 # Portable watchdog (macOS ships no GNU `timeout`), with a VERIFIED kill:
 # the TERM is followed up, and surviving ranks are reported by name.
+# RECEIPTS ARE REWRITTEN, NOT APPENDED (see the measured duplicate-receipt
+# incident where this function is used, further down). Defined here at the
+# top because run_solver's early-abort path writes receipts and the RESUME
+# branch calls run_solver before the mesh-receipt section executes.
+_mq_record() {
+  grep -v "^$1=" case.info > case.info.tmp 2>/dev/null || : > case.info.tmp
+  mv case.info.tmp case.info
+  echo "$1=$2" >> case.info
+}
+
 SOLVER_TIMEOUT="${SOLVER_TIMEOUT:-21600}"
 # run_solver append|trunc <logfile> <cmd...> — the solver's output goes to
 # the log; the watchdog's own FATAL lines stay on the console (a timeout
@@ -53,6 +63,41 @@ run_solver() {
         say "       clean up by hand before the next run."
       fi
       exit 124
+    fi
+    # EARLY ABORT ON FLOW-TIME-SCALE COLLAPSE (MEASURED 2026-08-18, the Mac's
+    # paired dataset, filed in docs/audit/STATUS.md). Every checkMesh metric
+    # is blind to the solve-killing cell class: zero_volume/wrong_oriented/
+    # skewness are indistinguishable across the five solved hulls and the two
+    # dead ones, while min_flow_time_scale separates them by TWELVE orders
+    # (solved 7.8e-6..2.1e-5; diverged 4.356e-18). LTS interFoam prints
+    # "Flow time scale min/max = ..." EVERY iteration, so the pathology is
+    # visible within the first seconds of a solve — h18 burned 2700 s to a
+    # timeout for want of this check. The bar is 1e-12, RE-BASED with this
+    # dataset: the older 1e-20 bar was placed against a 1e-40-class
+    # divergence and MISSES h18's 4.356e-18. Anchors: solved floor 7.8e-6,
+    # worst divergence 4.356e-18 — ~5.9 and ~5.6 orders of margin. A
+    # collapse is a MESH verdict
+    # delivered by the solver, not a solver failure — the receipt says which.
+    _fts=$(tail -c 65536 "$rs_log" 2>/dev/null | \
+           awk '/^Flow time scale min\/max = / {v=$6; sub(/,$/,"",v)} END{print v}')
+    if [ -n "$_fts" ] && \
+       awk -v v="$_fts" 'BEGIN{exit !(v + 0 < 1e-12)}'; then
+      say "FATAL: local flow time scale collapsed to ${_fts} s (bar 1e-12)."
+      say "       This is a PATHOLOGICAL CELL, not a solver problem: a cell"
+      say "       whose V/(A*U) is below the bar cannot be integrated, deltaT"
+      say "       degrades locally and the run diverges or hangs. checkMesh"
+      say "       is measured BLIND to this class — do not re-run; re-mesh."
+      _mq_record solve_verdict pathological-cell-flow-time-collapse
+      _mq_record min_flow_time_scale_at_abort "$_fts"
+      kill "$solver_pid" 2>/dev/null || true
+      sleep 5
+      kill -9 "$solver_pid" 2>/dev/null || true
+      wait "$solver_pid" 2>/dev/null || true
+      if pgrep -x interFoam >/dev/null 2>&1; then
+        say "FATAL: interFoam ranks SURVIVED the kill: $(pgrep -xl interFoam | head -3 | tr '\n' ' ')"
+        say "       clean up by hand before the next run."
+      fi
+      exit 125
     fi
     sleep 10
     waited=$((waited + 10))
@@ -357,11 +402,9 @@ $(grep -m1 'Max skewness' log.checkMesh | tr -s ' ' | sed 's/^ *//' | cut -c1-40
 # case.info carries checkmesh_wrong_oriented_faces=10 three times over. Whoever
 # reads it next gets whichever duplicate they happen to hit, so a receipt from a
 # superseded mesh can outlive the mesh that produced it.
-_mq_record() {
-  grep -v "^$1=" case.info > case.info.tmp 2>/dev/null || : > case.info.tmp
-  mv case.info.tmp case.info
-  echo "$1=$2" >> case.info
-}
+# _mq_record is defined at the TOP of this file (it is needed by
+# run_solver's early-abort receipt, which the RESUME branch can reach
+# before this point in the script).
 _LAYERLOG=log.snappy; [ -s log.snappy.layers ] && _LAYERLOG=log.snappy.layers
 _L_INIT=$(awk '/^Initial mesh :/ {gsub(/cells:/,"",$4); print $4}' "$_LAYERLOG" | tail -1)
 _L_FINAL=$(awk '/^Layer mesh :/  {gsub(/cells:/,"",$4); print $4}' "$_LAYERLOG" | tail -1)

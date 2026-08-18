@@ -277,3 +277,24 @@ def test_the_campaign_measures_the_raw_population_as_a_declared_experiment():
     assert '"screen_verdict"' in src or "'screen_verdict'" in src, (
         "rows no longer record the screen's verdict; the confusion table "
         "(the screen's first 16-gene calibration) cannot be built")
+
+
+def test_a_diverged_timeout_is_named_a_divergence_not_a_timeout():
+    """Campaign h18 (MEASURED, gate2u-campaign-baseline.json): timed out at
+    2700 s with min_flow_time_scale 4.356e-18 -- twelve orders below every
+    solved hull. The timeout column absorbed it, so the campaign read "one
+    slow hull" where the truth was "one pathological cell". Same 1e-20 bar
+    as the finished-corpse branch; a timeout row carries the metric because
+    the log parse runs before the kill.
+    """
+    row = _lts_row(timed_out=True, solves=False,
+                   min_flow_time_scale=4.356e-18)
+    assert classify(row) == "solver-lts-time-scale-collapse"
+    # a HEALTHY slow run is still a timeout
+    row = _lts_row(timed_out=True, solves=False,
+                   min_flow_time_scale=1.05e-05)
+    assert classify(row) == "timeout"
+    # and an ABSENT metric (the h2 class: died before printing) must not
+    # trigger the collapse verdict -- unmeasured is not measured-bad
+    row = _lts_row(timed_out=True, solves=False, min_flow_time_scale=-1.0)
+    assert classify(row) == "timeout"

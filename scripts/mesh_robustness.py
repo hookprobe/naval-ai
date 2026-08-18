@@ -307,6 +307,23 @@ def classify(r: dict) -> str:
     if r.get("error"):
         return "generation"                 # write_resistance_case itself threw
     if r.get("timed_out"):
+        # A TIMEOUT WITH A COLLAPSED FLOW TIME SCALE IS A DIVERGENCE, not a
+        # slow run (MEASURED 2026-08-18: campaign h18 sat at min_flow_time
+        # _scale 4.356e-18 — twelve orders below every solved hull — and
+        # burned its full 2700 s budget; the summary's timeout column
+        # absorbed it and the pathological-cell count read one low). The
+        # RE-BASED 2026-08-18 with the Mac's paired dataset: the old 1e-20 bar
+        # was placed against a 1e-40-class divergence and MISSES the newly
+        # measured one (h18 diverged at 4.356e-18, two orders ABOVE 1e-20).
+        # Anchors now: solved floor 7.8e-6 (five hulls), worst divergence
+        # 4.356e-18. Bar 1e-12 sits ~5.9 orders below the solved floor and
+        # ~5.6 above the worst divergence — both anchors measured, neither
+        # interpolated away.
+        # The log parse runs before the kill, so timeout rows carry the
+        # metric.
+        fts = r.get("min_flow_time_scale", -1.0)
+        if 0 <= fts < 1e-12:
+            return "solver-lts-time-scale-collapse"
         return "timeout"
     if r.get("cells", -1) <= 0:
         if r.get("layer_pass_failed"):
@@ -384,10 +401,14 @@ def classify(r: dict) -> str:
     # across four solves it is monotone in mesh skewness over 35 orders of
     # magnitude -- skew 2.87 -> 2.12e-05, 14.26 -> 2.11e-12, 17.57 -> 2.48e-40 --
     # and the two that solved sit at 1e-05 while the divergence sits at 1e-40.
-    # The bar is 1e-20: far below any solved run, far above the diverged one,
-    # and NOT interpolated between them.
+    # RE-BASED 2026-08-18 with the Mac's paired dataset: the old 1e-20 bar was
+    # placed against a 1e-40-class divergence and MISSES the newly measured
+    # one (h18 diverged at 4.356e-18, two orders ABOVE 1e-20). Anchors now:
+    # solved floor 7.8e-6 (five hulls), worst divergence 4.356e-18. Bar 1e-12
+    # sits ~5.9 orders below the solved floor and ~5.6 above the worst
+    # divergence — both anchors measured, neither interpolated away.
     fts = r.get("min_flow_time_scale", -1.0)
-    if 0 <= fts < 1e-20:
+    if 0 <= fts < 1e-12:
         return "solver-lts-time-scale-collapse"
     return "solver-stopped-short"
 

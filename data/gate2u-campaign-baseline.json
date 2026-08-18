@@ -10,13 +10,13 @@
   "solve_pct": 30.0,
   "bar_pct": 95.0,
   "taxonomy": {
-    "checkmesh-wrong-oriented": 8,
-    "ok": 5,
     "checkmesh-zero-volume": 3,
-    "checkmesh-skewness": 1,
-    "checkmesh-unparsed": 1,
+    "checkmesh-wrong-oriented": 8,
     "solver-stopped-short": 1,
-    "timeout": 1
+    "checkmesh-unparsed": 1,
+    "ok": 5,
+    "checkmesh-skewness": 1,
+    "solver-lts-time-scale-collapse": 1
   },
   "rows": [
     {
@@ -609,7 +609,7 @@
       "solves": false,
       "hull": 18,
       "lwl": 17.289,
-      "why": "timeout",
+      "why": "solver-lts-time-scale-collapse",
       "solve_requested": true
     },
     {
