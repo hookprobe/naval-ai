@@ -480,7 +480,18 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
         # drop of water is involved. It is CAUGHT rather than allowed to
         # propagate for the same reason `_apply_policy` uses `route_report` —
         # one bad design must not abort a whole NSGA-II population.
-        return Evaluation(False, "L0", (f"vessel: {e}",),
+        #
+        # C-15 (forensics C6): an AttributeError/KeyError here is OUR bug
+        # (a typo in vessel_terms, a missing field), not a bad design — the
+        # old message dressed a code defect as a per-design refusal and a
+        # broken checker read as a 100%-refused population. Same precedent
+        # as translate.py's 'checker error:' labels: still refuse (the
+        # population must not abort), but NAME the class so a reader can
+        # tell 'your config is bad' from 'our code is broken'.
+        msg = (f"vessel: {e}" if isinstance(e, (ValueError, TypeError))
+               else f"checker error (a code defect, not a design refusal): "
+                    f"{type(e).__name__}: {e}")
+        return Evaluation(False, "L0", (msg,),
                           params=np.asarray(params),
                           hull_lwl_m=_declared_lwl_m(params),
                           eval_ms=(time.perf_counter() - t0) * 1e3)
