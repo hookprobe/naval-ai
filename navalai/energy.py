@@ -34,6 +34,18 @@ PANEL_KG_PER_M2 = 12.0
 OUTFIT_KG_PER_M = 55.0     # interior, systems, rig per metre LWL
 
 
+def pv_area_m2(deck_area: float, spec: "EnergySpec") -> float:
+    """Usable PV area — the ONE expression (C-33).
+
+    Written twice before this: `weight_budget` (panel MASS) and
+    `energy_report` (solar YIELD) each computed `deck_area * panel_packing`
+    inline. Two copies of the same physical quantity is how a future cap or
+    packing change makes the boat CARRY panels the yield model no longer
+    CREDITS — the two-specs-one-boat defect shape, one rename away.
+    """
+    return deck_area * spec.panel_packing
+
+
 def shell_area_m2(hull) -> float:
     """The structural shell area — INTEGRATED, not a factor times the wetted area.
 
@@ -81,7 +93,7 @@ def weight_budget(lwl: float, depth: float, hull_surface: float,
                   panel_thickness_m: float = PLY_THICKNESS_M) -> WeightBudget:
     structure = (hull_surface + deck_area) * panel_thickness_m * PLY_DENSITY * 1.35
     battery = spec.battery_kwh * BATT_KG_PER_KWH
-    pv_area = deck_area * spec.panel_packing
+    pv_area = pv_area_m2(deck_area, spec)
     panels = pv_area * PANEL_KG_PER_M2
     outfit = OUTFIT_KG_PER_M * lwl
     total = structure + battery + panels + outfit + spec.payload_kg
@@ -229,7 +241,8 @@ def energy_report(total_resistance_n: float, speed: float, deck_area: float,
     """
     p_el = total_resistance_n * speed / (spec.prop_efficiency * spec.motor_efficiency)
     wh_nm = p_el * (1852.0 / max(speed, 1e-6)) / 3600.0
-    solar = deck_area * spec.panel_packing * spec.panel_eff * spec.solar_yield_kwh_m2_day
+    solar = (pv_area_m2(deck_area, spec) * spec.panel_eff
+             * spec.solar_yield_kwh_m2_day)
     prop_day = p_el * spec.cruise_hours_day / 1000.0
     net = solar - spec.hotel_kwh_day - prop_day
     # A NON-POSITIVE wh_nm IS REFUSED, NOT CLAMPED. `max(wh_nm, 1e-9)` turned
