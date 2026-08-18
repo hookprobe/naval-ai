@@ -1,6 +1,6 @@
 {
   "_README": {
-    "generated_utc": "2026-08-13T11:23:26Z",
+    "generated_utc": "2026-08-18T16:34:05Z",
     "generation": {
       "frozen_suite": "flywheel.frozen_suite \u2014 BENCHMARK_PROBES + held-out wedge",
       "harvest_seed": 21,
@@ -21,9 +21,9 @@
     "how_produced": "scripts/make_baseline.py \u2014 a seeded harvest into a throwaway provenance DB, then the real retrain(..., bootstrap=True). No metric in this file was written by hand.",
     "refused_by_the_gate": {
       "gm": {
-        "coverage_2sigma": 0.9629629629629629,
+        "coverage_2sigma": 1.0,
         "err_kind": "spread-normalised",
-        "median_err": 0.7340589106027868,
+        "median_err": 0.43307741959122936,
         "transform": "identity"
       }
     },
@@ -32,38 +32,38 @@
     "what": "Frozen deployment marks for navalai.flywheel.retrain. Each quantity key holds the metrics of the last ACCEPTED retrain plus monotone best-ever marks; retrain refuses to deploy a model worse than best_median_rel_err * tol, or with 2-sigma coverage more than 0.15 below best_coverage_2sigma."
   },
   "rt": {
-    "best_coverage_2sigma": 0.8888888888888888,
-    "best_median_rel_err": 0.17209321000382977,
-    "best_wall_clock_s": 2.027631916978862,
-    "coverage_2sigma": 0.8888888888888888,
+    "best_coverage_2sigma": 1.0,
+    "best_median_rel_err": 0.20592341820269924,
+    "best_wall_clock_s": 29.917935844976455,
+    "coverage_2sigma": 1.0,
     "coverage_2sigma_seeds": [
-      0.8888888888888888,
-      1.0,
-      1.0,
       1.0,
       1.0,
       1.0,
       0.9629629629629629,
-      1.0
+      1.0,
+      0.9629629629629629,
+      1.0,
+      0.9629629629629629
     ],
     "ensemble_coverage_2sigma": 1.0,
-    "ensemble_median_rel_err": 0.12058148272170822,
+    "ensemble_median_rel_err": 0.16865711897953783,
     "err_kind": "relative",
-    "frozen_ood_rate": 0.18518518518518517,
-    "median_rel_err": 0.17209321000382977,
+    "frozen_ood_rate": 0.1111111111111111,
+    "median_rel_err": 0.20592341820269924,
     "median_rel_err_seeds": [
-      0.17209321000382977,
-      0.11363617702826159,
-      0.08813947858266422,
-      0.12752678841515486,
-      0.06181391406031181,
-      0.11239765498748558,
-      0.18676873426143917,
-      0.14233797943641643
+      0.20592341820269924,
+      0.16672444183543159,
+      0.12042256427820401,
+      0.24309961234940902,
+      0.17058979612364406,
+      0.3300913193338833,
+      0.14516944830210968,
+      0.16480391660555407
     ],
     "n_frozen": 27,
     "n_train": 120,
-    "seed_spread": 3.021467530420562,
+    "seed_spread": 2.7411085398521817,
     "seeds": [
       21,
       22,
@@ -75,45 +75,45 @@
       28
     ],
     "suite": "frozen_suite",
-    "suite_fingerprint": "654314aec9e94e22",
-    "targets_fingerprint": "efcdccaa5fa94ca4",
+    "suite_fingerprint": "e08166f4086d4c7a",
+    "targets_fingerprint": "1dafeee1b114e662",
     "transform": "log",
-    "utc": 1786620056.835614,
-    "wall_clock_s": 2.027631916978862
+    "utc": 1787069047.1698232,
+    "wall_clock_s": 29.917935844976455
   },
   "wh_per_nm": {
-    "best_coverage_2sigma": 0.8888888888888888,
-    "best_median_rel_err": 0.17209940843391322,
-    "best_wall_clock_s": 2.4633614589693025,
-    "coverage_2sigma": 0.8888888888888888,
+    "best_coverage_2sigma": 1.0,
+    "best_median_rel_err": 0.20591594027638543,
+    "best_wall_clock_s": 28.899690694001038,
+    "coverage_2sigma": 1.0,
     "coverage_2sigma_seeds": [
-      0.8888888888888888,
       1.0,
-      1.0,
-      0.9629629629629629,
       1.0,
       1.0,
       0.9629629629629629,
+      1.0,
+      0.9629629629629629,
+      1.0,
       1.0
     ],
     "ensemble_coverage_2sigma": 1.0,
-    "ensemble_median_rel_err": 0.11302295665511689,
+    "ensemble_median_rel_err": 0.16866086534575564,
     "err_kind": "relative",
-    "frozen_ood_rate": 0.18518518518518517,
-    "median_rel_err": 0.17209940843391322,
+    "frozen_ood_rate": 0.1111111111111111,
+    "median_rel_err": 0.20591594027638543,
     "median_rel_err_seeds": [
-      0.17209940843391322,
-      0.11362744403879153,
-      0.08814317063878054,
-      0.14148961925465434,
-      0.06181071811447367,
-      0.11241846927144224,
-      0.18675417555120727,
-      0.08830600529284234
+      0.20591594027638543,
+      0.16672746779650904,
+      0.12042570053378399,
+      0.24310470304256773,
+      0.17059426289500226,
+      0.3301152428177833,
+      0.14517932830127792,
+      0.08358630331896742
     ],
     "n_frozen": 27,
     "n_train": 120,
-    "seed_spread": 3.0213882195210524,
+    "seed_spread": 3.9493939761644357,
     "seeds": [
       21,
       22,
@@ -125,10 +125,10 @@
       28
     ],
     "suite": "frozen_suite",
-    "suite_fingerprint": "654314aec9e94e22",
-    "targets_fingerprint": "07320f220bf6f694",
+    "suite_fingerprint": "e08166f4086d4c7a",
+    "targets_fingerprint": "5e19567749a989df",
     "transform": "log",
-    "utc": 1786620052.4930718,
-    "wall_clock_s": 2.4633614589693025
+    "utc": 1787068966.0797272,
+    "wall_clock_s": 28.899690694001038
   }
 }

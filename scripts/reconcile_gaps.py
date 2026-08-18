@@ -96,6 +96,7 @@ from __future__ import annotations
 import argparse
 import ast
 import json
+import subprocess
 import re
 import sys
 from contextlib import contextmanager
@@ -700,10 +701,13 @@ CHECKS: tuple[Check, ...] = (
           lambda: has_code("scripts/demo_mission.py", r"ev\.ply_thickness_m")
                   and lacks_code("scripts/demo_mission.py", r"provided_mm=20\.0")),
     Check("C3", "evaluate() passes the derived t_ply into BOTH weight_budget "
-                "and weight_items, so structural mass runs on the same sheet",
+                "and weight_items, so structural mass runs on the same sheet "
+                "(predicate updated 2026-08-18: the spec argument became the "
+                "payload-adjusted energy_spec — the INVARIANT is the shared "
+                "t_ply, not the spec's name)",
           lambda: has_code("navalai/evaluate.py",
-                      r"weight_budget\(p\[\"LWL\"\], p\[\"D\"\], shell, deck, "
-                      r"mission\.energy, t_ply\)")
+                      r"weight_budget\(p\[\"LWL\"\], p\[\"D\"\], shell, deck,\s*"
+                      r"energy_spec, t_ply\)")
                   and has_code("navalai/evaluate.py", r"t_design, t_ply\)")),
     Check("C4", "the scantling rule is fed the FLOATED displacement "
                 "(scantling_rules(hs.disp_kg, ...)), which is ISO's mLDC",
@@ -1340,9 +1344,15 @@ CHECKS: tuple[Check, ...] = (
                   and has_code("navalai/gates.py", r'Gate\("Gate 2G"'),
           gate="Gate 2G"),
     Check("J6", "renders/ and data/exports/ are gitignored build artifacts, "
-                "not tracked files re-modified by every test run",
+                "not tracked files re-modified by every test run — AND none "
+                "remain tracked (the 2026-08-18 finding: four PNGs sat "
+                "tracked for two weeks behind an ignore-pattern-only probe)",
           lambda: has(".gitignore", r"^renders/")
-                  and has(".gitignore", r"^data/exports/")),
+                  and has(".gitignore", r"^data/exports/")
+                  and subprocess.run(
+                      ["git", "ls-files", "renders/", "data/exports/"],
+                      capture_output=True, text=True,
+                      cwd=_ROOT).stdout.strip() == ""),
     Check("J7", "ALIGNMENT.md's superseded findings are struck through WITH "
                 "the superseding measurement beside them (PLM section 3 step 7)",
           lambda: has("ALIGNMENT.md", r"SUPERSEDED")
