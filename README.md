@@ -169,7 +169,7 @@ different Gate 2M numbers came to circulate at once (gap J1).
 | Gate 0F | the hull-form library: bands ordered, every band carries its basis, no family contradicts its own Froude regime | `tests/test_formlib.py` (49 tests) |
 | Gate 0X | the experiment suite: controlled sweeps hold their controlled quantities, out-of-envelope points are refused, and the Michell interference phase matches an independent superposition | `tests/test_experiments.py` (52 tests) |
 | Gate 1M | the vessel: topology/manning/regime, the parallel-axis I_T, separation in the PRODUCTION wave term, and no multihull safety verdict from a monohull GM floor | `tests/test_multihull.py` (27 tests) |
-| Gate PV-B | vessel-conditional proportion bands, the sourced size box, and the multihull stability refusal | `tests/test_vessel_bands.py` (18 tests) |
+| Gate PV-B | vessel-conditional proportion bands, the sourced size box, and the multihull stability refusal | `tests/test_vessel_bands.py` (19 tests) |
 | Gate 0B | buildability metrics are PROXIES that refuse rather than default, are grid-converged by a measured residual, and price manufacturing in ABSOLUTE m^2 — never in a ratio an optimiser can inflate | `tests/test_buildability.py` (11 tests) |
 | Gate 0 | grammar/geometry/DB | `tests/test_phase0.py` (15 tests) |
 | Gate 1 | L1 physics + Wigley anchor + <50ms | `tests/test_phase1.py` (35 tests) |
@@ -180,16 +180,16 @@ different Gate 2M numbers came to circulate at once (gap J1).
 | Gate 2 | Capytaine BEM (Hulme anchor) | `tests/test_phase2.py` (18 tests) |
 | Gate 2R | CFD reference parity + GCI honesty | `tests/test_cfd_reference_parity.py` (99 tests) |
 | Gate 2P | slamming pressure is measurable: a bow patch that partitions the hull, a function object that refuses to point at nothing, and a Wagner C_p guarded at both limits | `tests/test_slamming.py` (14 tests) |
-| Gate 3 | surrogate spine: GP + co-kriging rho, OOD refusal, batched-EI infill (held-out error bar: Gate 3E) | `tests/test_phase3.py` (24 tests) |
+| Gate 3 | surrogate spine: GP + co-kriging rho, OOD refusal, batched-EI infill + the held-out across-seed error bar | `tests/test_phase3.py` (24 tests) |
 | Gate 4 | generative + slider p95<100ms (raw feasibility: Gate 4F) | `tests/test_phase4.py` (27 tests) |
-| Gate 5 | mission translation + LLM seam | `tests/test_phase5.py` (11 tests) |
+| Gate 5 | mission translation + LLM seam | `tests/test_phase5.py` (12 tests) |
 | Gate 6 | rules-as-code mechanics | `tests/test_phase6.py` (6 tests) |
 | Gate 7 | flywheel: frozen suite != training draw, monotone regression mark, wall clock, committed baseline | `tests/test_phase7.py` (15 tests) |
 | Gate B | grammar AST + bend radius + 8-D genome | `tests/test_stageB.py` (13 tests) |
 | Gate C | agentic PLM network + engineer + STEP/IGES | `tests/test_stageC.py` (13 tests) |
 | Gate D | waves/RAO response + dynamics + CFD post | `tests/test_stageD.py` (19 tests) |
 | Gate E | latent-space evolution + latent GP | `tests/test_stageE.py` (3 tests) |
-| Gate F | panel unroll/DXF + Pareto dash + handoff receipt | `tests/test_stageF.py` (11 tests) |
+| Gate F | panel unroll/DXF + Pareto dash + handoff receipt | `tests/test_stageF.py` (12 tests) |
 | Gate G | APSE: similitude/ITTC-78/cost/planner/evidence | `tests/test_stageG.py` (53 tests) |
 | Gate V2.1 | arrangement grammar: envelope, spaces, deck zones, and an L0-A that names the space it refuses | `tests/test_arrangement.py` (42 tests) |
 | Gate V3.0 | governance compiles to a parameter box and to constraint rows, ratchets only tighter, and the ladder never imports it | `tests/test_policy.py` (48 tests) |
@@ -205,11 +205,11 @@ different Gate 2M numbers came to circulate at once (gap J1).
 | Gate 4H | the surrogate refuses what it has not seen, and the feasibility bar measures the model rather than the sampler | `tests/test_surrogate_honesty.py` (18 tests) |
 | Gate 2T | tank resonance is diagnosed, and a period is never claimed from too few cycles | `tests/test_tank_resonance.py` (25 tests) |
 | Gate V2.0 | refdata spine: every constant carries source + basis | `tests/test_refdata.py` (27 tests) |
-| Gate 2A | CFD-admissibility screen: a grammar-valid hull is not a CFD-meshable one | `tests/test_admissibility.py` (22 tests) |
+| Gate 2A | CFD-admissibility screen: a grammar-valid hull is not a CFD-meshable one | `tests/test_admissibility.py` (27 tests) |
 | Gate 2L | the prism-layer cap is a measured value, and a clean mesh with no boundary layer is not a pass | `tests/test_layer_cap.py` (7 tests) |
 | Gate 2F | STL forensics: watertight is not valid, and the surface handed to snappy is measured rather than assumed | `tests/test_stl_forensics.py` (16 tests) |
 | Gate 2B | Blender-native hull generation, measured and REFUSED on the hull path: a 0.05 m voxel remesh destroys the chine | `tests/test_blender_hull.py` (10 tests) |
-| Gate 2C | the campaign classifier names the mechanism that actually failed, and refuses one it cannot measure | `tests/test_campaign_classifier.py` (13 tests) |
+| Gate 2C | the campaign classifier names the mechanism that actually failed, and refuses one it cannot measure | `tests/test_campaign_classifier.py` (14 tests) |
 | Gate 2H | surface repair on the import boundary, and generated geometry refused rather than healed | `tests/test_mesh_repair.py` (7 tests) |
 | Gate 2G | KCS benchmark geometry: present and accepted (scripts/fetch_benchmark_geom.py) | `tests/test_benchmark_geom.py` (4 tests) |
 | Gate 6R-mech | review-record mechanics + basis routing | `tests/test_phase6r.py` (10 tests) |
@@ -217,7 +217,6 @@ different Gate 2M numbers came to circulate at once (gap J1).
 | Gate VM | vessel matrix: five vessel classes end-to-end (ladder + manifest), refusals explicit, roles judged apart | `tests/test_vessel_matrix.py` (8 tests) |
 | Gate DC | design certification: cheap classify-and-rank with receipts, banded speed curves, loading matrix, regime refusals | `tests/test_design_certification.py` (11 tests) |
 | Gate 4F | raw generative feasibility: UNFILTERED model draws vs the >=99% bar (BuildPlan Phase 4) | **RED** — `data/gate-ledger.json` |
-| Gate 3E | the L1 surrogate's held-out error bar, measured ACROSS query seeds rather than on one chosen draw | **RED** — `data/gate-ledger.json` |
 | Gate 2M | KCS/JBC OpenFOAM calibration w/ per-case GCI | **RED** — `data/gate-ledger.json` |
 | Gate 2U | unattended meshing (plan: >=95% of a 200-hull batch) | **RED** — `data/gate-ledger.json` |
 | Gate 6R | ISO threshold parity vs licensed standard text | **RED** — `data/gate-ledger.json` |
