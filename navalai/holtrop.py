@@ -95,8 +95,8 @@ from dataclasses import dataclass, field
 from .geometry import G
 
 # Sea water at 15 degrees centigrade, the condition the 1982 paper works in.
-from .constants import RHO_SEA_HOLTROP as RHO_SEA_15C  # see constants.py
-from .constants import NU_SEA_HOLTROP as NU_SEA_15C  # see constants.py
+from .constants import RHO_SEA_HOLTROP  # see constants.py
+from .constants import NU_SEA_HOLTROP  # see constants.py
 
 # The uncertainty band attached to every prediction.  DECLARED, NOT SOURCED:
 # the 1982 paper does not publish a per-prediction standard error in a form
@@ -379,7 +379,7 @@ def wave_length_parameter(cp: float, lwl: float, b: float) -> float:
 
 def wave_resistance(c1_: float, c2_: float, c5_: float, volume: float,
                     fn: float, m1_: float, m2_: float, lam: float,
-                    rho: float = RHO_SEA_15C, g: float = G) -> float:
+                    rho: float = RHO_SEA_HOLTROP, g: float = G) -> float:
     """R_W [N] — wave making and wave breaking, the 1982 branch.
 
         R_W = c1 c2 c5 (volume rho g) exp(m1 Fn^d + m2 cos(lambda Fn^-2))
@@ -393,7 +393,7 @@ def wave_resistance(c1_: float, c2_: float, c5_: float, volume: float,
 
 
 def bulbous_bow(abt: float, tf: float, hb: float, speed: float,
-                rho: float = RHO_SEA_15C,
+                rho: float = RHO_SEA_HOLTROP,
                 g: float = G) -> tuple[float, float, float]:
     """(P_B [-], Fn_i [-], R_B [N]) — bulb pressure drag near the surface.
 
@@ -422,7 +422,7 @@ def bulbous_bow(abt: float, tf: float, hb: float, speed: float,
 
 
 def transom(at: float, b: float, cwp: float, speed: float,
-            rho: float = RHO_SEA_15C,
+            rho: float = RHO_SEA_HOLTROP,
             g: float = G) -> tuple[float, float, float]:
     """(Fn_T [-], c6 [-], R_TR [N]) — immersed-transom pressure drag.
 
@@ -443,7 +443,7 @@ def c4(tf: float, lwl: float) -> float:
 
 def model_ship_correlation(lwl: float, cb: float, c2_: float, c4_: float,
                            s_total: float, speed: float,
-                           rho: float = RHO_SEA_15C) -> tuple[float, float]:
+                           rho: float = RHO_SEA_HOLTROP) -> tuple[float, float]:
     """(C_A [-], R_A [N]) — the model-ship correlation allowance.
 
     R_A rides on the TOTAL wetted surface (hull + appendages).  MEASURED
@@ -456,7 +456,7 @@ def model_ship_correlation(lwl: float, cb: float, c2_: float, c4_: float,
     return ca, 0.5 * rho * speed ** 2 * s_total * ca
 
 
-def ittc57_cf(speed: float, lwl: float, nu: float = NU_SEA_15C) -> float:
+def ittc57_cf(speed: float, lwl: float, nu: float = NU_SEA_HOLTROP) -> float:
     """ITTC-1957 flat-plate friction coefficient C_F [-], sea-water default.
 
     CONSOLIDATED 2026-08-14 (§18): this was a deliberate local COPY, argued
@@ -658,8 +658,8 @@ def envelope_violations(p: Particulars, fn: float, cp: float) -> tuple[str, ...]
     return tuple(out)
 
 
-def total(p: Particulars, speed: float, rho: float = RHO_SEA_15C,
-          nu: float = NU_SEA_15C, g: float = G) -> HoltropResult:
+def total(p: Particulars, speed: float, rho: float = RHO_SEA_HOLTROP,
+          nu: float = NU_SEA_HOLTROP, g: float = G) -> HoltropResult:
     """Full Holtrop-Mennen calm-water resistance at `speed` [m/s].
 
     Returns every intermediate.  The result is badged, not refused, outside the

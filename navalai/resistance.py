@@ -51,7 +51,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from .geometry import G, Hull
-from .holtrop import NU_SEA_15C, RHO_SEA_15C
+from .constants import NU_SEA_HOLTROP, RHO_SEA_HOLTROP
 
 # KINEMATIC VISCOSITY IS A PROPERTY OF THE WATER, NOT A MODULE CONSTANT.
 # `NU_WATER = 1.14e-6` was a FRESH-water figure applied to every call, while
@@ -62,13 +62,15 @@ from .holtrop import NU_SEA_15C, RHO_SEA_15C
 # small, but wrong in a fixed direction and invisible, which is the shape of
 # every defect in this file's history.
 #
-# The two anchors are the ITTC-1957 table's 15 C rows. The salt row is
-# IMPORTED from `holtrop.NU_SEA_15C` rather than retyped: this module and that
-# one would otherwise hold the same physical constant twice, which is the
-# defect `limits.py` exists to prevent, one floor down in the stack.
+# The two anchors are named for what they ARE (C-11, forensics: the old
+# alias let `NU_SEA_15C` mean two different numbers in two modules). The
+# salt row is the HOLTROP convention — the ITTC 15 C value rounded to four
+# figures (1.1883e-6, see constants.py) — imported under its true name,
+# NOT the genuine ITTC table row (1.18831e-6, similitude's convention).
+# Same physical constant, one declaration, honest label.
 from .constants import \
     NU_FRESH_15C_ROUNDED as NU_FRESH_15C  # see constants.py for the 1.13902e-6 note
-_NU_ANCHORS = ((1000.0, NU_FRESH_15C), (RHO_SEA_15C, NU_SEA_15C))
+_NU_ANCHORS = ((1000.0, NU_FRESH_15C), (RHO_SEA_HOLTROP, NU_SEA_HOLTROP))
 
 
 def nu_water(rho: float = 1000.0) -> float:
