@@ -294,6 +294,13 @@ RE_TRANSITION_BAND = (5.0e5, 5.0e6)
 def friction_line_validity(re: float) -> tuple[bool, str]:
     """Is ITTC-57 inside its regime at this Reynolds number, and if not, why.
 
+    C-31, THE POLICY SPLIT DECLARED: this is the STRICT designer-facing
+    question — inside the transition band counts as NOT valid. The wired
+    evaluation policy lives in `resistance.flow_regime`: it refuses only
+    below the band's onset and REPORTS (with a receipt) inside the band,
+    for the measured-decision reasons documented at its constants. Both
+    read the ONE band, RE_TRANSITION_BAND, above.
+
     Returns `(valid, reason)`; `reason` is empty exactly when `valid` is True.
     A REASON, not a bool, for the same purpose `resistance.FormFactor` carries
     its raw estimate: a caller that only learns "invalid" cannot tell the

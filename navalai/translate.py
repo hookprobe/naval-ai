@@ -21,6 +21,7 @@ import json
 import math
 
 from .energy import EnergySpec
+from .mission import VesselConfig
 from .evaluate import Evaluation
 from .limits import FREEBOARD_FLOOR_M, gm_floor
 from .mission import (DESIGN_CATEGORIES, ENERGY_RANGES, FIELD_RANGES,
@@ -104,6 +105,22 @@ def sanitize(raw: dict, floor: MissionSpec) -> MissionSpec:
             base = {f: getattr(m.energy, f) for f in EnergySpec.__dataclass_fields__}
             base.update(e_kw)
             m.energy = EnergySpec(**base)
+    # C-35: the NL path could not declare a VESSEL — "solar catamaran for
+    # the Danube" evaluated as a monohull, silently. VesselConfig validates
+    # its own JSON (string topology/manning coerced to enums, separation
+    # refused when unspecified for a multihull), so the decode is a
+    # whitelist plus its refusal turned into a recorded note: the LLM
+    # proposing an invalid vessel degrades to the rule floor's monohull
+    # WITH the reason on the record, and never crashes the floor path.
+    v_raw = raw.get("vessel")
+    if isinstance(v_raw, dict):
+        v_kw = {k: v_raw[k] for k in
+                ("topology", "manning", "separation_over_lwl") if k in v_raw}
+        if v_kw:
+            try:
+                m.vessel = VesselConfig(**v_kw)
+            except (ValueError, TypeError) as e:
+                notes.append(f"LLM vessel rejected ({e}); monohull floor kept")
     # Every field above was written with `setattr`, which bypasses
     # `__post_init__`. This is the structural exit gate: no spec leaves this
     # function un-clamped, whatever a future branch above forgets to bound.

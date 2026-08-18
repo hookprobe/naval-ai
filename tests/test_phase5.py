@@ -250,3 +250,26 @@ def test_prose_battery_capacity_is_bounded_too():
     assert not any("battery" in n for n in zero.notes.split("; ") if n)
     names = {r.name for r in requirements_from_mission(zero)}
     assert "solar-positive-day" not in names
+
+
+def test_llm_seam_can_declare_a_vessel_and_a_bad_one_degrades_with_a_note():
+    """C-35: the NL path had no vessel decode, so "solar catamaran" from the
+    LLM evaluated as a MONOHULL, silently. A valid vessel dict now reaches
+    MissionSpec.vessel; an invalid one (multihull with no declared
+    separation — VesselConfig's own refusal) degrades to the rule floor's
+    monohull WITH the reason recorded in notes, never a crash.
+    """
+    from navalai.mission import Topology
+
+    good = json.dumps({"vessel": {"topology": "catamaran",
+                                  "separation_over_lwl": 0.22}})
+    m = translate("a solar catamaran", llm=lambda p: good)
+    assert m.vessel.topology is Topology.CATAMARAN
+    assert m.vessel.separation_over_lwl == pytest.approx(0.22)
+
+    bad = json.dumps({"vessel": {"topology": "catamaran"}})  # no separation
+    m = translate("a solar catamaran", llm=lambda p: bad)
+    assert m.vessel.topology is Topology.MONOHULL, (
+        "an unspecified multihull must degrade to the floor, not sneak in")
+    assert "vessel rejected" in m.notes, (
+        f"the degradation left no note: {m.notes!r}")

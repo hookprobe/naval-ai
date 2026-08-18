@@ -52,6 +52,7 @@ import numpy as np
 
 from .geometry import G, Hull
 from .constants import NU_SEA_HOLTROP, RHO_FRESH, RHO_SEA_HOLTROP
+from .limits import RE_TRANSITION_BAND as _RE_BAND
 
 # KINEMATIC VISCOSITY IS A PROPERTY OF THE WATER, NOT A MODULE CONSTANT.
 # `NU_WATER = 1.14e-6` was a FRESH-water figure applied to every call, while
@@ -150,7 +151,7 @@ FN_MICHELL_MAX = 0.45
 #                                 see the note below for why that decision was
 #                                 not taken tonight.
 #
-# THE OPEN GAP, STATED RATHER THAN BURIED. The transitional band 5e5..3e6 IS
+# THE OPEN GAP, STATED RATHER THAN BURIED. The transitional band 5e5..5e6 IS
 # reachable inside today's design box: `grammar.PARAMS["LWL"].low` is 4.0 m and
 # `mission.FIELD_RANGES["cruise_speed_kn"]` starts at 1.0 kn, which is
 # Re = 1.81e6. Turning that band into a refusal would move the friction number
@@ -160,8 +161,19 @@ FN_MICHELL_MAX = 0.45
 # smallest, slowest admissible hull is 3.6x above it), which is why it can be
 # added without touching a single existing result — and it is added anyway,
 # because the uncrewed/small-craft axis is what will reach it first.
-RE_TRANSITION_ONSET = 5.0e5
-RE_FULLY_TURBULENT = 3.0e6
+# C-31: ONE envelope, one home. These used to be a SECOND copy of the
+# transition band with a DIFFERENT ceiling (3e6 here, 5e6 in limits.py —
+# both classical flat-plate values, neither citable, and two modules
+# answering "is ITTC-57 inside its regime?" with different numbers).
+# Unified on limits.RE_TRANSITION_BAND's conservative 5e6 ceiling: the
+# refusal is keyed on the ONSET (unchanged), so no verdict moved — the
+# extrapolation CAVEAT now honestly covers Re in [3e6, 5e6) too. The
+# POLICY split is deliberate and declared: `limits.friction_line_validity`
+# answers the strict designer question (inside the band = not valid),
+# while `flow_regime` is the wired evaluation policy (refuse below onset,
+# report-with-receipt inside the band); both read this one band.
+RE_TRANSITION_ONSET = _RE_BAND[0]
+RE_FULLY_TURBULENT = _RE_BAND[1]
 
 
 @dataclass(frozen=True)

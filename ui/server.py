@@ -257,16 +257,18 @@ def _mission_from(mission_d: dict | None) -> MissionSpec:
     invariants); three copies of the field filter is how two endpoints end up
     accepting different missions from the same JSON.
 
-    `energy` is dropped because it arrives as a nested dict and `MissionSpec`
-    wants an `EnergySpec` — passing it through would build a spec whose
-    `energy` is a dict, and `mission_key` reads attributes off it. An absent
-    key falls back to the default spec, which is what every caller did before.
+    `energy` used to be DROPPED here (it arrives as a nested dict and the
+    spec wanted an EnergySpec), so a wire mission's battery_kwh silently
+    never reached the evaluation — C-12. MissionSpec.__post_init__ now
+    rehydrates energy dicts exactly as it does vessel and payload, so the
+    key passes through and a malformed energy dict fails LOUDLY at the
+    boundary instead of evaluating the default spec under the caller's
+    label.
     """
     if not mission_d:
         return _mission_default
     return MissionSpec(**{k: v for k, v in mission_d.items()
-                          if k in MissionSpec.__dataclass_fields__
-                          and k != "energy"})
+                          if k in MissionSpec.__dataclass_fields__})
 
 
 def _mission_receipt(mission: MissionSpec) -> dict:

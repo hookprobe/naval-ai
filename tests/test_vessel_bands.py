@@ -475,3 +475,18 @@ def test_the_low_reynolds_refusal_is_NOT_YET_WIRED_INTO_THE_LADDER():
         "resistance now refuses a low-Reynolds hull — the gap this tripwire "
         "records is CLOSED. Invert this assertion to assert the refusal, and "
         "record the closure; do not delete the test.")
+
+
+def test_the_ittc_envelope_has_one_home_C31():
+    """resistance carried a SECOND copy of the transition band with a
+    DIFFERENT ceiling (3e6 vs limits' 5e6) — two modules answering "is
+    ITTC-57 inside its regime?" with different numbers. resistance now
+    DERIVES its pair from limits.RE_TRANSITION_BAND; the policies stay
+    deliberately different (strict helper vs report-inside-band evaluation)
+    and both docstrings say so.
+    """
+    from navalai import resistance
+    from navalai.limits import RE_TRANSITION_BAND
+
+    assert resistance.RE_TRANSITION_ONSET == RE_TRANSITION_BAND[0]
+    assert resistance.RE_FULLY_TURBULENT == RE_TRANSITION_BAND[1]

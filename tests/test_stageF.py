@@ -372,3 +372,30 @@ def test_agent_handoff_overhead_is_noise():
     physics = time.perf_counter() - t0
     ratio = handoff / physics
     assert ratio < 0.01, f"handoff {handoff*1e6:.1f} us vs physics {physics*1e3:.1f} ms"
+
+
+def test_a_wire_mission_energy_dict_reaches_the_evaluation_C12():
+    """C-12: `_mission_from` DROPPED the `energy` key (a nested dict the
+    spec could not hold), so a wire mission's battery_kwh silently never
+    reached the evaluation — the served numbers were computed under the
+    DEFAULT energy spec while the payload named the caller's mission.
+    MissionSpec.__post_init__ now rehydrates energy dicts exactly as it
+    does vessel and payload, and the wire decoder passes the key through.
+    """
+    import ui.server as S
+
+    base = {"displacement_target_kg": 4000.0}
+    with_batt = {"displacement_target_kg": 4000.0,
+                 "energy": {"battery_kwh": 60.0}}
+    m0 = S._mission_from(base)
+    m1 = S._mission_from(with_batt)
+    from navalai.energy import EnergySpec
+    assert isinstance(m1.energy, EnergySpec), (
+        "the energy dict must rehydrate at the MissionSpec boundary")
+    assert m1.energy.battery_kwh == pytest.approx(60.0)
+    assert m0.energy.battery_kwh != m1.energy.battery_kwh, (
+        "the wire energy no longer moves the spec — C-12 regressed")
+    # and the condition separates the answers a caller is served under
+    assert S.mission_key(m0) != S.mission_key(m1), (
+        "two missions differing only in energy share a cache key — the "
+        "served numbers would be conditioned on the wrong spec")

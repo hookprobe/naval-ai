@@ -417,6 +417,14 @@ class MissionSpec:
             self.vessel = VesselConfig(**self.vessel)
         if isinstance(self.payload, dict):
             self.payload = PayloadSpec(**self.payload)
+        # C-12: `energy` was the ONE nested spec this boundary did not
+        # rehydrate, so ui/server dropped the key silently and a wire
+        # mission's battery/solar terms never reached the evaluation. Same
+        # rule as vessel/payload: rehydrate here, at the boundary every
+        # construction path crosses (the uncrewed check below reads
+        # self.energy.payload_kg, so this must come first).
+        if isinstance(self.energy, dict):
+            self.energy = EnergySpec(**self.energy)
         extra = []
         # §11: an UNCREWED mission left with the CREWED default provision
         # (800 kg of "crew + stores + water") describes a crew that does not
