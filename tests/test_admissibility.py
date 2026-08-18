@@ -259,18 +259,21 @@ def test_draft_bar_refuses_the_hulls_whose_keel_sits_in_the_refine_band(
 @_needs_calibration
 def test_collapse_bar_refuses_the_hulls_whose_sheer_was_silently_clipped(
         reports, hid):
-    """Campaign hulls 5, 11, 12 — 3.04, 2.13 and 4.36 cells of collapsed deck.
+    """Campaign hulls 5, 11, 12 — the OLD kernel delivered a zero-width deck.
 
-    `station_geometry` computes `ys` from the flare and then writes
-    `np.maximum(ys, 0.0)`: where the flare drives the sheer inboard of the
-    centreline the code delivers a DIFFERENT hull and says nothing. All three
-    failed to mesh. (The mechanism is NOT an open STL — see the module comment;
-    all three are watertight.)
+    UPDATED 2026-08-18 for the re-derivation: `sheer_collapse_cells` was
+    retired (it was a second copy of the PRE-P1 sheer law; the rebuilt kernel
+    refuses a negative sheer at L0, so the clip it measured no longer exists).
+    Its successor measures the DELIVERED deck half-width in cells, and the
+    old kernel delivered these three hulls a LITERAL zero-width ridge — 0.0
+    cells against a bar of 1.0 — so if a 15-gene campaign is ever replayed,
+    the successor must refuse the same three hulls the retired bar was
+    validated on. (Permanently skipped in practice: the genome is 16 now.)
     """
-    m = reports[hid].get("sheer_collapse_cells")
+    m = reports[hid].get("min_interior_sheer_halfwidth_cells")
     assert m.verdict is Verdict.DANGEROUS
-    assert m.value > 0.0
-    assert "sheer_collapse_cells" in reports[hid].refused_by
+    assert m.value < 1.0
+    assert "min_interior_sheer_halfwidth_cells" in reports[hid].refused_by
 
 
 @_needs_calibration
@@ -319,6 +322,93 @@ def test_a_diagnostic_metric_never_votes(reports):
     # hull 7 MESHED and has bow_bluntness 13.55 cells and a 23.1 deg tangent
     # break — larger than several hulls that failed. It must come out unrefused.
     assert reports[7].refused_by == ()
+
+
+# ---------------------------------------------------------------------------
+# The 2026-08-18 re-derivation (docs/MESHABILITY_MATH.md): retirement fences,
+# the rescue axis, and the solvability receipt.
+# ---------------------------------------------------------------------------
+
+def test_the_stale_sheer_formula_is_retired_and_its_successor_exists(reports):
+    """`sheer_collapse_cells` recomputed the PRE-P1 sheer law (unenveloped
+    flare) while the rebuilt kernel refuses a negative sheer at L0 — a second
+    copy, voting. MEASURED: it refused 5 of 25 seed-0 hulls whose delivered
+    interior sheer is 0.06..0.37 m. This fence keeps it dead and pins the
+    successor's contract (delivered surface, sub-cell bar, no ladder rescue).
+    """
+    names = {m.name for m in reports[0].metrics}
+    assert "sheer_collapse_cells" not in names, (
+        "the retired stale-copy metric is back; see admissibility module "
+        "docstring item 1 before resurrecting it")
+    m = reports[0].get("min_interior_sheer_halfwidth_cells")
+    assert m.basis is Basis.DERIVED
+    assert m.danger_below == 1.0
+    assert m.ladder_rescuable is False
+
+
+def test_the_rescue_axis_matches_each_metrics_mechanism(reports):
+    """Cell-scale metrics have no rung (the cell ignores the layer count);
+    layer-scale metrics are the ladder's own domain (measured: the backoff
+    campaign meshed every draft-bar refusal at a lower count, and the stack
+    height falls with n). The writer refuses only the first set."""
+    r = reports[0]
+    for nm in ("min_bottom_panel_width_cells", "min_topside_panel_height_cells",
+               "transom_half_beam_cells", "transom_immersion_cells",
+               "min_interior_sheer_halfwidth_cells"):
+        assert r.get(nm).ladder_rescuable is False, nm
+    for nm in ("draft_over_hull_cell", "stack_over_min_radius"):
+        assert r.get(nm).ladder_rescuable is True, nm
+
+
+def test_refused_no_rescue_is_the_unrescuable_subset_and_unmeasured_is_fatal():
+    """The writer's refusal set: DANGEROUS-without-a-rung plus UNMEASURED —
+    an unmeasurable quantity must never admit a hull (defect class 1), and a
+    rescuable DANGEROUS must never appear here (it has a measured
+    deterministic path, the run-case.sh ladder)."""
+    from navalai.admissibility import Report
+    mets = (
+        Metric.of("cell_scale", 0.5, "cells", Basis.DERIVED, "sub-cell",
+                  danger_below=1.0, ladder_rescuable=False),
+        Metric.of("layer_scale", 0.5, "cells", Basis.DERIVED, "rung-0",
+                  danger_below=1.0, ladder_rescuable=True),
+        Metric.of("unread", float("nan"), "-", Basis.DERIVED, "unmeasured",
+                  danger_below=1.0, ladder_rescuable=True),
+        Metric.of("diag", 0.0, "-", Basis.DIAGNOSTIC, "reported only"),
+    )
+    rep = Report(Verdict.UNMEASURED, mets, 0.04, 10.0, 7)
+    assert set(rep.refused_no_rescue) == {"cell_scale", "unread"}
+    assert set(rep.refused_by) == {"cell_scale", "layer_scale", "unread"}
+
+
+def test_the_solvability_receipt_carries_the_measured_anchors(reports):
+    """tau = V/(A_max*U) separates solved (7.8e-6..2.1e-5 s) from diverged
+    (4.356e-18 s) by 12 orders while checkMesh is blind (docs/audit/STATUS.md,
+    2026-08-18). The screen's pre-mesh receipt is the INTENDED minimum cell
+    time scale; a healthy scale-1 case intends ~1e-4 s, orders above the
+    run-case.sh 1e-12 s abort bar, and the receipt must say so and not vote.
+    """
+    m = reports[0].get("intended_min_cell_flow_time_scale_s")
+    assert m.basis is Basis.DIAGNOSTIC and not m.votes
+    assert 1e-5 < m.value < 1e-2, (
+        f"intended tau {m.value:.3g}s is outside the healthy design decade — "
+        f"either the layer/fs derivation moved or the receipt broke")
+    assert "1e-12" in m.note and "7.8e-6" in m.note
+
+
+def test_the_bilge_fillet_radius_is_reported_and_does_not_vote_yet(reports):
+    """The 16th gene's own failure mode: NO round-bilge hull has a measured
+    mesh outcome (case a is a hard chine; every labelled campaign is
+    15-gene), so the fillet-radius metric reports its pre-registered window
+    (stl_row < r < cell) and is forbidden to vote until a campaign labels
+    it. Promoting it without labels would be the V6-first-draft defect."""
+    m = reports[0].get("bilge_min_radius_cells")
+    assert m.basis is Basis.DIAGNOSTIC and not m.votes
+    # a hard chine reports inf: no fillet, no radius, nothing to resolve
+    X, _ = sample_valid(1, MissionSpec(), seed=0)
+    xr = np.asarray(X[0], float).copy()
+    xr[grammar.NAMES.index("roundness")] = 0.0
+    hard = screen(xr, SPEED, SCALE).get("bilge_min_radius_cells")
+    assert not (hard.value < float("inf"))
 
 
 # ---------------------------------------------------------------------------
@@ -381,23 +471,36 @@ def test_a_refused_hull_is_rescuable_and_the_module_says_so(reports):
     assert "rung 0" in adm.screen.__doc__
 
 
-def test_the_manifold_the_grammar_emits_is_a_third_inadmissible():
-    """MEASURED over 200 grammar-valid hulls (seed 1234, speed 2.57, scale 1):
-    68 DANGEROUS / 79 MARGINAL / 53 SAFE. 19.5% put the keel inside the
-    free-surface refinement band and 17.0% have a silently clipped sheer.
+def test_the_manifold_the_grammar_emits_is_screened_and_mostly_admissible():
+    """RE-PINNED 2026-08-18 with the re-derivation (was "a third
+    inadmissible": 68 DANGEROUS / 79 MARGINAL / 53 SAFE on the 15-gene-era
+    metrics, 17.0% of it the retired stale sheer formula firing on decks the
+    rebuilt kernel delivers healthy).
 
-    This is the number the Gate 2U funnel in docs/BUILD-PLAN.md is built on,
-    so it is pinned. Bounds, not equality: `sample_valid` depends on
-    `evaluate()`, which is not this module's to freeze.
+    MEASURED over 200 grammar-valid hulls (seed 1234, speed 2.57, scale 1),
+    16-gene genome, successor metrics: **39 DANGEROUS / 86 MARGINAL /
+    75 SAFE**; refused_by draft_over_hull_cell 32,
+    min_bottom_panel_width_cells 11, transom_half_beam_cells 7,
+    min_interior_sheer_halfwidth_cells 5; writer-admissible (no un-rescuable
+    refusal) **189/200 = 94.5%**. The DANGEROUS band is dominated by the
+    ladder-rescuable draft bar — a rung prediction, not a dead hull.
+
+    Bounds, not equality: `sample_valid` depends on `evaluate()`, which is
+    not this module's to freeze.
     """
     X, _ = sample_valid(200, MissionSpec(), seed=1234)
     reps = [screen(x, SPEED, SCALE) for x in X]
     dangerous = sum(r.verdict is Verdict.DANGEROUS for r in reps)
-    assert 55 <= dangerous <= 85, dangerous
-    for name, lo, hi in (("draft_over_hull_cell", 25, 55),
-                         ("sheer_collapse_cells", 20, 50)):
+    assert 25 <= dangerous <= 55, dangerous
+    for name, lo, hi in (("draft_over_hull_cell", 20, 45),
+                         ("min_interior_sheer_halfwidth_cells", 1, 15),
+                         ("min_bottom_panel_width_cells", 4, 22)):
         n = sum(name in r.refused_by for r in reps)
         assert lo <= n <= hi, f"{name}: {n}"
+    # the writer's denominator: most of what the grammar emits must keep a
+    # deterministic CFD path, or the screen has become a second grammar
+    admissible = sum(1 for r in reps if not r.refused_no_rescue)
+    assert admissible >= 170, f"writer admits only {admissible}/200"
 
 
 def test_screening_is_cheaper_than_meshing_by_four_orders_of_magnitude():
@@ -422,35 +525,57 @@ def test_a_grammar_valid_hull_is_not_the_same_thing_as_a_meshable_one():
 
 
 def test_the_screen_guards_the_case_writer_C18(tmp_path):
-    """Forensics C-18: the meshability screen and the case writer were two
-    disconnected halves — a DANGEROUS hull sailed into a case write. The
-    writer now refuses a DANGEROUS/UNMEASURED verdict with the screen's
-    own metric receipt, writes it as a DECLARED experiment only under
-    allow_dangerous_mesh=True, and records the verdict in case.info."""
+    """Forensics C-18, RE-SCOPED 2026-08-18 (docs/MESHABILITY_MATH.md): the
+    writer refuses the hulls the layer ladder CANNOT rescue — sub-cell
+    features and anything UNMEASURED (`Report.refused_no_rescue`) — and
+    WRITES a rescuable-DANGEROUS hull with a warning, because run-case.sh's
+    canonical backoff ladder is its measured deterministic recovery
+    (metal-proven on case a: derived n=6 FATAL -> n=5 CLEAN, unattended).
+    Refusing rescuable hulls at the writer was blocking hulls with a
+    measured path; the phantom half of those refusals came from the retired
+    stale sheer formula. Declared experiments still bypass with
+    allow_dangerous_mesh=True, and every case records the verdict."""
+    import warnings as _warnings
+
     import numpy as np
     import pytest
 
-    from navalai import formcheck
     from navalai.admissibility import Verdict, screen
     from navalai.cfd.case import write_resistance_case
     from navalai.evaluate import sample_valid
     from navalai.geometry import Hull
     from navalai.mission import MissionSpec
 
-    # find a DANGEROUS hull the way the screen's own calibration did
     X, _ = sample_valid(30, MissionSpec(), seed=0)
-    bad = next((x for x in X
-                if screen(Hull(x), speed=2.57).verdict
-                in (Verdict.DANGEROUS, Verdict.UNMEASURED)), None)
-    if bad is None:
-        pytest.skip("no DANGEROUS hull in 30 draws at this seed — "
+    no_rescue = next((x for x in X
+                      if screen(Hull(x), speed=2.57).refused_no_rescue), None)
+    rescuable = next((x for x in X
+                      if screen(Hull(x), speed=2.57).verdict
+                      is Verdict.DANGEROUS
+                      and not screen(Hull(x), speed=2.57).refused_no_rescue),
+                     None)
+    if no_rescue is None or rescuable is None:
+        pytest.skip("seed-0/30 no longer holds both guard fixtures — "
                     "recalibrate the fixture, do not delete the guard test")
+    # 1. un-rescuable (sub-cell feature): REFUSED with the metric receipt
     with pytest.raises(ValueError, match="admissibility screen"):
-        write_resistance_case(Hull(bad), 2.57, tmp_path / "refused",
+        write_resistance_case(Hull(no_rescue), 2.57, tmp_path / "refused",
                               end_time=1.0, symmetric=True, n_layers=2)
-    # the declared-experiment override writes, and says so in the receipt
-    write_resistance_case(Hull(bad), 2.57, tmp_path / "declared",
+    # 2. rescuable DANGEROUS: WRITES, warns, and records the prediction
+    with _warnings.catch_warnings(record=True) as w:
+        _warnings.simplefilter("always")
+        write_resistance_case(Hull(rescuable), 2.57, tmp_path / "rescuable",
+                              end_time=1.0, symmetric=True, n_layers=2)
+    assert any("admissibility screen" in str(x.message) for x in w), (
+        "the rung-0 prediction must be warned, not silent")
+    info = (tmp_path / "rescuable" / "case.info").read_text()
+    assert "admissibility_verdict=DANGEROUS" in info
+    assert "admissibility_no_rescue=none" in info
+    # 3. the declared-experiment override still writes the un-rescuable one
+    write_resistance_case(Hull(no_rescue), 2.57, tmp_path / "declared",
                           end_time=1.0, symmetric=True, n_layers=2,
                           allow_dangerous_mesh=True)
     info = (tmp_path / "declared" / "case.info").read_text()
     assert "admissibility_verdict=" in info
+    assert "admissibility_no_rescue=" in info
+    assert "admissibility_no_rescue=none" not in info

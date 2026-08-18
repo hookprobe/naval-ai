@@ -206,6 +206,7 @@ different Gate 2M numbers came to circulate at once (gap J1).
 | Gate 2T | tank resonance is diagnosed, and a period is never claimed from too few cycles | `tests/test_tank_resonance.py` (25 tests) |
 | Gate V2.0 | refdata spine: every constant carries source + basis | `tests/test_refdata.py` (27 tests) |
 | Gate 2A | CFD-admissibility screen: a grammar-valid hull is not a CFD-meshable one | `tests/test_admissibility.py` (27 tests) |
+| Gate 2D | the admissible design space refuses pathological hulls before OpenFOAM, by the named gate, at milliseconds per genome | `tests/test_admissible_space.py` (11 tests) |
 | Gate 2L | the prism-layer cap is a measured value, and a clean mesh with no boundary layer is not a pass | `tests/test_layer_cap.py` (7 tests) |
 | Gate 2F | STL forensics: watertight is not valid, and the surface handed to snappy is measured rather than assumed | `tests/test_stl_forensics.py` (16 tests) |
 | Gate 2B | Blender-native hull generation, measured and REFUSED on the hull path: a 0.05 m voxel remesh destroys the chine | `tests/test_blender_hull.py` (10 tests) |
@@ -214,7 +215,7 @@ different Gate 2M numbers came to circulate at once (gap J1).
 | Gate 2G | KCS benchmark geometry: present and accepted (scripts/fetch_benchmark_geom.py) | `tests/test_benchmark_geom.py` (4 tests) |
 | Gate 6R-mech | review-record mechanics + basis routing | `tests/test_phase6r.py` (10 tests) |
 | Gate PF | physical form regression: six deterministic hulls stay boat-like (descriptors, SAC shape, sourced bands, ratchet) | `tests/test_physical_form.py` (46 tests) |
-| Gate VM | vessel matrix: five vessel classes end-to-end (ladder + manifest), refusals explicit, roles judged apart | `tests/test_vessel_matrix.py` (8 tests) |
+| Gate VM | vessel matrix: five vessel classes end-to-end (ladder + manifest), refusals explicit, roles judged apart | `tests/test_vessel_matrix.py` (9 tests) |
 | Gate DC | design certification: cheap classify-and-rank with receipts, banded speed curves, loading matrix, regime refusals | `tests/test_design_certification.py` (11 tests) |
 | Gate 4F | raw generative feasibility: UNFILTERED model draws vs the >=99% bar (BuildPlan Phase 4) | **RED** — `data/gate-ledger.json` |
 | Gate 2M | KCS/JBC OpenFOAM calibration w/ per-case GCI | **RED** — `data/gate-ledger.json` |

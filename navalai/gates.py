@@ -518,6 +518,18 @@ GATES = [
     # denominator, which is the gaming signature the split exists to expose.
     Gate("Gate 2A", "CFD-admissibility screen: a grammar-valid hull is not a "
          "CFD-meshable one", "tests/test_admissibility.py"),
+    # The 2026-08-18 meshability-math re-derivation (docs/MESHABILITY_MATH.md):
+    # the admissible design space, ATTACKED. Every deliberately pathological
+    # hull must be refused BEFORE OpenFOAM by the NAMED gate — L0 for what the
+    # section law cannot deliver (sac.target, section.solve, chine.submerged,
+    # panel.twist), the screen's un-rescuable set for what the cell cannot
+    # represent (sub-cell features; the writer refuses on it) — and the §17
+    # property funnel pins attribution + cost (10k uniform genomes MEASURED:
+    # L0 admits 6.75% at 4-6 ms/genome; writer admits 92.7% of L0-passers;
+    # 19.5 ms/genome end to end, seed 42, 2026-08-18).
+    Gate("Gate 2D", "the admissible design space refuses pathological hulls "
+         "before OpenFOAM, by the named gate, at milliseconds per genome",
+         "tests/test_admissible_space.py"),
     # The 10 -> 7 cap shipped with NO test; `grep _MAX_LAYERS tests/` was empty,
     # so the value that fixed Gate 2U could have been argued back to 10 the way
     # it got there. Gate 2L pins it to its measurement and refuses the cap-3

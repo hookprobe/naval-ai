@@ -179,6 +179,12 @@ _FS_BOX = dict(x0=-1.6, x1=1.3, y=0.7, z=0.025)
 # valid. 100 puts the low-friction regions near 47, safely in the log layer.
 _TARGET_YPLUS = 100.0
 _LAYER_EXPANSION = 1.2
+# snappy's minThickness as a fraction of the first-layer thickness: the
+# thinnest cell the layer pass is ALLOWED to leave. Hoisted from the literal
+# `0.25 * t1` in `_write_case_dicts` (2026-08-18) because the admissibility
+# screen's intended-flow-time-scale receipt reads the same number, and a
+# second copy is this file's documented anti-pattern.
+_LAYER_MIN_THICKNESS_FRAC = 0.25
 
 # snappy refinementSurfaces level (min, max) on the hull. MEASURED why this
 # matters: at (2 3) the FLAT hull areas take only level 2, i.e. background/4
@@ -1981,26 +1987,43 @@ def write_resistance_case(hull: Hull, speed: float, out_dir: str | Path,
     # disconnected halves of one pipeline'): the admissibility screen
     # predicts checkMesh refusals WITHOUT meshing, is gate-tested (Gate
     # 2A), and nothing on this path consulted it — a DANGEROUS hull sailed
-    # straight into a case write. It now guards the mesher: DANGEROUS
-    # refuses with the screen's own metric receipt unless the caller
-    # explicitly declares the experiment (`allow_dangerous_mesh=True`),
-    # and the verdict is recorded in case.info either way. UNMEASURED is
-    # treated as DANGEROUS (it is strictly worse — admissibility.py:124).
+    # straight into a case write. It guards the mesher.
+    #
+    # RE-SCOPED 2026-08-18 (the meshability-math re-derivation; the
+    # measurement is in admissibility's module docstring, item 2): the
+    # refusal set is `refused_no_rescue` — sub-cell-feature metrics plus
+    # anything UNMEASURED — not all of DANGEROUS. A DANGEROUS that is
+    # ladder-rescuable predicts a rung-0 checkMesh refusal that run-case.sh's
+    # canonical layer-backoff ladder recovers unattended (metal-proven on
+    # case a, 2026-08-18: derived n=6 FATAL -> n=5 CLEAN, 1 of 3 attempts);
+    # refusing it at the writer would block hulls with a measured
+    # deterministic path. A sub-cell feature has NO rung: the cell size does
+    # not depend on the layer count. The rescuable prediction is WARNED and
+    # recorded in case.info so screen-vs-outcome stays scoreable.
     from ..admissibility import Verdict as _AdmVerdict
     from ..admissibility import screen as _adm_screen
     _adm = _adm_screen(hull, speed=speed, scale=scale)
-    if (_adm.verdict in (_AdmVerdict.DANGEROUS, _AdmVerdict.UNMEASURED)
-            and not allow_dangerous_mesh):
+    if _adm.refused_no_rescue and not allow_dangerous_mesh:
         worst = [f"{m.name}={m.value:.3g}{m.unit} ({m.verdict.name})"
                  for m in _adm.metrics
-                 if m.verdict in (_AdmVerdict.DANGEROUS,
-                                  _AdmVerdict.UNMEASURED)][:4]
+                 if m.name in _adm.refused_no_rescue][:4]
         raise ValueError(
             f"admissibility screen: {_adm.verdict.name} at speed {speed}, "
-            f"scale {scale} — expect a checkMesh refusal at the derived "
-            f"layer count ({'; '.join(worst)}). Pass "
-            f"allow_dangerous_mesh=True to write the case as a DECLARED "
-            f"experiment; do not delete this guard.")
+            f"scale {scale} — a feature the cell cannot represent at ANY "
+            f"layer count, or an unmeasurable metric "
+            f"({'; '.join(worst)}). The layer ladder cannot rescue this "
+            f"class. Pass allow_dangerous_mesh=True to write the case as a "
+            f"DECLARED experiment; do not delete this guard.")
+    if _adm.verdict in (_AdmVerdict.DANGEROUS, _AdmVerdict.UNMEASURED):
+        # Rescuable-only DANGEROUS (or a declared experiment): predict here,
+        # gate there — run-case.sh enforces the checkMesh bars and walks the
+        # ladder; the prediction is recorded so the two can be compared.
+        import warnings
+        warnings.warn(
+            f"admissibility screen: {_adm.verdict.name} on "
+            f"{','.join(_adm.refused_by)} — expect a checkMesh refusal at "
+            f"the derived layer count; run-case.sh's backoff ladder is the "
+            f"measured recovery (~1.9 rungs mean).", stacklevel=2)
     stl_path = out / "constant" / "triSurface" / "hull.stl"
     # C-06: with a manifest, the case is written IN THE FLOATED FRAME the
     # manifest certifies (waterline + solved trim onto the tank's z = 0);
@@ -2047,6 +2070,10 @@ def write_resistance_case(hull: Hull, speed: float, out_dir: str | Path,
     # triangles, not geometry.
     with (out / "case.info").open("a") as fh:
         fh.write(f"admissibility_verdict={_adm.verdict.name}\n")
+        fh.write("admissibility_refused_by="
+                 f"{','.join(_adm.refused_by) or 'none'}\n")
+        fh.write("admissibility_no_rescue="
+                 f"{','.join(_adm.refused_no_rescue) or 'none'}\n")
         fh.write(f"stl_nx_requested={nx_req}\nstl_nx_shipped={nx}\n"
                  f"stl_nz_shipped={nz}\n"
                  f"stl_target_edge_m={target_edge:.6f}\n"
@@ -2335,7 +2362,8 @@ def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
     dom.update(
         hull_lvl_min=_HULL_REFINE[0], hull_lvl_max=_HULL_REFINE[1],
         n_layers=n_layers, first_layer=t1, layer_expansion=_LAYER_EXPANSION,
-        min_thickness=0.25 * t1, layer_feature_angle=_LAYER_FEATURE_ANGLE,
+        min_thickness=_LAYER_MIN_THICKNESS_FRAC * t1,
+        layer_feature_angle=_LAYER_FEATURE_ANGLE,
         fs_level=2, fs_dz_bg=dz_core, refine_rounds=_REFINE_ROUNDS,
         fs_x0=_FS_BOX["x0"] * lwl, fs_x1=_FS_BOX["x1"] * lwl,
         fs_y0=0.0 if symmetric else -_FS_BOX["y"] * lwl,

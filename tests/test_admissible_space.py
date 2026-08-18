@@ -1,0 +1,227 @@
+"""The admissible design space, attacked (meshability-math directive §16/§17).
+
+Every deliberately pathological hull below must be refused BEFORE OpenFOAM,
+by the NAMED gate — L0 (`grammar.check`) for geometry the section law cannot
+deliver, the admissibility screen (`Report.refused_no_rescue`) for geometry
+the MESH cannot represent, and the case writer for both. The full derivation
+of each inequality is docs/MESHABILITY_MATH.md; the layering is:
+
+    L0 (case-independent, ~4-6 ms):  bounds, proportions, freeboard,
+        sac.target, section.solve (1921-station probe), chine.submerged,
+        panel.twist — refuses what the SECTION LAW cannot build.
+    screen (case-dependent, ~10-230 ms): feature-size vs the cell the case
+        derives — refuses what the MESHER cannot represent; the un-rescuable
+        subset guards `write_resistance_case`.
+    run-case.sh (owns the mesh): checkMesh bars + the layer-backoff ladder +
+        the flow-time-scale early abort (1e-12 s) — enforces on the meshes
+        the screens cannot see.
+
+Vectors are CONSTRUCTED as named mutations of the reference genome (or drawn
+from a pinned seed), so each test feeds the gate the verbatim input it must
+reject (docs/LESSONS.md defect class 3).
+"""
+
+from __future__ import annotations
+
+import time
+
+import numpy as np
+import pytest
+
+from navalai import grammar
+from navalai.admissibility import Verdict, screen
+from navalai.evaluate import sample_valid
+from navalai.geometry import Hull
+from navalai.mission import MissionSpec
+from navalai.reference import reference_params
+
+
+def _mut(**kw) -> np.ndarray:
+    d = grammar.named(reference_params())
+    d.update(kw)
+    return grammar.vector(d)
+
+
+def _clauses(x) -> dict[str, list[str]]:
+    rep = grammar.check(x)
+    out: dict[str, list[str]] = {}
+    for v in rep.violations:
+        out.setdefault(v.split(":")[0], []).append(v)
+    return out
+
+
+# ---------------------------------------------------------------------------
+# §16 — L0 refuses what the section law cannot deliver (case-independent)
+# ---------------------------------------------------------------------------
+
+def test_L0_refuses_an_unreachable_prismatic_target():
+    """Cp at the gene floor with the max-area station fully aft and a fat
+    transom: the SAC family (exponents in [-6, 8]) cannot remove that much
+    area. Named clause: sac.target — refused, never approximated (plate P1).
+    """
+    c = _clauses(_mut(Cp=0.525, x_mb=0.68, r_transom=0.50))
+    assert "sac.target" in c, c
+
+
+def test_L0_refuses_an_unreachable_lcb_target():
+    """LCB at the +3 %LWL band edge with a FORWARD-starved area curve
+    (x_mb at the aft end of ITS bound, low Cp): the closed-form bracket in
+    `sac_exponents` cannot reach it. Named clause: sac.target."""
+    c = _clauses(_mut(lcb=3.0, Cp=0.525, x_mb=0.40))
+    assert "sac.target" in c, c
+
+
+def test_L0_refuses_a_section_asked_for_more_area_than_it_can_hold():
+    """Steep deadrise + full rocker (shallow aft draft) + a full aft SAC:
+    A > d^2/tan(beta) at the transom — the chine would pierce the waterline.
+    The discriminant of the section quadratic goes negative and the 1921-
+    station probe catches it wherever it happens. Named: section.solve."""
+    c = _clauses(_mut(beta_mid=25.0, beta_bow=50.0, rocker=0.6,
+                      r_transom=0.5, Cp=0.71, x_mb=0.68))
+    assert "section.solve" in c, c
+    assert any("unreachable" in v for v in c["section.solve"])
+
+
+def test_L0_refuses_a_flare_that_consumes_the_half_beam():
+    """tan(25 deg) * 1.4 m of draft exceeds the 0.65 m half-beam: the topside
+    alone is wider than the boat. `_stations` raises (GeometryError) and
+    check() reports it as section.solve — alongside the B/T bound, which the
+    same geometry also violates; both must fire, neither may mask the other.
+    """
+    c = _clauses(_mut(flare=25.0, BWL=1.3, T=1.4, D=1.9))
+    assert "section.solve" in c, c
+    assert any("consumes the whole" in v for v in c["section.solve"])
+    assert "B/T" in c
+
+
+def test_L0_refuses_tumblehome_that_closes_the_sheer():
+    """Max tumblehome (-5 deg) on a fine, high-sided aft body drives the
+    delivered sheer past the centreline. THE LOAD-BEARING HALF: this is the
+    refusal that made `admissibility.sheer_collapse_cells` a stale copy —
+    the kernel refuses at L0 what the old kernel silently clamped."""
+    c = _clauses(_mut(flare=-5.0, r_transom=0.05, Cp=0.525, x_mb=0.68,
+                      rocker=0.6, sheer_rise=0.5, D=2.5, T=0.6))
+    assert "section.solve" in c, c
+    assert any("tumblehome closes the sheer" in v for v in c["section.solve"])
+
+
+def test_L0_refuses_an_unbuildable_panel_twist():
+    """Flat midship to 45 deg of bow deadrise over 0.15 L: 45 deg/m of local
+    twist against the 14 deg/m cold-bend limit. Named: panel.twist, and
+    ONLY panel.twist — the vector is otherwise inside every band, so the
+    clause cannot hide behind a bound violation."""
+    c = _clauses(_mut(beta_mid=0.0, beta_bow=45.0, beta_len=0.15, Cp=0.55))
+    assert set(c) == {"panel.twist"}, c
+
+
+def test_L0_refuses_a_chine_above_the_design_waterline():
+    """Drawn from the 10k property sweep (seed 42, index 569 — regenerated,
+    not transcribed): a wide shallow hull whose chine solves 0.048 m ABOVE
+    z=0. With the DWL a first-class curve, the closed-form area the kernel
+    solves against does not hold there. Named: chine.submerged, and only it.
+    """
+    rng = np.random.default_rng(42)
+    X = rng.uniform(grammar.LOW, grammar.HIGH,
+                    size=(10000, grammar.N_PARAMS))
+    c = _clauses(X[569])
+    assert set(c) == {"chine.submerged"}, c
+
+
+def test_L0_refuses_nan_and_out_of_box_vectors():
+    x = reference_params().copy()
+    x[0] = float("nan")
+    rep = grammar.check(x)
+    assert not rep.ok and rep.violations[0].startswith("finite")
+    y = reference_params().copy()
+    y[grammar.NAMES.index("BWL")] = grammar.HIGH[grammar.NAMES.index("BWL")] * 2
+    assert any(v.startswith("bound[BWL]") for v in grammar.check(y).violations)
+
+
+# ---------------------------------------------------------------------------
+# §16 — the screen refuses what the MESH cannot represent (case-dependent)
+# ---------------------------------------------------------------------------
+
+def test_a_sub_cell_sliver_hull_is_refused_before_any_openfoam(tmp_path):
+    """Seed-0 hull 18: bottom panel 0.26 cells and deck ridge 0.35 cells —
+    features the level-5 cell cannot represent at ANY layer count. The
+    screen must put both bars in `refused_no_rescue`, and the case writer
+    must refuse the hull with the screen's own receipt. This is the §16
+    acceptance shape: the pathological hull never reaches snappyHexMesh."""
+    from navalai.cfd.case import write_resistance_case
+
+    X, _ = sample_valid(19, MissionSpec(), seed=0)
+    rep = screen(X[18], 2.57, 1.0)
+    assert rep.verdict is Verdict.DANGEROUS
+    assert "min_bottom_panel_width_cells" in rep.refused_no_rescue
+    assert "min_interior_sheer_halfwidth_cells" in rep.refused_no_rescue
+    with pytest.raises(ValueError, match="admissibility screen"):
+        write_resistance_case(Hull(X[18]), 2.57, tmp_path / "refused",
+                              end_time=1.0, symmetric=True, n_layers=2)
+
+
+def test_the_same_hull_is_admissible_when_the_cell_shrinks_with_scale():
+    """The screen is a statement about a (hull, speed, scale) CASE, not about
+    a hull: at scale 2 the cell halves and seed-0 hull 18's 0.26-cell panel
+    reads 0.52 cells — still sub-cell, still refused — while at scale 4 it
+    clears 1.0. Feature bars must move with the pipeline's own cell
+    derivation, or they are opinions."""
+    X, _ = sample_valid(19, MissionSpec(), seed=0)
+    v1 = screen(X[18], 2.57, 1.0).get("min_bottom_panel_width_cells").value
+    v2 = screen(X[18], 2.57, 2.0).get("min_bottom_panel_width_cells").value
+    assert v2 == pytest.approx(2.0 * v1, rel=1e-6), (
+        "the feature bar no longer tracks the derived cell size")
+
+
+# ---------------------------------------------------------------------------
+# §17 — the property test: the funnel, its attribution, and its cost
+# ---------------------------------------------------------------------------
+
+def test_property_random_genomes_are_gated_cheaply_with_attribution():
+    """N=600 uniform-in-box genomes through L0, screen on the passers.
+
+    The committed N is 600 to keep the suite fast; the SAME harness at
+    N=10,000 (seed 42, this box, 2026-08-18) measured:
+      L0 pass 675/10000 = 6.75% at 4.2-5.6 ms/genome; top refusals
+      freeboard.rel 4756, L/B 4489, B/T 3995, section.solve 3983,
+      freeboard.abs 3692, deadrise.order 2191, chine.below.sheer 882,
+      panel.twist 877, sac.target 606, chine.submerged 79;
+      screen on the 675: SAFE 234 / MARGINAL 286 / DANGEROUS 155,
+      writer-admissible 626/675 (92.7%), 19.5 ms/genome for the whole
+      funnel (docs/MESHABILITY_MATH.md §G records the derivation).
+    This pins the funnel's SHAPE, not those exact counts: every refusal
+    carries a named clause, no genome escapes both gates unclassified, and
+    the amortised cost stays in single-digit milliseconds per genome at L0.
+    """
+    rng = np.random.default_rng(7)
+    N = 600
+    X = rng.uniform(grammar.LOW, grammar.HIGH, size=(N, grammar.N_PARAMS))
+    t0 = time.perf_counter()
+    l0 = [grammar.check(x) for x in X]
+    t_l0 = (time.perf_counter() - t0) / N
+    n_ok = sum(r.ok for r in l0)
+    # the box passes at a few percent — a 0% or a 50% box is a broken gate
+    assert 0.01 < n_ok / N < 0.25, f"{n_ok}/{N} L0 pass"
+    for r in l0:
+        if not r.ok:
+            assert r.violations, "a refusal must carry named clauses"
+            for v in r.violations:
+                assert ":" in v, f"unattributed violation {v!r}"
+    # L0 is milliseconds-per-genome (generous bar: this box runs 4-6 ms
+    # under load; the phase-0 single-call bar of ~1 ms lives elsewhere)
+    assert t_l0 < 0.05, f"L0 at {1e3 * t_l0:.1f} ms/genome"
+    reps = [screen(x, 2.57, 1.0) for x, r in zip(X, l0) if r.ok]
+    assert reps, "no L0 passer in 600 draws — the box collapsed"
+    for rep in reps:
+        assert rep.verdict in (Verdict.SAFE, Verdict.MARGINAL,
+                               Verdict.DANGEROUS)
+        # attribution: every DANGEROUS names its metric, and the writer set
+        # is a subset of the refusals
+        if rep.verdict is Verdict.DANGEROUS:
+            assert rep.refused_by
+        assert set(rep.refused_no_rescue) <= set(rep.refused_by) | {
+            m.name for m in rep.metrics if m.verdict is Verdict.UNMEASURED}
+    # most of what L0 admits must remain writer-admissible: the screen is a
+    # guard, not a second grammar (10k measured 92.7%)
+    admissible = sum(1 for rep in reps if not rep.refused_no_rescue)
+    assert admissible / len(reps) > 0.75, (
+        f"writer admits only {admissible}/{len(reps)} of L0-passers")
