@@ -341,3 +341,58 @@ def test_physical_constants_have_one_home_S18():
     assert not offenders, (
         "physical-constant literals re-declared outside constants.py:\n  "
         + "\n  ".join(offenders))
+
+
+def test_the_displacement_regime_edge_IS_the_michell_validity_edge_C33():
+    """formlib's charter forbids importing project physics, so its 0.45 is
+    linked to `resistance.FN_MICHELL_MAX` by COMMENT only ("the upper
+    displacement edge is 0.45 because that is resistance.FN_MICHELL_MAX").
+    A comment cannot follow a re-measurement. This fence is the executable
+    half of that link: if the Michell validity edge ever moves, the regime
+    table must move with it — or this test names the divergence.
+    """
+    from navalai import formlib, resistance
+
+    assert (formlib.REGIME_FN[formlib.Regime.DISPLACEMENT].high
+            == resistance.FN_MICHELL_MAX), (
+        "formlib.REGIME_FN[DISPLACEMENT].high no longer equals "
+        "resistance.FN_MICHELL_MAX — the comment-enforced identity broke")
+
+
+def test_the_two_freeboard_floors_declare_their_relationship_C33():
+    """`grammar.MIN_FREEBOARD_ABS_M` (0.30, the L0 box floor) and
+    `limits.FREEBOARD_FLOOR_M` (0.25, the L1 feasibility floor) are two
+    floors for one quantity, and their ordering is load-bearing: the L0
+    floor must be AT LEAST the L1 floor, or the grammar admits hulls the
+    ladder then refuses on freeboard — a refusal the box was supposed to
+    make unreachable. The L1 floor stays for non-genome inputs (imported
+    STL, hand-built params), which never pass through the box.
+    """
+    from navalai import grammar, limits
+
+    assert grammar.MIN_FREEBOARD_ABS_M >= limits.FREEBOARD_FLOOR_M, (
+        f"L0 box floor {grammar.MIN_FREEBOARD_ABS_M} below the L1 "
+        f"feasibility floor {limits.FREEBOARD_FLOOR_M}: the grammar now "
+        "admits hulls the ladder refuses on freeboard")
+
+
+def test_scripts_do_not_redeclare_physical_constants_C33():
+    """The S18 fence stops at the package boundary, and the first stray it
+    missed was scripts/hull_form_audit.py's own `G = 9.80665`. Same fence,
+    scripts/ directory."""
+    import pathlib
+
+    root = pathlib.Path(__file__).resolve().parents[1] / "scripts"
+    distinctive = ("9.80665", "998.8", "1.09e-6", "1.13902e-6",
+                   "1.18831e-6", "1.1883e-6", "1026.0")
+    offenders = []
+    for py in root.glob("*.py"):
+        for k, line in enumerate(py.read_text().splitlines(), 1):
+            stripped = line.split("#")[0]
+            if ("=" in stripped and "import" not in stripped
+                    and "`" not in stripped
+                    and any(lit in stripped for lit in distinctive)):
+                offenders.append(f"{py.name}:{k}: {line.strip()[:70]}")
+    assert not offenders, (
+        "physical-constant literals re-declared in scripts/:\n  "
+        + "\n  ".join(offenders))

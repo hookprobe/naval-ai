@@ -80,7 +80,8 @@ def _vec(lwl: float, bwl: float, t: float, cp: float,
     """The `tests/test_vessel_bands._hull` idiom: a known-buildable shape-gene
     set with the principal dimensions and design targets on top. D defaults to
     the shallowest depth that clears both freeboard floors with margin."""
-    d = max(t + 0.30, t + grammar.MIN_FREEBOARD_FRAC_LWL * lwl) + 0.02
+    d = max(t + grammar.MIN_FREEBOARD_ABS_M,
+            t + grammar.MIN_FREEBOARD_FRAC_LWL * lwl) + 0.02
     p = dict(LWL=lwl, BWL=bwl, T=t, D=d, Cp=cp, lcb=0.0, x_mb=0.55,
              r_transom=0.20, beta_mid=8.0, beta_bow=20.0, beta_len=0.35,
              roundness=roundness, rocker=0.05, forefoot=0.30, flare=5.0,

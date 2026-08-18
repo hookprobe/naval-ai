@@ -36,7 +36,7 @@ import numpy as np
 from navalai import grammar
 from navalai.geometry import Hull, station_geometry
 
-G = 9.80665
+from navalai.constants import G_STANDARD as G  # C-33: one home
 KNOT_MS = 0.514444
 
 _REPO = pathlib.Path(__file__).resolve().parents[1]

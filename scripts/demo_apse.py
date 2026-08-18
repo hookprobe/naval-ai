@@ -15,10 +15,11 @@ from navalai import extrapolate, fidelity, planner, similitude
 from navalai.evidence import EvidenceGraph, EvidenceTier, Kind
 from navalai.fidelity import Budget, FidelitySpec
 from navalai.planner import Belief
+from navalai.constants import G_STANDARD
 from navalai.similitude import Condition
 
 KCS_EFD_CT = 3.711e-3
-SHIP = Condition(230.0, 0.26 * math.sqrt(9.80665 * 230.0),
+SHIP = Condition(230.0, 0.26 * math.sqrt(G_STANDARD * 230.0),
                  *similitude.SEA_WATER_15C, label="KCS ship")
 MODEL = Condition(7.2786, 2.196, *similitude.FRESH_WATER_15C, label="KCS model")
 
@@ -29,7 +30,7 @@ def rule(t: str) -> None:
 
 rule("1. Geometric scale is not a cost variable")
 for lwl in (2.3, 7.2786, 230.0):
-    c = Condition(lwl, 0.26 * math.sqrt(9.80665 * lwl))
+    c = Condition(lwl, 0.26 * math.sqrt(G_STANDARD * lwl))
     cost = fidelity.estimate(c, FidelitySpec())
     print(f"  Lwl {lwl:8.3f} m   Re {c.re:9.3e}   "
           f"{cost.cells:,} cells   {cost.timesteps:,} steps   "

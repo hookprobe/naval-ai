@@ -51,7 +51,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from .geometry import G, Hull
-from .constants import NU_SEA_HOLTROP, RHO_SEA_HOLTROP
+from .constants import NU_SEA_HOLTROP, RHO_FRESH, RHO_SEA_HOLTROP
 
 # KINEMATIC VISCOSITY IS A PROPERTY OF THE WATER, NOT A MODULE CONSTANT.
 # `NU_WATER = 1.14e-6` was a FRESH-water figure applied to every call, while
@@ -70,10 +70,10 @@ from .constants import NU_SEA_HOLTROP, RHO_SEA_HOLTROP
 # Same physical constant, one declaration, honest label.
 from .constants import \
     NU_FRESH_15C_ROUNDED as NU_FRESH_15C  # see constants.py for the 1.13902e-6 note
-_NU_ANCHORS = ((1000.0, NU_FRESH_15C), (RHO_SEA_HOLTROP, NU_SEA_HOLTROP))
+_NU_ANCHORS = ((RHO_FRESH, NU_FRESH_15C), (RHO_SEA_HOLTROP, NU_SEA_HOLTROP))
 
 
-def nu_water(rho: float = 1000.0) -> float:
+def nu_water(rho: float = RHO_FRESH) -> float:
     """Kinematic viscosity [m^2/s] at 15 C for water of density `rho`.
 
     Linear between the ITTC-1957 fresh and salt rows, and CLAMPED outside
@@ -193,7 +193,7 @@ class FlowRegime:
         return self.michell_ok and self.ittc57_ok
 
 
-def flow_regime(speed: float, lwl: float, rho: float = 1000.0) -> FlowRegime:
+def flow_regime(speed: float, lwl: float, rho: float = RHO_FRESH) -> FlowRegime:
     """Derive AXIS 3 from a speed and a waterline length. No declaration."""
     u, ell = float(speed), float(lwl)
     fn = u / math.sqrt(G * ell) if ell > 0.0 else float("inf")
@@ -581,7 +581,7 @@ def _require_theta_resolution(lwl: float, separation: float,
 
 
 def michell_rw(xs: np.ndarray, zs: np.ndarray, Y: np.ndarray, speed: float,
-               rho: float = 1000.0, n_theta: int | None = None,
+               rho: float = RHO_FRESH, n_theta: int | None = None,
                separation: float | None = None) -> float:
     """Wave resistance from a half-breadth grid Y[x, z] below the waterline.
 
@@ -635,7 +635,7 @@ def michell_rw(xs: np.ndarray, zs: np.ndarray, Y: np.ndarray, speed: float,
 
 def michell_rw_separation_sweep(xs: np.ndarray, zs: np.ndarray, Y: np.ndarray,
                                 speed: float, separations: np.ndarray,
-                                rho: float = 1000.0,
+                                rho: float = RHO_FRESH,
                                 n_theta: int | None = None) -> np.ndarray:
     """`michell_rw` over many separations, paying the x-z integral ONCE.
 
@@ -674,7 +674,7 @@ def michell_rw_separation_sweep(xs: np.ndarray, zs: np.ndarray, Y: np.ndarray,
 
 
 def free_wave_spectrum(xs: np.ndarray, zs: np.ndarray, Y: np.ndarray,
-                       speed: float, rho: float = 1000.0,
+                       speed: float, rho: float = RHO_FRESH,
                        n_theta: int | None = None,
                        separation: float | None = None
                        ) -> tuple[np.ndarray, np.ndarray]:
@@ -858,7 +858,7 @@ def wet_deck_clearance_g(clearance_m: float, speed: float) -> float:
 
 
 def ittc57_cf(speed: float, lwl: float, nu: float | None = None,
-              rho: float = 1000.0) -> float:
+              rho: float = RHO_FRESH) -> float:
     """ITTC-1957 friction line. `nu` defaults to the water `rho` describes."""
     nu = nu_water(rho) if nu is None else nu
     re = max(speed * lwl / nu, 1e4)
@@ -914,7 +914,7 @@ def form_factor(cb: float, lwl: float, beam: float, t: float) -> FormFactor:
 
 
 def total_resistance(hull: Hull, speed: float, wetted: float, cb: float,
-                     rho: float = 1000.0, wl: float = 0.0,
+                     rho: float = RHO_FRESH, wl: float = 0.0,
                      nz: int | None = None, n_stations: int | None = None,
                      beam_wl: float | None = None,
                      draft: float | None = None,
