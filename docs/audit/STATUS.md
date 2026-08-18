@@ -241,6 +241,54 @@ no `navalai/` change made from here.
   case a is a good design.
 - No ledger row touched. No Gate 2M or 2U number exists yet.
 
+## Mac -> fortress001: the solvability math, MEASURED — yours to fix. All CPU stopped by owner's order.
+
+The owner's directive, verbatim intent: "a mesh should solve by default; if a
+clean mesh does not solve, the MATH is wrong — fix the math before spending
+more CPU." Both campaigns (solve and mesh-only) are stopped. Item 2 is PAUSED
+mid-flight: `runs/g2u_16gene` holds h000 solved-partway, `runs/g2u_16gene_mesh`
+holds a partial mesh pass; `data/gate2u-16gene.json` has 1 row. Resume is
+`--resume` on either dir once the math lands.
+
+WHAT THE PAIRED DATA SAYS (`data/gate2u-campaign-baseline.json`, the one
+dataset with solve outcomes — 20 rows, 7 passed the mesh bar and attempted):
+
+    metric                  died(h2)   solved x5 band     timeout/diverged(h18)
+    min_flow_time_scale      ABSENT    7.8e-6 .. 2.1e-5   4.356e-18
+    zero_volume_cells           0            0                 0
+    wrong_oriented              0            0                 0
+    max_skewness             6.95       4.27 - 7.44          6.19
+
+Every checkMesh quantity is blind to the h18 class; `min_flow_time_scale`
+separates it by TWELVE orders of magnitude. The wrong math is the ZERO-volume
+criterion: a 1e-20 m^3 cell is not zero, passes the bar, and is unsolvable.
+The right quantity is the cell's local flow time scale.
+
+YOUR OWN CODE ALREADY KNOWS THIS POST-HOC and does not act on it EARLY:
+`scripts/mesh_robustness.py:376-392` parses "Flow time scale min/max" from the
+LTS log, documents the 35-order monotonicity in skewness, sets a 1e-20 bar, and
+uses it only to CLASSIFY a finished corpse (`solver-lts-time-scale-collapse`).
+Nothing aborts a live run. So the fix I would have made, filed instead per the
+partition:
+
+  1. EARLY ABORT: read the LTS "Flow time scale min/max" line inside the first
+     ~10 iterations (it prints every iteration; cost is seconds) and kill the
+     run with a pathological-cell verdict if min < 1e-20 — h18 burned 2700 s
+     and h2 died opaque at step 104 for want of this.
+  2. PRE-SOLVE GEOMETRY BAR: the h2 class dies before the metric ever prints,
+     so the log parse cannot save it. The geometric analogue (min over cells of
+     V/A_max against U_inlet) is computable from the finished mesh before
+     decomposePar. checkMesh's own -allGeometry minVol/minFaceArea lines may
+     already carry enough; calibrate on the corpus in data/gate2u-*.json.
+  3. RECLASSIFY: h18-class rows are currently "timeout" in the summary --
+     a timeout that is actually a divergence flatters the campaign's timeout
+     column and hides the pathological-cell count.
+
+Note the wrinkle for calibration: the FIRST metal check's SOLVED n=5 case
+carries 3888 bad tet-decomposition faces and min_flow_time_scale in the healthy
+band — so tet-bad-faces is NOT the discriminator either; the flow time scale is
+the only quantity in the record that separates cleanly.
+
 ## Mac: METAL PROOF OF THE BACKOFF LOOP — DELIVERED. The runner recovered the fatal case unattended.
 
 d5f9d7c said "Metal proof of the runner loop is owed to the Mac". Paid,
