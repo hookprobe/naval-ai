@@ -98,3 +98,54 @@ def test_the_historical_target_is_judged_by_role_S20():
     # ...and what remains is the EVIDENCE floor, named as evidence
     assert "B/T 1.33" in demi_txt and "demihull" in demi_txt
     assert "OUT OF SOURCED RANGE" in demi_txt
+
+
+def test_the_four_canonical_classes_certify_end_to_end_S31():
+    """Forensics section-31: the canonical fleet driven through the WHOLE
+    screening chain — mission -> evaluate -> certify -> (manifest when the
+    physics is certifiable) — with no manual mass injection anywhere.
+
+    MEASURED 2026-08-19 (fortress001, the section-31 baseline): a REFUSE,
+    b MARGINAL + CFD-eligible, c/d REFUSE (the multihull criterion is
+    refusal-first until R2.2 lands windage/declared clauses), e/f REFUSE.
+    Only the STRUCTURAL claims and the refusal-first cats are pinned —
+    a/e/f verdicts may legitimately improve with the physics; what must
+    never change silently is the chain running end-to-end, refusals
+    carrying named reasons, and receipts carrying identity (C-22).
+    """
+    import hashlib
+
+    import numpy as np
+
+    from navalai.certify import certify
+
+    verdicts = {}
+    for case in CASES.values():
+        cert = certify(case.params, case.mission)
+        verdicts[case.key] = cert.verdict
+        assert cert.verdict in ("ACCEPT", "MARGINAL", "REFUSE"), case.key
+        # C-22: the receipt names the design and the code that judged it
+        want_sha = hashlib.sha256(
+            np.asarray(case.params, float).tobytes()).hexdigest()
+        assert cert.genome_sha256 == want_sha, case.key
+        assert cert.code_version, case.key
+        if cert.verdict == "REFUSE":
+            assert cert.reasons or cert.violations, (
+                f"{case.key}: a REFUSE with no named reason is a verdict "
+                f"nobody can act on")
+        if case.mission.vessel.topology is Topology.CATAMARAN:
+            assert cert.verdict == "REFUSE", (
+                f"{case.key}: the multihull criterion is refusal-first "
+                f"until R2.2 — a PASS here means it changed; re-measure "
+                f"this table, do not celebrate silently")
+        if (isinstance(cert.cfd_candidate, dict)
+                and cert.cfd_candidate.get("eligible")):
+            # an eligible certification hands off through the manifest —
+            # the same floated state, no re-derivation
+            ev = evaluate(case.params, case.mission)
+            man = manifest_from_evaluation(ev, case.mission)
+            assert man.mass_kg == ev.masses.total_kg, case.key
+    # at least one class must remain CFD-worthy end-to-end, or the funnel
+    # is closed and every campaign starves at the gate
+    assert any(v in ("ACCEPT", "MARGINAL") for v in verdicts.values()), (
+        f"no canonical class certifies: {verdicts}")
