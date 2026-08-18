@@ -502,7 +502,7 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
     # third value. mLDC is the mission target rather than the weight budget:
     # ISO's mLDC is the loaded displacement, and using the budget would make the
     # thickness depend on the mass it is about to change.
-    t_ply = select_stock_thickness_m(mission.displacement_target_kg)
+    t_ply = None   # selected below at the FIXED POINT (C-04) — see there
     # THE SHELL IS INTEGRATED TO THE SHEER, NOT A FACTOR TIMES THE WATERLINE
     # AREA (gap C9). This line read `hull.wetted_surface(0.0) * 1.6`, where the
     # bare literal stood in for "and the topsides above the design waterline" —
@@ -549,6 +549,36 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
             energy_spec,
             hotel_kwh_day=energy_spec.hotel_kwh_day
             + payload_spec.power_w * 24.0 / 1000.0)
+    # C-04 (forensics B1): ONE mLDC. The stock sheet used to be selected
+    # from the MISSION TARGET while the same rule was assessed at the
+    # FLOATED displacement — whenever the weight budget exceeded the
+    # target, selection and assessment read different boats and R-TBM
+    # failed by construction (measured: a 0.02 mm sliver refusal on the
+    # 5 m case). The circularity the old comment feared (thickness → mass
+    # → displacement → thickness) is closed by a fixed point on the EXACT
+    # final displacement: hs.disp = max(budget(t) + payload, target), a
+    # discrete stock map that settles in <= 3 steps or is refused.
+    _payload_kg = (payload_spec.mass_kg
+                   if payload_spec is not None else 0.0)
+    t_ply = select_stock_thickness_m(mission.displacement_target_kg)
+    for _ in range(3):
+        _wb_probe = weight_budget(p["LWL"], p["D"], shell, deck,
+                                  energy_spec, t_ply)
+        _disp_probe = max(_wb_probe.total_kg + _payload_kg,
+                          mission.displacement_target_kg)
+        _t_next = select_stock_thickness_m(_disp_probe)
+        if _t_next == t_ply:
+            break
+        t_ply = _t_next
+    else:
+        return Evaluation(
+            False, "L1",
+            (f"scantling: stock-sheet selection did not settle in 3 "
+             f"iterations (last {t_ply * 1e3:.0f} mm at "
+             f"{_disp_probe:.0f} kg) — the thickness-mass fixed point is "
+             f"oscillating and neither sheet can honestly be certified",),
+            params=np.asarray(params), hull_lwl_m=float(p["LWL"]),
+            eval_ms=(time.perf_counter() - t0) * 1e3)
     wb = weight_budget(p["LWL"], p["D"], shell, deck, energy_spec, t_ply)
     items = weight_items(p["LWL"], p["D"], shell, deck, energy_spec,
                          t_design, t_ply)

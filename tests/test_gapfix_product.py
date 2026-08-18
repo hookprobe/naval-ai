@@ -713,3 +713,26 @@ def test_the_drone_payload_is_a_real_mission_field_S11():
     assert loaded.payload.sea_state is None
     with pytest.raises(ValueError, match="finite non-negative"):
         PayloadSpec(mass_kg=-5.0)
+
+
+def test_one_rule_one_mldc_C04():
+    """Forensics B1/C-04: the stock sheet was selected from the MISSION
+    TARGET while R-TBM was assessed at the FLOATED displacement — whenever
+    the budget exceeded the target the rule failed by construction
+    (measured: a 0.02 mm sliver on the 5 m case). Selection is now a fixed
+    point on the boat's ACTUAL loaded displacement, so selection and
+    assessment read the same boat and R-TBM cannot fail on the split."""
+    from navalai import formcheck
+    from navalai.evaluate import evaluate
+    from navalai.rules.iso12215 import select_stock_thickness_m
+
+    case = {c.key: c for c in formcheck.CASES}["a"]
+    ev = evaluate(case.params, case.mission)
+    assert ev.hydro is not None
+    # the budget exceeds the declared target on this case — the exact
+    # regime that used to split the two mLDCs
+    assert ev.hydro.disp_kg > case.mission.displacement_target_kg
+    # the selected sheet is the fixed point of the FLOATED displacement
+    assert ev.ply_thickness_m == select_stock_thickness_m(ev.hydro.disp_kg)
+    # and the rule no longer fails on the selection/assessment split
+    assert not any("R-TBM" in v for v in ev.violations), ev.violations
