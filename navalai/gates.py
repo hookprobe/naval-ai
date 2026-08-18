@@ -350,11 +350,15 @@ GATES = [
     # warnings, and the batched-EI diversity filter measured in the CANDIDATE
     # box. A scope line that names half a suite is a registry that under-reports
     # what would be lost if the suite stopped running.
-    # The held-out ERROR BAR is NOT here. It is Gate 3E, below, for Gate 4F's
-    # reason exactly: this suite passes everything it asserts while the clause
-    # the row is named for is missed on four of five honest query draws.
+    # The held-out ERROR BAR lives IN this suite again: Gate 3E was retired
+    # 2026-08-18 per its own clearing contract ("delete it the moment the bar
+    # is MET") — measured 0.1471 (2026-08-13, the improvement's authoring
+    # measurement) then 0.1323 across seeds (2026-08-18, fortress001, at the
+    # audit base AND at HEAD). test_phase3's across-seed test now ASSERTS the
+    # bar and re-opens the row with a dated measurement if it is ever missed
+    # again; the retirement history is in that test's docstring.
     Gate("Gate 3", "surrogate spine: GP + co-kriging rho, OOD refusal, "
-         "batched-EI infill (held-out error bar: Gate 3E)",
+         "batched-EI infill + the held-out across-seed error bar",
          "tests/test_phase3.py"),
     # The feasibility clause is NOT here. It is Gate 4F, below, because a
     # shortfall stated in this row's `scope` was prose — see that row.
@@ -678,18 +682,15 @@ GATES = [
          ">=99% bar (BuildPlan Phase 4)",
          status=Verdict.RED,
          detail="see data/gate-ledger.json for the measured watermark"),
-    # GAP D10, AND IT IS GATE 4F'S SHAPE FOR THE THIRD TIME. Gate 3's L1 error
-    # bar was asserted on ONE query draw (seed 991), and that draw is the
-    # MINIMUM of five: the suite passed, GREEN, while the model misses the bar
-    # on the other four. A statistic measured on one sample is not the model's
-    # error bar, it is that sample's. THE BAR IS NOT SOFTENED — 0.15 stands,
-    # and the shortfall is now measured across seeds and carried here. THE
-    # NUMBERS ARE NOT REPEATED IN THIS FILE: watermark, seeds, spread and owner
-    # are in data/gate-ledger.json (gap J1).
-    Gate("Gate 3E", "the L1 surrogate's held-out error bar, measured ACROSS "
-         "query seeds rather than on one chosen draw",
-         status=Verdict.RED,
-         detail="see data/gate-ledger.json for the measured watermark"),
+    # GAP D10's Gate 3E row stood here from 2026-08-12 (across-seed watermark
+    # 0.183 against the 0.15 bar) until 2026-08-18, when it was RETIRED per
+    # its own clearing contract: the physics-correction campaign brought the
+    # across-seed median to 0.1471 (2026-08-13) then 0.1323 (2026-08-18,
+    # fortress001, reproduced at the audit base — the improvement predates
+    # that day's changes). D10's discipline survives the row: the Gate 3
+    # suite's across-seed test now ASSERTS the bar on five honest query
+    # draws (never one chosen seed) and re-opens the ledger row with a dated
+    # measurement if the bar is ever missed again.
     Gate("Gate 2M", "KCS/JBC OpenFOAM calibration w/ per-case GCI",
          status=Verdict.RED,
          detail="see data/gate-ledger.json for the measured watermark"),
