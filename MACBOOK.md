@@ -1,9 +1,51 @@
 # MacBook Pro (M5, ~24 GB) — simulation-node runbook
 
-Purpose of this machine in the project: **unblock Gate 2M** (OpenFOAM
-KCS/JBC calibration — the only gap that needs compute we don't have) and run
-the two planned upgrades (guided diffusion, LoRA translator). Everything else
-already runs green on fortress001.
+Purpose of this machine in the project: **the CFD tier** — everything else
+runs on fortress001.
+
+## 0 · PARALLEL-WORK CONTRACT (read first — updated 2026-08-18)
+
+Two Claude sessions work this repo in parallel. **Git is the coordination
+layer; this section is the partition.** Before ANY work: `git pull`; push
+small commits often; never rebase published history.
+
+**fortress001 (linux) owns, this window:** `navalai/`, `tests/`, `docs/`
+— the code-forensics consolidation plan (`docs/CODE_CONSOLIDATION_PLAN.md`;
+live progress in `docs/audit/STATUS.md`, which fortress001 updates and
+pushes after every landed item). If a file in those paths must change from
+the Mac, land measured DATA instead and file the code change as a note in
+STATUS.md.
+
+**macOS owns:** `runs/` (gitignored evidence), `data/gate2u-*.json` (new
+campaign rows — the fence now requires a geometry hash per row),
+`data/gate-ledger.json` rows **Gate 2M / Gate 2U / Gate 3E only** (the
+`owner` field marks them), and this file's §below work order.
+
+**Mac work order (in value order):**
+1. `bash scripts/install-hooks.sh` (hooks are path-stale after the repo
+   moved; verify `git config core.hooksPath` points inside THIS clone).
+2. **Gate 2U 16-gene re-campaign** — `python scripts/mesh_robustness.py
+   --n 25 --seed 0 --np 10 --solve 2 --json data/gate2u-16gene.json`;
+   update the Gate 2U ledger row (watermark, `calibration_void` removed,
+   `measured_on` names the 16-gene genome + STL hashes).
+3. **Gate 2M calibration** — the runbook below (`make_case.py --triplet`
+   … `gate2m.py`); update the Gate 2M ledger row with the measured E%D
+   and GCI. NOTE: `scripts/make_case.py --case a..f` is the NEW canonical
+   genome lane (mission→evaluate→manifest→case, floats at the certified
+   attitude); use it for any genome-hull run.
+4. **C-06 metal check** — one `make_case.py --case a` case through
+   snappy+interFoam: confirm the trimmed-attitude mesh behaves (layer
+   coverage, no snap pathology). Record the verdict in STATUS.md.
+5. **Gate 3E re-measure** — `tests/test_phase3.py`'s two expected-fail
+   tests say the bar may now be met; run the suite, and if the 0.15 bar
+   is met, retire the pair per their own instructions (ledger + gates row
+   + tests in ONE commit).
+
+**Merge rule:** ledger rows are per-gate (row-scoped edits — conflicts
+only if both machines touch the same gate; don't). `data/baselines.json`
+is fortress001's (regenerated 2026-08-18). On conflict anywhere: the
+MEASUREMENT wins over prose; if two measurements clash, keep both with
+machine labels and file it in STATUS.md.
 
 ## 1 · Get the repo onto the Mac
 

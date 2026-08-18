@@ -55,8 +55,18 @@ class CFDManifest:
     g_m_s2: float = G_OPENFOAM
     # --- condition ---------------------------------------------------------
     speed_ms: float = 0.0
+    # THE LADDER'S flow numbers (C-07): fn/re are consumed from
+    # `ev.vessel["fn"]/["re"]` — the same values every L1 judgment used —
+    # never re-derived. The *_case pair carries the CASE-CONVENTION
+    # rendering (g = 9.81 as written to constant/g, nu = the 20 C case
+    # fluid) so the dictionaries and their receipts agree with the solver's
+    # own inputs; the two conventions are DECLARED side by side instead of
+    # one silently impersonating the other (measured drift before this
+    # split: Re +4.6%).
     fn: float = 0.0
     re: float = 0.0
+    fn_case: float = 0.0
+    re_case: float = 0.0
     # --- domain / mesh request --------------------------------------------
     mesh_scale: float = 1.0
     nx_background: int = _NX_BASE
@@ -123,9 +133,13 @@ def manifest_from_evaluation(ev, mission, *, mesh_scale: float = 1.0,
             "not exist")
     u = mission.cruise_speed_ms()
     lwl = float(ev.hull_lwl_m)
-    fn = u / math.sqrt(G_OPENFOAM * lwl)
-    re = u * lwl / NU_FRESH_20C
-    lam = 2.0 * math.pi * fn * fn * lwl
+    # C-07: consume the ladder's flow numbers; derive only the declared
+    # case-convention pair.
+    fn = float(ev.vessel.get("fn", u / math.sqrt(G_OPENFOAM * lwl)))
+    re = float(ev.vessel.get("re", u * lwl / NU_FRESH_20C))
+    fn_case = u / math.sqrt(G_OPENFOAM * lwl)
+    re_case = u * lwl / NU_FRESH_20C
+    lam = 2.0 * math.pi * fn_case * fn_case * lwl
     from ..fidelity import cells_per_wavelength as _cpw
     genome = np.asarray(ev.params, float)
     from .. import grammar
@@ -146,7 +160,8 @@ def manifest_from_evaluation(ev, mission, *, mesh_scale: float = 1.0,
         topology=str(ev.vessel.get("topology", "monohull")),
         n_hulls=int(ev.vessel.get("n_hulls", 1)),
         separation_m=float(ev.vessel.get("separation_m", 0.0)),
-        speed_ms=u, fn=fn, re=re,
+        speed_ms=u, fn=fn, re=re, fn_case=fn_case,
+        re_case=re_case,
         mesh_scale=mesh_scale,
         nx_background=background_counts(mesh_scale, symmetric)[0],
         symmetric=symmetric, n_layers=n_layers,
