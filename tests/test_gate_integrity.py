@@ -127,7 +127,12 @@ def test_a_recovered_gate_must_not_leave_its_ledger_entry_behind(tmp_path, capsy
                    '"review_by": "2099-01-01", "measured_utc": "2026-01-01"}}')
     real = G.GATES
     try:
-        G.GATES = [G.Gate("Gate 0", "green suite", "tests/test_phase0.py")]
+        # The fixture needs A green suite, nothing about phase0 — and
+        # phase0 carries a 1 ms wall-clock bar that fails under load, which
+        # made THIS meta-test flaky-by-hostage (2026-08-18, box under a
+        # concurrent full-suite run). test_formlib is deterministic, sub-
+        # second and timing-free.
+        G.GATES = [G.Gate("Gate 0", "green suite", "tests/test_formlib.py")]
         rc = G.main(["--ledger", str(led)])
         assert rc == 1
         assert "LEDGER STALE" in capsys.readouterr().out
