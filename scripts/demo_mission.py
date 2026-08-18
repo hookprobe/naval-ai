@@ -1,4 +1,8 @@
-"""End-to-end demo: one mission sentence -> a validated hull with provenance.
+"""LEGACY (C-27): predates navalai.certify — kept as a smoke demo only.
+The supported end-to-end lane is `python3 -m navalai.design_report`
+(mission -> evaluate -> certify with refusals and receipts); this script
+stops at evaluation and knows nothing of certification. Do not extend it.
+End-to-end demo: one mission sentence -> a validated hull with provenance.
 
 python3 scripts/demo_mission.py
 """

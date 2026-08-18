@@ -118,21 +118,26 @@ surveillance platform wants maximum time-on-station. Some of them care about
 platform that scares the thing it is measuring has failed its mission at a
 perfectly good Wh/km.
 
-**Nothing about the drone family ships today, and the honest reason is the
-mission layer, not the physics.** `mission.MissionSpec` carries crew,
-displacement target, cruise speed, design category, waters and an energy budget
-— a crewed-craft vocabulary. There is no payload/endurance/sea-state/sensor
-mission, and `optimize.HullProblem`'s three objectives are `wh_per_nm`, build
-panel area and distance from the GM band: no time-on-station, no survey-km/kWh,
-no wake or acoustic term. Adding those is a mission-layer and objective change
-that goes through §3 like anything else — and per §0 it must not become a fork.
+**Nothing about the drone family ships today, and the honest reason is now
+the ASSESSMENT and OBJECTIVE layers, not the vocabulary.** (Corrected
+2026-08-18, C-28: the previous version of this paragraph denied a payload
+vocabulary that has since landed.) `mission.PayloadSpec` declares the
+mission equipment as first-class quantities — payload mass with an optional
+position, `sea_state`, `endurance_h`, payload power draw — and an uncrewed
+mission zeroes the crew provision with a recorded note. But these are
+DECLARED requirements, not assessed ones: nothing in the tree can assess
+operability in a declared sea state, and `optimize.HullProblem`'s three
+objectives are still `wh_per_nm`, build panel area and distance from the GM
+band — no time-on-station, no survey-km/kWh, no wake or acoustic term.
+Adding the assessments and objectives is a platform change that goes
+through §3 like anything else — and per §0 it must not become a fork.
 
 ### 2.1 Declared lines
 
 | Line | Mission preset | Grammar subspace | Rules profile |
 |---|---|---|---|
 | **Hull-Line v1** | any (research base) | full 16-param | ISO 12217/12215 subset |
-| **Solar Liveaboard** | 6 t, Danube/Black Sea, cat C/D | sharp-chine, 9–14 m | + ES-TRIN |
+| **Solar Liveaboard** | 6 t, Danube/Black Sea, cat C/D | sharp-chine, 9–14 m | + ES-TRIN — checkers built (`rules/estrin.py`, gated); **not yet consulted by `evaluate()`** (C-23: wiring needs inland-scope detection on the mission, its own change) |
 | **Dayboat** | 1–3 t, cat D | pram/sharp-chine 4–7 m | cat D profile |
 | **Full-Vessel Line v2** | + interior/exterior arrangement + unsinkability | + arrangement grammar | + ergonomics tier E + flotation tier F |
 | **Kit-Line v3** | the self-certifiable envelope (LH < 12 m, cat C/D), delivered as a CNC kit | unchanged | unchanged, one policy profile, one delivery mode |

@@ -1,4 +1,6 @@
-"""Hull grammar AST + type checker (original plan, Phase 1: 'the grammar
+"""EXPERIMENT (forensics section-26, C-25): test-only companion of the
+agents island — the production genome truth is `navalai.grammar`.
+Hull grammar AST + type checker (original plan, Phase 1:Hull grammar AST + type checker (original plan, Phase 1: 'the grammar
 dictates spatial allocation and structural limits before any CAD kernel is
 invoked').
 

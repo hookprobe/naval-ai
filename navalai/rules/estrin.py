@@ -1,4 +1,10 @@
-"""ES-TRIN — European Standard for inland navigation vessels, as checkers.
+"""GATE-SUPPORT, NOT YET WIRED (C-23): these checkers execute in tests and
+gates only — `rules/__init__` does not export them and `evaluate()` does
+not consult them, so no inland mission is judged against ES-TRIN today.
+PLM.md's Solar Liveaboard row says so. Wiring is its own change: it needs
+inland-scope detection on the mission (waters/waterway declaration), and
+it changes verdicts, so it arrives with a re-measured fleet, not silently.
+ES-TRIN — European Standard for inland navigation vessels, as checkers.
 
 Gate 6 asks for "ES-TRIN as executable checkers", and gap G7 recorded ZERO
 CODE against it while `PLM.md` listed the Solar Liveaboard (Danube) SKU as

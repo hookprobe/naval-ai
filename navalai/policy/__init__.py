@@ -1,4 +1,8 @@
-"""Governance kernel — what am I ALLOWED to design? (BuildPlan 3, V3.0)
+"""EXPERIMENT (forensics section-26, C-24): built and gated, but NO
+production entrypoint consults the compiler yet — evaluate/certify run
+ungoverned. Wiring a governed entrypoint is its own decision (it changes
+what the product may refuse); until then this label is the truth.
+Governance kernel — what am I ALLOWED to design? (BuildPlan 3, V3.0)
 
   base.py      PolicyValue -- every policy constant carries source + basis
   legal.py     LegalEnvelope -- RCD 2013/53/EU Art. 20 routing, the own-use

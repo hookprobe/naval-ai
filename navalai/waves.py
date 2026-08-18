@@ -1,6 +1,13 @@
 """Environmental boundary conditions (original plan, Phase 3 — built per the
 research verdict: climatological spectra, not forecast models).
 
+OWNERSHIP (C-26): this module owns the SEAWAY (spectra, wave statistics,
+the environment the boat sits in); `navalai.seakeeping` owns the RESPONSE
+(added mass, damping, RAO tiers L0/L2). `waves.heave_response` is the
+1-DOF closed-form bridge between them and reads seakeeping coefficients —
+it does not re-derive them. RESEARCH module: consumed by experiments and
+docs/research, not by the evaluate ladder.
+
 JONSWAP spectrum (fetch-limited seas — the Black Sea's short steep chop is
 the textbook case) + riverine wake preset, and the spectral seakeeping
 response: S_response(w) = |RAO(w)|^2 * S_wave(w).

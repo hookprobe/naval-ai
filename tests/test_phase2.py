@@ -15,10 +15,16 @@ from navalai.seakeeping import (convergence_sweep, heave_coeffs,
                                 hemisphere_added_mass_lowfreq)
 from tests.test_phase0 import mid_params
 
-capytaine = pytest.importorskip("capytaine")
+# C-30: the importorskip was MODULE-level, so a box without capytaine
+# skipped all 18 tests — 15 of which (every case-generation test below the
+# first three) never touch the BEM stack: seakeeping's capytaine imports
+# are function-level by design. The skip now lives in exactly the three
+# tests that call into the BEM, and the case-generation gate runs
+# everywhere.
 
 
 def test_hemisphere_hulme_anchor():
+    pytest.importorskip("capytaine")
     """Hulme (1982): heave added mass of a floating hemisphere at omega->0 is
     0.8310 x displaced mass. Coarse-mesh tolerance 6%."""
     ratio = hemisphere_added_mass_lowfreq(n_theta=20, n_phi=40, omega=0.15)
@@ -26,6 +32,7 @@ def test_hemisphere_hulme_anchor():
 
 
 def test_hull_heave_coeffs_physical():
+    pytest.importorskip("capytaine")
     h = Hull(mid_params())
     omegas = np.array([0.8, 1.5, 2.5])
     am, dp, nb = heave_coeffs(h, omegas, nx=24, nz=6)
@@ -35,6 +42,7 @@ def test_hull_heave_coeffs_physical():
 
 
 def test_convergence_sweep_reports_uncertainty():
+    pytest.importorskip("capytaine")
     h = Hull(mid_params())
     vals, panels, rel = convergence_sweep(h, omega=1.2,
                                           levels=((16, 4), (24, 6), (32, 8)))

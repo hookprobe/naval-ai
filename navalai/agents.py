@@ -1,4 +1,7 @@
-"""The agentic PLM network (original plan, Phase 2) — async message passing.
+"""EXPERIMENT (forensics section-26, C-25): the Phase-2 agentic island.
+Test-only — no production entrypoint imports this module. It becomes
+LIVE only via a wired, gated entrypoint (its own plan item), not by
+silently importing it somewhere. The agentic PLM network — async message passing.The agentic PLM network (original plan, Phase 2) — async message passing.
 
 Four agents, typed messages, an auditable trail:
 

@@ -1,4 +1,7 @@
-"""The MDO spine: one genome, one lifecycle, exactly one terminal state.
+"""EXPERIMENT (forensics section-26, C-25): the lifecycle FSM is unwired —
+no production caller constructs it; the live lane is
+mission -> evaluate -> certify -> manifest -> case (LIVE_SYSTEM_MAP.md).
+The MDO spine: one genome, one lifecycle, exactly one terminal state.The MDO spine: one genome, one lifecycle, exactly one terminal state.
 
 "The AI coordinates. Physics decides." Nothing in this module computes a
 hydrostatic, a resistance or a mesh. It records WHERE a genome is, refuses a
