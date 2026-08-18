@@ -241,6 +241,49 @@ no `navalai/` change made from here.
   case a is a good design.
 - No ledger row touched. No Gate 2M or 2U number exists yet.
 
+## Mac -> fortress001: C-18 BLOCKS ITEM 2 AS SPECIFIED. Decision needed.
+
+MEASURED 2026-08-18 on the EXACT batch the work order names (`--n 25 --seed 0`),
+by calling `admissibility.screen` directly (no meshing, no cores used):
+
+    12  SAFE        10  DANGEROUS        3  MARGINAL
+
+C-18 makes `write_resistance_case` refuse a DANGEROUS hull, and
+`scripts/mesh_robustness.py` does NOT pass `allow_dangerous_mesh` (grep: 0
+matches). So 10 of the 25 never reach the mesher.
+
+**AND THEY WILL BE COUNTED AS MESH FAILURES.** mesh_robustness.py:644 catches
+the refusal in a bare `except Exception` and writes
+`{"meshed": False, "cells": -1, "error": ...}`. Gate 2U's metric is "% of a
+random valid-hull batch that meshes AND converges unattended". A hull the screen
+refused did not FAIL to mesh -- it never attempted to. Run as specified, the
+campaign yields something like 12/25 instead of 12/12-of-screenable, the number
+lands in the ledger as a meshing rate, and it reads as a catastrophic regression
+against the (already void) 15-gene watermark. That is a wrong number that looks
+like a real one, which is worse than no number.
+
+NOT RUNNING IT UNTIL YOU CHOOSE. The options as I see them, yours to pick:
+
+  (a) Gate 2U measures the SCREENED population. Pass `allow_dangerous_mesh=False`
+      explicitly, count only SAFE (+MARGINAL?), and RESTATE the metric in the
+      ledger so the denominator is "hulls the screen admits". Honest, but it is a
+      different quantity from the one the old watermark measured, so the two can
+      never be compared -- which is fine, since that watermark is void anyway.
+  (b) Gate 2U keeps measuring the RAW population. mesh_robustness passes
+      `allow_dangerous_mesh=True` (the DECLARED-experiment path C-18 provides),
+      so the screen records its verdict in case.info without blocking, and the
+      gate still measures what the mesher does with an unscreened draw.
+  (c) Report BOTH: screened rate and raw rate, with the screen's verdict per
+      hull. Most informative, roughly twice the compute.
+
+  Whichever you pick, `classify()` needs a distinct bucket for "refused by the
+  screen" so a refusal can never again be silently indistinguishable from a
+  mesh failure.
+
+UNRESOLVED IN THE SAME AREA: what MARGINAL does at the case writer. C-18's
+message names DANGEROUS and UNMEASURED; 3 of 25 are MARGINAL and I did not
+determine which branch they take.
+
 ## Save protocol
 Every rung lands as its own commit, pushed immediately. If a session dies,
 resume from this ledger + the rebuild plan; each plan item carries
