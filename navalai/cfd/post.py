@@ -563,6 +563,19 @@ def stl_wetted_area(path: str | Path, waterline: float = 0.0) -> float:
 
 
 def _read_stl_tris(path: str | Path) -> list:
+    """Ascii STL -> list of triangles, each a 3-tuple of (x, y, z) tuples.
+
+    C-10, the semantics NAMED: vertices are ROUNDED TO 7 DECIMALS at parse
+    time, so coordinates that differ below 1e-7 weld into one shared tuple.
+    This is a different weld from `stl_forensics.load_stl`, which merges
+    exact-on-the-written-decimal (what triSurfaceMesh does for shared grid
+    points) and returns (verts, tris) index arrays instead of tuple soup.
+    The repair pipeline below WANTS the rounding: it compares vertex tuples
+    by equality (weld/cap/mirror), and `%.6e`-formatted floats reparsed
+    through `float()` can disagree in the last digit. Two parsers, two
+    declared jobs — do not merge them by making one lie about the other's
+    tolerance.
+    """
     verts: list = []
     tris: list = []
     for line in Path(path).read_text().splitlines():
@@ -576,20 +589,20 @@ def _read_stl_tris(path: str | Path) -> list:
 
 
 def _write_stl(tris, path: str | Path, name: str = "hull") -> None:
-    out = [f"solid {name}"]
-    for tri in tris:
-        p = np.array(tri)
-        n = np.cross(p[1] - p[0], p[2] - p[0])
-        ln = np.linalg.norm(n)
-        n = n / ln if ln > 1e-14 else np.array([0.0, 0.0, 1.0])
-        out.append(f" facet normal {n[0]:.6e} {n[1]:.6e} {n[2]:.6e}")
-        out.append("  outer loop")
-        for v in p:
-            out.append(f"   vertex {v[0]:.6e} {v[1]:.6e} {v[2]:.6e}")
-        out.append("  endloop")
-        out.append(" endfacet")
-    out.append(f"endsolid {name}")
-    Path(path).write_text("\n".join(out))
+    """Write triangles through THE one facet emitter (C-10).
+
+    This body used to be a hand-copied second emitter loop — exactly the
+    copy `case._tris_to_ascii_stl`'s G7.1 factoring exists to prevent. It
+    now delegates, so facet formatting, normal recomputation and the
+    degenerate-normal fallback have one home. `name` is accepted for
+    signature compatibility and ignored: the emitter writes `solid hull`,
+    and no caller passes anything else (grep 2026-08-18: all three internal
+    call sites and tests use the default).
+    """
+    from .case import _tris_to_ascii_stl
+    p = np.asarray(tris, float).reshape(-1, 3)
+    Path(path).write_bytes(
+        _tris_to_ascii_stl(p, np.arange(len(p)).reshape(-1, 3)))
 
 
 def weld_vertices(src: str | Path, dst: str | Path, tol: float = 2e-4) -> dict:
