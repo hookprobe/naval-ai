@@ -169,18 +169,30 @@ def test_percentile_is_a_strictness_knob_and_the_docstring_now_says_so(model):
 def test_conditioning_reports_when_it_could_not_finish(model):
     """`raise RuntimeError("conditioned sampler starved")` was the only exit
     when the cut could not be met — a UI widget that spins and then throws.
-    A wall-clock budget now returns best-so-far with `partial` set."""
-    m = MissionSpec()
+    A wall-clock budget now returns best-so-far with `partial` set.
 
-    def slow_score(X):
-        out = []
-        for x in X:
-            ev = evaluate(x, m)
-            out.append(ev.energy.wh_per_nm if ev.energy else 1e9)
-        return np.array(out)
+    THE STARVATION IS RIGGED, DETERMINISTICALLY (2026-08-19). This used to
+    score with the real ladder at percentile=1.0 and assume the candidate
+    batch never beats the reference batch's minimum — a seed lottery: after
+    the physics-correction campaign, the gmm's second batch contains SEVEN
+    hulls better than the first batch's best (measured), the sampler filled
+    n=6 legitimately and `partial=False` was TRUE reporting that the test
+    then failed. A monotone score makes the cut unbeatable by construction:
+    the reference batch owns the lowest scores ever issued, so no candidate
+    can pass and the budget path MUST engage — on every model, every seed.
+    """
+    import itertools
+    counter = itertools.count()
 
-    X, info = model.sample_conditioned(6, slow_score, percentile=1.0, seed=4,
-                                       time_budget_s=0.0, return_info=True)
+    def rigged_score(X):
+        # strictly increasing across calls: ref gets 0..63, every later
+        # candidate scores higher than ref's minimum -> the cut at
+        # percentile=1.0 (quantile 0.0 = ref min) is unbeatable.
+        return np.array([float(next(counter)) for _ in X])
+
+    X, info = model.sample_conditioned(6, rigged_score, percentile=1.0,
+                                       seed=4, time_budget_s=0.0,
+                                       return_info=True)
     assert info["partial"] is True and info["n_requested"] == 6
     assert len(X) == info["n_returned"] <= 6
     for x in X:
@@ -319,8 +331,18 @@ def test_from_latent_declares_when_it_substituted_a_different_hull(model):
 def test_genome_decode_reports_its_projection_too():
     """`navalai.latent.Genome.decode` had the same silent fallback and the
     register measured it at 6.0% of 200 draws. MEASURED after the fix: 88.0%
-    of 200 prior draws are delivered unprojected and 0.0% come back as an
-    anchor."""
+    of 200 prior draws delivered unprojected, 0.0% anchors.
+
+    RE-BASED 2026-08-19: the physics-correction campaign tightened L0 (the
+    vessel-aware bands, the freeboard floors, the kernel rebuild), so more
+    prior draws land infeasible and get HONESTLY projected — 73.0 / 77.0 /
+    72.0% unprojected over rng streams 0/1/2, anchors still 0.0% on all
+    three (also 73.0% at the audit base f0ccc5f: the move predates this
+    change). Projection is not the defect this test guards; SILENT
+    projection is, and anchor_rate == 0 still carries that claim. The bar
+    sits just under the measured band; a fall below it means the latent
+    family stopped covering the feasible set and must be re-fit, not
+    re-worded."""
     from navalai.latent import Genome
 
     X, _y = sample_valid(120, MissionSpec(), seed=11)
@@ -328,7 +350,7 @@ def test_genome_decode_reports_its_projection_too():
     Z = np.random.default_rng(0).standard_normal((200, 8))
     Xd, info = g.decode(Z, return_info=True)
     assert info.anchor_rate == 0.0
-    assert info.unprojected_rate >= 0.80
+    assert info.unprojected_rate >= 0.70
     assert all(grammar.check(x).ok for x in Xd)
     # project=False must not claim a projection it did not do
     _Xr, info0 = g.decode(Z, project=False, return_info=True)
