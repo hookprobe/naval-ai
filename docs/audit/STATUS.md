@@ -182,6 +182,65 @@ history -> classify -> migrate -> only then delete/archive.
 - test_gapfix_physics Michell population-worst: 1.178% here vs the
   Mac-measured 0.673% — identical at base commit; platform drift.
 
+## Mac (CFD node) — 2026-08-18, first CFD evidence since the vessel work
+
+Per MACBOOK.md section 0. fortress001 leads; these are measured DATA + notes,
+no `navalai/` change made from here.
+
+- **Item 1 hooks — VERIFIED, no action needed.** `git config core.hooksPath`
+  already resolves to `<clone>/.githooks`. The stated concern (path-stale after
+  the repo moved) does not hold on this clone; `install-hooks.sh` NOT re-run, to
+  avoid repointing a path that is already correct.
+
+- **Item 4 C-06 metal check — VERDICT SPLITS. Defect -> proof below.**
+  DEFECT: `make_case.py --case a` (5 m hard-chine dayboat, 903 kg, trim
+  -0.0095) derives `n_layers = 6` and that mesh is REFUSED by `run-case.sh`'s
+  quality bar. PROOF, same hull and certified attitude, only `n_layers` differs:
+
+      n_layers        wrongly-oriented  max skew  non-ortho max   cells   verdict
+      6 (DERIVED)           16            6.615      96.67       548516  FATAL
+      5 (--n-layers)         0            3.025      69.95       532740  CLEAN
+
+  Bars: 0 zero-volume, 5 wrongly-oriented, 20 skewness. Both meshes had ZERO
+  zero-volume cells and both passed skewness; the derived one fails on
+  wrongly-oriented faces alone, at 16 -- worse than the n=7 KCS case measured to
+  die at t=0.0072 s with 10. Signature is the documented PARTIAL STACKS: n=6
+  gives 84.3% coverage / 5.12 of 6 achieved, n=5 gives 85.6% / 4.3 of 5.
+  **So the half C-06 claimed is GOOD -- the trimmed attitude reaches snappy and
+  behaves. The half nobody checked is not: the canonical lane emits an
+  unsolvable mesh unless a human overrides its own derived count.**
+
+- **CHANGE OWED IN `navalai/`/`scripts/`, NOT MADE FROM HERE (yours).** The fix
+  already exists and is simply unwired: `navalai/cfd/case.py` exports
+  `layer_backoff_ladder`; `scripts/mesh_robustness.py` imports it and exposes
+  `--layer-backoff`/`--cap-layers`, so the CAMPAIGN lane self-recovers.
+  `scripts/make_case.py` -- the lane C-06 made the production path -- has zero
+  backoff or retry (grep: 0 matches).
+
+- **Work-order deviation, flagged for your overrule.** I ran item 4 BEFORE item
+  2. Reason: item 4 is one case (~2 min to a verdict), item 2 is 25 hulls
+  (hours), and item 4 had never run at all since STATUS.md line 4 records "NO
+  CFD runs". It found the defect above immediately. Say if you want the listed
+  order restored.
+
+- **A caution I published and then refuted by measurement.** I wrote in
+  MACBOOK.md that the Gate 2U re-campaign's round-bilge hulls would mesh at 6x
+  the girth density because `hull_to_stl`'s default moved from nz=16 to a
+  bilge-derived 16/96. FALSE: the CFD case path never reads that default --
+  `write_resistance_case` calls `stl_resolution()`, and the receipt records
+  `stl_nx_shipped=600`, `stl_nz_shipped=120`. 120 > 96, so the change is inert
+  here by construction. The genome change 15 -> 16 remains the real and
+  sufficient reason the re-campaign is not comparable to the old batch.
+
+- **Campaign-lane budget probe** (mesh only, N=1, seed 0, np=10): 851501 cells,
+  89.1% layers, 0 zero-volume, skew 6.98, **74.2 s/hull**. Use it to size item 2.
+- `tests/test_end_to_end_flow.py` 14/14 on this machine.
+- Recorded, not escalated: the case-a STL enters the mesher with 7
+  self-intersections (`run-case.sh` prints and continues, by design), and case a
+  evaluates `ok=False` at L1 -- a valid mesh-behaviour probe, not evidence that
+  case a is a good design.
+- No ledger row touched. No Gate 2M or 2U number exists yet.
+
 ## Save protocol
 Every rung lands as its own commit, pushed immediately. If a session dies,
 resume from this ledger + the rebuild plan; each plan item carries
