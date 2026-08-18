@@ -161,7 +161,7 @@ different Gate 2M numbers came to circulate at once (gap J1).
 | Gate 1P | the L1 physics core says what it actually computed | `tests/test_gapfix_physics.py` (26 tests) |
 | Gate 1b | NSGA-II Pareto front | `tests/test_optimize.py` (11 tests) |
 | Gate 2 | Capytaine BEM (Hulme anchor) | `tests/test_phase2.py` (18 tests) |
-| Gate 2R | CFD reference parity + GCI honesty | `tests/test_cfd_reference_parity.py` (98 tests) |
+| Gate 2R | CFD reference parity + GCI honesty | `tests/test_cfd_reference_parity.py` (99 tests) |
 | Gate 2P | slamming pressure is measurable: a bow patch that partitions the hull, a function object that refuses to point at nothing, and a Wagner C_p guarded at both limits | `tests/test_slamming.py` (14 tests) |
 | Gate 3 | surrogate spine: GP + co-kriging rho, OOD refusal, batched-EI infill (held-out error bar: Gate 3E) | `tests/test_phase3.py` (24 tests) |
 | Gate 4 | generative + slider p95<100ms (raw feasibility: Gate 4F) | `tests/test_phase4.py` (27 tests) |

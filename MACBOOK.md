@@ -47,6 +47,108 @@ is fortress001's (regenerated 2026-08-18). On conflict anywhere: the
 MEASUREMENT wins over prose; if two measurements clash, keep both with
 machine labels and file it in STATUS.md.
 
+## 0b · CFD VALIDATION LIST (Mac-owned, drawn 2026-08-18 after pulling 80294b2)
+
+Fortress001's own STATUS.md line 4 says **"NO CFD runs"** — everything below is
+work only this machine can do. Items 1-5 are fortress's work order in §0,
+restated with what each is BLOCKED ON and what it must PRODUCE. Items 6-8 are
+obligations created by the vessel/geometry work in `f18fcba` that §0 predates.
+
+**A number is not delivered until it is in `data/gate-ledger.json` with a
+geometry hash and a `measured_on` that names the genome.** A run directory is
+deleted by `clean-runs.sh --purge`; a ledger row is not (gap N6).
+
+### 1 — Hooks. NOT NEEDED, verified.
+`git config core.hooksPath` already resolves inside this clone
+(`/Users/robobostes/Documents/naval-ai/.githooks`). §0 item 1 is satisfied; do
+not re-run `install-hooks.sh` blindly and repoint anything.
+
+### 2 — Gate 2U 16-gene re-campaign. HIGHEST VALUE, and the watermark is VOID.
+The ledger row says so in its own words: the recorded watermark was
+**measured on the 15-parameter genome (pre-roundness)**, and the 16th gene
+changes the sampled population, so that number "stays as HISTORY" and no
+comparison is legitimate until it is re-based here. **The figure itself is NOT
+repeated here — read it from the `Gate 2U` row of `data/gate-ledger.json`,
+which carries its units, its bar, its owner and its review_by. A sentence
+carries none of those and cannot fail.** (`tests/test_gaps.py::
+test_no_document_restates_a_ledger_watermark` refused an earlier draft of this
+very section for quoting it — the fence works.)
+
+    python scripts/mesh_robustness.py --n 25 --seed 0 --np 10 --solve 2 \
+        --json data/gate2u-16gene.json
+
+PRODUCES: a new watermark, `calibration_void` REMOVED, `measured_on` naming the
+16-gene genome and the STL hashes. The fence now requires a geometry hash per
+row — a row without one is refused.
+
+CAUTION THIS SESSION ADDED: `hull_to_stl`'s girth default is no longer a fixed
+`nz=16`; it is `stl_girth_resolution(hull)` = 16 hard chine / **96 filleted**,
+because 16 under-enclosed a filleted hull by 0.71% against a 0.35% bar. Every
+round-bilge hull in this campaign therefore meshes at 6x the girth density of
+any pre-`f18fcba` run. Expect different cell counts and different solve times;
+do NOT compare against the old batch except as history.
+
+### 3 — Gate 2M calibration. Watermark is the string `NONE`.
+Use the NEW canonical lane, not the old `--stl` path: `make_case.py --case a..f`
+runs mission -> evaluate -> manifest -> case and floats at the CERTIFIED
+attitude (C-06). Then `--triplet` for the GCI, then `scripts/gate2m.py`.
+PRODUCES: measured E%D against KRISO EFD 3.711e-3, and a Roache GCI over a
+SETTLED triplet. Budget it as ~21x the coarse grid (~68.7 h), not ~12x — the
+timestep is Courant-limited so a sqrt(2) finer grid also takes sqrt(2) more
+steps. Anchor COARSE; `--anchor fine` puts both coarser members under this
+project's own >=20 cells-per-wavelength bar.
+
+### 4 — C-06 metal check. Cheapest item with a real verdict.
+One `make_case.py --case a` through snappy + interFoam. Confirm the
+TRIMMED-ATTITUDE mesh behaves: layer coverage, no snap pathology, no
+zero-volume cells. This is the first time the manifest's attitude reaches a
+mesh, and the forensics measured the recorded-never-applied error at
+**+122.9%** — so this check is what proves C-06 actually landed in metal.
+Record the verdict in `docs/audit/STATUS.md` (fortress owns the file; land a
+note, not a code change).
+
+### 5 — Gate 3E re-measure. OWNERSHIP CONTRADICTION, do not act unilaterally.
+§0 grants macOS "Gate 2M / Gate 2U / Gate 3E only (the `owner` field marks
+them)". The `owner` field on Gate 3E reads **`ml-engineer`**, not
+`cfd-engineer` as 2M and 2U do. So the prose and the data disagree about who
+owns this row. It is also not a CFD quantity at all — it is a surrogate error
+bar. RESOLVE WITH FORTRESS BEFORE TOUCHING IT. The measurement itself
+(0.1471 against the 0.15 bar) is a draw landing 1.9% inside a measured 1.97x
+seed spread, which is why the previous session held it.
+
+### 6 — THE CATAMARAN INTERFERENCE TERM HAS NO EXPERIMENTAL ANCHOR.
+New in `f18fcba`: `separation` now reaches `total_resistance`, so every
+catamaran number this project reports is affected by an interference factor
+that has NEVER been checked against water. Insel & Molland (1992) and Molland
+et al. (1996) appear in `resistance.py` as reference COMMENTS and were never
+transcribed. Self-consistency is not validation.
+
+CFD CAN SETTLE THIS, and it is the highest-value NEW measurement available:
+run two demihulls at a fixed s/L and compare against 2x the isolated demihull.
+The prediction to test is sharp — measured on the analytic side, the
+interference ratio bottoms at **0.7483 at s/L 0.300, Fn 0.25** (-25.2% against
+two independent hulls) and rises to **+59.7% at Fn 0.40, s/L 0.200**. A CFD
+point at either extreme is worth more than another KCS decimal.
+
+### 7 — Free sinkage and trim is REACHABLE FOR THE FIRST TIME.
+`manifest.free_motion` exists and `make_case.py --free-motion` consumes it, so
+the G7 fix is finally on the wire. KCS Case 2.1 is towed FREE and we have
+always solved FIXED; the viscous half being right (1.161x ITTC-57) localises
+the remaining error to exactly what sinkage and trim move. `KG_ABOVE_KEEL_M =
+0.2303` is now in `benchmarks/kcs.py` beside its EFD acceptance data (sinkage
+-1.394e-2 m, trim -0.169 deg), so the number that used to exist only in a
+comment is available. **CAVEAT: for a MULTIHULL, KG is a single-hull KG with
+no bridge deck, so multihull GM is an UPPER estimate — do not use a free-motion
+catamaran run to certify stability.**
+
+### 8 — Second benchmark anchor: NTUA Series is a live candidate.
+KCS shares no chine, transom or spray physics with the SKUs, so Gate 2M green
+is not small-craft validation. The NTUA Series (double-chine planing, LOA
+4.00-7.00 m, L/B 1.00-4.23, with model-test resistance, CG rise and dynamic
+trim) is in our size band and IS chined. Caveat: it is a planing series and
+`FN_MICHELL_MAX` is 0.45, so most of it lies outside our only validated
+resistance model — its value is as a CFD/geometry anchor, not an L1 one.
+
 ## 1 · Get the repo onto the Mac
 
 ```bash
