@@ -77,7 +77,11 @@ def test_mesh_is_closed_quads_and_symmetric():
     assert f.shape[1] == 4
     assert v[:, 2].max() <= 1e-9          # nothing above WL
     ys = np.sort(v[:, 1])
-    assert np.allclose(ys, -np.sort(-v[:, 1])[::-1] * -1) or True
+    # C-03 (forensics): this line read `assert … or True` — a dead
+    # assertion that could not fail. The claim it meant: the mesh's y
+    # multiset is its own mirror image (every +y vertex has a -y twin).
+    # VERIFIED to hold before pinning (2026-08-18).
+    assert np.allclose(ys, -ys[::-1], atol=1e-9)
     # symmetric: total +y volume flux equals -y (mirror copy present)
     assert np.isclose(v[:, 1].sum(), 0.0, atol=1e-9)
 

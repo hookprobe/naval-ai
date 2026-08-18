@@ -81,12 +81,23 @@ class Provenance:
         self.con = sqlite3.connect(str(path))
         self.con.executescript(SCHEMA)
 
-    def add_hull(self, params: np.ndarray, grammar_version: str = "chine-v1") -> str:
+    # C-09 (forensics S1): the default was the literal "chine-v1" and NO
+    # caller ever passed a version, so 15-gene-era rows and current 16-gene
+    # rows shared one label — one string for two incompatible genome eras,
+    # fail-closed downstream only by accident (shape gates). The default now
+    # DERIVES from the genome the grammar actually ships, so a kernel change
+    # re-labels new rows automatically. Historical local DBs keep their
+    # "chine-v1" rows; genome length remains the hard discriminator.
+    def add_hull(self, params: np.ndarray,
+                 grammar_version: str | None = None) -> str:
         # Store the SAME canonical vector that was hashed — see `canonical`.
         # `INSERT OR IGNORE` is only honest once these two agree: ignoring the
         # second insert is then discarding a byte-identical row, not silently
         # preferring whichever of two different designs arrived first.
         hid = hull_id(params)
+        if grammar_version is None:
+            from . import grammar as _g
+            grammar_version = f"genome-{_g.N_PARAMS}"
         self.con.execute(
             "INSERT OR IGNORE INTO hull VALUES (?,?,?,?)",
             (hid, json.dumps(canonical(params)), grammar_version, time.time()),
