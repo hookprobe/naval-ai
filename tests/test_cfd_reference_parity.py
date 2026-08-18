@@ -1600,3 +1600,47 @@ def test_the_manifest_is_the_one_vessel_description_S13_S14(tmp_path):
         write_resistance_case(Hull(other), 2.5, tmp_path / "c",
                               end_time=1.0, symmetric=True, n_layers=2,
                               manifest=man)
+
+
+def test_the_case_floats_where_the_manifest_certifies_C06(tmp_path):
+    """Forensics B5/C-06: the manifest used to be RECORDED but never
+    APPLIED — the case meshed the design frame and floated +122.9% heavy
+    on the 5 m case. With a manifest, the writer now meshes the FLOATED
+    frame (waterline + solved trim onto the tank's z=0), verifies the
+    written STL's displacement against the manifest (receipt), and REFUSES
+    beyond 2% — so a case can no longer simulate a different boat than the
+    one certified."""
+    import numpy as np
+
+    from navalai import formcheck
+    from navalai.cfd.case import write_resistance_case
+    from navalai.cfd.manifest import manifest_from_evaluation
+    from navalai.cfd.post import stl_submerged_properties
+    from navalai.evaluate import evaluate
+    from navalai.geometry import Hull
+
+    case = {c.key: c for c in formcheck.CASES}["a"]
+    ev = evaluate(case.params, case.mission)
+    man = manifest_from_evaluation(ev, case.mission)
+    out = tmp_path / "c"
+    write_resistance_case(Hull(np.asarray(case.params)), man.speed_ms, out,
+                          end_time=1.0, symmetric=True, n_layers=2,
+                          manifest=man)
+    sub = stl_submerged_properties(
+        str(out / "constant" / "triSurface" / "hull.stl"), waterline=0.0)
+    case_disp = man.rho_kg_m3 * sub["volume_m3"]
+    assert case_disp == pytest.approx(man.displacement_kg, rel=0.02), (
+        f"case displaces {case_disp:.1f} kg vs certified "
+        f"{man.displacement_kg:.1f}")
+    info = (out / "case.info").read_text()
+    assert "manifest_case_displacement_kg=" in info
+    assert "manifest_displacement_mismatch_frac=" in info
+    # and WITHOUT a manifest the historical design-frame behaviour stands
+    out2 = tmp_path / "c2"
+    write_resistance_case(Hull(np.asarray(case.params)), man.speed_ms, out2,
+                          end_time=1.0, symmetric=True, n_layers=2)
+    sub2 = stl_submerged_properties(
+        str(out2 / "constant" / "triSurface" / "hull.stl"), waterline=0.0)
+    assert sub2["volume_m3"] != pytest.approx(sub["volume_m3"], rel=0.01), (
+        "the no-manifest lane unexpectedly floats at the manifest state — "
+        "if deliberate, update this fence")

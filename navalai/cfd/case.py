@@ -1425,7 +1425,8 @@ def stl_girth_resolution(hull: Hull) -> int:
 
 
 def hull_to_stl(hull: Hull, path: Path, nx: int = 80,
-                nz: int | None = None) -> str:
+                nz: int | None = None, wl: float = 0.0,
+                trim_deg: float = 0.0) -> str:
     """Write a WATERTIGHT ascii STL (full hull + deck + transom); sha256.
 
     CFD needs a closed manifold: the earlier wetted-only shell had 198 open
@@ -1446,6 +1447,21 @@ def hull_to_stl(hull: Hull, path: Path, nx: int = 80,
     if nz is None:
         nz = stl_girth_resolution(hull)
     verts, tris = hull.closed_mesh(nx=nx, nz=nz)
+    if wl or trim_deg:
+        # C-06 (forensics B5): mesh the case in the FLOATED frame — rotate
+        # about the y-axis through (midships, wl) by the solved trim
+        # (positive = bow down), then drop the floated waterline onto the
+        # tank's z = 0. Rigid transform: the shape is bit-identical, only
+        # the attitude changes, so the case floats at the state the
+        # manifest certifies instead of the design waterline.
+        import math as _m
+        v = np.array(verts, float, copy=True)
+        mid = float(hull.x[0]) + 0.5 * float(hull.x[-1] - hull.x[0])
+        c, sn = _m.cos(_m.radians(trim_deg)), _m.sin(_m.radians(trim_deg))
+        xr, zr = v[:, 0] - mid, v[:, 2] - wl
+        v[:, 0] = c * xr + sn * zr + mid
+        v[:, 2] = -sn * xr + c * zr
+        verts = v
     data = _tris_to_ascii_stl(verts, tris)
     path.write_bytes(data)
     return hashlib.sha256(data).hexdigest()
@@ -1961,7 +1977,13 @@ def write_resistance_case(hull: Hull, speed: float, out_dir: str | Path,
     nx, nz = stl_resolution(lwl, target_edge)
     nx_req = stl_resolution_request(lwl, target_edge)
     stl_path = out / "constant" / "triSurface" / "hull.stl"
-    stl_sha = hull_to_stl(hull, stl_path, nx=nx, nz=nz)
+    # C-06: with a manifest, the case is written IN THE FLOATED FRAME the
+    # manifest certifies (waterline + solved trim onto the tank's z = 0);
+    # without one, the design frame — the historical behaviour — stands.
+    stl_sha = hull_to_stl(
+        hull, stl_path, nx=nx, nz=nz,
+        wl=(manifest.waterline_m if manifest is not None else 0.0),
+        trim_deg=(manifest.trim_deg if manifest is not None else 0.0))
 
     # THE GUARD EXISTED AND NOTHING ON THIS PATH CALLED IT (defect class 3, a
     # guard never made to fire). MEASURED 2026-08-12: `stl_watertight_report`
@@ -2024,8 +2046,25 @@ def write_resistance_case(hull: Hull, speed: float, out_dir: str | Path,
                 f"{manifest.genome_sha256[:12]}… but this case is being "
                 f"written for {got[:12]}… — a case.info rendered from the "
                 "wrong manifest is two boats in one directory")
+        # The written surface must DISPLACE what the manifest certifies at
+        # the tank waterline (z = 0) — recorded as a receipt, refused when
+        # it disagrees beyond the measured loft/discretisation band.
+        from .post import stl_submerged_properties
+        sub = stl_submerged_properties(str(stl_path), waterline=0.0)
+        case_disp = manifest.rho_kg_m3 * sub["volume_m3"]
+        mismatch = (abs(case_disp - manifest.displacement_kg)
+                    / max(manifest.displacement_kg, 1e-9))
+        if mismatch > 0.02:
+            raise ValueError(
+                f"manifest/case displacement mismatch: the written STL "
+                f"displaces {case_disp:.1f} kg at the tank waterline while "
+                f"the manifest certifies {manifest.displacement_kg:.1f} kg "
+                f"({100 * mismatch:.1f}% apart, bar 2%) — the case would "
+                f"simulate a different boat than the one certified")
         with (out / "case.info").open("a") as fh:
             fh.write(manifest.render_case_info())
+            fh.write(f"manifest_case_displacement_kg={case_disp:.3f}\n")
+            fh.write(f"manifest_displacement_mismatch_frac={mismatch:.5f}\n")
     return info
 
 

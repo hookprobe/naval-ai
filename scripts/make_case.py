@@ -31,6 +31,11 @@ REFERENCE = {
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", required=True)
+    ap.add_argument("--case", choices=list("abcdef"),
+                    help="C-06 canonical genome lane: a deterministic "
+                         "formcheck vessel, run mission->evaluate->manifest"
+                         "->case; the case is written in the FLOATED frame "
+                         "the manifest certifies and verified against it")
     ap.add_argument("--speed", type=float, default=2.57)
     ap.add_argument("--end-time", type=float, default=40.0)
     ap.add_argument("--free-motion", action="store_true",
@@ -83,6 +88,36 @@ def main() -> None:
                                          free_motion=motion,
                                          lts=False if args.transient else None,
                                          n_layers=n_layers)
+    elif args.case:
+        import numpy as np
+
+        from navalai import formcheck
+        from navalai.cfd.manifest import manifest_from_evaluation
+        from navalai.evaluate import evaluate
+
+        fc = {c.key: c for c in formcheck.CASES}[args.case]
+        params = np.asarray(fc.params)
+        ev = evaluate(params, fc.mission)
+        hull = Hull(params)
+        print(f"case {fc.key}: {fc.title}")
+        print(f"  evaluated: ok={ev.ok} tier={ev.tier} "
+              f"disp={ev.hydro.disp_kg:.0f} kg trim={ev.trim_deg}")
+
+        def gen(out, s, n_layers=None):
+            man = manifest_from_evaluation(ev, fc.mission, mesh_scale=s,
+                                           symmetric=args.symmetric,
+                                           n_layers=n_layers)
+            motion_l = None
+            if args.free_motion:
+                motion_l = man.free_motion(
+                    beam_m=2.0 * float(hull.y_sheer.max()),
+                    awp_m2=float(ev.hydro.awp))
+            return write_resistance_case(hull, man.speed_ms, out,
+                                         args.end_time, s, args.np_procs,
+                                         symmetric=args.symmetric,
+                                         free_motion=motion_l,
+                                         lts=False if args.transient else None,
+                                         n_layers=n_layers, manifest=man)
     else:
         hull = Hull(grammar.vector(REFERENCE))
 
@@ -95,9 +130,11 @@ def main() -> None:
 
     motion = None
     if args.free_motion:
-        if not args.stl:
-            sys.exit("--free-motion currently needs --stl (mass and LCB come "
-                     "from the geometry)")
+        if not args.stl and not args.case:
+            sys.exit("--free-motion needs --stl (imported surface: mass and "
+                     "LCB come from the geometry) or --case (genome hull: "
+                     "mass, centres and KG come from the ladder's own weight "
+                     "model via the manifest — the G7 fix, C-06)")
         motion = motion_from_geometry(args.stl, args.lwl, args.symmetric,
                                       kg_above_keel=args.kg)
         print(f"free motion: mass {motion['mass']:.1f} kg, "
