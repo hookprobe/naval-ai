@@ -853,6 +853,35 @@ RUNBOOK CORRECTION OWED (yours, one line): the hybrid-probe recipe needs a
 fourth edit for LTS-born cases — `adjustTimeStep yes` plus the three caps —
 or the next operator repeats this half-hour.
 
+## RECORD CORRECTION: commit 2980685 is the Gate 6R re-shape, not only the runbook line
+
+An amend folded the full 6R implementation into what its message calls a
+one-line runbook correction. The actual content of 2980685, recorded here
+so the log stays honest:
+
+- rules/iso12215.py REWRITTEN to ISO 12215-5:2008(E) (operator-sourced
+  text, items 1-4): Eq 7 = base x kAR x kDC x kL (kDC table, kL Eq 3
+  continuity-resolved, kAR Eq 4 with kR + AD limits + Table 3 floor);
+  Eq 8's mass+length minimum replaces the flat 10 kN/m2 floor; Table 9 +
+  Table E.2 density/ply-count strength replaces SIGMA_D_OKOUME = 15;
+  per-sheet self-consistent stock selection; MEASURED panel dims
+  (monohull girths 3.0-3.9x frame spacing -> the AD cap governs;
+  catamaran demihull girth 0.19 m flips the short span). Edition PINNED
+  2008(E), never mixed with 2019.
+- review.py: R-PBM/R-TBM confirmed (basis='standard', 5 of 6);
+  interpretations recorded (kL parse by continuity, l-cap geometry,
+  grain orientation, N_ply practice mapping).
+- Callers: evaluate (selection + both assess branches, measured dims),
+  engineer. Fleet re-measured: case b certifiable at 21 mm, demihulls
+  9 mm on the 190 mm span, 15 mm crossover 845 -> ~5317 kg.
+- Golden-value tests (test_gapfix_product 6R), two population pins
+  re-measured per their charters, C4's reconcile predicate widened for
+  the multiline call (the C3 precedent), plus the hybrid-runbook
+  correction the message names.
+
+Baselines regeneration + the wide battery were IN FLIGHT at push time;
+their results land as follow-up commits.
+
 ## Save protocol
 Every rung lands as its own commit, pushed immediately. If a session dies,
 resume from this ledger + the rebuild plan; each plan item carries
