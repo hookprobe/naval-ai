@@ -97,6 +97,11 @@ from .geometry import G
 # Sea water at 15 degrees centigrade, the condition the 1982 paper works in.
 from .constants import RHO_SEA_HOLTROP  # see constants.py
 from .constants import NU_SEA_HOLTROP  # see constants.py
+from .limits import RE_TRANSITION_BAND
+
+# The envelope's Reynolds floor: the fully-turbulent end of the one
+# declared band. An alias, not a second number.
+RE_TURBULENT_MIN = RE_TRANSITION_BAND[1]
 
 # The uncertainty band attached to every prediction.  DECLARED, NOT SOURCED:
 # the 1982 paper does not publish a per-prediction standard error in a form
@@ -634,14 +639,33 @@ def particulars_from_floated(lwl: float, b: float, draught: float,
         lcb=float(lcb_pct))
 
 
-def envelope_violations(p: Particulars, fn: float, cp: float) -> tuple[str, ...]:
+def envelope_violations(p: Particulars, fn: float, cp: float,
+                        re: float | None = None) -> tuple[str, ...]:
     """Which clauses of the method's stated applicability this case breaks.
 
     Empty tuple means the case sits inside the union of the validity bands.
     Each string names the clause AND the measured value, because "outside the
     envelope" without a number is not actionable.
+
+    THE REYNOLDS CLAUSE (2026-08-19). This envelope had no Re check at all:
+    every band above is DIMENSIONLESS in hull proportions (Fn, Cp, L/B, B/T),
+    so nothing about SIZE was checked, and `total` returned valid=True for a
+    0.5 m hull at Re 2.3e5 — a point `resistance.flow_regime` refuses,
+    because ITTC-57 (the friction line this method is built on) is a fully
+    turbulent correlation and the flow there is laminar. The L1H tier could
+    badge-valid a hull the L1 tier refuses. The clause bar is the top of
+    `limits.RE_TRANSITION_BAND` (5e6): Holtrop-Mennen's regression corpus is
+    ship models and ships, all far above it, and ITTC 7.5-02-05-01 requires
+    artificial turbulence stimulation below that same number — a regime the
+    regression has no data in. `re=None` (an old caller) skips the clause
+    rather than inventing a Reynolds number.
     """
     out: list[str] = []
+    if re is not None and re < RE_TURBULENT_MIN:
+        out.append(
+            f"Re {re:.3g} < {RE_TURBULENT_MIN:.0e} — below the fully "
+            f"turbulent support of the ITTC-57 line the method is built on "
+            f"(transitional/laminar; limits.RE_TRANSITION_BAND)")
     lb = p.lwl / p.b
     bt = p.b / p.draught
     if fn > FN_MAX:
@@ -717,7 +741,7 @@ def total(p: Particulars, speed: float, rho: float = RHO_SEA_HOLTROP,
             f"R_total came out {rt!r} — non-finite. domain_errors() did not "
             f"catch this input, which is a bug in domain_errors(), not a "
             f"property of the hull. Particulars: {p!r}, speed {speed} m/s")
-    viol = envelope_violations(p, fn, cp)
+    viol = envelope_violations(p, fn, cp, re=speed * p.lwl / nu)
     valid = not viol
     # Outside the envelope the declared band is meaningless, so it is inflated
     # to the size of the answer — the same convention as
