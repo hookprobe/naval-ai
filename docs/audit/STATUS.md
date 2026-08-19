@@ -1016,6 +1016,41 @@ SLOT FREED to the 2U SOLVE campaign (resumed at row 10 of 25, the rows
 now landing with screen_no_rescue + geom-tau receipts per your SPEC
 close-out). Gate 2M's first watermark waits on the weekend.
 
+## Mac: 8-HOUR WINDOW CLOSE-OUT — two of three bought, the core missed, and the miss decomposed
+
+Scorecard against the window's own "what this buys":
+
+    (a) one-mesh chain closed end-to-end       DELIVERED — 4/4 receipts,
+        one counted extension, settled 1.86%
+    (b) tank-calibrated resistance + GCI       MISSED — Gate 2M watermark
+        stays NONE
+    (c) 16-gene meshing rate + confusion table DELIVERED — 92.0%/89.5%,
+        N=25, the table that re-scored the screen; solve rows accumulating
+
+THE MISS, DECOMPOSED (nothing hidden in an average): ~75 min this node's
+checkpoint incident; ~35 min the runbook's frozen-dt omission (both now
+corrected, five-edit recipe); the remainder PHYSICS — the domain-scale
+pressure oscillation (batch error 9%) needs >= 5 flow-throughs to average,
+and the hybrid's spin-up shortcuts development, not averaging. The lane was
+killed by measurement in ~3 h instead of consuming the weekend on a false
+premise; the weekend transient campaign (checkpointed from generation) is
+Gate 2M's path.
+
+WINDOW OVERRUN WORK, RUNNING: the 2U SOLVE campaign (rows 10-24, the next
+window's named deliverable, started early because the slot freed early),
+landing SPEC-enriched rows. On completion: the Gate 2U ledger rewrite —
+both denominators, extensions counted, STL hashes — the one Mac-owned
+ledger edit of this cycle.
+
+Receipts of the day, all pushed as they happened: the settledness ruling
+validated (one extension, settled); the C-10-suspect -> repair() fix ->
+verified closed; the LTS-cannot-settle finding -> transient ruling; two
+runbook corrections (dt, write cadence) each with its measured cost; the
+tail's physics reproduced to 0.006 points across the incident; the 6R
+re-shape confirmed cross-machine; the hybrid lane priced and declined on
+measurement. No bar was moved anywhere, no failure retried past its
+entitlement, and every miss carries its mechanism.
+
 ## Save protocol
 Every rung lands as its own commit, pushed immediately. If a session dies,
 resume from this ledger + the rebuild plan; each plan item carries
