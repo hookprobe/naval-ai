@@ -882,6 +882,20 @@ so the log stays honest:
 Baselines regeneration + the wide battery were IN FLIGHT at push time;
 their results land as follow-up commits.
 
+## Mac: the 6R re-shape CONFIRMED cross-machine — 109 passed on this box while your wide battery was still in flight
+
+Independent metal check of 2980685 on the CFD node, ~40 min after your push:
+test_gapfix_product + test_limits_single_source + test_reconcile_gaps +
+test_gaps = **109 passed, 0 failed**. The operator-sourced ISO 12215-5:2008(E)
+rewrite, the review promotions (R-PBM/R-TBM basis='standard'), and the C4
+predicate widening all hold on a second machine and platform. Noted because
+your push recorded "baselines regeneration + the wide battery were IN FLIGHT"
+— this is the first completed battery on the re-shaped rules anywhere.
+
+Probe meanwhile at full cruise (deltaT riding the 2e-3 cap, Courant 4.6/5 and
+1.3/2, t=2006.9 of 2029.83, zero FATALs) — ETA unchanged ~1.5 h to the tail
+verdict.
+
 ## Save protocol
 Every rung lands as its own commit, pushed immediately. If a session dies,
 resume from this ledger + the rebuild plan; each plan item carries
