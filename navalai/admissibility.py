@@ -486,14 +486,15 @@ def screen(hull: Hull | np.ndarray, speed: float = 2.57,
     add(Metric.of("draft_over_hull_cell", draft / cell, "cells", Basis.DERIVED,
                   f"design draft in level-{_HULL_REFINE[1]} hull cells; below "
                   f"{sc['fs_band_m'] / cell:.3f} the keel is inside the "
-                  f"tightest free-surface z-refinement box. 4 of 4 hulls below "
-                  f"it failed checkMesh; 0 of 6 that meshed are below it. "
-                  f"LADDER-RESCUABLE: the backoff campaign meshed every hull "
-                  f"this bar refused at a lower layer count (2026-08-11), so "
-                  f"a refusal here predicts extra mesh attempts, not a dead "
-                  f"hull, and the case writer does not refuse on it alone.",
-                  danger_below=sc["fs_band_m"] / cell,
-                  margin_below=2.0 * sc["fs_band_m"] / cell,
+                  f"tightest free-surface z-refinement box. DEMOTED TO A "
+                  f"RECEIPT 2026-08-19 by the first 16-gene confusion table "
+                  f"(data/gate2u-16gene-mesh.json): as a rung-0 predictor it "
+                  f"went 0-for-4 — hulls 4/5/6/8 at 5.2..10.0 cells all "
+                  f"meshed CLEAN at rung 0 with the ladder unused — while "
+                  f"catching neither actual refusal. The 15-gene evidence "
+                  f"('4 of 4 below it failed checkMesh') was label-void for "
+                  f"transfer, and the transfer is now measured to fail. The "
+                  f"value stays recorded; it votes on nothing.",
                   ladder_rescuable=True))
 
     # ---- V2 (re-derived): the DELIVERED deck narrower than the cell --------
@@ -527,8 +528,15 @@ def screen(hull: Hull | np.ndarray, speed: float = 2.57,
                   "(a stale pre-P1 second copy of the sheer law): a deck "
                   "ridge narrower than a cell is a sub-cell feature. The "
                   "retired bar's three labelled catches delivered literal "
-                  "zero-width ridges, so they are refused here too.",
-                  danger_below=1.0, margin_below=2.0,
+                  "zero-width ridges, so they are refused here too. DANGER "
+                  "EDGE RE-BASED 1.0 -> 0.1 cells (2026-08-19, the 16-gene "
+                  "confusion table): hull 18 at 0.35 cells meshed CLEAN at "
+                  "rung 0, so the 1-cell edge refused a measured-good hull; "
+                  "the labelled-fatal anchors sit at literal 0.0. 0.1 is "
+                  "2.6x under the measured-clean floor (0.26) and still "
+                  "refuses every true ridge; [0.1, 1.0) is the warn band "
+                  "pending the solve rows.",
+                  danger_below=0.1, margin_below=1.0,
                   ladder_rescuable=False))
 
     # ---- V3-V5: features thinner than the cell that must resolve them -----
@@ -546,9 +554,12 @@ def screen(hull: Hull | np.ndarray, speed: float = 2.57,
                   float(yc[interior].min()) / cell, "cells", Basis.DERIVED,
                   "narrowest bottom panel (chine half-breadth) forward of the "
                   "stem run-out, in hull cells. A panel thinner than a cell "
-                  "cannot be resolved by it. Unexercised by campaign hulls "
-                  "0-17 (minimum 2.04 cells); 0.5% of a 200-hull manifold.",
-                  danger_below=1.0, margin_below=2.0,
+                  "cannot be resolved by it. DANGER EDGE RE-BASED 1.0 -> 0.1 "
+                  "cells with the deck-ridge family (2026-08-19 confusion "
+                  "table: hull 18 at 0.26 cells and hull 22 at 0.57 meshed "
+                  "CLEAN at rung 0; labelled-fatal anchors at 0.0); "
+                  "[0.1, 1.0) warns pending the solve rows.",
+                  danger_below=0.1, margin_below=1.0,
                   ladder_rescuable=False))
     add(Metric.of("min_topside_panel_height_cells",
                   float((zs - zc)[interior].min()) / cell, "cells",
@@ -562,9 +573,13 @@ def screen(hull: Hull | np.ndarray, speed: float = 2.57,
                   Basis.DERIVED,
                   "transom half-breadth in hull cells: the transom cap is a "
                   "flat patch and a sub-cell patch is a sub-cell feature. "
-                  "Unexercised by campaign hulls 0-17 (minimum 3.97); 0.5% of "
-                  "a 200-hull manifold.",
-                  danger_below=1.0, margin_below=2.0,
+                  "DANGER EDGE RE-BASED 1.0 -> 0.1 cells (2026-08-19: hull "
+                  "22 at 0.57 cells meshed CLEAN at rung 0); [0.1, 1.0) "
+                  "warns pending the solve rows. The topside and "
+                  "transom-immersion siblings stay at 1.0: they have never "
+                  "fired and carry NO measurement in either direction — a "
+                  "family-uniformity move would be interpolation by analogy.",
+                  danger_below=0.1, margin_below=1.0,
                   ladder_rescuable=False))
     add(Metric.of("transom_immersion_cells", float(-zk[0]) / cell, "cells",
                   Basis.DERIVED,

@@ -445,7 +445,17 @@ def settled_drag(case: str | Path, *, drift_tol: float = DRIFT_TOL,
     from .case import _DOMAIN_LENGTH_L          # one domain proportion, in case.py
     domain_assumed = "domain_length_m" not in info
     dom_len = float(info.get("domain_length_m", 0.0) or 0.0) or _DOMAIN_LENGTH_L * lwl
-    flow_throughs = float(t[-1]) * speed / dom_len
+    # LTS PSEUDO-TIME IS NOT TIME (the Mac's 2026-08-19 honesty seam: the
+    # coarse KCS printed "134.09 flow-throughs" from pseudo-iterations
+    # divided by a domain length in metres — fiction wearing a unit). An
+    # LTS case is detected from its own fvSchemes; its flow-through count
+    # is NaN — not applicable, never a number — which by IEEE comparison
+    # also disarms the flow-through floor and the under-run note, both of
+    # which are statements about REAL time the free stream spent crossing.
+    fvs = case / "system" / "fvSchemes"
+    pseudo_time = fvs.exists() and "localEuler" in fvs.read_text()
+    flow_throughs = (float("nan") if pseudo_time
+                     else float(t[-1]) * speed / dom_len)
 
     stl = case / "constant" / "triSurface" / "hull.stl"
     if stl.exists():
@@ -529,6 +539,7 @@ def settled_drag(case: str | Path, *, drift_tol: float = DRIFT_TOL,
         "outcome": outcome, "prev_drift": prev_drift,
         "symmetric": factor == 2.0, "cells": cells,
         "flow_throughs": flow_throughs, "domain_assumed": domain_assumed,
+        "pseudo_time": pseudo_time,
         "t_end": float(t[-1]), "window_s": window_s, "n_window": n_win,
         "ct": ct, "s_wetted_m2": s_wetted, "speed": speed, "lwl": lwl,
         "method": method,

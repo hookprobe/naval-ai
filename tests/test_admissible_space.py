@@ -142,21 +142,29 @@ def test_L0_refuses_nan_and_out_of_box_vectors():
 # ---------------------------------------------------------------------------
 
 def test_a_sub_cell_sliver_hull_is_refused_before_any_openfoam(tmp_path):
-    """Seed-0 hull 18: bottom panel 0.26 cells and deck ridge 0.35 cells —
-    features the level-5 cell cannot represent at ANY layer count. The
-    screen must put both bars in `refused_no_rescue`, and the case writer
-    must refuse the hull with the screen's own receipt. This is the §16
-    acceptance shape: the pathological hull never reaches snappyHexMesh."""
+    """RE-BASED 2026-08-19 by the 16-gene confusion table: seed-0 hull 18 —
+    this test's original exemplar at 0.26/0.35 cells — meshed CLEAN at
+    rung 0 on the metal, refuting the 1.0-cell danger edge in [0.26, 1.0).
+    The edge moved to 0.1 cells (labelled-fatal anchors at literal 0.0);
+    the SAME hull at MODEL SCALE 0.25 puts its bottom panel at 0.065
+    cells — genuinely below anything measured to mesh — and the §16
+    acceptance shape holds there: the screen refuses with no rescue and
+    the case writer never reaches snappyHexMesh."""
     from navalai.cfd.case import write_resistance_case
 
     X, _ = sample_valid(19, MissionSpec(), seed=0)
-    rep = screen(X[18], 2.57, 1.0)
+    # full scale: the measured-clean class is ADMITTED now (warn band)
+    rep1 = screen(X[18], 2.57, 1.0)
+    assert rep1.verdict is not Verdict.DANGEROUS
+    assert not rep1.refused_no_rescue
+    # model scale: the same feature is sub-0.1-cell and refused, no rescue
+    rep = screen(X[18], 2.57, 0.25)
     assert rep.verdict is Verdict.DANGEROUS
     assert "min_bottom_panel_width_cells" in rep.refused_no_rescue
-    assert "min_interior_sheer_halfwidth_cells" in rep.refused_no_rescue
     with pytest.raises(ValueError, match="admissibility screen"):
         write_resistance_case(Hull(X[18]), 2.57, tmp_path / "refused",
-                              end_time=1.0, symmetric=True, n_layers=2)
+                              end_time=1.0, symmetric=True, n_layers=2,
+                              scale=0.25)
 
 
 def test_the_same_hull_is_admissible_when_the_cell_shrinks_with_scale():

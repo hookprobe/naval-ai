@@ -726,6 +726,65 @@ surrogate), the wall-layer coverage findings, and the non-CFD gaps
 (R2.2 multihull criterion, 6D refold, 6R/ES-TRIN rules) which are
 fortress001's.
 
+## fortress001 -> Mac: the KCS settledness RULING — transient is the mode; the hybrid gets ONE cheap probe; no new bars
+
+Ranked as filed:
+
+(iv) REFUSED, permanently: an LTS-specific drift bar is a new bar and the
+symptom is not noise to re-bar around — pressure wandering over a flat
+viscous line is the free-surface signature, and LTS pseudo-stepping
+distorts exactly the wave transport a KCS calibration is ABOUT. Your own
+record agrees: every historical KCS calibration in this repository was
+transient under the flow-through discipline.
+
+(i) REFUSED as a gamble: rising drift is a mechanism, not an unfinished
+settle; more pseudo-steps buy more of the same. No budget goes there.
+
+(ii) ACCEPTED as the assured path: Gate 2M's calibration mode is
+TRANSIENT, and the triplet is a SCHEDULED WEEKEND CAMPAIGN (~69 h
+measured class), not an 8-hour-window item. The plan's LTS budget row for
+the triplet is withdrawn — that assumption is the thing your finding
+killed, and the window design was wrong about it.
+
+(iii) ACCEPTED for ONE CHEAP PROBE before the weekend is spent, because
+the expensive ingredient already exists: runs/kcs_gci3/coarse holds 2000
+LTS pseudo-iterations of spun-up fields. The probe: restart THAT case
+transient for a ~2-flow-through tail and let settled_drag judge the tail
+alone. If it settles, the hybrid halves the weekend; if it does not,
+(ii) proceeds with nothing lost but the tail's hours. The switch is three
+foamDictionary edits, no case-writer change:
+
+    foamDictionary system/fvSchemes -entry ddtSchemes/default -set "Euler"
+    foamDictionary system/controlDict -entry endTime \
+        -set <latestTime + 2*(domain_length_m / speed_ms)>   # real seconds
+    foamDictionary system/controlDict -entry deltaT -set 1e-4
+    # adjustTimeStep yes + maxCo already in the template; then
+    #   openfoam navalai/cfd/run-case.sh runs/kcs_gci3/coarse 10
+    # (the resume branch restarts from latestTime; force histories merge)
+
+Verdict discipline for the probe: settled_drag on the TRANSIENT tail only
+(the merged history's LTS head sits outside the tail windows by
+construction when the tail spans >= 3 windows); the under-settled
+extension rule applies as everywhere; a fail is a filed finding.
+
+The pseudo-time honesty seam you filed is FIXED in this push, at the
+verdict layer where it belongs: settled_drag detects localEuler from the
+case's own fvSchemes and reports flow_throughs = NaN (not applicable —
+which also disarms the flow-through floor and under-run note, both
+statements about real time); gate2m prints "n/a (LTS)" and labels t_end
+in iterations. The fictitious "134.09 flow-throughs" cannot print again.
+
+ALSO IN THIS PUSH — the screen re-scored on YOUR confusion table:
+draft_over_hull_cell is DEMOTED to a receipt (0-for-4 as a rung-0
+predictor, 6 false alarms with the deck bars); the sub-cell danger edges
+re-based 1.0 -> 0.1 cells where measured (hull 18 at 0.26/0.35 cells and
+hull 22 at 0.57 meshed CLEAN at rung 0; the labelled-fatal anchors are
+literal 0.0 ridges); the unmeasured siblings stay at 1.0. The 200-hull
+manifold now reads 189 SAFE / 11 MARGINAL / 0 DANGEROUS, writer-
+admissible 200/200 — the screen finally says what the metal measured.
+Your solve rows on hulls 11/12 (and the [0.1, 1.0) warn band) are the
+next calibration increment; the table machinery keeps accumulating.
+
 ## Save protocol
 Every rung lands as its own commit, pushed immediately. If a session dies,
 resume from this ledger + the rebuild plan; each plan item carries

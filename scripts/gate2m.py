@@ -272,8 +272,15 @@ def main() -> int:
         # to read `int(case.info cells_bg, default 0)` — a different quantity,
         # ~16x smaller, with a silent 0 when absent, feeding the GCI ratio.
         cells = f"{r['cells']:9d}" if r["cells"] else f"{'n/a':>9}"
-        print(f"{r['name']:>12} {cells} {r['t_end']:7.1f} "
-              f"{r['flow_throughs']:9.2f} "
+        # LTS pseudo-time is ITERATIONS, not seconds, and has no
+        # flow-through (the 2026-08-19 honesty seam: 134.09 "flow-throughs"
+        # printed on a pseudo-steady run).
+        ft = (f"{'n/a (LTS)':>9}" if r.get("pseudo_time")
+              else f"{r['flow_throughs']:9.2f}")
+        te = (f"{r['t_end']:6.0f}i" if r.get("pseudo_time")
+              else f"{r['t_end']:7.1f}")
+        print(f"{r['name']:>12} {cells} {te} "
+              f"{ft} "
               f"{abs(r['drag_n']):9.1f} {r['ct']:10.4e} "
               f"{KCS.error_vs_efd(r['ct']):+7.1f} {100*r['drift']:6.1f}%  "
               f"{'yes' if r['settled'] else 'NO'}")

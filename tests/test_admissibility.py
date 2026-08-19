@@ -206,14 +206,20 @@ def test_no_pipeline_constant_is_restated_in_this_module():
             "_LAYER_EXPANSION", "_DOMAIN_LENGTH_L"} <= imported
 
 
-def test_the_draft_bar_is_the_refinement_band_and_not_a_fitted_number(
+def test_the_draft_bar_is_demoted_to_a_receipt_by_the_confusion_table(
         campaign_hulls, reports):
-    lwl = float(Hull(campaign_hulls[0]).x[-1])
-    spec = layer_spec(lwl, SPEED, SCALE)
-    cell = spec["hull_cell_m"] / 2.0 ** (_HULL_REFINE[1] - _HULL_REFINE[0])
-    expected = _refine_boxes(lwl, True)[-1]["bz1"] / cell
-    assert reports[0].get("draft_over_hull_cell").danger_below == \
-        pytest.approx(expected)
+    """RE-POINTED 2026-08-19: the first 16-gene confusion table
+    (data/gate2u-16gene-mesh.json) measured this bar 0-for-4 as a rung-0
+    predictor — hulls 4/5/6/8 below it all meshed CLEAN with the ladder
+    unused — while catching neither actual refusal. The value is still
+    RECORDED (the receipt survives); it votes on nothing, and this fence
+    keeps it demoted until a measurement says otherwise."""
+    m = reports[0].get("draft_over_hull_cell")
+    assert m is not None, "the receipt must survive the demotion"
+    assert m.danger_below is None, (
+        "draft_over_hull_cell is voting again — the 16-gene confusion "
+        "table measured it 0-for-4; re-basing it needs NEW evidence")
+    assert "DEMOTED" in m.note
 
 
 # ---------------------------------------------------------------------------
@@ -342,7 +348,9 @@ def test_the_stale_sheer_formula_is_retired_and_its_successor_exists(reports):
         "docstring item 1 before resurrecting it")
     m = reports[0].get("min_interior_sheer_halfwidth_cells")
     assert m.basis is Basis.DERIVED
-    assert m.danger_below == 1.0
+    # 1.0 -> 0.1 (2026-08-19): hull 18 at 0.35 cells meshed clean at rung
+    # 0 on the metal; the labelled-fatal anchors are literal 0.0 ridges.
+    assert m.danger_below == 0.1
     assert m.ladder_rescuable is False
 
 
@@ -477,13 +485,16 @@ def test_the_manifold_the_grammar_emits_is_screened_and_mostly_admissible():
     metrics, 17.0% of it the retired stale sheer formula firing on decks the
     rebuilt kernel delivers healthy).
 
-    MEASURED over 200 grammar-valid hulls (seed 1234, speed 2.57, scale 1),
-    16-gene genome, successor metrics: **39 DANGEROUS / 86 MARGINAL /
-    75 SAFE**; refused_by draft_over_hull_cell 32,
-    min_bottom_panel_width_cells 11, transom_half_beam_cells 7,
-    min_interior_sheer_halfwidth_cells 5; writer-admissible (no un-rescuable
-    refusal) **189/200 = 94.5%**. The DANGEROUS band is dominated by the
-    ladder-rescuable draft bar — a rung prediction, not a dead hull.
+    RE-MEASURED 2026-08-19 after the confusion-table re-base (the
+    2026-08-18 row read 39 DANGEROUS / 86 MARGINAL / 75 SAFE with
+    writer-admissible 189/200 — dominated by the draft bar the table then
+    measured 0-for-4): now **0 DANGEROUS / 11 MARGINAL / 189 SAFE**,
+    refused_by empty, writer-admissible **200/200** at scale 1. The
+    DANGEROUS class has not vanished from the screen — it lives below the
+    0.1-cell edge and at model scales (see the Gate 2D sliver test) —
+    it has vanished from the FULL-SCALE grammar manifold, which is what
+    the metal measured: 23/25 mesh at rung 0 and the 2 that do not are
+    not screen-predictable.
 
     Bounds, not equality: `sample_valid` depends on `evaluate()`, which is
     not this module's to freeze.
@@ -491,16 +502,13 @@ def test_the_manifold_the_grammar_emits_is_screened_and_mostly_admissible():
     X, _ = sample_valid(200, MissionSpec(), seed=1234)
     reps = [screen(x, SPEED, SCALE) for x in X]
     dangerous = sum(r.verdict is Verdict.DANGEROUS for r in reps)
-    assert 25 <= dangerous <= 55, dangerous
-    for name, lo, hi in (("draft_over_hull_cell", 20, 45),
-                         ("min_interior_sheer_halfwidth_cells", 1, 15),
-                         ("min_bottom_panel_width_cells", 4, 22)):
-        n = sum(name in r.refused_by for r in reps)
-        assert lo <= n <= hi, f"{name}: {n}"
+    assert dangerous <= 10, (
+        f"{dangerous} DANGEROUS at full scale — the re-based bars moved, "
+        f"or the grammar started emitting sub-0.1-cell features")
     # the writer's denominator: most of what the grammar emits must keep a
     # deterministic CFD path, or the screen has become a second grammar
     admissible = sum(1 for r in reps if not r.refused_no_rescue)
-    assert admissible >= 170, f"writer admits only {admissible}/200"
+    assert admissible >= 190, f"writer admits only {admissible}/200"
 
 
 def test_screening_is_cheaper_than_meshing_by_four_orders_of_magnitude():
@@ -516,12 +524,22 @@ def test_screening_is_cheaper_than_meshing_by_four_orders_of_magnitude():
 
 
 def test_a_grammar_valid_hull_is_not_the_same_thing_as_a_meshable_one():
-    """The claim the module exists to make, stated as an assertion: hulls that
-    `grammar.check()` blesses are refused here. If this ever stops being true
-    the module is redundant and should be deleted, not kept as decoration."""
-    X, _ = sample_valid(60, MissionSpec(), seed=11)
+    """The claim the module exists to make, stated as an assertion: a hull
+    `grammar.check()` blesses can still be refused here — the screen is a
+    statement about a (hull, speed, SCALE) case, not about the genome.
+    RE-BASED 2026-08-19: at full scale the re-based bars admit the whole
+    seed-11 draw (measured — that is the confusion table's verdict, not a
+    regression), so the demonstration lives where the physics puts it: at
+    model scale the cell coarsens relative to the features and the SAME
+    grammar-valid hulls go sub-0.1-cell, refused with no rescue."""
+    X, _ = sample_valid(19, MissionSpec(), seed=0)
     assert all(grammar.check(x).ok for x in X)
-    assert any(screen(x, SPEED, SCALE).verdict is Verdict.DANGEROUS for x in X)
+    # hull 18's bottom panel measures 0.26 cells at scale 1 (metal-clean,
+    # warn band) and 0.065 at scale 0.25 — below every measured-clean
+    # anchor, refused with no rescue. Same genome, same grammar blessing.
+    rep = screen(X[18], SPEED, 0.25)
+    assert rep.verdict is Verdict.DANGEROUS
+    assert rep.refused_no_rescue
 
 
 def test_the_screen_guards_the_case_writer_C18(tmp_path):
