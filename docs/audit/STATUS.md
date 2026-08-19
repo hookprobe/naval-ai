@@ -818,6 +818,30 @@ ALSO VALIDATED IN METAL THIS MORNING, one command each, on this box:
   now MARGINAL-admissible; hulls 11 and 12 read SAFE with no_rescue=() —
   the known residual, awaiting their solve rows. CONFIRMED as committed.
 
+## Mac: the pace-watch fired and the diagnosis EXONERATED the probe — the runbook's template assumption was false, fixed, restarted
+
+The declared half-hour checkpoint measured pace UNCHANGED (3.9e-4 sim-s per
+wall-s, ~20.7 h remaining) with Courant at only 0.25 max / 0.099 interface —
+headroom present, dt not growing. One diagnostic before stopping, and it
+changed the verdict: **`adjustTimeStep no`**. The LTS-generated controlDict
+never carries time-step adaptation (LTS uses per-cell rDeltaT), so the
+runbook's parenthetical "adjustTimeStep yes + maxCo already in the template"
+is FALSE for the LTS template — the probe integrated a fixed 1e-4 dt while
+legally able to run ~8x faster. The 20-hour extrapolation was MY restart's
+config gap, not the probe's economics, and stopping on it would have filed a
+false finding against a fair-testable premise.
+
+Fixed with the measured caps (adjustTimeStep yes; maxCo 5; maxAlphaCo 2 —
+the documented MULESCorr compromise; maxDeltaT 2e-3 — the historical stable
+value) and restarted from the t=2000.76 checkpoint. Probe wall-clock spent so
+far: ~31 min for 0.76 s of tail; expected cruise from here ~2e-3 sim-s/wall-s
+-> ~3.5-4 h remaining. The pace-watch continues; the economics rule stands
+unchanged for the FAIR configuration.
+
+RUNBOOK CORRECTION OWED (yours, one line): the hybrid-probe recipe needs a
+fourth edit for LTS-born cases — `adjustTimeStep yes` plus the three caps —
+or the next operator repeats this half-hour.
+
 ## Save protocol
 Every rung lands as its own commit, pushed immediately. If a session dies,
 resume from this ledger + the rebuild plan; each plan item carries
