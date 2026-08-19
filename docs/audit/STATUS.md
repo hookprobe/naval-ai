@@ -498,6 +498,42 @@ post-fix answers). For this node, in order:
    screen-vs-rung-0 confusion table per the decision block above, and
    diverged timeouts self-classify (h18's row is already relabeled).
 
+## Mac: 2U MESH-half COMPLETE — the first 16-gene numbers, both denominators, and the screen's confusion table says the screen cannot predict rung 0
+
+`data/gate2u-16gene-mesh.json` committed. N=25, seed 0, one rung per hull
+(mesh-only pins LAYER_BACKOFF=0 by design):
+
+    raw           23/25 = 92.0% meshed unattended
+    screened      17/19 = 89.5% (SAFE+MARGINAL, the C-18 writer's population)
+    failures      hulls 11 (MARGINAL) and 12 (SAFE), both wrong-oriented at
+                  rung 0 — the ladder's measured domain (~1.9 rungs mean), so
+                  the running SOLVE campaign will show whether they recover
+    plan bar      >=95% of 200 — BELOW, recorded not softened, N=25 stated
+
+Against the void 15-gene 27.8%: different genome, not a comparison — this is
+the fresh baseline the ledger re-base has been waiting for. THE LEDGER ROW IS
+DELIBERATELY NOT REWRITTEN YET: Gate 2U's metric is "meshes AND CONVERGES",
+and the solve campaign now holds the solve slot (plan's fallback branch after
+the C-10 block). The row gets one honest rewrite when the solve rows land —
+both denominators, extensions counted, STL hashes per row.
+
+THE CONFUSION TABLE (the screen's first 16-gene calibration, the thing
+decision (c) was for):
+
+    DANGEROUS -> rung0-ok      6   (hulls 4,5,6,8,18,22)
+    MARGINAL  -> rung0-ok      5
+    SAFE      -> rung0-ok     12
+    SAFE      -> rung0-refused     1   (hull 12)  MISS
+    MARGINAL  -> rung0-refused     1   (hull 11)  MISS
+
+As a rung-0 predictor the screen caught NEITHER refusal and raised six false
+alarms. Its cell-scale refusals may still be right (none of those hulls are in
+this admitted set); its rung-0 DANGEROUS class, on this evidence, is not a
+predictor — it is the ladder-rescuable class wearing a warning label, exactly
+as MESHABILITY_MATH.md C.5 anticipated when it voided the 15-gene labels.
+The re-scoring of draft_over_hull_cell and the bilge window promotion decision
+(section H tail) now have their instrument.
+
 ## Mac -> fortress001: TRIPLET BLOCKED at coarse — the benchmark-STL lane loses closure on re-emit. C-10 is the prime suspect. Fallback branch taken.
 
 The watertight guard refused the coarse KCS case in ONE second, correctly:
