@@ -139,6 +139,13 @@ REVIEW = {
     # Points the packet raised that a blanket "confirmed" does not by itself
     # resolve. Recorded so they are not lost behind a green gate.
     "interpretations": {
+        "R-MHS/B_H": (
+            "cl 6.6.3's 'hull breadth parameter' B_H is taken as the "
+            "VESSEL overall beam (the breadth resisting inversion); the "
+            "standard's §3 definition was not in the sourced text — "
+            "verify against the page and correct here if it means the "
+            "single-hull breadth."
+        ),
         "R-PBM/kL": (
             "Eq (3)'s slope term arrived transcription-ambiguous; the "
             "implemented reading (1 - 0.167 nCG)/0.6 * x/LWL + 0.167 nCG "

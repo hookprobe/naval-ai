@@ -786,7 +786,18 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
     ev_for_rules = Evaluation(
         ok=True, tier="L1", hydro=hs, wl=wl, weights=wb, masses=agg,
         gm_m=gm_m, gm_l_m=gm_l_m, ply_thickness_m=t_ply,
-        hull_lwl_m=float(p["LWL"]))
+        hull_lwl_m=float(p["LWL"]),
+        # THE VESSEL RIDES ALONG (2026-08-19): this hand-assembled
+        # Evaluation was exactly the case _vessel_of's docstring warns
+        # about — no vessel dict, so every CATAMARAN was monohull-
+        # classified inside the rules tier: R-GM emitted on the quantity
+        # that does not govern, and the multihull branches (the stricter
+        # NZ offset-load cap, R-MHS) dead. Found while wiring cl 6.6.
+        vessel={"n_hulls": hs.n_hulls,
+                "manning": getattr(vessel_cfg, "manning",
+                                   Manning.CREWED).value,
+                "topology": (vessel_cfg.topology.value
+                             if vessel_cfg is not None else "monohull")})
     # THE OFFSET-LOAD LEVER IS THE VESSEL'S BEAM, NOT ONE DEMIHULL'S.
     # `iso12217.assess` uses `beam_m` for exactly one thing: R-OLH's crew
     # offset, `b = 0.40 * beam`. The crew of a catamaran crowd to the outboard
@@ -840,7 +851,8 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
         rules_not_implemented.extend(manning_refusals)
     else:
         findings = list(stability_rules(ev_for_rules, mission.design_category,
-                                        mission.crew, beam_for_offset_load)
+                                        mission.crew, beam_for_offset_load,
+                                        windage=mission.windage)
                         + scantling_rules(
                             hs.disp_kg, t_ply * 1e3,
                             design_category=mission.design_category,

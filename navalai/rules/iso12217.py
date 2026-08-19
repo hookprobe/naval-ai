@@ -159,8 +159,33 @@ def hull_length_m(ev: "Evaluation") -> float | None:
     return None
 
 
+def inversion_susceptible_6_6_3(h_c_m: float, b_h_m: float,
+                                v_d_m3: float) -> tuple[bool, float, float]:
+    """ISO 12217-1:2015 cl 6.6.3 (operator-sourced verbatim, 2026-08-19):
+    a category C habitable multihull is considered susceptible to
+    inversion when h_C/B_H exceeds 0.572 (for V_D^(1/3) > 2.6) or
+    0.22 * V_D^(1/3) (for V_D^(1/3) <= 2.6) — the two branches are
+    CONTINUOUS at V_D^(1/3) = 2.6 (0.22 * 2.6 = 0.572), which is the
+    check that the transcription is self-consistent.
+
+    Returns (susceptible, ratio, limit). h_C is the centroid height of
+    the above-water profile area over the waterline (the declared
+    WindageSpec centroid, minimum operating condition); V_D the
+    displacement volume [m3]. INTERPRETATION (recorded in
+    review.REVIEW): B_H, the "hull breadth parameter", is taken as the
+    VESSEL overall beam — the breadth that resists inversion; the
+    standard's §3 definition of B_H was not in the sourced text and
+    should be verified against the page.
+    """
+    v13 = max(float(v_d_m3), 0.0) ** (1.0 / 3.0)
+    limit = 0.572 if v13 > 2.6 else 0.22 * v13
+    ratio = float(h_c_m) / max(float(b_h_m), 1e-9)
+    return ratio > limit, ratio, limit
+
+
 def assess(ev: "Evaluation", category: str, crew: int,
-           beam_m: float, length_m: float | None = None) -> list[RuleFinding]:
+           beam_m: float, length_m: float | None = None,
+           windage=None) -> list[RuleFinding]:
     if category not in CATEGORY_TABLE:
         raise ValueError(f"unknown design category {category!r}")
     hs, _dfh_lo, gm_req, _dfh_hi = CATEGORY_TABLE[category]
@@ -242,14 +267,85 @@ def assess(ev: "Evaluation", category: str, crew: int,
         # vessel needs has been assessed. `evaluate.g["rules"]` reads
         # |measured - required| / |required|, so this lands at 1.0 — a real,
         # finite, INFEASIBLE constraint value, not a nan and not a silent pass.
-        out.append(RuleFinding(
-            "R-MHS",
-            "RCD 2013/53/EU Annex I A 3.3 (inversion) + ISO 12217-1:2015 cl. "
-            "6.6 (habitable multihull boats) — NEITHER IMPLEMENTED",
-            basis_for("R-MHS"), False, 0.0, 1.0, "criteria assessed",
-            MULTIHULL_STABILITY_UNASSESSED + " GM here is "
-            f"{ev.gm_m:.3f} m against the monohull floor of {gm_req:.2f} m; "
-            f"that comparison is REPORTED and is not a verdict."))
+        # cl 6.6 LADDER (operator-sourced text, 2026-08-19). 6.6.2/6.6.4:
+        # categories A/B (with 6.2+6.3) and D (with 6.2+6.4) are "not
+        # considered susceptible" — but 6.3 and 6.4 are NOT implemented
+        # here, so that route cannot be certified and the refusal stands
+        # for those categories, now naming the exact missing clauses.
+        # 6.6.3: category C susceptibility is COMPUTABLE from a declared
+        # windage centroid; not-susceptible closes 6.6 for the vessel
+        # (6.6.1 only binds susceptible craft), susceptible narrows the
+        # refusal to ISO 12217-2:2015 §7.12 (inverted buoyancy) + §7.13
+        # (escape), whose text is not held.
+        _manning = ""
+        if isinstance(getattr(ev, "vessel", None), dict):
+            _manning = str(ev.vessel.get("manning", ""))
+        if _manning != "liveaboard":
+            # cl 6.6 binds HABITABLE multihulls. A crewed or uncrewed
+            # multihull's stability verdict is carried by the ladder's
+            # computed criterion (NZ Part 40A cl 1.3 under 15 m, cl 1.4 on
+            # declared windage above it — R2.2) and lands in
+            # ev.vessel['cl13'/'cl14'] and in the violations on failure.
+            # Emitting the old 0-of-1 refusal here would DOUBLE-refuse a
+            # vessel the criterion just judged; asserting a bar would
+            # duplicate the criterion. A receipt, not a verdict.
+            out.append(RuleFinding(
+                "R-MHS",
+                "multihull stability — governed by NZ Part 40A App.1 "
+                "(cl 1.3 / cl 1.4), COMPUTED by the ladder; ISO 12217-1 "
+                "cl 6.6 binds habitable multihulls only",
+                basis_for("R-MHS"), True, 1.0, 1.0, "criteria assessed",
+                "see the evaluation's cl13/cl14 receipt for the measured "
+                "verdict; a failed criterion is a ladder violation, not a "
+                "rules-tier bar"))
+        elif (category == "C" and windage is not None
+                and getattr(windage, "declared", False)
+                and ev.hydro is not None):
+            _hc = getattr(windage, "centroid_above_wl_m", None)
+            sus, ratio, limit = inversion_susceptible_6_6_3(
+                float(_hc), float(beam_m), float(ev.hydro.volume))
+            if not sus:
+                out.append(RuleFinding(
+                    "R-MHS",
+                    "ISO 12217-1:2015 cl 6.6.3 (inversion susceptibility, "
+                    "category C)",
+                    basis_for("R-MHS"), True, ratio, limit,
+                    "h_C/B_H",
+                    f"NOT considered susceptible to inversion: h_C/B_H "
+                    f"{ratio:.3f} <= {limit:.3f} (h_C {float(_hc):.2f} m "
+                    f"declared windage centroid, B_H {beam_m:.2f} m vessel "
+                    f"beam — interpretation, see review; V_D "
+                    f"{ev.hydro.volume:.1f} m3). Clause 6.6.1's "
+                    f"inverted-buoyancy/escape requirements do not bind a "
+                    f"non-susceptible craft."))
+            else:
+                out.append(RuleFinding(
+                    "R-MHS",
+                    "ISO 12217-1:2015 cl 6.6.1 via 6.6.3 — SUSCEPTIBLE, and "
+                    "the governing clauses are not held",
+                    basis_for("R-MHS"), False, ratio, limit, "h_C/B_H",
+                    f"SUSCEPTIBLE to inversion (h_C/B_H {ratio:.3f} > "
+                    f"{limit:.3f}): cl 6.6.1 requires ISO 12217-2:2015 "
+                    f"§7.12 (inverted buoyancy) and §7.13 (means of "
+                    f"escape), neither of whose text is in this tree — "
+                    f"REFUSED on the named clauses, not on a guess."))
+        else:
+            _why = ("category C needs a DECLARED windage centroid "
+                    "(mission.windage) for the 6.6.3 susceptibility test"
+                    if category == "C" else
+                    f"category {category}'s non-susceptibility route runs "
+                    f"through clauses 6.2+{'6.3' if category in ('A', 'B') else '6.4'}, "
+                    f"and {'6.3' if category in ('A', 'B') else '6.4'} is "
+                    f"not implemented")
+            out.append(RuleFinding(
+                "R-MHS",
+                "RCD 2013/53/EU Annex I A 3.3 (inversion) + ISO "
+                "12217-1:2015 cl 6.6 (habitable multihull boats)",
+                basis_for("R-MHS"), False, 0.0, 1.0, "criteria assessed",
+                MULTIHULL_STABILITY_UNASSESSED + f" {_why}. GM here is "
+                f"{ev.gm_m:.3f} m against the monohull floor of "
+                f"{gm_req:.2f} m; that comparison is REPORTED and is not "
+                f"a verdict."))
 
     # offset-load heel: moment balance m*b = disp*GM*sin(phi)  (exact mechanics)
     m_crew = crew * CREW_MASS_KG

@@ -1067,3 +1067,50 @@ def test_the_wind_lever_is_the_rules_own_algebra():
     with pytest.raises(ValueError, match="not a row"):
         WindageSpec(lateral_area_m2=25.0, centroid_above_wl_m=1.5,
                     wind_pressure_pa=400.0)
+
+
+def test_the_6_6_ladder_and_the_rules_tier_vessel_fix_2026_08_19():
+    """Two findings in one wire. (1) ev_for_rules carried NO vessel dict,
+    so every catamaran was MONOHULL-classified inside the rules tier —
+    R-GM emitted on the quantity that does not govern (the exact green
+    tick the R-MHS comment warns about). Fixed: the vessel rides along.
+    (2) cl 6.6 (operator-sourced 2026-08-19) binds HABITABLE multihulls:
+    a crewed cat's R-MHS is now a receipt deferring to the ladder's
+    computed criterion; a liveaboard category-C cat gets the 6.6.3
+    susceptibility test on its declared windage centroid, continuous at
+    V_D^(1/3) = 2.6; susceptible refuses on the NAMED 12217-2 §7.12/7.13
+    clauses.
+    """
+    from dataclasses import replace
+
+    from navalai.formcheck import CASES
+    from navalai.rules.iso12217 import inversion_susceptible_6_6_3
+
+    # branch continuity at the transcription's own crossover
+    s_at, r_at, l_at = inversion_susceptible_6_6_3(1.0, 2.0, 2.6 ** 3)
+    assert l_at == pytest.approx(0.572, abs=1e-12)
+    s_lo, _r, l_lo = inversion_susceptible_6_6_3(1.0, 2.0, 1.0)
+    assert l_lo == pytest.approx(0.22, abs=1e-12)
+
+    c = {x.key: x for x in CASES}["c"]
+    # crewed cat: no monohull R-GM, R-MHS is the deferring receipt
+    ev = evaluate(c.params, c.mission)
+    ids = {f["rule_id"]: f for f in ev.rules["findings"]}
+    assert "R-GM" not in ids, "monohull R-GM re-emitted for a catamaran"
+    assert ids["R-MHS"]["passed"] is True
+    assert "cl13/cl14" in ids["R-MHS"]["note"]
+
+    v = replace(c.mission.vessel, manning=Manning.LIVEABOARD)
+    # liveaboard C, tall declared profile: susceptible, refused on the
+    # named 12217-2 clauses
+    m = replace(c.mission, vessel=v, design_category="C",
+                windage={"lateral_area_m2": 26.0,
+                         "centroid_above_wl_m": 6.0})
+    e = evaluate(c.params, m)
+    f = [x for x in e.rules["findings"] if x["rule_id"] == "R-MHS"][0]
+    assert f["passed"] is False and "7.12" in f["note"] and "7.13" in f["note"]
+    # liveaboard C, undeclared windage: the refusal names the declaration
+    m0 = replace(c.mission, vessel=v, design_category="C")
+    e0 = evaluate(c.params, m0)
+    f0 = [x for x in e0.rules["findings"] if x["rule_id"] == "R-MHS"][0]
+    assert f0["passed"] is False and "mission.windage" in f0["note"]
