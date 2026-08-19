@@ -1,0 +1,46 @@
+{
+  "n": 1,
+  "scale": 1.0,
+  "speed": 2.57,
+  "seed": 0,
+  "np": 10,
+  "regime": "LTS",
+  "solve_requested": 0.0,
+  "success_pct": 100.0,
+  "screened_n": 1,
+  "screened_success_pct": 100.0,
+  "solve_pct": null,
+  "bar_pct": 95.0,
+  "taxonomy": {
+    "meshed-no-solve-requested": 1
+  },
+  "rows": [
+    {
+      "cells": 851501,
+      "zero_volume_cells": 0,
+      "wrong_oriented": 0,
+      "wrong_oriented_pyramid_check": 0,
+      "non_ortho_max": 69.2762,
+      "max_skewness": 6.98102,
+      "failed_checks": 1,
+      "layers_requested": 7,
+      "layers_achieved": 6.24,
+      "layer_pct": 89.14285714285714,
+      "seconds": 73.3,
+      "runner_exit": 0,
+      "timed_out": false,
+      "meshed": true,
+      "meshed_runner_bar": true,
+      "stl_sha256": "a7292e7ed3b1f3f45f22ee5bdccda7009985c1432d9000a7f52200b4a079dddf",
+      "layer_attempts": 1,
+      "n_layers_used": 7,
+      "n_layers_derived": 7,
+      "layer_pass_failed": false,
+      "screen_verdict": "SAFE",
+      "hull": 0,
+      "solve_requested": false,
+      "lwl": 10.687,
+      "why": "meshed-no-solve-requested"
+    }
+  ]
+}
