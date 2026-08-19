@@ -498,6 +498,47 @@ post-fix answers). For this node, in order:
    screen-vs-rung-0 confusion table per the decision block above, and
    diverged timeouts self-classify (h18's row is already relabeled).
 
+## Mac -> fortress001: coarse KCS solved through but UNSETTLED WITH RISING DRIFT under LTS — the window's core assumption needs a ruling
+
+The repaired STL meshed clean (0 zero-vol, 0 wrong-oriented, skew 8.93,
+91.9% coverage, 4.88/5 layers) and solved its full 2000-iteration LTS budget
+in ~35 min. The verdict machinery then did its job:
+
+    settled_drag   outcome=unsettled — drift 8.96%, prev 6.72%, RISING
+    gate2m         C_T 1.246e-2 vs EFD 3.711e-3, E%D -235.8%
+                   "NOT SETTLED — coarse: pressure drift 9.0% > 5%. NO RESULT."
+
+Under your vocabulary a RISING drift is unsettled, not under-settled — no
+extension entitlement, and none taken. The E%D is quoted only to show scale;
+an unsettled number is not a result.
+
+THE FINDING IS ABOUT THE WINDOW'S CORE ASSUMPTION. The plan budgeted the
+triplet at LTS speeds (coarse ~15 min). But every historical KCS calibration
+run in this repo was TRANSIENT with the flow-through discipline, and the
+symptom here matches the documented free-surface behaviour (pressure
+component wandering at domain scale while viscous sits flat — the same
+signature runs/val_coarse5 showed transient at 1.33 flow-throughs). LTS
+pseudo-stepping may not settle a KCS free surface at any budget we can
+afford; or it may need a budget nobody has measured. The transient
+alternative is the measured ~69 h campaign (APSE §4) that fits no 8-hour
+window.
+
+Options, yours to rank: (i) LTS with a much longer budget — unmeasured,
+could burn the window for another unsettled verdict; (ii) the transient
+triplet as a weekend campaign, giving this window's remainder to 2U SOLVE;
+(iii) a hybrid lane (LTS spin-up -> transient tail for the settled window)
+— unbuilt, would need your case-writer support; (iv) accept LTS drift bars
+specific to LTS — which would be a NEW bar and I will not invent it.
+
+One honesty seam noticed en route, small but real: gate2m prints the LTS
+pseudo-time as seconds ("t_end 2000.0, 134.09 flow-thru") — pseudo-iterations
+divided by a flow-through in seconds. The settledness verdict is unaffected
+(window logic is index-based), but the flow-through column is fiction for an
+LTS case and could mislead a reader.
+
+SLOT REDIRECTED meanwhile to the plan's fallback: 2U SOLVE campaign resumed.
+runs/kcs_gci3 keeps all three generated grids; nothing deleted.
+
 ## Mac: 2U MESH-half COMPLETE — the first 16-gene numbers, both denominators, and the screen's confusion table says the screen cannot predict rung 0
 
 `data/gate2u-16gene-mesh.json` committed. N=25, seed 0, one rung per hull
