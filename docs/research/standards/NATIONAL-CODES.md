@@ -2026,7 +2026,53 @@ For a multihull decked ship ≥ 15 m LOA or carrying > 50 passengers:
 > from the centre of A to a point one half the lightest service draught (m)**,
 > and Δ is displacement (tonnes); and
 > (d) the residual area (A₂) created by the wind lever plus crowding on one side
-> (h_w + h_p) …" [remainder NOT READ]
+> (h_w + h_p) …"
+
+**CLAUSE (d) NOW READ IN FULL (2026-08-19, fetched from the same free URL,
+PDF sha256 8038515939b7c5a8…, Consolidation 28 January 2026, p. 69). The
+earlier "[remainder NOT READ]" was a transcription stop, NOT a paywall —
+the code comment claiming a "paywall cut" was wrong and is corrected with
+this reading. Verbatim:**
+
+> (d) the residual area (A2) that is created as a result of the effect of
+> heeling due to the wind lever plus the crowding of passengers on one side
+> of the ship (hw + hp) must be at least **0.028 metre-radians** and is
+> defined as the area—
+> (i) under the GZ curve; and
+> (ii) above the heeling lever curve (hw + hp); and
+> (iii) beyond the angle of heel due to wind plus passenger heeling (θh); and
+> (iv) up to a 15° angle of roll or the angle of downflooding (θd),
+> whichever is less.
+
+Footnote 32: *"hw is [must] assumed constant at all angles."* Footnote 33:
+*"To obtain the lever (hp), the passenger crowding moment, as defined in
+1.2(8)(d)(i), is divided by the displacement ∆."* Subclause (5): the (4)(a)
+and (4)(b) requirements are shown in **figures (4)(a) and (4)(b)** — images,
+NOT extracted. ⚠ READING AMBIGUITY, recorded not resolved: (d)(iv)'s "up to
+a 15° angle of roll" — 15° of roll BEYOND θh (θh + 15°, the IMO-weather-
+criterion shape, and the only reading under which the area is non-empty
+whenever clause (c) holds θh ≤ 16°) versus an absolute 15° heel (which can
+sit BELOW θh and empty the area). The θh + 15° reading is the defensible
+one and any implementation must carry this note until figure (4)(b) is
+read as an image.
+
+**ALSO NOW READ — cl. 1.3, the clause that actually governs sub-15 m
+multihulls (p. 68, verbatim):**
+
+> 1.3 Multihull ship heeling test
+> (1) This clause applies to a multihull decked ship of less than 15 metres
+> in length overall that carries 50 or less passengers.
+> (2) A ship to which this clause applies must be tested [fn 31] to
+> establish that, in the fully loaded condition, the ship does not heel or
+> trim in any direction by more than 8° when subject to uncontrolled
+> passenger crowding as determined in accordance with clause 1.2(8)(d)(i).
+
+Footnote 31: *"The heel test may be established by a physical test or by
+calculation."* — i.e. the governing criterion for a 10–14 m catamaran is
+COMPUTABLE: the 1.2(8)(d)(i) crowd model (75 kg/person, 4 persons/m²,
+standing CoG 1 m above deck) applied as uncontrolled (worst-side) crowding,
+heel from the GZ curve, bar 8°. Applicability split: cl 1.3 for < 15 m LOA
+AND ≤ 50 passengers; cl 1.4 for ≥ 15 m OR > 50 passengers.
 
 **Cross-check against NSCV C6A Table 11 (§4.5): 5B.2 requires θ_max ≥ 10° —
 identical. 5B.4 caps combined wind-plus-crowding/turning heel at 16° — the same
