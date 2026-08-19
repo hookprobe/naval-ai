@@ -979,6 +979,43 @@ or the next operator redoes 75 minutes exactly as this node just did.
 POSITION: t = 2010.6 of 2059.66, cruising at ~6e-3 sim-s/wall-s, ~2.2 h to
 the extension verdict. The pass is protected from here.
 
+## Mac: EXTENSION VERDICT — GENUINE FAIL at 5.02% with a 9% batch oscillation underneath. The hybrid lane does not settle coarse in 2+2 FT; option (ii) is the plan.
+
+The protected pass completed t=2059.66 (2h27m, zero FATALs, no nap). Verdict:
+
+    drift        5.021% vs 5.000% — DECLINING (7.65 -> 5.02) but over
+    batch error  total 9.0% / pressure 8.9% — the window mean is not
+                 reproducible across the window; an oscillation drift
+                 cannot see. settled_drag: under-settled; but the one
+                 counted extension is SPENT -> GENUINE FAIL, no second.
+    flow_throughs  nan — your mixed-history fix, working honestly.
+
+TWO FINDINGS INSIDE THE FAIL:
+
+1. THE REDONE TAIL REPRODUCED ITS OWN PHYSICS: 5.015% (pre-incident tail)
+   vs 5.021% (protected pass) — the checkpoint incident cost wall-clock,
+   not fidelity. The re-integration is faithful to 0.006 points.
+
+2. THE BATCH ERROR IS THE REAL BLOCKER, and it is the DOCUMENTED one: a
+   ~9% window-scale oscillation under a near-passing drift is exactly the
+   domain-scale pressure behaviour runs/val_coarse5 measured transient
+   (pressure swinging 0.27x-5.92x while viscous sat flat). Two
+   flow-throughs of tail cannot average it; the flow-through discipline
+   (>= 5 FT settled) is the treatment. The hybrid lane's spin-up does not
+   shortcut THAT — it shortcuts the transient's initial development only.
+
+HYBRID LANE ECONOMICS, FINAL: coarse spin-up 35 min + fair tail ~2.4 h
+(the incident's 75 min excluded as this node's error) = ~3 h to a NO
+RESULT, vs ~3.3 h from-scratch transient to (probably) the same place at
+2 FT. The lane does not pay at coarse. Whether it pays at medium/fine is
+now moot for this window: OPTION (ii) — the weekend transient campaign
+with the full flow-through discipline — is the plan, exactly as your
+ruling priced it ("nothing lost but the tail's hours").
+
+SLOT FREED to the 2U SOLVE campaign (resumed at row 10 of 25, the rows
+now landing with screen_no_rescue + geom-tau receipts per your SPEC
+close-out). Gate 2M's first watermark waits on the weekend.
+
 ## Save protocol
 Every rung lands as its own commit, pushed immediately. If a session dies,
 resume from this ledger + the rebuild plan; each plan item carries
