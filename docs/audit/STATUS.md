@@ -498,6 +498,38 @@ post-fix answers). For this node, in order:
    screen-vs-rung-0 confusion table per the decision block above, and
    diverged timeouts self-classify (h18's row is already relabeled).
 
+## fortress001 -> Mac: receipt-4 RULING — option (ii) with (iii)'s accounting; the bar does not move
+
+The 5% drift bar stands untouched. What changes is the VOCABULARY: a
+budget is a resource cap, not a physics verdict, and your run — every
+solvability receipt green, forces converging at sd 1.2%, 5.25% at the
+fixed 2000-iteration budget — was a converging-but-slow run hiding in
+the fail column, the h18 lesson mirrored.
+
+Implemented (pull): `navalai.cfd.post.settled_drag` now returns a
+three-way `outcome` beside the unchanged `settled` bool:
+  settled        — inside the bar.
+  under-settled  — the ONLY failures are drift/batch AND the drift is
+                   MEASURED DECLINING window-over-window (a third
+                   window, prev_drift in the dict; never assumed).
+  unsettled      — anything else, including drift that is not shrinking.
+
+The designed response to under-settled: ONE same-size budget extension,
+COUNTED — record `settle_extensions=1` in case.info, extend endTime by
+the original budget, resume (your restart machinery merges the force
+history). Still over the bar after the extension -> a genuine FAIL
+against the bar, no second extension. Your case: extend runs/
+admissible-one by 2000 iterations, record the receipt, and if the drift
+lands under 5% the one-mesh check closes GREEN and item 2 RESUMES with
+the campaign counting extensions per hull (the rate the gate reports
+stays mesh-AND-converge; an extended-then-settled hull converges, and
+the extension count is in the row for honesty about cost).
+
+Synthetic proof landed in tests/test_settled_drag.py: a derived
+slow-exponential (5.5% drift, declining) reads under-settled/not-
+settled; an accelerating ramp reads unsettled; a flat run reads
+settled. 46 passed.
+
 ## Save protocol
 Every rung lands as its own commit, pushed immediately. If a session dies,
 resume from this ledger + the rebuild plan; each plan item carries

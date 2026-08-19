@@ -552,3 +552,46 @@ def test_gate2m_pairs_a_motion_report_with_its_own_case(tmp_path):
     assert Path(post.settled_drag(case)["case"]) == case
     src = _code_only(_ROOT / "scripts" / "gate2m.py")
     assert "zip(cases, rows)" not in src
+
+
+def test_a_converging_slow_run_is_under_settled_not_failed(tmp_path):
+    """The one-mesh receipt-4 ruling (2026-08-19). The Mac's section-H check
+    produced a run with every solvability receipt green and drift 5.25%
+    against the 5% bar at the fixed 2000-iteration budget — converging,
+    slowly, no pathology. Calling that FAIL is the h18 lesson mirrored: a
+    converging-but-slow run hiding in the fail column. The vocabulary now
+    carries three outcomes; the 5% bar itself does not move.
+
+    The synthetic history is an exponential settle whose window-over-window
+    drift is DECLINING but still above the bar in the last window: the
+    settled verdict stays False (the bar holds), and the outcome says
+    under-settled with the measured trend beside it.
+    """
+    t = np.linspace(0.0, 100.0, 600)
+    # slow exponential approach, constants DERIVED for the window rule:
+    # tau=150 over a 100 s record puts the last-fifth-vs-previous drift at
+    # ~5.5% of the settled magnitude (just over the 5% bar) with the
+    # previous step at ~8% — declining, still failing.
+    force = -(4000.0 + 6000.0 * np.exp(-t / 150.0))
+    case = _write_case(tmp_path / "slow", t, 0.6 * force, 0.4 * force)
+    rep = post.settled_drag(case)
+    assert rep["settled"] is False, "the bar must not move"
+    assert rep["outcome"] == "under-settled", (rep["outcome"], rep["reasons"])
+    assert math.isfinite(rep["prev_drift"]) and rep["drift"] < rep["prev_drift"]
+    assert all("drift" in r or "batch error" in r for r in rep["reasons"])
+
+    # The NEGATIVE control: drift that GROWS window-over-window — an
+    # accelerating ramp never settles and must be plain unsettled, or the
+    # outcome would license extending a run that extension cannot fix.
+    force = -4000.0 - 0.5 * t * t
+    case = _write_case(tmp_path / "ramp", t, 0.6 * force, 0.4 * force)
+    rep = post.settled_drag(case)
+    assert rep["settled"] is False
+    assert rep["outcome"] == "unsettled", (rep["outcome"], rep["drift"],
+                                           rep["prev_drift"])
+
+    # And a genuinely settled run reads settled, outcome agreeing.
+    force = -4000.0 + 2.0 * np.sin(t)
+    case = _write_case(tmp_path / "flat", t, 0.6 * force, 0.4 * force)
+    rep = post.settled_drag(case)
+    assert rep["settled"] is True and rep["outcome"] == "settled"

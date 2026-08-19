@@ -385,8 +385,13 @@ def settled_drag(case: str | Path, *, drift_tol: float = DRIFT_TOL,
         raise ForceHistoryError(f"{fpath} spans no time (t[0] == t[-1])")
     cut = t[-1] - tail_frac * span
     prev_cut = t[-1] - 2.0 * tail_frac * span
+    prev2_cut = t[-1] - 3.0 * tail_frac * span
     win = t >= cut
     prev = (t >= prev_cut) & (t < cut)
+    # The third-from-last window exists ONLY for the convergence trend of an
+    # under-settled run (see `outcome` below); it never moves the settled
+    # verdict and it may legitimately be too thin to measure.
+    prev2 = (t >= prev2_cut) & (t < prev_cut)
     n_win, n_prev = int(win.sum()), int(prev.sum())
     if n_win < MIN_WINDOW_SAMPLES or n_prev < MIN_WINDOW_SAMPLES:
         raise ForceHistoryError(
@@ -417,6 +422,15 @@ def settled_drag(case: str | Path, *, drift_tol: float = DRIFT_TOL,
         drifts[name] = abs(means[name]
                            - factor * _time_average(t[prev], arr[prev])) / ref
         errors[name] = factor * _batch_error(tw, arr[win]) / ref
+    # Drift one step EARLIER (prev vs prev2), for the trend. NaN when the
+    # record is too short to hold a third window — unmeasured, never zero.
+    if int(prev2.sum()) >= MIN_WINDOW_SAMPLES:
+        prev_drift = max(
+            abs(factor * _time_average(t[prev], arr[prev])
+                - factor * _time_average(t[prev2], arr[prev2])) / ref
+            for arr in parts.values())
+    else:
+        prev_drift = float("nan")
 
     info = read_case_info(case)
     try:
@@ -467,6 +481,33 @@ def settled_drag(case: str | Path, *, drift_tol: float = DRIFT_TOL,
                 f"across the window, which drift alone cannot see")
 
     drift = max(drifts.values())
+    # THE OUTCOME TAXONOMY (2026-08-19, the one-mesh receipt-4 ruling). The
+    # Mac's section-H check produced a run with EVERY solvability receipt
+    # green — full budget, no FATAL, tau healthy, forces converging at
+    # sd 1.2% — and drift 5.25% against the 5% bar. Calling that FAIL is the
+    # h18 lesson mirrored: there a divergence hid in the timeout column;
+    # here a converging-but-slow run would hide in the fail column. A budget
+    # is a resource cap, not a physics verdict, so the vocabulary carries
+    # three outcomes and THE BAR DOES NOT MOVE:
+    #   settled        — every condition inside the bar.
+    #   under-settled  — the ONLY failures are drift/batch-error AND the
+    #                    drift is DECLINING window-over-window (measured
+    #                    against the third-from-last window, never assumed).
+    #                    The designed response is ONE counted same-size
+    #                    budget extension (record settle_extensions=N in
+    #                    case.info and resume); still over the bar after
+    #                    the extension -> a genuine fail against the bar.
+    #   unsettled      — anything else: flow-through under-run, non-finite,
+    #                    unmeasurable batch, or drift that is not shrinking.
+    only_drift_reasons = bool(reasons) and all(
+        ("drift" in r or "batch error" in r) for r in reasons)
+    converging = math.isfinite(prev_drift) and drift < prev_drift
+    if not reasons:
+        outcome = "settled"
+    elif only_drift_reasons and converging:
+        outcome = "under-settled"
+    else:
+        outcome = "unsettled"
     method = (
         f"time-averaged over the last {100*tail_frac:.0f}% "
         f"(t={tw[0]:.4g}..{tw[-1]:.4g} s, {n_win} samples); drift vs the "
@@ -485,6 +526,7 @@ def settled_drag(case: str | Path, *, drift_tol: float = DRIFT_TOL,
         "error_total": errors["total"], "error_pressure": errors["pressure"],
         "error_viscous": errors["viscous"],
         "settled": not reasons, "reasons": tuple(reasons),
+        "outcome": outcome, "prev_drift": prev_drift,
         "symmetric": factor == 2.0, "cells": cells,
         "flow_throughs": flow_throughs, "domain_assumed": domain_assumed,
         "t_end": float(t[-1]), "window_s": window_s, "n_window": n_win,
