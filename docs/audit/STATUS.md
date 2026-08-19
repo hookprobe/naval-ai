@@ -530,6 +530,73 @@ slow-exponential (5.5% drift, declining) reads under-settled/not-
 settled; an accelerating ramp reads unsettled; a flat run reads
 settled. 46 passed.
 
+## fortress001 -> Mac: THE 8-HOUR CFD VALIDATION WINDOW — calibration-first, budgeted from measured timings
+
+The budget arithmetic (all numbers measured on this Mac): mesh-only
+74.2 s/hull; a genome-hull LTS solve 323..2700 s, median ~28.5 min; the
+KCS GCI triplet's stated budget coarse ~15 min, medium <=2 h, fine
+~4-5 h on 10 cores (docs/research/APSE.md); one solve at a time,
+MESH_ONLY sweeps exempt and allowed alongside; this machine thermal-
+sleeps under sustained load, so the plan carries ~15% margin and every
+stage is resumable. Gate 2M (tank calibration, watermark NONE) is the
+deepest production gap on the whole board — it converts every L1
+resistance number from self-consistent to calibrated — so it gets the
+window's core. The 2U SOLVE variant does not fit beside it and is
+explicitly deferred; its MESH half rides free.
+
+THE SCHEDULE (T+ from pull):
+
+T+0:00  git pull. Sanity: tests/test_settled_drag.py -q (46p expected).
+T+0:05  RECEIPT-4 EXTENSION (solve, ~27 min): runs/admissible-one,
+        settle_extensions=1 in case.info, endTime += 2000, resume.
+        Verdict by the new vocabulary: settled -> the one-mesh check
+        closes GREEN. under-settled again or worse -> genuine FAIL
+        against the 5% bar, file it, do NOT extend twice.
+T+0:05  ALONGSIDE (mesh-only, exempt): the 2U item-2 campaign MESH half,
+        25 hulls seed 0 (~45 min incl. overhead):
+        scripts/mesh_robustness.py --n 25 --seed 0 --np 10 --json
+        data/gate2u-16gene-mesh.json (MESH_ONLY path, resume-safe).
+        This lands the raw+screened denominators AND the screen-vs-
+        rung-0 confusion table — the screen's first 16-gene calibration
+        — without any solve cost.
+T+0:35  GATE 2M, KCS GCI TRIPLET (the window's core):
+        make_case.py --triplet (pins n_layers at the anchor scale; the
+        benchmark STL is checksummed — gate2m names the ship from the
+        hash, never assumes). Run coarse (~15 min) -> medium (<=2 h) ->
+        fine (~4-5 h), sequentially, run-case.sh each (the watchdog,
+        early abort and backoff ladder are all armed). Verdict via
+        scripts/gate2m.py ONLY (it doubles symmetric cases; post_gci's
+        F8 half-drag gap is on record). Settledness: the three-outcome
+        vocabulary applies — an under-settled coarse/medium may take
+        its ONE counted extension; for fine, if the extension does not
+        fit the window, file under-settled with the receipts and resume
+        next window rather than burning the margin.
+T+~2:45 DECISION POINT, after medium: check the family (measured
+        refinement ratio ~sqrt(2), FAMILY_SPREAD_TOL) and the
+        coarse/medium E%D vs Tokyo-2015. If the family is broken or
+        either run diverged -> ABORT fine, file the finding, and spend
+        the remainder on 2U SOLVE hulls instead (resume
+        runs/g2u_16gene; ~28.5 min/hull median -> ~8-10 hulls fit;
+        report N honestly, extensions counted).
+T+~7:30 CLOSE-OUT (whatever branch): commit every receipt + the
+        gate2m E%D + GCI numbers to this file; if fine completed,
+        Gate 2M gets its FIRST watermark row (E%D + GCI + settledness
+        outcome per case, method named). Push.
+
+RULES OF THE WINDOW: no bar moves; a miss is a filed finding, not a
+retry; anything unfinished resumes (the restart machinery merges force
+histories); one solve at a time; nothing is deleted.
+
+WHAT THIS WINDOW BUYS, AND WHAT IT STILL DOES NOT: after a green
+window the product has (a) the one-mesh chain closed end-to-end, (b) a
+tank-calibrated resistance model with a stated GCI, (c) the meshing
+rate on the current genome with the screen's confusion table. STILL
+OWED after it: the 2U SOLVE-rate campaign (next window, ~8-12 h for
+the 25), the L3 feedback loop (feeding these solves back against the
+surrogate), the wall-layer coverage findings, and the non-CFD gaps
+(R2.2 multihull criterion, 6D refold, 6R/ES-TRIN rules) which are
+fortress001's.
+
 ## Save protocol
 Every rung lands as its own commit, pushed immediately. If a session dies,
 resume from this ledger + the rebuild plan; each plan item carries
