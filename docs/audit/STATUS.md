@@ -433,6 +433,44 @@ default 3; `LAYER_BACKOFF=0` disables). Your item-2 campaign measures
 rungs itself, so mesh_robustness invokes the runner with the built-in
 backoff DISABLED to keep per-rung measurements clean.
 
+## Mac 2026-08-19: the ONE-MESH check — 3 of 4 receipts GREEN; receipt 4 FAILED at 5.25% vs 5.00%, filed not retried
+
+Protocol MESHABILITY_MATH.md §H, executed as written. Draw seed 22411321
+(random, as directed), 8 hulls screened: 6 MARGINAL admissible, 1 DANGEROUS
+cell-scale (min_bottom_panel_width_cells, refused_no_rescue non-empty), 1
+DANGEROUS rescuable (draft_over_hull_cell, no_rescue empty) — the mechanism
+split behaving exactly as derived. First admissible hull written to
+`runs/admissible-one` at speed 2.57, symmetric, LTS.
+
+    receipt 1  screen      admissibility_verdict=MARGINAL, refused_by=none,
+                           no_rescue=none                                   PASS
+    receipt 2  mesh        RUNG 0, ladder armed (6,8,5,9,4,10,3,11) unused:
+                           0 zero-volume, 0 wrongly-oriented               PASS
+                           (the write-time layer-bridge warning did NOT
+                           materialise — prediction recorded, beaten)
+    receipt 3  tau         first LTS iterations print 1.13e-4 -> 4.4e-5 s,
+                           8 orders above the 1e-12 abort                  PASS
+                           ** geometric tau 1.13e-4 vs intended 2.3e-4 —
+                           factor ~2: the intended-vs-achieved gap is now
+                           MEASURED, closing §H.3 **
+    receipt 4  drift       full 2000-iteration budget, no FATAL, tau in the
+                           healthy band throughout — but last-fifth vs
+                           previous-fifth drift = 5.25% against 5.00%      FAIL
+
+FINDING AGAINST A NAMED BAR (not retried, per protocol): the 5% drift bar at
+the fixed 2000-iteration LTS budget. Fx_total last fifth -4354.4 N, sd 52.8
+(1.2%); the run is converging, slowly, with no pathology — every solvability
+receipt is green. So the miss indicts the BUDGET/SETTLEDNESS pairing, not the
+meshability math: an admissible MARGINAL hull can need >2000 LTS iterations to
+settle under 5%. Options are fortress001's to pick: (i) raise the LTS verdict
+budget for MARGINAL-class hulls; (ii) an explicit "under-settled, extend"
+outcome distinct from fail; (iii) accept receipt-4 misses in [5%, X%) as
+extend-and-continue with the continuation counted. No bar touched here.
+
+Per the directive's own ordering ("Only after 2 is green: resume item 2"),
+item 2 remains PAUSED — receipt 4 is not green, so the campaign does not
+resume from this node until fortress001 rules on the drift finding.
+
 ## fortress001 2026-08-19: the consolidation plan is EXECUTED; the math is in; Mac's next move is ONE mesh
 
 Everything on the Linux side of the partition is landed and pushed at
