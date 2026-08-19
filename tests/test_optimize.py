@@ -535,9 +535,14 @@ def test_a_refused_multihull_cannot_earn_fitness_R02():
     and returned a front that was 100% ok=False: designs no criterion had
     ever assessed, wearing a Pareto badge.
 
-    Until a sourced multihull criterion lands (rebuild plan R2.2), the only
-    honest catamaran front is an EMPTY one — "no assessable design" said in
-    a way a for-loop can act on, exactly the `_front` contract above.
+    R2.2 LANDED (2026-08-19): NZ Part 40A App.1 cl 1.3 is COMPUTED for the
+    sub-15 m class, so a catamaran MAY earn fitness now — but only through
+    a passing criterion. The empty-front era is over; the claim this test
+    has always carried survives unchanged: no design reaches the front
+    with ok=False, and no catamaran reaches it without the criterion's
+    receipt saying PASS. (MEASURED at the flip: this configuration's front
+    carried 1 design, cl13 heel 0.6 deg — the first legitimate catamaran
+    front in the project's history.)
     """
     from navalai.mission import Topology, VesselConfig
 
@@ -549,9 +554,10 @@ def test_a_refused_multihull_cannot_earn_fitness_R02():
         assert ev.ok, (
             "an ok=False design reached the Pareto front: the refusal "
             f"classes leaked past the G matrix again — {ev.violations[:2]}")
-    assert len(res.X) == 0, (
-        f"{len(res.X)} catamaran designs earned fitness while "
-        "`multihull_stability_refusal` says NO CRITERION IS IMPLEMENTED")
+        cl13 = ev.vessel["cl13"]
+        assert cl13 is not None and cl13["passes"], (
+            "a catamaran earned fitness WITHOUT a passing cl 1.3 receipt — "
+            "the G6-01 leak in a new coat")
 
 
 def test_the_optimizer_records_what_it_searched_R02f(tmp_path):

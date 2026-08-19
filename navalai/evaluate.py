@@ -42,6 +42,7 @@ from .geometry import RHO_WATER, Hull
 from .holtrop import envelope_violations as holtrop_envelope_violations
 from .holtrop import particulars_from_floated
 from .hydrostatics import (HydroState, gm, gm_long,
+                           multihull_crowding_heel,
                            multihull_stability_refusal, solve,
                            solve_equilibrium, solve_to_displacement,
                            vessel_terms)
@@ -939,8 +940,41 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
     # occupying a dimension — the E4 defect. It also would have changed the
     # vector's SHAPE for monohulls. This is the same mechanism the ladder
     # already uses for `early`, the "speed outside the L1 model" refusal.
-    viol.extend(multihull_stability_refusal(
-        hs, gm_m, offset_load_assessed=manning is not Manning.UNCREWED))
+    # R2.2, THE CLASS THAT CAN NOW VERDICT (2026-08-19): NZ Part 40A App.1
+    # cl 1.3 governs a multihull under 15 m LOA carrying <= 50 persons and
+    # is establishable BY CALCULATION (its own footnote 31) — both halves
+    # (heel AND trim under uncontrolled crowding, bar 8 deg) are computed
+    # by `hydrostatics.multihull_crowding_heel`, so THIS class gets a
+    # MEASURED verdict instead of the blanket refusal. A passing test also
+    # supersedes the R-OLH monohull-bar caveat: the crowding test IS the
+    # multihull offset-load criterion, applied with the rule's own crowd
+    # model. The >= 15 m / > 50 passenger class keeps the cl 1.4 refusal
+    # until the windage declarables land (clauses (c)/(d) — (d) is READ
+    # as of 2026-08-19; (c) still needs a declared lateral area).
+    _cht = None
+    if hs.n_hulls > 1:
+        _persons = 0 if manning is Manning.UNCREWED else int(mission.crew)
+        _loa = float(hull.x[-1] - hull.x[0])
+        if _loa < 15.0 and _persons <= 50:
+            _cht = multihull_crowding_heel(
+                hull, hs, kg, _persons, rho, vessel=mission.vessel,
+                trim_deg=float(trim if trim is not None else 0.0),
+                gm_m=gm_m)
+            if not _cht.passes:
+                _heel_txt = ("no static equilibrium (capsize)"
+                             if _cht.heel_deg is None
+                             else f"heel {_cht.heel_deg:.2f} deg")
+                viol.append(
+                    f"multihull stability: NZ Part 40A App.1 cl 1.3 FAILED "
+                    f"— {_heel_txt}, trim {_cht.trim_deg_crowd:.2f} deg "
+                    f"under uncontrolled crowding ({_cht.persons} x 75 kg "
+                    f"at the outboard deck edge), bar 8 deg on both. "
+                    f"CONSERVATIVE placement: a fail here is marginal "
+                    f"evidence — see CrowdingHeelTest.basis.")
+        else:
+            viol.extend(multihull_stability_refusal(
+                hs, gm_m,
+                offset_load_assessed=manning is not Manning.UNCREWED))
     viol.extend(manning_refusals)
     # AXIS 3's receipts. A model out of its SUPPORT but still inside its
     # validity flag (the transition band) is reported and not counted as a
@@ -1037,8 +1071,20 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
         "rules_not_implemented": tuple(rules_not_implemented),
         "stability_criterion": (
             "ISO 12217-1 metacentric floor (a MONOHULL proxy)" if n_hulls == 1
-            else "NOT IMPLEMENTED — see violations; GM does not establish "
-                 "multihull safety"),
+            else ("NZ Part 40A App.1 cl 1.3 — uncontrolled-crowding heel and "
+                  "trim, bar 8 deg, COMPUTED (see cl13)" if _cht is not None
+                  else "cl 1.4 class (>= 15 m LOA or > 50 passengers): NOT "
+                       "assessable — see violations; GM does not establish "
+                       "multihull safety")),
+        # R2.2's receipt: the criterion that DECIDED, with its numbers — a
+        # PASSING verdict must be as auditable as a refusal.
+        "cl13": (None if _cht is None else {
+            "persons": _cht.persons,
+            "heel_deg": _cht.heel_deg,
+            "trim_deg_crowd": _cht.trim_deg_crowd,
+            "heel_ok": _cht.heel_ok, "trim_ok": _cht.trim_ok,
+            "passes": _cht.passes, "basis": _cht.basis,
+            "note": _cht.heel_lever_note}),
         "caveats": (() if n_hulls == 1 else (
             "KG is a single-hull KG: the bridge deck and anything on it are "
             "not in the weight model, so GM here is an UPPER estimate",

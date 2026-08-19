@@ -359,10 +359,27 @@ def certify(params, mission: MissionSpec,
             a = multihull_gz_assessment(hull, float(hs.disp_kg), kg,
                                         vessel=mission.vessel,
                                         trim_deg=float(ev.trim_deg))
+            # R2.2 (2026-08-19): the governing clause SPLITS by class. Under
+            # 15 m LOA with <= 50 persons, cl 1.3 governs and the ladder
+            # COMPUTED it (ev.vessel["cl13"]); the cl 1.4 curve clauses are
+            # measured here as supplementary evidence. At or over 15 m (or
+            # > 50 passengers) cl 1.4 governs and stays refusal-first until
+            # the windage declarables land ((d) is READ as of 2026-08-19;
+            # (c) still needs a declared lateral area).
+            _cl13 = ev.vessel.get("cl13")
+            if _cl13 is not None:
+                stability["cl13"] = _cl13
+            _v = ("ASSESSED" if _cl13 and _cl13.get("passes")
+                  else ("SEE VIOLATIONS" if _cl13 else "REFUSED"))
             stability.update({
-                "criterion": "NZ Part 40A App.1 cl.1.4 — PARTIAL (a/b "
-                             "measured; c windage undeclarable; d unread)",
-                "verdict": "REFUSED",
+                "criterion": (
+                    "NZ Part 40A App.1 cl 1.3 (COMPUTED — the governing "
+                    "clause for < 15 m, <= 50 persons) + cl 1.4 (a)/(b) "
+                    "measured as supplementary evidence" if _cl13 is not None
+                    else "NZ Part 40A App.1 cl.1.4 — PARTIAL (a/b measured; "
+                         "c needs a declared lateral area; d READ, "
+                         "implementable once (c) is declarable)"),
+                "verdict": _v,
                 "clause_a": {"area_m_rad": a.area_to_theta_m_rad,
                              "required": a.area_required_m_rad,
                              "satisfied": a.clause_a_satisfied},

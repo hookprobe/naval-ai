@@ -417,33 +417,34 @@ def test_an_enormous_gm_is_never_reported_as_a_multihull_safety_verdict(
     ev = evaluate(ref_hull, MissionSpec(vessel=_cat(0.60)))
     assert ev.gm_m > 100.0 * gm_floor("C")
     assert ev.g["gm"] < 0.0                    # the monohull proxy is satisfied
-    assert not ev.ok                           # and it does not make it feasible
-    refusals = [v for v in ev.violations if v.startswith("multihull stability")]
-    assert len(refusals) == 3, ev.violations
-    body = " ".join(refusals)
-    assert "NO CRITERION IS IMPLEMENTED" in body
-    assert "does NOT establish that this vessel is safe" in body
-    assert "STABLE INVERTED" in body and "cannot self-right" in body
-    # It CITES what governs, and names each clause it cannot compute.
-    assert MULTIHULL_CRITERION in body
-    assert "NZ Maritime Rules Part 40A" in body and "NSCV C6A" in body
-    assert "righting-arm curve" in body        # why (a) and (b) are impossible
-    assert "projected lateral area" in body    # why (c) is impossible
-    assert "flattering direction" in body
-    # And it warns that R-OLH's verdict is a MONOHULL verdict.
-    assert "8 deg against 15" in body
-    # The evaluation says so in its own report, not only in a violation string.
-    assert ev.vessel["stability_criterion"].startswith("NOT IMPLEMENTED")
-    # A monohull gets none of this.
-    assert multihull_stability_refusal(
-        evaluate(ref_hull, MissionSpec()).hydro, 0.5) == ()
+    # RE-MEASURED 2026-08-19 (R2.2): the blanket refusal is REPLACED by a
+    # computed criterion for this sub-15 m class — NZ Part 40A App.1
+    # cl 1.3, uncontrolled-crowding heel/trim, bar 8 deg — so feasibility
+    # is now DECIDED, not refused. The claim this test exists for
+    # survives intact: GM is not what decided. The receipt names the
+    # criterion, carries its measured angles, and never cites GM.
+    cl13 = ev.vessel["cl13"]
+    assert cl13 is not None and cl13["passes"] is not None
+    assert ev.vessel["stability_criterion"].startswith("NZ Part 40A")
+    assert "GM" not in ev.vessel["stability_criterion"].split("—")[0]
+    if not cl13["passes"]:
+        assert any("cl 1.3 FAILED" in v for v in ev.violations)
+    # A monohull gets none of this: no cl13 receipt, no refusal strings.
+    mono = evaluate(ref_hull, MissionSpec())
+    assert mono.vessel["cl13"] is None
+    assert multihull_stability_refusal(mono.hydro, 0.5) == ()
 
 
-def test_the_multihull_refusal_fires_on_every_multihull(population):
+def test_the_multihull_criterion_decides_on_every_multihull(population):
     """No catamaran, at any spacing, is ever feasible on a GM floor alone.
 
-    A refusal that fired on some designs and not others would be worse than
-    none: it would read as a criterion.
+    RE-POINTED 2026-08-19 (R2.2): the mechanism carrying that claim moved
+    from a blanket refusal to a COMPUTED criterion (NZ Part 40A App.1
+    cl 1.3 for this sub-15 m population). What must hold on every
+    multihull now: the cl13 receipt exists and DECIDED — feasible only
+    through a passing criterion, never through the GM row alone — and a
+    failing criterion is a named violation. A criterion that decided on
+    some designs and not others would be worse than none.
     """
     seen = 0
     for x in population[:12]:
@@ -452,9 +453,23 @@ def test_the_multihull_refusal_fires_on_every_multihull(population):
             if ev.hydro is None:
                 continue                        # refused earlier, intersection
             seen += 1
-            assert not ev.ok
-            assert any(v.startswith("multihull stability")
-                       for v in ev.violations)
+            cl13 = ev.vessel["cl13"]
+            if cl13 is None:
+                # the population spans past 15 m LWL: those hulls are the
+                # cl 1.4 class, which stays refusal-first until the windage
+                # declarables land — and the refusal must still fire.
+                assert not ev.ok
+                assert any(v.startswith("multihull stability")
+                           for v in ev.violations)
+                continue
+            assert cl13["passes"] is not None
+            if ev.ok:
+                assert cl13["passes"], (
+                    "a catamaran came back feasible WITHOUT a passing "
+                    "criterion — the GM-floor regression this file exists "
+                    "to prevent")
+            if not cl13["passes"]:
+                assert any("cl 1.3 FAILED" in v for v in ev.violations)
     assert seen >= 10, seen
 
 
@@ -538,8 +553,14 @@ def test_uncrewed_is_not_crewed_with_zero_people(ref_hull):
     # verdict, because R-OLH was never run — a refusal that misdescribes what
     # happened is worse than one clause shorter.
     dc = evaluate(ref_hull, MissionSpec(vessel=_cat(0.60, Manning.UNCREWED)))
-    assert len([v for v in dc.violations
-                if v.startswith("multihull stability")]) == 2
+    # RE-MEASURED 2026-08-19 (R2.2): an uncrewed sub-15 m cat passes
+    # cl 1.3 TRIVIALLY (zero persons, zero crowding moment — the receipt
+    # says so) and no multihull refusal string remains; the R-OLH caveat
+    # is gone WITH the refusal, which is what this assert always wanted.
+    assert not [v for v in dc.violations
+                if v.startswith("multihull stability")]
+    assert dc.vessel["cl13"]["persons"] == 0
+    assert dc.vessel["cl13"]["passes"] is True
 
 
 def test_liveaboard_records_the_gap_it_has_without_inventing_a_bar(ref_hull):
@@ -807,6 +828,8 @@ def test_the_multihull_census_reports_the_unlock_and_the_refusal_together(
 
     def census(mission, xs):
         ok, gms, rows, refused = 0, [], {}, 0
+        cl13_pass, cl13_fail, cl14 = 0, 0, 0
+        ok_without_pass = 0
         for x in xs:
             e = evaluate(x, mission)
             ok += bool(e.ok)
@@ -815,13 +838,24 @@ def test_the_multihull_census_reports_the_unlock_and_the_refusal_together(
             gms.append(e.gm_m)
             refused += any(v.startswith("multihull stability")
                            for v in e.violations)
+            c = e.vessel.get("cl13")
+            if c is None:
+                cl14 += (e.vessel.get("n_hulls", 1) or 1) > 1
+            elif c["passes"]:
+                cl13_pass += 1
+            else:
+                cl13_fail += 1
+            if e.ok and (c is None or not c["passes"]):
+                ok_without_pass += 1
             for k in e.g_names:
                 if e.g[k] > 0.0:
                     rows[k] = rows.get(k, 0) + 1
-        return ok, gms, rows, refused
+        return (ok, gms, rows, refused,
+                cl13_pass, cl13_fail, cl14, ok_without_pass)
 
-    ok_m, gm_m, rows_m, ref_m = census(MissionSpec(), admissible)
-    ok_c, gm_c, rows_c, ref_c = census(MissionSpec(vessel=cfg), admissible)
+    (ok_m, gm_m, rows_m, ref_m, *_rest) = census(MissionSpec(), admissible)
+    (ok_c, gm_c, rows_c, ref_c,
+     p13, f13, n14, ok_no_pass) = census(MissionSpec(vessel=cfg), admissible)
 
     # The problem exists: judged as monohulls these demihulls are tender.
     assert rows_m["gm"] > 0 and rows_m["list"] > 0 and rows_m["rules"] > 0
@@ -832,9 +866,20 @@ def test_the_multihull_census_reports_the_unlock_and_the_refusal_together(
     assert rows_c.get("rules", 0) == 0
     assert min(gm_c) > gm_floor("C")
     assert np.median(gm_c) > 20.0 * max(np.median(gm_m), gm_floor("C"))
-    # AND THE SAFETY VERDICT IS STILL REFUSED, on every single one.
-    assert ref_c == len(gm_c) > 0
-    assert ok_c == 0, "a catamaran must never be feasible on a GM floor alone"
+    # RE-MEASURED 2026-08-19 (R2.2): the verdict SPLITS by the rule's own
+    # applicability. Snapshot on this census: 9 cats in the cl 1.3 class
+    # (< 15 m span), every one deciding by the computed criterion (9 pass,
+    # 0 fail); 13 in the cl 1.4 class (>= 15 m), every one still
+    # refusal-first; 4 of 22 FEASIBLE end-to-end — the first non-empty
+    # catamaran feasible set in the project's history, and every one of
+    # them earned it through a PASSING criterion, never through the GM
+    # row. The structural bars (band-independent):
+    assert ref_c == n14 > 0, (
+        "every cl 1.4-class cat must still carry the refusal, and only "
+        "that class")
+    assert p13 + f13 + n14 == len(gm_c)
+    assert ok_no_pass == 0, ("a catamaran came back feasible without a "
+                             "passing criterion — the GM-floor regression")
     # What the multihull does NOT fix is still there, and this assertion exists
     # so nobody reads the lines above as "feasibility solved": `bend_radius`
     # (plywood cold-bend) and `proportions` (the demihull floating outside
@@ -886,3 +931,60 @@ def _timed(x, m) -> float:
     t0 = time.perf_counter()
     evaluate(x, m)
     return (time.perf_counter() - t0) * 1e3
+
+
+def test_the_cl13_criterion_fails_and_capsizes_in_the_directions_it_should(
+        ref_hull):
+    """The bar fires BOTH ways (LESSONS defect class 3): the same vessel
+    that passes with 2 crew must FAIL when the crowd is heavy enough, and
+    the no-equilibrium branch must read as a hard fail, not a crash.
+    RE-MEASURED expectations, 2026-08-19, on ref_hull as a catamaran at
+    s/Lwl 0.60 with the ladder's own displacement and KG.
+    """
+    from navalai.evaluate import evaluate
+    from navalai.geometry import Hull
+    from navalai.hydrostatics import multihull_crowding_heel
+
+    ev = evaluate(ref_hull, MissionSpec(vessel=_cat(0.60)))
+    hull = Hull(ref_hull)
+    t_design = -float(hull.z_keel.min())
+    kg = float(ev.masses.vcg_above_keel(t_design))
+
+    # 2 persons: passes, on the small-angle fast path (basis says so).
+    t2 = multihull_crowding_heel(hull, ev.hydro, kg, 2,
+                                 vessel=_cat(0.60), gm_m=ev.gm_m)
+    assert t2.passes is True and t2.heel_deg is not None
+    assert t2.heel_deg <= 4.0
+    assert any("small-angle" in b for b in t2.basis)
+
+    # 50 persons at the applicability edge on THIS stiff platform:
+    # MEASURED exact equilibrium 3.87 deg (fast estimate 3.09 — the 25%
+    # nonlinearity that set the fast gate at 2 deg) — a LEGITIMATE pass,
+    # through the exact path. The clause is satisfied and the receipt
+    # must say which path decided.
+    t50 = multihull_crowding_heel(hull, ev.hydro, kg, 50,
+                                  vessel=_cat(0.60), gm_m=ev.gm_m)
+    assert t50.passes is True
+    assert 3.0 < t50.heel_deg < 5.0
+    assert not any("small-angle slope" in b for b in t50.basis)
+
+    # THE FAIL DIRECTION (LESSONS defect class 3): the same crowd with the
+    # CG raised 20 m — GM collapses, the fast path stands aside, the exact
+    # scan finds NO equilibrium at or below 10 deg, and the clause FAILS
+    # hard rather than crashing or defaulting.
+    th = multihull_crowding_heel(hull, ev.hydro, kg + 20.0, 50,
+                                 vessel=_cat(0.60))
+    assert th.passes is False
+    assert th.heel_deg is None and th.heel_ok is None
+    assert any("both fail the 8 deg bar" in b for b in th.basis)
+
+    # uncrewed: trivially true with the zero-moment note.
+    t0 = multihull_crowding_heel(hull, ev.hydro, kg, 0,
+                                 vessel=_cat(0.60), gm_m=ev.gm_m)
+    assert t0.passes is True and "zero" in t0.heel_lever_note
+
+    # applicability: > 50 persons is the cl 1.4 class — computed numbers
+    # still returned, but passes is None (not this clause's verdict).
+    t51 = multihull_crowding_heel(hull, ev.hydro, kg, 51,
+                                  vessel=_cat(0.60), gm_m=ev.gm_m)
+    assert t51.applicable is False and t51.passes is None

@@ -44,12 +44,20 @@ def test_the_case_is_judged_as_the_vessel_it_declares(key):
     assert ev.targets["cp_delivered"] == pytest.approx(float(ev.hydro.cp))
 
     if v.topology is Topology.CATAMARAN:
-        # EXPLICIT refusal, not silence: the multihull criterion cannot
-        # pass ((c) windage undeclarable, (d) unread) and says so
-        assert not ev.ok
-        joined = " ".join(ev.violations)
-        assert "NO CRITERION IS IMPLEMENTED" in joined
-        assert "righting-arm curve" in joined
+        # R2.2 (2026-08-19): the blanket refusal is GONE for this class —
+        # every canonical cat is < 15 m LOA with <= 50 persons, so NZ Part
+        # 40A App.1 cl 1.3 governs, is COMPUTED, and the verdict is a
+        # measured receipt. ok is decided by the whole ladder (case d
+        # genuinely fails R-DFH); what must hold for ALL cats is that the
+        # criterion DECIDED and left its audit trail.
+        cl13 = ev.vessel["cl13"]
+        assert cl13 is not None and cl13["passes"] is not None
+        assert ev.vessel["stability_criterion"].startswith("NZ Part 40A")
+        if not cl13["passes"]:
+            assert any("cl 1.3 FAILED" in x for x in ev.violations)
+        else:
+            assert not any(x.startswith("multihull stability")
+                           for x in ev.violations)
 
     # the manifest builds from the same floated state (CFD-READY: the
     # safety verdict is separate from whether a case can be written)
@@ -134,10 +142,16 @@ def test_the_four_canonical_classes_certify_end_to_end_S31():
                 f"{case.key}: a REFUSE with no named reason is a verdict "
                 f"nobody can act on")
         if case.mission.vessel.topology is Topology.CATAMARAN:
-            assert cert.verdict == "REFUSE", (
-                f"{case.key}: the multihull criterion is refusal-first "
-                f"until R2.2 — a PASS here means it changed; re-measure "
-                f"this table, do not celebrate silently")
+            # RE-MEASURED 2026-08-19, exactly as the previous pin
+            # instructed: R2.2's cl 1.3 landed and the cats are judged by
+            # a computed criterion. Measured: c MARGINAL (heel 0.77 deg,
+            # trim 0.93 deg vs the 8 deg bar), d REFUSE on a GENUINE
+            # rules finding (R-DFH downflooding height), not on a
+            # criterion gap. The structural pin: the stability verdict is
+            # never "REFUSED" for this sub-15 m class anymore.
+            assert cert.stability.get("verdict") != "REFUSED", (
+                f"{case.key}: the sub-15 m catamaran class regressed to "
+                f"refusal-first — cl 1.3 stopped being computed")
         if (isinstance(cert.cfd_candidate, dict)
                 and cert.cfd_candidate.get("eligible")):
             # an eligible certification hands off through the manifest —

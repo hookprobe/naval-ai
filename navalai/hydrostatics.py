@@ -405,6 +405,166 @@ MULTIHULL_CRITERION = (
     "docs/research/standards/NATIONAL-CODES.md §8.4 and §4.5")
 
 
+@dataclass(frozen=True)
+class CrowdingHeelTest:
+    """NZ Part 40A Appendix 1 cl. 1.3 — the multihull heeling test, BY
+    CALCULATION (the clause's own footnote 31 permits it), for a multihull
+    decked ship UNDER 15 m LOA carrying 50 or fewer passengers. Transcribed
+    verbatim 2026-08-19 (docs/research/standards/NATIONAL-CODES.md §8.4,
+    PDF sha256 8038515939b7c5a8…): the fully loaded ship "does not heel or
+    trim in any direction by more than 8°" under uncontrolled passenger
+    crowding per cl. 1.2(8)(d)(i) (75 kg/person; 4 persons/m²; standing
+    CoG 1 m above deck).
+
+    CONSERVATIVE BY CONSTRUCTION, and each conservatism named in `basis`:
+    every person is placed at the vessel's EXTREME outboard deck edge
+    (resp. the extreme longitudinal ends for trim) — no real uncontrolled
+    crowd can produce a larger moment, so a pass here is a pass of the
+    clause a fortiori. A FAIL here is therefore MARGINAL evidence, not a
+    verdict: the receipt says so, because refusing on a bound tighter than
+    the rule's own is refusing designs the rule accepts."""
+
+    persons: int
+    crowd_kg: float
+    applicable: bool                 # < 15 m LOA and <= 50 persons
+    heel_lever_note: str
+    heel_deg: float | None           # equilibrium heel; None = no static
+    heel_ok: bool | None             #   equilibrium under the crowd (FAIL)
+    trim_deg_crowd: float
+    trim_ok: bool
+    passes: bool | None              # None only when not applicable
+    basis: tuple[str, ...]
+
+
+def multihull_crowding_heel(hull: Hull, state: HydroState,
+                            kg_above_keel: float, persons: int,
+                            rho: float = RHO_WATER, vessel=None,
+                            trim_deg: float = 0.0,
+                            gm_m: float | None = None) -> CrowdingHeelTest:
+    """Compute cl. 1.3 for a multihull. See CrowdingHeelTest for the rule.
+
+    The crowd enters the HEEL half as an exact transverse-CG shift
+    (`gz_curve(..., tcg_m=)`): tcg = m_crowd·y_edge/Δ, equilibrium at the
+    shifted curve's first upward zero-crossing — the lever decays with
+    heel exactly as the geometry says, no constant-lever approximation.
+    The TRIM half uses the longitudinal metacentre (gm_long), small-angle:
+    tan(θ) = m_crowd·x_edge/(Δ·GM_L) — GM_L is ~Lwl in magnitude so the
+    angle is genuinely small and the formula is in-regime.
+
+    The crowd MASS is assumed already inside `state.disp_kg` (the "fully
+    loaded condition" — the ladder's budget carries the crew provision);
+    the moment of MOVING it outboard is what is applied. `persons = 0`
+    (uncrewed) passes trivially and says so.
+    """
+    n_hulls, _sep, d_m = vessel_terms(hull, vessel)
+    if n_hulls <= 1:
+        raise ValueError("multihull_crowding_heel is for n_hulls > 1")
+    loa = float(hull.x[-1] - hull.x[0])
+    applicable = loa < 15.0 and persons <= 50
+    disp = float(state.disp_kg)
+    crowd_kg = 75.0 * float(persons)
+    basis = [
+        "NZ Part 40A App.1 cl 1.3 via cl 1.2(8)(d)(i): 75 kg/person, "
+        "uncontrolled crowding, bar 8 deg on heel AND trim, established "
+        "by calculation (footnote 31)",
+        f"LOA proxied by the station span {loa:.2f} m (the genome carries "
+        f"no overhangs); applicability: < 15 m and <= 50 persons",
+        "CONSERVATIVE placement: every person at the extreme outboard "
+        "deck edge (heel) / extreme longitudinal end (trim); a pass is "
+        "a-fortiori, a fail is marginal evidence only",
+        "crowd mass assumed inside the loadcase displacement (the crew "
+        "provision); the applied effect is the MOVEMENT of that mass",
+    ]
+    if persons == 0:
+        return CrowdingHeelTest(
+            persons=0, crowd_kg=0.0, applicable=applicable,
+            heel_lever_note="no persons aboard: the crowding moment is "
+                            "zero by definition (uncrewed)",
+            heel_deg=0.0, heel_ok=True, trim_deg_crowd=0.0, trim_ok=True,
+            passes=True if applicable else None, basis=tuple(basis))
+
+    y_edge = d_m + float(hull.y_sheer.max())
+    tcg = crowd_kg * y_edge / max(disp, 1e-9)
+    # INCREMENTAL SCAN, NOT THE FULL CURVE (measured 2026-08-19: the full
+    # 16-point curve costs ~1.2 s per evaluation and NSGA-II calls this on
+    # every catamaran; the verdict needs only the FIRST upward
+    # zero-crossing of the tcg-shifted curve, which for a realistic crowd
+    # sits under 2 deg). One heeled solve per scan point, stopping at the
+    # crossing; the scan ends at 10 deg because the bar is 8: a vessel with
+    # no equilibrium by 10 deg has FAILED whether it settles at 11 deg or
+    # capsizes, and the exact angle is not worth the solves — the basis
+    # says which of the two the receipt could not distinguish.
+    # SMALL-ANGLE FAST PATH (measured 2026-08-19: ONE heeled-waterplane
+    # solve costs ~850 ms and NSGA-II calls this on every catamaran). The
+    # GZ curve's own validation (tests/test_gapfix_physics.py, quoted in
+    # gz_curve's docstring) pins the small-angle slope to gm() within a
+    # few percent, and a catamaran's curve is gm-linear until the windward
+    # hull approaches emergence — far beyond the sub-2 deg equilibria a
+    # realistic crowd produces. So: when the small-angle equilibrium
+    # atan(tcg/GM) lands at or below HALF the 8 deg bar, the verdict is
+    # taken analytically with a >= 2x margin against the linearisation;
+    # anything nearer the bar takes the exact heeled-waterplane scan. GM
+    # here is the caller's fsc-corrected value when supplied (the same GM
+    # the ladder floors), else gm(state, kg) uncorrected with a note.
+    if gm_m is None:
+        gm_m = gm(state, kg_above_keel)
+        basis.append("GM for the small-angle path computed WITHOUT a "
+                     "free-surface correction (standalone call)")
+    heel = None
+    if gm_m > 0.0:
+        est = math.degrees(math.atan(tcg / gm_m))
+        # Gate 2.0 deg, not half the bar. MEASURED 2026-08-19 (mid_params
+        # as a cat at s/Lwl 0.60, tcg 2.985 m): the linear estimate reads
+        # 3.09 deg where the exact heeled-waterplane crossing is 3.87 deg
+        # — a 25% underestimate already at 3 deg, because a catamaran's
+        # curve starts shedding slope as the windward hull unloads. At
+        # <= 2 deg the same validation that pins the small-angle slope to
+        # gm() holds, and the verdict carries a 4x margin to the 8 deg
+        # bar; the marginal band beyond takes the exact scan.
+        if est <= 2.0:
+            heel = est
+            basis.append(
+                f"heel via the VALIDATED small-angle slope (GM {gm_m:.2f} "
+                f"m): {est:.3f} deg <= 2.0 deg (measured linearity gate; "
+                f"4x margin to the bar); the exact heeled-waterplane scan "
+                f"is reserved for anything nearer the bar")
+    prev_h, prev_gz = 0.0, -tcg
+    for h in ((1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 10.0)
+              if heel is None else ()):
+        pt = gz_curve(hull, disp, kg_above_keel, rho, vessel=vessel,
+                      trim_deg=trim_deg, tcg_m=tcg,
+                      heels_deg=(float(h),))
+        g = float(pt.gz_m[0])
+        if prev_gz < 0.0 <= g:
+            f = -prev_gz / (g - prev_gz)
+            heel = float(prev_h + f * (h - prev_h))
+            break
+        prev_h, prev_gz = float(h), g
+    heel_ok = None if heel is None else heel <= 8.0
+    if heel is None:
+        basis.append(
+            "NO static equilibrium under the shifted CG at or below 10 "
+            "deg: either it settles beyond 10 deg or the crowd capsizes "
+            "the vessel — both fail the 8 deg bar, and the scan stops "
+            "there deliberately (cost); the two are not distinguished")
+
+    gml = gm_long(state, kg_above_keel)
+    x_edge = max(float(state.lcf - hull.x[0]),
+                 float(hull.x[-1] - state.lcf))
+    trim_crowd = math.degrees(
+        math.atan(crowd_kg * x_edge / max(disp * max(gml, 1e-9), 1e-9)))
+    trim_ok = trim_crowd <= 8.0
+
+    fails = (heel_ok is not True) or not trim_ok
+    return CrowdingHeelTest(
+        persons=int(persons), crowd_kg=crowd_kg, applicable=applicable,
+        heel_lever_note=(f"tcg {tcg:.4f} m from {persons} x 75 kg at the "
+                         f"outboard deck edge y = {y_edge:.3f} m"),
+        heel_deg=heel, heel_ok=heel_ok,
+        trim_deg_crowd=trim_crowd, trim_ok=trim_ok,
+        passes=(not fails) if applicable else None, basis=tuple(basis))
+
+
 def multihull_stability_refusal(state: HydroState, gm_m: float,
                                 offset_load_assessed: bool = True
                                 ) -> tuple[str, ...]:
@@ -452,8 +612,13 @@ def multihull_stability_refusal(state: HydroState, gm_m: float,
         f"a solar catamaran is the roof and the bridge-deck house — neither "
         f"is in the genome, and deriving A from the bare hull profile would "
         f"understate the heeling moment, the flattering direction — and "
-        f"(d)'s clause body is NOT READ. Two assessed clauses of four is a "
-        f"measurement, not a verdict.",
+        f"(d) is READ (2026-08-19: A2 >= 0.028 m-rad between the GZ curve "
+        f"and the hw+hp lever) but needs the same declared windage as (c) "
+        f"plus the crowding lever. Two assessed clauses of four is a "
+        f"measurement, not a verdict. NOTE this refusal now applies ONLY "
+        f"to the cl 1.4 class (>= 15 m LOA or > 50 passengers): under "
+        f"that, cl 1.3 governs and is COMPUTED — see "
+        f"multihull_crowding_heel.",
     ) + olh
 
 

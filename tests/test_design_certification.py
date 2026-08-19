@@ -131,15 +131,25 @@ def test_loading_matrix_obeys_conservation_invariants(ref_cert):
                         "to people aft"
 
 
-def test_the_catamaran_certification_refuses_and_measures(ref_cert):
-    """The 12 m catamaran case: verdict REFUSE (criterion unassessable by
-    construction), but clauses (a)/(b) are MEASURED and the GZ assumptions
-    ride on the certification — a refusal with evidence, not a shrug."""
+def test_the_catamaran_certification_assesses_and_measures(ref_cert):
+    """The 12 m catamaran case, RE-POINTED at the R2.2 flip (2026-08-19):
+    the sub-15 m class is now GOVERNED by NZ Part 40A App.1 cl 1.3, which
+    the ladder computes, so stability is ASSESSED with the cl13 receipt on
+    the certification — while the cl 1.4 curve clauses (a)/(b) stay
+    MEASURED beside it as supplementary evidence and (c)'s windage gap is
+    still named for the bigger class. Case d's overall verdict remains
+    REFUSE on a GENUINE rules finding (R-DFH downflooding height), which
+    is what a working criterion looks like: the refusals that remain are
+    design findings, not criterion gaps."""
     case = CASES["d"]
     cert = certify(case.params, case.mission)
     assert cert.verdict == "REFUSE"
+    assert any("R-DFH" in v for v in cert.violations)
     st = cert.stability
-    assert st["verdict"] == "REFUSED"
+    assert st["verdict"] == "ASSESSED"
+    assert st["criterion"].startswith("NZ Part 40A App.1 cl 1.3")
+    assert st["cl13"]["passes"] is True
+    assert st["cl13"]["heel_deg"] is not None
     assert st["clause_a"]["area_m_rad"] > 0
     assert st["clause_b"]["heel_at_gz_max_deg"] > 0
     assert any("windage" in u or "lateral area" in u
