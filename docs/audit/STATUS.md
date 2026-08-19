@@ -769,6 +769,10 @@ foamDictionary edits, no case-writer change:
     foamDictionary system/controlDict -entry maxCo -set 5
     foamDictionary system/controlDict -entry maxAlphaCo -set 2
     foamDictionary system/controlDict -entry maxDeltaT -set 2e-3
+    echo "transient_tail_from=<latestTime>" >> case.info
+    # (the flow-through receipt: settled_drag counts real seconds from
+    #  this mark on a mixed LTS->Euler history; without it the count is
+    #  honestly NaN — fixed fortress-side 2026-08-19 per your tail seam)
     # then
     #   openfoam navalai/cfd/run-case.sh runs/kcs_gci3/coarse 10
     # (the resume branch restarts from latestTime; force histories merge)

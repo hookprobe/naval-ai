@@ -454,8 +454,32 @@ def settled_drag(case: str | Path, *, drift_tol: float = DRIFT_TOL,
     # which are statements about REAL time the free stream spent crossing.
     fvs = case / "system" / "fvSchemes"
     pseudo_time = fvs.exists() and "localEuler" in fvs.read_text()
-    flow_throughs = (float("nan") if pseudo_time
-                     else float(t[-1]) * speed / dom_len)
+    # A MIXED HISTORY IS NOT REAL TIME FROM t=0 (the Mac's 2026-08-19 tail
+    # seam): the hybrid lane restarts an LTS spin-up as a transient tail,
+    # switching fvSchemes to Euler — so the schemes say real-time while the
+    # merged record's HEAD is pseudo-iterations, and t[-1]/domain prints a
+    # fictional 136 flow-throughs. The tail's start is recorded in
+    # case.info as `transient_tail_from=` (the hybrid runbook writes it);
+    # with the receipt, flow-throughs count real seconds from THERE. A
+    # mixed history WITHOUT the receipt (Euler schemes over a log that
+    # still carries LTS's "Flow time scale" prints) is NaN — unmeasured,
+    # never a number.
+    tail_from = None
+    ti = info.get("transient_tail_from")
+    if ti is not None:
+        try:
+            tail_from = float(ti)
+        except (TypeError, ValueError):
+            tail_from = None
+    if pseudo_time:
+        flow_throughs = float("nan")
+    elif tail_from is not None:
+        flow_throughs = max(0.0, float(t[-1]) - tail_from) * speed / dom_len
+    else:
+        lg = case / "log.interFoam"
+        mixed = lg.exists() and "Flow time scale min/max" in lg.read_text()
+        flow_throughs = (float("nan") if mixed
+                         else float(t[-1]) * speed / dom_len)
 
     stl = case / "constant" / "triSurface" / "hull.stl"
     if stl.exists():

@@ -595,3 +595,32 @@ def test_a_converging_slow_run_is_under_settled_not_failed(tmp_path):
     case = _write_case(tmp_path / "flat", t, 0.6 * force, 0.4 * force)
     rep = post.settled_drag(case)
     assert rep["settled"] is True and rep["outcome"] == "settled"
+
+
+def test_a_mixed_lts_transient_history_counts_flow_throughs_from_the_tail(
+        tmp_path):
+    """The hybrid-lane seam (2026-08-19): an LTS spin-up restarted as a
+    transient tail switches fvSchemes to Euler, so the pseudo-time guard
+    stands down while the merged record's HEAD is still pseudo-iterations
+    — and t[-1]/domain printed 136 fictional flow-throughs. With the
+    runbook's `transient_tail_from=` receipt the count is real seconds
+    from the tail's start; without it, a mixed history (Euler schemes
+    over a log carrying LTS's own prints) is NaN — unmeasured, never a
+    number.
+    """
+    t = np.linspace(2000.0, 2030.0, 600)     # a 30 s transient tail
+    force = -4000.0 + 2.0 * np.sin(t)
+    case = _write_case(tmp_path / "tail", t, 0.6 * force, 0.4 * force,
+                       extra_info="transient_tail_from=2000.0")
+    rep = post.settled_drag(case)
+    # 30 s of real tail over the declared domain, NOT 2030 s from t=0
+    dom = 4.5 * rep["lwl"]
+    assert rep["flow_throughs"] == pytest.approx(30.0 * rep["speed"] / dom,
+                                                 rel=1e-9)
+
+    # the same case WITHOUT the receipt but WITH the LTS residue: NaN
+    case2 = _write_case(tmp_path / "mixed", t, 0.6 * force, 0.4 * force)
+    (case2 / "log.interFoam").write_text(
+        "Flow time scale min/max = 1.1e-4, 2.0e-2\n")
+    rep2 = post.settled_drag(case2)
+    assert math.isnan(rep2["flow_throughs"])
