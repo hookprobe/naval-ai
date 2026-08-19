@@ -193,7 +193,7 @@ different Gate 2M numbers came to circulate at once (gap J1).
 | Gate G | APSE: similitude/ITTC-78/cost/planner/evidence | `tests/test_stageG.py` (53 tests) |
 | Gate V2.1 | arrangement grammar: envelope, spaces, deck zones, and an L0-A that names the space it refuses | `tests/test_arrangement.py` (42 tests) |
 | Gate V3.0 | governance compiles to a parameter box and to constraint rows, ratchets only tighter, and the ladder never imports it | `tests/test_policy.py` (48 tests) |
-| Gate 6P | the product surface: scope guards refuse what does not govern, and the mission contract binds | `tests/test_gapfix_product.py` (26 tests) |
+| Gate 6P | the product surface: scope guards refuse what does not govern, and the mission contract binds | `tests/test_gapfix_product.py` (27 tests) |
 | Gate L | one limit, one home; scantling derived from the rule | `tests/test_limits_single_source.py` (21 tests) |
 | Gate 6M | manufacturing back end: nesting, BOM, developability controls, export receipt (refold onto the hull: Gate 6D) | `tests/test_manufacturing.py` (34 tests) |
 | Gate R3 | the ladder is climbable: L2 escalation, monotone tier promotion, honest refusal of L3 | `tests/test_ladder.py` (8 tests) |

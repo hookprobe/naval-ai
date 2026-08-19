@@ -96,19 +96,29 @@ def test_crew_mass_and_frame_spacing_have_exactly_one_home():
 
 
 def test_the_platform_sheet_is_only_claimed_where_the_rule_allows_it():
-    # The exact statement the audit made: 15 mm is compliant below 845 kg and
-    # nowhere else. This is a REGRESSION guard on the crossover, not a bar to
-    # be moved — if the rule's coefficients change, this number moves with it.
-    assert required_thickness_mm(845.0) <= limits.PLY_THICKNESS_M * 1e3
-    assert required_thickness_mm(850.0) > limits.PLY_THICKNESS_M * 1e3
+    # The crossover guard, RE-MEASURED 2026-08-19 at the 6R re-shape: the
+    # rule's coefficients changed to the ISO 12215-5:2008(E) text (kAR at
+    # the measured l=2.5b panel geometry, kDC, kL, the Eq 8 minimum,
+    # Table E.2 sigma_d at the sheet's own ply count), and per this
+    # test's own charter the number moves with them: at LWL 10 m,
+    # category C, 15 mm is compliant to ~5317 kg (was 845 under the
+    # flat-floor model, 3424 under the interim l=b conservatism).
+    from navalai.rules.iso12215 import n_plies_for_thickness as _n
+    _n15 = _n(limits.PLY_THICKNESS_M)
+    assert required_thickness_mm(5310.0, 10.0, n_ply=_n15) \
+        <= limits.PLY_THICKNESS_M * 1e3
+    assert required_thickness_mm(5330.0, 10.0, n_ply=_n15) \
+        > limits.PLY_THICKNESS_M * 1e3
 
 
 @pytest.mark.parametrize("mldc_kg", [800, 1500, 3000, 6000, 12000, 20000])
 def test_derived_sheet_always_satisfies_the_rule_that_derived_it(mldc_kg):
     # The whole point of deriving rather than declaring: there is no input for
     # which the sheet we build with fails the rule we build to.
-    t_m = select_stock_thickness_m(mldc_kg)
-    assert t_m * 1e3 >= required_thickness_mm(mldc_kg)
+    t_m = select_stock_thickness_m(mldc_kg, 10.0)
+    from navalai.rules.iso12215 import n_plies_for_thickness
+    assert t_m * 1e3 >= required_thickness_mm(
+        mldc_kg, 10.0, n_ply=n_plies_for_thickness(t_m))
     assert t_m in limits.STOCK_PLY_THICKNESS_M, "must be a sheet you can buy"
 
 
@@ -116,17 +126,22 @@ def test_derived_sheet_is_the_THINNEST_stock_that_works():
     # Rounding up to stock must not quietly over-build: the sheet below the
     # selected one has to be genuinely insufficient.
     for mldc in (1500, 6000, 12000):
-        t = select_stock_thickness_m(mldc)
+        t = select_stock_thickness_m(mldc, 10.0)
         thinner = [s for s in limits.STOCK_PLY_THICKNESS_M if s < t]
         if thinner:
-            assert max(thinner) * 1e3 < required_thickness_mm(mldc)
+            from navalai.rules.iso12215 import n_plies_for_thickness
+            t_thin = max(thinner)
+            # judged with the THINNER sheet's own sigma_d — the same
+            # self-consistency the selector applies
+            assert t_thin * 1e3 < required_thickness_mm(
+                mldc, 10.0, n_ply=n_plies_for_thickness(t_thin))
 
 
 def test_an_unbuildable_panel_is_a_finding_not_a_rounding():
     # Refusing beats silently returning the thickest sheet: a panel the stock
     # range cannot satisfy is exactly the case a builder must be told about.
     with pytest.raises(ValueError, match="do not round the requirement down"):
-        select_stock_thickness_m(6000.0, span_mm=1400.0)
+        select_stock_thickness_m(6000.0, 10.0, span_mm=1400.0)
 
 
 def test_the_ladder_reports_the_sheet_it_actually_built_with():
@@ -139,8 +154,11 @@ def test_the_ladder_reports_the_sheet_it_actually_built_with():
     m = MissionSpec(displacement_target_kg=6000.0)
     ev = evaluate(grammar.vector({n: 0.5 * (lo + hi) for n, _u, lo, hi, _d
                                   in grammar.PARAMS}), m)
+    from navalai import grammar as _g
+    _lwl = _g.named(_g.vector({n: 0.5 * (lo + hi) for n, _u, lo, hi, _d
+                               in _g.PARAMS}))["LWL"]
     assert ev.ply_thickness_m == select_stock_thickness_m(
-        m.displacement_target_kg)
+        m.displacement_target_kg, float(_lwl))
     assert ev.ply_thickness_m > 0.0
 
 

@@ -729,10 +729,60 @@ def test_one_rule_one_mldc_C04():
     case = {c.key: c for c in formcheck.CASES}["a"]
     ev = evaluate(case.params, case.mission)
     assert ev.hydro is not None
-    # the budget exceeds the declared target on this case — the exact
-    # regime that used to split the two mLDCs
-    assert ev.hydro.disp_kg > case.mission.displacement_target_kg
-    # the selected sheet is the fixed point of the FLOATED displacement
-    assert ev.ply_thickness_m == select_stock_thickness_m(ev.hydro.disp_kg)
+    # REGIME NOTE (2026-08-19, the 6R re-shape): under the 2008(E) math
+    # case a's budget lands a hair UNDER its 800 kg target (799.96 — the
+    # thinner sheet lightened it), so the budget-exceeds-target scaffold
+    # this test used to assert is gone. The C-04 CLAIM does not need it:
+    # selection is the fixed point of max(budget, target) and R-TBM is
+    # assessed at the same displacement, split-free in EITHER regime.
+    # the selected sheet is the fixed point of the loaded displacement
+    from navalai import grammar as _g
+    from navalai.geometry import Hull as _H
+    from navalai.rules.iso12215 import bottom_panel_dims_mm
+    _lwl = float(_g.named(np.asarray(case.params, float))["LWL"])
+    _b, _l = bottom_panel_dims_mm(_H(np.asarray(case.params, float)))
+    _mldc = max(float(ev.hydro.disp_kg),
+                float(case.mission.displacement_target_kg))
+    assert ev.ply_thickness_m == select_stock_thickness_m(
+        _mldc, _lwl, design_category=case.mission.design_category,
+        span_mm=_b, l_mm=_l)
     # and the rule no longer fails on the selection/assessment split
     assert not any("R-TBM" in v for v in ev.violations), ev.violations
+
+
+def test_iso12215_2008E_equations_match_the_sourced_text_6R():
+    """Gate 6R items 1-4 (operator-sourced ISO 12215-5:2008(E) text,
+    2026-08-19): golden values for every re-shaped equation, so the
+    implementation cannot drift from the page it cites.
+    """
+    from navalai.rules.iso12215 import (k_ar, k_dc, k_l, sigma_d_plywood,
+                                        sigma_uf_parallel,
+                                        sigma_uf_perpendicular,
+                                        design_pressure_bottom)
+
+    # kDC — the §7.2 table, verbatim
+    assert (k_dc("A"), k_dc("B"), k_dc("C"), k_dc("D")) == (1.0, 0.8, 0.6, 0.4)
+    with pytest.raises(ValueError, match="not one of"):
+        k_dc("E")
+    # kL — Eq (3), nCG = 3 displacement: 0.167*3 = 0.501 at the aft end,
+    # CONTINUOUS to 1.0 exactly at x/LWL = 0.6 (the interpretation note)
+    assert k_l(0.0) == pytest.approx(0.501, abs=1e-9)
+    assert k_l(0.6) == pytest.approx(1.0, abs=1e-12)
+    assert k_l(0.9) == 1.0
+    assert k_l(0.3) == pytest.approx(0.5 * (0.501 + 1.0), abs=1e-9)
+    # kAR — Eq (4) direction and limits: larger area -> smaller kAR;
+    # capped at 1.0; floored at Table 3's 0.25
+    assert k_ar(6000, 400, 400) >= k_ar(6000, 400, 1000)
+    assert k_ar(100, 2000, 5000) == 0.25          # the floor
+    assert k_ar(50000, 100, 100) == 1.0           # the cap
+    # Table E.2 at rho 650, N 5: 0.5*0.65*(68-10+0.75) = 19.09375
+    assert sigma_uf_parallel(650, 5) == pytest.approx(19.09375, abs=1e-9)
+    assert sigma_uf_perpendicular(650, 5) == pytest.approx(
+        0.5 * 0.65 * (11 + 32.5 - 7.0), abs=1e-9)
+    assert sigma_d_plywood(650, 5) == pytest.approx(0.5 * 19.09375, abs=1e-9)
+    # Eq (8) can govern: at tiny mass and long LWL the minimum exceeds the
+    # reduced Eq (7) product
+    p = design_pressure_bottom(500, 18.0, "C")
+    p_min = (0.45 * 500 ** 0.33 + 0.9 * 18.0) * 0.6
+    assert p == pytest.approx(p_min, rel=1e-12), (
+        "Eq 8's floor must govern this configuration")

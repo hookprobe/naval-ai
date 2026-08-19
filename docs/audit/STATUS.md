@@ -758,7 +758,18 @@ foamDictionary edits, no case-writer change:
     foamDictionary system/controlDict -entry endTime \
         -set <latestTime + 2*(domain_length_m / speed_ms)>   # real seconds
     foamDictionary system/controlDict -entry deltaT -set 1e-4
-    # adjustTimeStep yes + maxCo already in the template; then
+    # RUNBOOK CORRECTION (2026-08-19, the Mac's pace-watch diagnosis): an
+    # LTS-BORN controlDict carries adjustTimeStep no — it has no reason to
+    # adapt a global dt it does not use — so the transient restart MUST
+    # set it, or the probe integrates a frozen seed dt ~8x slower than
+    # its Courant headroom allows (measured: 20.7 h projected vs ~3.5-4 h
+    # fair). The original parenthetical here claimed the template already
+    # had it; that was false for exactly this template.
+    foamDictionary system/controlDict -entry adjustTimeStep -set yes
+    foamDictionary system/controlDict -entry maxCo -set 5
+    foamDictionary system/controlDict -entry maxAlphaCo -set 2
+    foamDictionary system/controlDict -entry maxDeltaT -set 2e-3
+    # then
     #   openfoam navalai/cfd/run-case.sh runs/kcs_gci3/coarse 10
     # (the resume branch restarts from latestTime; force histories merge)
 

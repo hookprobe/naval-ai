@@ -711,7 +711,11 @@ CHECKS: tuple[Check, ...] = (
                   and has_code("navalai/evaluate.py", r"t_design, t_ply\)")),
     Check("C4", "the scantling rule is fed the FLOATED displacement "
                 "(scantling_rules(hs.disp_kg, ...)), which is ISO's mLDC",
-          lambda: has_code("navalai/evaluate.py", r"scantling_rules\(hs\.disp_kg")),
+          # predicate widened 2026-08-19 (the C3 precedent: the predicate
+          # was wrong, not the closure): the 6R re-shape made the call
+          # multiline, and hs.disp_kg is still the first argument.
+          lambda: has_code("navalai/evaluate.py",
+                           r"scantling_rules\([\s\n]*hs\.disp_kg")),
     Check("C5", "limits.FRAME_SPACING_M is the one panel span, imported by "
                 "rules/iso12215.py AND by engineer.py",
           lambda: has_code("navalai/limits.py", r"FRAME_SPACING_M")

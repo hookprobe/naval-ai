@@ -43,7 +43,15 @@ REVIEW = {
     "date": "2026-08-05",
     "editions": {
         "ISO 12217-1": "ISO 12217-1:2015 (Third edition, 2015-10-15)",
-        "ISO 12215-5": "edition not recorded — set this",
+        # PINNED 2026-08-19 from the operator-sourced text. The 2008
+        # edition is WITHDRAWN, replaced by ISO 12215-5:2019 — which
+        # REORGANIZED the calculation (kAR via its own Table 9, kDYN
+        # renaming). The equations in rules/iso12215.py are 2008(E)
+        # equations and MUST NEVER be mixed with 2019 tables; upgrading
+        # means replacing the module against the 2019 text wholesale.
+        "ISO 12215-5": "ISO 12215-5:2008(E), First edition, 2008-04 "
+                       "(withdrawn; replaced by ISO 12215-5:2019 — do "
+                       "not mix editions)",
     },
     "scope": "threshold parity only; mechanics and clause mapping unchanged",
     # Every rule id the reviewer confirmed against the standard text.
@@ -85,10 +93,23 @@ REVIEW = {
         "R-CAT",   # design-category wave-height context
         "R-DFH",   # ISO 12217-1:2015 Annex A (A.1) + Table A.1
         "R-OLH",   # ISO 12217-1:2015 6.2.3 a) + Table 4
+        # 2026-08-19, operator-sourced ISO 12215-5:2008(E) text (Gate 6R
+        # items 1-4): Eq 7 factors (kDC §7.2 table, kL §7.4 Eq 3, kAR
+        # §7.5 Eq 4 incl. kR and AD limits + Table 3 minima), Eq 8
+        # minimum, Table 9 sigma_d = 0.5 sigma_uf, and Table E.2's
+        # density+ply-count sigma_uf formulas — all implemented to the
+        # text; golden values in tests/test_gapfix_product.py. The old
+        # flat 10 kN/m2 floor and SIGMA_D_OKOUME = 15.0 are GONE.
+        "R-PBM",
+        "R-TBM",
     }),
     # Rules that are IMPLEMENTED but NOT confirmed, each with the reason. A
     # rule missing from both sets is an oversight; a rule here is a decision.
     "unconfirmed": {
+        # R-PBM / R-TBM moved to `confirmed` 2026-08-19 — their old
+        # entries here (recording exactly what the flat floor and the
+        # constant sigma got wrong) are preserved in git history and in
+        # the module docstring's re-shape note.
         "R-GM": (
             "NOT IN THE STANDARD. A regex sweep of all 86 pages of "
             "ISO 12217-1:2015 for an absolute metacentric-height requirement "
@@ -114,31 +135,36 @@ REVIEW = {
             "righting-arm curve exists. A rule that states no number cannot be "
             "confirmed against a text, and must never read basis='standard'."
         ),
-        "R-PBM": (
-            "ISO 12215-5's edition is still a placeholder — there is no text "
-            "to have confirmed it against. What IS verified from "
-            "BS EN ISO 12215-5:2008 (a copy licensed to a third party, so not "
-            "citable as ours): Equation (9) P_BMD_BASE = 2,4 mLDC^0,33 + 20 "
-            "kN/m2 matches our formula EXACTLY. What does not: the full "
-            "requirement is P_BMD = P_BMD_BASE x kAR x kDC x kL (7), and the "
-            "minimum is Equation (8) "
-            "P_BM_MIN = (0,45 mLDC^0,33 + 0,9 LWL) x kDC — our flat 10 kN/m2 "
-            "floor is neither length- nor category-dependent and is wrong."
-        ),
-        "R-TBM": (
-            "Same missing edition. Verified from the 2008 text: Equation (36) "
-            "t = b x kc x sqrt(P x k2 / (1000 x sigma_d)) matches our "
-            "structure exactly. NOT verified: Table 9 gives "
-            "sigma_d = 0,5 sigma_uf for plywood, where sigma_uf comes from "
-            "Table E.2 as a FORMULA in plywood density and ply count — not a "
-            "constant. Our flat SIGMA_D_OKOUME = 15,0 N/mm2 is therefore the "
-            "wrong SHAPE. The Table E.2 expression could not be reconstructed "
-            "from the PDF text layer (superscripts garbled) and is NOT guessed."
-        ),
     },
     # Points the packet raised that a blanket "confirmed" does not by itself
     # resolve. Recorded so they are not lost behind a green gate.
     "interpretations": {
+        "R-PBM/kL": (
+            "Eq (3)'s slope term arrived transcription-ambiguous; the "
+            "implemented reading (1 - 0.167 nCG)/0.6 * x/LWL + 0.167 nCG "
+            "is fixed by CONTINUITY — kL(0.6) = 1 exactly, matching the "
+            "x/LWL > 0.6 branch; the alternative parse jumps 0.6 -> 1.0 "
+            "at the boundary and is rejected on that ground. Verify "
+            "against the printed page when it is next in hand."
+        ),
+        "R-PBM/kAR": (
+            "The panel LONG dimension is unmodeled, so AD = b^2 (l = b), "
+            "the smallest admissible design area and hence the largest "
+            "kAR — conservative by Eq (4)'s direction. A declared panel "
+            "layout supersedes this."
+        ),
+        "R-TBM/grain": (
+            "Face grain is assumed ACROSS the stiffeners (build-practice "
+            "orientation), so Table E.2's PARALLEL formula governs; the "
+            "perpendicular formula is implemented for a declared layup."
+        ),
+        "R-TBM/N_ply": (
+            "The ply count is mapped from sheet thickness by build "
+            "practice (odd, clamped 5..15 per the standard's presumption) "
+            "— the standard presumes N, it does not derive it. The "
+            "mapping is OURS, basis approx; the strength FORMULA is the "
+            "standard's."
+        ),
         "R-CAT": (
             "Categories A and B both carry hs = 4.0 m in CATEGORY_TABLE. That "
             "is only coherent because the SENSES differ: ISO 12217-1 states A "

@@ -573,13 +573,24 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
     # discrete stock map that settles in <= 3 steps or is refused.
     _payload_kg = (payload_spec.mass_kg
                    if payload_spec is not None else 0.0)
-    t_ply = select_stock_thickness_m(mission.displacement_target_kg)
+    # 6R re-shape (2026-08-19): the selection is category- and
+    # length-dependent per ISO 12215-5:2008(E) Eq 7/8; the design LWL is
+    # the genome's (the floated lwl_eff does not exist yet at selection).
+    from .rules.iso12215 import bottom_panel_dims_mm
+    _b_mm, _l_mm = bottom_panel_dims_mm(hull)
+    t_ply = select_stock_thickness_m(mission.displacement_target_kg,
+                                     float(p["LWL"]),
+                                     design_category=mission.design_category,
+                                     span_mm=_b_mm, l_mm=_l_mm)
     for _ in range(3):
         _wb_probe = weight_budget(p["LWL"], p["D"], shell, deck,
                                   energy_spec, t_ply)
         _disp_probe = max(_wb_probe.total_kg + _payload_kg,
                           mission.displacement_target_kg)
-        _t_next = select_stock_thickness_m(_disp_probe)
+        _t_next = select_stock_thickness_m(
+            _disp_probe, float(p["LWL"]),
+            design_category=mission.design_category,
+            span_mm=_b_mm, l_mm=_l_mm)
         if _t_next == t_ply:
             break
         t_ply = _t_next
@@ -813,7 +824,10 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
     rules_not_implemented: list[str] = []
     manning_refusals: list[str] = []
     if manning is Manning.UNCREWED:
-        findings = list(scantling_rules(hs.disp_kg, t_ply * 1e3))
+        findings = list(scantling_rules(
+            hs.disp_kg, t_ply * 1e3,
+            design_category=mission.design_category, lwl_m=hs.lwl_eff,
+            span_mm=_b_mm, l_mm=_l_mm))
         manning_refusals.append(
             f"manning=uncrewed: ISO 12217-1 was NOT ASSESSED and NOTHING was "
             f"assessed in its place. The RCD does not govern uncrewed craft, "
@@ -827,7 +841,11 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
     else:
         findings = list(stability_rules(ev_for_rules, mission.design_category,
                                         mission.crew, beam_for_offset_load)
-                        + scantling_rules(hs.disp_kg, t_ply * 1e3))
+                        + scantling_rules(
+                            hs.disp_kg, t_ply * 1e3,
+                            design_category=mission.design_category,
+                            lwl_m=hs.lwl_eff,
+                            span_mm=_b_mm, l_mm=_l_mm))
     if manning is Manning.LIVEABOARD:
         # A recorded gap and NOT a violation for a monohull: ISO 12217-1 does
         # cover habitable craft and is assessed above, so the missing piece is

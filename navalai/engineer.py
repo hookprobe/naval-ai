@@ -152,9 +152,13 @@ def assess(hull: Hull, wl: float = 0.0,
 
     t_other = PLY_THICKNESS_M
     if mldc_kg is not None:
-        from .rules.iso12215 import select_stock_thickness_m
-        t_bottom = select_stock_thickness_m(mldc_kg)
-        t_note = f"ISO 12215-5 derived at mLDC {mldc_kg:.0f} kg"
+        from .rules.iso12215 import (bottom_panel_dims_mm,
+                                      select_stock_thickness_m)
+        _b, _l = bottom_panel_dims_mm(hull)
+        t_bottom = select_stock_thickness_m(mldc_kg, lwl,
+                                            span_mm=_b, l_mm=_l)
+        t_note = (f"ISO 12215-5:2008(E) derived at mLDC {mldc_kg:.0f} kg, "
+                  f"LWL {lwl:.1f} m, category C default")
     else:
         t_bottom = PLY_THICKNESS_M
         t_note = "nominal stock sheet (no mLDC given — NOT rule-derived)"
