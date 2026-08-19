@@ -66,6 +66,16 @@ def mesh_one(case: Path, np_procs: int = 1, mesh_only: bool = True,
     # so the runner's built-in layer backoff must not silently re-mesh the
     # case at a different count than the one being measured.
     env["LAYER_BACKOFF"] = "0"
+    # THE TIMEOUT INVERSION, FIXED (forensics §18 flag, 2026-08-19): the
+    # outer subprocess timeout (3600/7200 by CLI default) sat BELOW the
+    # runner's own SOLVER_TIMEOUT (21600), so the layer that always fired
+    # first was this one — the layer whose kill is a blind pkill with no
+    # survivor check — and the runner's VERIFIED watchdog (TERM -> KILL ->
+    # pgrep report, exit 124) never got its turn. The runner's inner budget
+    # is now pinned 10% inside the outer one, so the verified kill fires
+    # first and this except-branch becomes the backstop it was meant to be.
+    if timeout and timeout > 0:
+        env["SOLVER_TIMEOUT"] = str(max(60, int(timeout * 0.9)))
     if mesh_only:
         env["MESH_ONLY"] = "1"
     t0 = time.time()
@@ -84,6 +94,18 @@ def mesh_one(case: Path, np_procs: int = 1, mesh_only: bool = True,
         # of failures that are really one hung case.
         for name in ("interFoam", "mpirun", "snappyHexMesh"):
             subprocess.run(["pkill", "-x", name], capture_output=True)
+        # THE KILL IS VERIFIED, NEVER ASSUMED (the runner's own discipline,
+        # applied to the backstop): a surviving rank means the NEXT hull's
+        # failure wall is already scheduled, and silence here is how one
+        # hung case became a campaign of false failures.
+        time.sleep(2.0)
+        left = subprocess.run(["pgrep", "-x", "interFoam"],
+                              capture_output=True, text=True)
+        if left.stdout.strip():
+            print(f"  !! interFoam ranks SURVIVED the backstop kill "
+                  f"(pids {left.stdout.split()}) — every subsequent hull "
+                  f"in this campaign will false-fail on the concurrency "
+                  f"guard until they are cleaned by hand", flush=True)
     cm = (case / "log.checkMesh").read_text() if (case / "log.checkMesh").exists() else ""
     sn = ""
     for name in ("log.snappy.layers", "log.snappy"):
