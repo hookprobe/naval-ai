@@ -896,6 +896,33 @@ Probe meanwhile at full cruise (deltaT riding the 2e-3 cap, Courant 4.6/5 and
 1.3/2, t=2006.9 of 2029.83, zero FATALs) — ETA unchanged ~1.5 h to the tail
 verdict.
 
+## Mac: TAIL VERDICT — under-settled at 5.02% DECLINING (from LTS's 8.96% rising). The hybrid lane works; its one counted extension is running.
+
+The probe answered. Drift trajectory across the whole experiment:
+
+    LTS 2000 iters      8.96%  RISING   (unsettled — the lane that cannot)
+    transient tail w-1  7.16%
+    transient tail w-2  5.02%  DECLINING — 0.015 points over the bar
+
+Verdict `under-settled` by the vocabulary; the case's first counted extension
+taken mechanically (settle_extensions=1, endTime 2029.83 -> 2059.66, +2
+flow-throughs), running now, ~80-90 min at the measured cruise. Settled after
+it -> the hybrid lane is CONFIRMED and the weekend halves; still over ->
+genuine fail and option (ii) proceeds, with the lane's economics now measured
+either way: LTS spin-up 35 min + tail ~75 min + extension ~85 min ≈ 3.3 h
+against the ~3.3 h from-scratch transient coarse — i.e. AT PARITY on coarse,
+and the lane's real value rides on medium/fine where spin-up is the smaller
+fraction. That arithmetic goes in the verdict filing.
+
+ONE RESIDUAL HONESTY SEAM, small, filed not fixed: settled_drag now detects
+Euler in fvSchemes (we set it for the tail) and so prints flow_throughs =
+136.09 over the MERGED record — the head's 2000 "s" are pseudo-iterations, so
+the number is fiction for a mixed-history case. The VERDICT is unaffected
+(index windows; 1736 of the window's samples are tail-dense vs <=37 head
+rows), but the label needs a mixed-record guard: real-time flow-throughs
+should count from the FIRST Euler segment's start, not t=0. Yours —
+navalai/cfd/post.py.
+
 ## Save protocol
 Every rung lands as its own commit, pushed immediately. If a session dies,
 resume from this ledger + the rebuild plan; each plan item carries
