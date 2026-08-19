@@ -80,6 +80,29 @@ the platform-law statement and governs if the two ever diverge**; §1 is the pla
 that realises it. A vision is what a product is allowed to be, which is this
 file's question.
 
+## 0.5 · The staircase to a working product (dated 2026-08-19, operator-directed)
+
+The distinction that makes this schedulable: **the product loop does not
+simulate.** Mission -> hull -> hydrostatics -> stability -> scantlings ->
+panels -> report runs on the fast tiers (L0/L1 + rules, milliseconds to
+seconds) and exists end-to-end today. CFD is a COMMISSIONING cost paid once
+per method — the reliability rate of the unattended tier, and the one-time
+calibration against tank data — not a per-design cost. After commissioning,
+CFD spends only on novel keeps (active learning), by design.
+
+| when (from 2026-08-19) | what works |
+|---|---|
+| **now** | a design pack a builder can be shown: standard-confirmed scantlings, stability with a real multihull criterion, cut files, the evidence trail — resistance carrying a DECLARED (uncalibrated) sigma |
+| **+1 week** — after the Gate 2M calibration weekend (transient triplet, machine time, mostly unattended) | resistance calibrated against the KCS tank benchmark with a stated GCI — the Wh/NM the product is sold on becomes trustworthy for solar sizing |
+| **+2–3 weeks** — fortress001's queue (loading conditions, the 6D refold that is the Kit-Line's premise, tier E/F mass admission) | **Recreational v1**: mission -> buildable monohull or catamaran, plywood, with evidence — usable by a technically capable person |
+| **later, separately** | the drone line — missing PHYSICS (the low-Reynolds/transition regime has no valid friction line here), plus the mission layer; deliberately descoped until v1 earns it |
+
+Two commissioning items gate the first two rows and are in flight as this is
+written: the unattended-CFD reliability campaign on the shipped genome
+(running), and the calibration triplet (queued for its weekend window,
+checkpointed from generation). Status lives in `python -m navalai.gates` and
+`docs/audit/STATUS.md`, never in this file.
+
 ## 1 · The platform ("one system")
 
 Everything ships from one shared kernel — never per-product forks:
