@@ -201,6 +201,17 @@ def loading_matrix(params, mission: MissionSpec) -> dict[str, dict]:
         if ev.hydro is None:
             out[name] = {"refused": "; ".join(ev.violations[:2])}
             return
+        # R2.3 (2026-08-20): an OFF-DESIGN state is judged on the
+        # SEAWORTHINESS floors — does the boat float, stay upright, keep
+        # its deck dry and its trim inside the limit WITH the load THERE —
+        # never on the design-balance constraints (lcb band, proportions,
+        # Cp targets): a deliberately shifted crowd MUST move LCB, and
+        # refusing the state for the very displacement the test creates
+        # would refuse every boat whose crew can walk (measured: the
+        # crowd-forward state reads LCB +4.88 %LWL on case b, trim a
+        # perfectly seaworthy 1.78 deg).
+        floors = [k for k in ("freeboard", "gm", "trim", "list")
+                  if k in ev.g and ev.g[k] > 0.0]
         out[name] = {
             "displacement_kg": float(ev.hydro.disp_kg),
             "draft_m": float(ev.hydro.draft),
@@ -210,6 +221,8 @@ def loading_matrix(params, mission: MissionSpec) -> dict[str, dict]:
             "gm_m": None if ev.gm_m is None else float(ev.gm_m),
             "freeboard_m": float(ev.hydro.freeboard_min),
             "ok": bool(ev.ok),
+            "seaworthy": not floors,
+            "floor_failures": floors,
         }
 
     _state("DESIGN", mission)
@@ -240,6 +253,25 @@ def loading_matrix(params, mission: MissionSpec) -> dict[str, dict]:
         _state("EMPTY_PAYLOAD", empty)
     out["MAXIMUM"] = {"unknown": "no declared maximum load in the mission "
                                  "spec — not fabricated"}
+    # R2.3's third clause: asymmetric (transverse) loading must reach at
+    # least a DOCUMENTED refusal, never silence. PayloadSpec declares
+    # longitudinal and vertical position (x_frac_lwl, z_frac_depth) and NO
+    # transverse coordinate, so a cargo shifted to one side is not
+    # representable in the mass model. The crew's worst-side case IS
+    # covered — the cl 1.3 crowding test places every person at the
+    # outboard deck edge — but declared CARGO asymmetry is unassessed and
+    # this entry says so instead of letting the matrix's symmetric states
+    # read as complete.
+    if mission.vessel.topology.value != "monohull" \
+            and (mission.payload.mass_kg > 0.0
+                 or mission.energy.payload_kg > 0.0):
+        out["ASYMMETRIC_PAYLOAD"] = {
+            "refused": "not representable: PayloadSpec carries no "
+                       "transverse position, so a payload shifted to one "
+                       "side cannot enter the mass model. Crew asymmetry "
+                       "IS assessed (the cl 1.3 worst-side crowding test); "
+                       "cargo asymmetry is UNASSESSED — a declared "
+                       "transverse coordinate is the unlock."}
     return out
 
 
@@ -477,7 +509,31 @@ def certify(params, mission: MissionSpec,
         if rel_sigma > 0.35:
             marginal.append(f"resistance sigma {rel_sigma:.0%} — the model "
                             f"partly disowns this hull")
-        verdict = "MARGINAL" if marginal else "ACCEPT"
+        # R2.3 (2026-08-20): THE LOAD STATES GATE THE VERDICT. The loading
+        # matrix floats every state the mission declares (lightship,
+        # people-shift, empty-payload) and each carries its own full-ladder
+        # ok — but until now a boat that capsizes LIGHT could certify on
+        # its design condition alone. The standards' own wording is plural
+        # ("curves of statical stability for service load conditionS must
+        # ... meet the criteria", NZ Part 40A 1.4(4)); a state the boat
+        # WILL be in is not an edge case. A failing declared state REFUSES,
+        # by name; a state the matrix itself refused to float (no
+        # equilibrium) likewise. MAXIMUM stays honestly UNKNOWN and gates
+        # nothing (nothing declared, nothing fabricated).
+        bad_states = sorted(
+            name for name, st in loading.items()
+            if isinstance(st, dict)
+            and (st.get("seaworthy") is False
+                 or ("refused" in st and name != "ASYMMETRIC_PAYLOAD")))
+        if bad_states:
+            reasons.append(
+                f"loading condition(s) FAIL the seaworthiness floors: "
+                f"{', '.join(bad_states)} — a certification is for every "
+                f"declared service state, not the design point alone "
+                f"(see .loading for each state's floor_failures)")
+            verdict = "REFUSE"
+        else:
+            verdict = "MARGINAL" if marginal else "ACCEPT"
         reasons.extend(marginal)
 
     # --- §24 CFD-worthiness (single-design factors; population factors —

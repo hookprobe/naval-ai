@@ -226,3 +226,34 @@ def test_a_round_bilge_hull_can_be_cfd_worthy_C19():
     assert "buildable" not in cert.cfd_candidate["parts"]
     assert "buildable part omitted" in cert.cfd_candidate["note"]
     assert cert.cfd_candidate["score"] > 0
+
+
+def test_loading_states_gate_the_verdict_on_seaworthiness_floors_R23():
+    """R2.3: a certification is for every declared service state, not the
+    design point alone — and the states are judged on the SEAWORTHINESS
+    floors (float, GM, trim, list, freeboard), never on design-balance
+    constraints (a shifted crowd MUST move LCB; refusing the state for the
+    displacement the test creates would refuse every boat whose crew can
+    walk). MEASURED at the wire: case b keeps MARGINAL with every state
+    seaworthy; case c REFUSES because its crowd-aft state swamps the bow
+    freeboard and trims past the limit — a real, actionable finding, with
+    the failing floors named per state. Asymmetric cargo on a multihull is
+    a DOCUMENTED refusal (PayloadSpec has no transverse coordinate), and
+    it does not gate — unassessed is not failed.
+    """
+    b = CASES["b"]
+    cert_b = certify(b.params, b.mission, with_gz=False)
+    assert cert_b.verdict == "MARGINAL"
+    assert all(st.get("seaworthy") is not False
+               for st in cert_b.loading.values() if isinstance(st, dict))
+
+    c = CASES["c"]
+    cert_c = certify(c.params, c.mission, with_gz=False)
+    assert cert_c.verdict == "REFUSE"
+    aft = cert_c.loading["PEOPLE_AFT"]
+    assert aft["seaworthy"] is False
+    assert "freeboard" in aft["floor_failures"]
+    assert any("seaworthiness floors" in r for r in cert_c.reasons)
+    # the multihull's asymmetric-cargo gap is documented, and non-gating
+    assert "ASYMMETRIC_PAYLOAD" in cert_c.loading
+    assert "not representable" in cert_c.loading["ASYMMETRIC_PAYLOAD"]["refused"]
