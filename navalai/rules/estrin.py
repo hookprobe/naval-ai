@@ -1,9 +1,10 @@
-"""GATE-SUPPORT, NOT YET WIRED (C-23): these checkers execute in tests and
-gates only — `rules/__init__` does not export them and `evaluate()` does
-not consult them, so no inland mission is judged against ES-TRIN today.
-PLM.md's Solar Liveaboard row says so. Wiring is its own change: it needs
-inland-scope detection on the mission (waters/waterway declaration), and
-it changes verdicts, so it arrives with a re-measured fleet, not silently.
+"""WIRED (C-23 closed 2026-08-19): `evaluate()` consults these checkers
+for every mission that DECLARES inland waters (river/canal/lake/inland —
+parse_mission's own vocabulary), and the standard applies its OWN
+Directive scope test from there. Fleet re-measured at the wire: all six
+canonical cases receive the ES-SCOPE receipt (OUT OF SCOPE, RCD governs —
+verdicts unchanged); a 20 m river hull enters scope, takes the ES-SAFE/
+ES-FB bars and honestly FAILS ES-COV (31 of 33 chapters unimplemented).
 ES-TRIN — European Standard for inland navigation vessels, as checkers.
 
 Gate 6 asks for "ES-TRIN as executable checkers", and gap G7 recorded ZERO

@@ -839,6 +839,23 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
             "manning=liveaboard: ISO 12217-1's habitability, downflooding-"
             "opening and ESCAPE provisions are not implemented; only the "
             "numeric bars in `rules/iso12217.py` were assessed.")
+    # C-23, THE WIRE (2026-08-19): ES-TRIN is consulted when the mission
+    # DECLARES inland waters — the same token vocabulary parse_mission
+    # maps ("river"/"canal"/"lake", plus an explicit "inland"). The
+    # standard then applies its OWN scope test (Directive (EU) 2016/1629:
+    # L >= 20 m or L.B.T >= 100 m3, on ES-TRIN Art. 1.01 hull dimensions)
+    # and returns an explicit IN/OUT-OF-SCOPE receipt either way — a
+    # 10 m dayboat on the Danube gets "OUT OF SCOPE ... RCD instead",
+    # never silence, and a 20 m river barge gets the real bars. The
+    # checkers read only the floated state, passed as such; scope is not
+    # manning-dependent (an unmanned barge is still an inland vessel).
+    _waters = str(mission.waters or "").lower()
+    if any(t in _waters for t in ("river", "canal", "lake", "inland")):
+        import types as _types
+
+        from .rules.estrin import assess as estrin_rules
+        findings = list(findings) + list(estrin_rules(
+            _types.SimpleNamespace(hydro=hs), hull))
     rules_rep = rules_report(findings)
     # One continuous margin so NSGA-II can descend it: 0 when every rule
     # passes, else the worst RELATIVE shortfall. A boolean would give the

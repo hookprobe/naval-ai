@@ -137,7 +137,7 @@ through §3 like anything else — and per §0 it must not become a fork.
 | Line | Mission preset | Grammar subspace | Rules profile |
 |---|---|---|---|
 | **Hull-Line v1** | any (research base) | full 16-param | ISO 12217/12215 subset |
-| **Solar Liveaboard** | 6 t, Danube/Black Sea, cat C/D | sharp-chine, 9–14 m | + ES-TRIN — checkers built (`rules/estrin.py`, gated); **not yet consulted by `evaluate()`** (C-23: wiring needs inland-scope detection on the mission, its own change) |
+| **Solar Liveaboard** | 6 t, Danube/Black Sea, cat C/D | sharp-chine, 9–14 m | + ES-TRIN — **wired** (C-23 closed 2026-08-19): consulted by `evaluate()` on declared inland waters; the standard's own scope test governs (a 9–14 m craft receives the OUT-OF-SCOPE/RCD receipt; a ≥20 m or ≥100 m³ hull takes the implemented bars and fails ES-COV's coverage honesty until more chapters land) |
 | **Dayboat** | 1–3 t, cat D | pram/sharp-chine 4–7 m | cat D profile |
 | **Full-Vessel Line v2** | + interior/exterior arrangement + unsinkability | + arrangement grammar | + ergonomics tier E + flotation tier F |
 | **Kit-Line v3** | the self-certifiable envelope (LH < 12 m, cat C/D), delivered as a CNC kit | unchanged | unchanged, one policy profile, one delivery mode |

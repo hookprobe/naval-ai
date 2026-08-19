@@ -863,7 +863,16 @@ def test_the_multihull_census_reports_the_unlock_and_the_refusal_together(
     assert ref_m == 0
     # The physics unlock is complete on the stability rows.
     assert rows_c.get("gm", 0) == 0 and rows_c.get("list", 0) == 0
-    assert rows_c.get("rules", 0) == 0
+    # The `rules` row is no longer identically zero for cats (2026-08-19):
+    # C-23 wired ES-TRIN, the default mission declares river waters, and
+    # the census's biggest hulls (>= 20 m / L.B.T >= 100 m3) enter the
+    # Directive's scope — where ES-COV honestly FAILS (31 of 33 chapters
+    # unimplemented; two bars must not bless a barge). Measured: 5 of 22.
+    # The bound: only ES-scope-sized hulls may fire it, and never more
+    # than the >= 15 m class count.
+    assert rows_c.get("rules", 0) <= n14, (
+        f"rules row {rows_c.get('rules', 0)} exceeds the big-hull class "
+        f"{n14} — something besides ES-TRIN scope is firing on cats")
     assert min(gm_c) > gm_floor("C")
     assert np.median(gm_c) > 20.0 * max(np.median(gm_m), gm_floor("C"))
     # RE-MEASURED 2026-08-19 (R2.2): the verdict SPLITS by the rule's own
