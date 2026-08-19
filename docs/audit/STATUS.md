@@ -782,6 +782,15 @@ foamDictionary edits, no case-writer change:
     # (checkpoints every 5 real seconds, keep 3 — a nap, kill, or exit
     #  loses at most 5 s of integration: resumability, not throttling)
     echo "transient_tail_from=<latestTime>" >> case.info
+    # DURABLE PATH (2026-08-19, retires this recipe): the whole edit set
+    # above is now ONE call that regenerates controlDict + fvSchemes from
+    # the case-writer's own templates in their transient forms — a recipe
+    # cannot prove it edited everything; a generator emits everything:
+    #   python3 -c "from navalai.cfd.case import write_transient_tail; \
+    #               write_transient_tail('<case>', flow_throughs=2.0)"
+    # It reads the case's own receipts, refuses without a checkpoint, and
+    # writes the transient_tail_from receipt itself. Prefer it for every
+    # tail from here on; the recipe stays for the archaeology.
     # (the flow-through receipt: settled_drag counts real seconds from
     #  this mark on a mixed LTS->Euler history; without it the count is
     #  honestly NaN — fixed fortress-side 2026-08-19 per your tail seam)

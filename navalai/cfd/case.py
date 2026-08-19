@@ -576,7 +576,7 @@ def _interface_dz(height: float, n: int, expansion: float) -> float:
 
 CONTROL_DICT = """FoamFile {{ version 2.0; format ascii; class dictionary; object controlDict; }}
 application     interFoam;
-startFrom       startTime;  startTime 0;
+{start_from}
 stopAt          endTime;    endTime {end_time};
 deltaT          {dt};
 writeControl    adjustableRunTime;  writeInterval {write_int};
@@ -2442,6 +2442,7 @@ def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
         write_int = max(end_time / 10.0, 1.0)
     sysd.joinpath("controlDict").write_text(
         CONTROL_DICT.format(
+            start_from="startFrom       startTime;  startTime 0;",
             end_time=end_time, dt=1 if lts else 0.001, write_int=write_int,
             speed_abs=abs(speed), lwl=lwl, aref=max(aref, 1e-6),
             rho_water=f"{_RHO_WATER:.6g}", bow_patch=BOW_PATCH_NAME,
@@ -2657,3 +2658,88 @@ def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
             "nx": dom["nx"], "ny": dom["ny"],
             "cells_per_wavelength": cells_per_wave, "fs_dz": fs_dz,
             "wavelength": wavelength, "tank_depth": abs(dom["z0"])}
+
+
+def write_transient_tail(case_dir: str | Path, flow_throughs: float = 2.0,
+                         write_interval_s: float = 5.0,
+                         dt_seed: float = 1e-4) -> dict:
+    """Convert an LTS case into a TRANSIENT TAIL restart, WHOLESALE.
+
+    THE DEFECT CLASS THIS RETIRES (2026-08-19, two measured incidents in
+    one day): the hybrid lane's foamDictionary recipe edited an LTS case
+    field-by-field, and every LTS-scaled setting it forgot became a
+    false-by-omission — first adjustTimeStep (a frozen seed dt, ~8x under
+    the Courant headroom, a 20.7 h pace projection on a 3.5 h run), then
+    the write cadence (writeInterval 200 pseudo-iterations writes NOTHING
+    inside a ~30 s real tail; the fields lived in RAM only and a clean
+    exit silently redid ~75 min). A recipe cannot prove it edited
+    everything; a generator emits everything, so this REGENERATES
+    system/controlDict and system/fvSchemes from the module's own
+    templates in their transient forms and touches nothing else — the
+    same templates write_resistance_case uses, so the two modes cannot
+    drift apart.
+
+    Reads the case's own receipts (case.info: lwl, speed_ms,
+    domain_length_m) and its latest checkpoint time; refuses a case with
+    no checkpoints or no receipts rather than guessing. Writes the
+    `transient_tail_from=` receipt that `post.settled_drag` counts real
+    flow-throughs from. Returns the receipt dict.
+    """
+    case = Path(case_dir)
+    info_path = case / "case.info"
+    if not info_path.exists():
+        raise ValueError(f"{case}: no case.info — a tail cannot be "
+                         f"configured without the case's own receipts")
+    info: dict = {}
+    for line in info_path.read_text().splitlines():
+        if "=" in line and not line.lstrip().startswith("#"):
+            k, _, v = line.partition("=")
+            info[k.strip()] = v.strip()
+    try:
+        lwl = float(info["lwl"])
+        speed = float(info["speed_ms"])
+    except (KeyError, ValueError) as exc:
+        raise ValueError(f"{case}: case.info has no usable lwl/speed_ms — "
+                         f"the tail length is flow-throughs of the domain "
+                         f"and cannot be guessed") from exc
+    dom_len = float(info.get("domain_length_m", 0.0) or 0.0) \
+        or _DOMAIN_LENGTH_L * lwl
+
+    # the latest checkpoint: numeric time dirs, top level or processor0
+    def _times(root: Path):
+        out = []
+        for d in root.iterdir() if root.exists() else ():
+            try:
+                out.append(float(d.name))
+            except ValueError:
+                continue
+        return out
+    times = _times(case) + _times(case / "processor0")
+    times = [t for t in times if t > 0.0]
+    if not times:
+        raise ValueError(
+            f"{case}: no checkpoint beyond t=0 — there is nothing to "
+            f"restart a tail FROM; run the spin-up first")
+    t0 = max(times)
+    end_time = t0 + flow_throughs * dom_len / speed
+
+    aref = float(info.get("s_wetted_m2", 0.0) or 0.0) or max(lwl, 1e-6)
+    (case / "system" / "controlDict").write_text(CONTROL_DICT.format(
+        start_from="startFrom       latestTime;",
+        end_time=f"{end_time:.10g}", dt=dt_seed,
+        write_int=write_interval_s,
+        speed_abs=abs(speed), lwl=lwl, aref=max(aref, 1e-6),
+        rho_water=f"{_RHO_WATER:.6g}", bow_patch=BOW_PATCH_NAME,
+        time_control=TIME_CONTROL_TRANSIENT))
+    (case / "system" / "fvSchemes").write_text(
+        FV_SCHEMES.format(ddt="Euler"))
+
+    # the flow-through receipt, rewrite-not-append (the _mq_record rule)
+    lines = [ln for ln in info_path.read_text().splitlines()
+             if not ln.startswith("transient_tail_from=")]
+    lines.append(f"transient_tail_from={t0:.10g}")
+    info_path.write_text("\n".join(lines) + "\n")
+
+    return {"tail_from": t0, "end_time": end_time,
+            "write_interval_s": write_interval_s, "dt_seed": dt_seed,
+            "flow_throughs": flow_throughs, "domain_length_m": dom_len}

@@ -1660,3 +1660,58 @@ def test_the_case_floats_where_the_manifest_certifies_C06(tmp_path):
     assert sub2["volume_m3"] != pytest.approx(sub["volume_m3"], rel=0.01), (
         "the no-manifest lane unexpectedly floats at the manifest state — "
         "if deliberate, update this fence")
+
+
+def test_the_transient_tail_is_generated_wholesale_not_recipe_edited(tmp_path):
+    """The hybrid lane's two measured incidents (2026-08-19) shared one
+    root: a foamDictionary recipe edited an LTS case field-by-field, and
+    every LTS-scaled setting it forgot became a false-by-omission —
+    adjustTimeStep (a frozen dt, 20.7 h projected on a 3.5 h run), then
+    the write cadence (fields in RAM only, ~75 min silently redone). A
+    recipe cannot prove it edited everything; write_transient_tail
+    REGENERATES controlDict and fvSchemes from the module's own templates,
+    so the tail carries the full transient form by construction.
+    """
+    import re
+
+    from navalai.cfd.case import write_transient_tail, write_resistance_case
+    from navalai.evaluate import sample_valid
+    from navalai.geometry import Hull
+    from navalai.mission import MissionSpec
+
+    X, _ = sample_valid(1, MissionSpec(), seed=0)
+    case = tmp_path / "lts"
+    write_resistance_case(Hull(X[0]), 2.57, case, lts=True,
+                          allow_dangerous_mesh=True)
+    cd0 = (case / "system" / "controlDict").read_text()
+    assert "adjustTimeStep  no" in cd0, "the spin-up must start LTS"
+
+    # no checkpoint yet: refused, never guessed
+    with pytest.raises(ValueError, match="nothing to restart"):
+        write_transient_tail(case)
+
+    (case / "2000.76").mkdir()          # the spin-up's checkpoint
+    rec = write_transient_tail(case, flow_throughs=2.0)
+    cd = (case / "system" / "controlDict").read_text()
+    fv = (case / "system" / "fvSchemes").read_text()
+    info = (case / "case.info").read_text()
+
+    # every setting both incidents were about, present by construction
+    assert "startFrom       latestTime;" in cd
+    assert "adjustTimeStep  yes" in cd and "maxCo 5" in cd
+    assert "maxAlphaCo 2" in cd
+    assert "writeControl    adjustableRunTime;  writeInterval 5.0" in cd
+    assert "purgeWrite      3" in cd
+    assert "localEuler" not in fv and "Euler" in fv
+    # the tail spans the asked flow-throughs of the case's OWN domain
+    m = re.search(r"endTime (\S+);", cd)
+    lwl = float(re.search(r"lwl=(\S+)", info).group(1))
+    speed = float(re.search(r"speed_ms=(\S+)", info).group(1))
+    dom = float(re.search(r"domain_length_m=(\S+)", info).group(1)) \
+        if "domain_length_m=" in info else None
+    assert dom is not None
+    assert float(m.group(1)) == pytest.approx(2000.76 + 2.0 * dom / speed,
+                                              rel=1e-6)
+    # and the settledness receipt is written where settled_drag reads it
+    assert "transient_tail_from=2000.76" in info
+    assert rec["tail_from"] == pytest.approx(2000.76)
