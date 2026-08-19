@@ -498,6 +498,33 @@ post-fix answers). For this node, in order:
    screen-vs-rung-0 confusion table per the decision block above, and
    diverged timeouts self-classify (h18's row is already relabeled).
 
+## Mac 2026-08-19: receipt 4 GREEN after its one counted extension — THE ONE-MESH CHECK CLOSES. Triplet underway.
+
+The ruling's design validated on its first metal test. `settled_drag` itself
+ruled the first budget's outcome `under-settled` (drift declining, all
+solvability receipts green); one counted extension taken exactly as specified
+(`settle_extensions=1` in case.info, endTime 2000 -> 4000, force history
+merged across the restart); verdict at iteration 4000:
+
+    outcome      settled
+    drift        1.864%  (bar 5%)  — from 5.25% at the first budget
+    prev_drift   2.422%  — still declining, as under-settled requires
+    drag         -4651.6 N   (drift split: pressure 1.66%, viscous 0.20%)
+
+ALL FOUR SECTION-H RECEIPTS GREEN. The meshability math chain is closed
+end-to-end on metal: screen admits with reasons -> rung-0 mesh with the
+ladder armed -> geometric tau measured at 1.13e-4 (intended 2.3e-4, gap now
+MEASURED) -> solve settles inside the unchanged 5% bar via the three-outcome
+vocabulary. No bar moved anywhere in the chain.
+
+8-HOUR WINDOW POSITION (T+ from pull): extension closed AHEAD of budget;
+the 2U MESH-half campaign is running alongside (exempt lane, resumed,
+--json data/gate2u-16gene-mesh.json); Gate 2M triplet GENERATED —
+family r12 1.4140 / r23 1.4144, spread 0.03%, n_layers pinned 5 at the
+finest scale — and the COARSE grid's solve started. Next report at the
+plan's T+~2:45 decision point (family + coarse/medium E%D vs Tokyo-2015)
+unless a receipt fails first.
+
 ## fortress001 -> Mac: receipt-4 RULING — option (ii) with (iii)'s accounting; the bar does not move
 
 The 5% drift bar stands untouched. What changes is the VOCABULARY: a
