@@ -652,4 +652,13 @@ else
   say "interFoam ..."
   run_solver trunc log.interFoam interFoam
 fi
+# THE GEOMETRIC-TAU RECEIPT (MESHABILITY_MATH.md SPEC item 1): the FIRST
+# printed "Flow time scale min" is the local flow time scale at a nearly
+# uniform inlet field — i.e. the pre-solve geometric tau the screen's
+# intended_min_cell_flow_time_scale_s receipt predicts. Recording it per
+# case is the section-H.3 calibration datum (measured 1.13e-4 vs intended
+# 2.3e-4 on the one-mesh check) and costs one awk. FIRST match, not last:
+# later iterations carry a developed field, not geometry.
+_fts_geom=$(awk '/^Flow time scale min\/max = / {v=$6; sub(/,$/,"",v); print v; exit}' log.interFoam 2>/dev/null)
+[ -n "${_fts_geom:-}" ] && _mq_record min_flow_time_scale_geom "$_fts_geom"
 say "done: $(ls postProcessing/forces/0/ 2>/dev/null || echo 'NO FORCES OUTPUT')"

@@ -594,9 +594,15 @@ def main() -> int:
         # never again be recorded as a MESH failure (2026-08-18, the Mac's
         # Gate 2U item-2 hold).
         _scr_verdict = "UNSCREENED"
+        _scr_no_rescue: tuple = ()
         try:
-            _scr_verdict = screen(Hull(x), speed=args.speed,
-                                  scale=args.scale).verdict.name
+            _rep = screen(Hull(x), speed=args.speed, scale=args.scale)
+            _scr_verdict = _rep.verdict.name
+            # SPEC item 2 (MESHABILITY_MATH.md): "predicted rung-0" and
+            # "predicted unmeshable" are two different claims — the
+            # confusion table can only score them apart if the rows carry
+            # the no-rescue set, not just the verdict.
+            _scr_no_rescue = tuple(_rep.refused_no_rescue)
         except Exception:
             pass                    # the screen failing is not a mesh result
         try:
@@ -721,6 +727,7 @@ def main() -> int:
                  "max_skewness": -1.0, "seconds": 0.0, "meshed": False,
                  "error": repr(exc)[:200]}
         r["screen_verdict"] = _scr_verdict
+        r["screen_no_rescue"] = list(_scr_no_rescue)
         r["hull"] = i
         r["solve_requested"] = bool(args.solve)
         r["lwl"] = round(float(Hull(x).x[-1]), 3)

@@ -334,7 +334,10 @@ separates), and re-pin the census bands if `evaluate()` drifts.
 
 *(orchestrator owns `run-case.sh` + `scripts/mesh_robustness.py`; items 1–3
 of the 2026-08-18 filing are LANDED: early abort @1e-12 s, reclassification,
-screen-verdict rows.)* Remaining, from this derivation:
+screen-verdict rows. Items 1–2 below LANDED 2026-08-19:
+`min_flow_time_scale_geom=` recorded from the FIRST tau print after every
+solve, and campaign rows carry `screen_no_rescue` beside the verdict.)*
+The filing as derived:
 
 1. **run-case.sh, first-iterations τ receipt:** record the *first* printed
    `Flow time scale min` (≈ geometric τ at uniform inlet U) as
