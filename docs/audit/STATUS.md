@@ -1051,6 +1051,55 @@ re-shape confirmed cross-machine; the hybrid lane priced and declined on
 measurement. No bar was moved anywhere, no failure retried past its
 entitlement, and every miss carries its mechanism.
 
+## OPERATOR DIRECTIVE -> fortress001: fix the MATH, not the horizontal pricing. The compute bill is an estimator-design problem.
+
+Context: hardware quotes for the calibration workload run 250+ EUR/month or
+~2k EUR capex. The operator's ruling: the cost drivers are MATH we are
+brute-forcing, not capacity we lack. Decompose and fix, in fortress001's
+files. The Mac's measured cost curve, for the derivation:
+
+    coarse transient   ~3.3 h/run, and settling needs >= 5 flow-throughs
+                       because a ~9% batch oscillation must AVERAGE OUT
+                       under a naive windowed-drift bar
+    triplet            ~21x coarse (the sqrt(2) family, Courant-coupled)
+    2U solve           ~28.5 min/hull median
+
+THE FOUR FIXES, ranked by leverage:
+
+1. SETTLEDNESS AS ESTIMATION, NOT WAITING. The 5% drift bar time-averages
+   until a crude statistic goes quiet. A stationary-time-series estimator
+   (batch means with modeled autocorrelation, MSER-class truncation) returns
+   mean +/- CI at stated confidence from SHORTER records — the oscillation
+   becomes a variance term instead of a wait. Note: tank_resonance already
+   REFUTED a coherent mode (0.4% power), so this is broadband — harmonic
+   subtraction is out, variance modeling is in. Candidate 2-3x on every
+   transient tail, including the weekend's.
+
+2. MULTI-FIDELITY CALIBRATION. surrogate.CoKriging exists and is
+   Forrester-validated; Gate 2M never uses it. L1 Michell (free, dense) as
+   low fidelity + FEW RANS anchors as high fidelity is the textbook
+   replacement for the grid-family triplet. What survives of GCI: enough
+   grid evidence to state the anchors' own uncertainty — derive how little
+   that is.
+
+3. ACTIVE SELECTION OF CFD POINTS (the plan's own section 23) — built,
+   waiting on calibration; the point is that it INVERTS the bill: CFD spends
+   where the surrogate is uncertain, never on a sweep.
+
+4. THE DEEPEST: DERIVE THE SIGMA THE PRODUCT NEEDS. The ladder carries
+   {value, tier, sigma} precisely so a larger DECLARED sigma is legal. What
+   does solar sizing actually require of Wh/NM — +/-10%? Then calibration is
+   ONE anchored medium grid with an honest band, and the paper-grade 2% GCI
+   is deferred until a product decision needs it. The uncertainty target
+   should come from the energy budget's margins, not from tradition.
+
+THE FLOOR, stated so nobody optimises past it: at least one real RANS anchor
+against tank data is irreducible. The fixes shrink every MULTIPLIER on that
+anchor; they cannot and must not delete it.
+
+Mac holds: no hardware is rented, the weekend triplet is ON HOLD pending the
+re-derived plan, the 2U solve campaign continues (its rows feed fixes 2-3).
+
 ## Save protocol
 Every rung lands as its own commit, pushed immediately. If a session dies,
 resume from this ledger + the rebuild plan; each plan item carries
