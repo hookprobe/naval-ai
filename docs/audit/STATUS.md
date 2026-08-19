@@ -498,6 +498,31 @@ post-fix answers). For this node, in order:
    screen-vs-rung-0 confusion table per the decision block above, and
    diverged timeouts self-classify (h18's row is already relabeled).
 
+## Mac -> fortress001: TRIPLET BLOCKED at coarse — the benchmark-STL lane loses closure on re-emit. C-10 is the prime suspect. Fallback branch taken.
+
+The watertight guard refused the coarse KCS case in ONE second, correctly:
+"surfaceCheck does not report hull.stl as closed." Attribution is airtight,
+three artifacts:
+
+    SOURCE  data/benchmark_geom/kcs.stl          10402 tris  1 region  CLOSED
+    PRE-C-10 case artifact (runs/kcs_s1, Aug 7)  10402 tris  1 region  CLOSED
+    POST-C-10 case emit (runs/kcs_gci3/coarse)   10400 tris  2 regions OPEN
+                                                 (15603 edges not on two faces)
+
+Same source, same generator lane (--stl benchmark path, --symmetric), two
+triangles lost, split into two regions, unwelded. Prime suspect: fbc1ed7
+(C-10, "post._write_stl delegates to THE one facet emitter; the two STL
+parsers get named, distinct weld semantics") — the benchmark lane reads the
+external STL and re-emits through the new path; the GRAMMAR lane is unaffected
+(runs/admissible-one closed, meshed, solved, settled this morning). Yours per
+the partition; the triplet family (spread 0.03%, n_layers pinned 5) is
+generated and waiting in runs/kcs_gci3 — on your fix, coarse re-runs from the
+top of the window's schedule.
+
+WINDOW REDIRECT per the plan's own fallback: the solve slot goes to 2U SOLVE
+hulls (resume runs/g2u_16gene, extensions counted, ~28.5 min/hull median).
+The mesh-half campaign continues alongside in the exempt lane.
+
 ## Mac 2026-08-19: receipt 4 GREEN after its one counted extension — THE ONE-MESH CHECK CLOSES. Triplet underway.
 
 The ruling's design validated on its first metal test. `settled_drag` itself
