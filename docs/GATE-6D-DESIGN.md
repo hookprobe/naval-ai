@@ -36,6 +36,37 @@ The ledger named two mechanisms without weights. Measured:
 2. THE x_mb C1 BREAK IS A 16 mm CREASE — real, above the 5 mm bar,
    localized (max-only; p95 0.7), secondary.
 
+## The kernel measurement (2026-08-20) — the mechanisms quantified
+
+- **The SAC peak is a CORNER, and the family forces it.** Measured on the
+  reference hull: a'(x_mb-) = +1.476/L against a'(x_mb+) = -0.031/L — a
+  slope kink of 1.5/L in the area curve at the max-area station. The
+  fullness family h(s) = s^p (p >= 1 branch) has h'(1) = p, so the aft
+  branch CANNOT arrive at the peak flat; the 16 mm refold crease at
+  [0.5, 0.6) is this corner expressed in the surface. No taper patch can
+  fix a family-level property.
+- **The stem ends as a wedge**: a'(stem) = -2.95/L (finite-slope area
+  run-out) against a quadratic forefoot — the curvature concentration
+  the 124 mm deviation lives in.
+
+## The C1 family (the tractable fix)
+
+Candidate replacing the p >= 1 branch: **h(s) = 1 - (1 - s^p)^2**
+  - h(0) = 0, h(1) = 1 (the family contract);
+  - h'(1) = 0 for every p — the peak is SMOOTH by construction;
+  - closed-form moments (the property sac_exponents' Cp/lcb inversion
+    cannot live without): int h = 2/(p+1) - 1/(2p+1),
+    int s.h = 2/(p+2) - 1/(2p+2);
+  - fullness range: p=1 gives 2/3 - 1/3 = 0.583...; p -> inf gives 1 —
+    the range the solver needs on the aft body must be VERIFIED against
+    sac_exponents' actual demand before adoption (the p < 1 branch's
+    range may need its own C1 counterpart).
+
+Acceptance unchanged (refold <= 5 mm both panels + the full Gate PF /
+pin re-measure). Sequencing note superseded: the Mac's campaigns solve
+FROZEN cases and the KCS benchmark is imported, so the kernel work no
+longer waits on the window — it waits only on its own care.
+
 ## The implementation plan (post-window)
 
 A. Kernel: replace the `w**0.15` sheer envelope with a taper whose dy/dx
