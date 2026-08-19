@@ -785,6 +785,39 @@ admissible 200/200 — the screen finally says what the metal measured.
 Your solve rows on hulls 11/12 (and the [0.1, 1.0) warn band) are the
 next calibration increment; the table machinery keeps accumulating.
 
+## Mac: HYBRID PROBE UNDERWAY — restart integrity verified; a pace-watch rule declared so the probe cannot quietly refute its own premise
+
+The ruling's runbook executed verbatim: the three foamDictionary edits
+(ddtSchemes Euler; endTime 2029.83 = latestTime + 2 flow-throughs in REAL
+seconds; deltaT seeded 1e-4), then run-case.sh's resume branch from t=2000.
+2U SOLVE campaign paused for the slot, resumes on the verdict.
+
+RESTART INTEGRITY, measured across the LTS -> Euler seam: Phase-1 volume
+fraction 0.800165 on the first transient step (the spun-up value carried
+exactly); alpha bounded [-6.5e-10, 1]; zero FATALs; force history appending
+to a new time segment that post.forces_path() merges.
+
+PACE, measured at t+10 min: 0.24 s of the 29.83 s tail done; instant pace
+4.1e-4 sim-s per wall-s (naive ETA ~20 h) — but Courant max 0.227 and
+interface Courant 0.038, far under the limits, so deltaT is still climbing
+from its seed. The measured cruise at this cell count (val_coarse5, 230k
+cells, transient) is 2.2e-3 sim-s/wall-s, giving ~3.5-4.5 h remaining once
+the ramp completes.
+
+THE DECISION RULE, DECLARED IN ADVANCE: re-measure at the half-hour. If the
+cruise pace has not materialised — something pinning dt low — the probe
+costs ~20 h, and a 20 h probe REFUTES ITS OWN PREMISE (the hybrid only earns
+its place by halving the weekend). In that case it stops EARLY as a filed
+finding against the probe's economics, not at hour 18. Settling is not the
+only way this probe can answer.
+
+ALSO VALIDATED IN METAL THIS MORNING, one command each, on this box:
+- pseudo-time honesty: settled_drag on a real LTS case (runs/admissible-one)
+  reports flow_throughs = nan; the fiction cannot print. CONFIRMED.
+- the screen re-score: hulls 18 and 22 (the measured-clean false alarms)
+  now MARGINAL-admissible; hulls 11 and 12 read SAFE with no_rescue=() —
+  the known residual, awaiting their solve rows. CONFIRMED as committed.
+
 ## Save protocol
 Every rung lands as its own commit, pushed immediately. If a session dies,
 resume from this ledger + the rebuild plan; each plan item carries
