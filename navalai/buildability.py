@@ -514,3 +514,66 @@ def refinement_residual(hull: Hull, wl: float = 0.0) -> dict[str, float]:
                                      - b.gauss_abs_mean_per_m2),
         "twist_max": abs(a.twist_max - b.twist_max),
     }
+
+
+# ---------------------------------------------------------------------------
+# The kit-line admission: the gate metric itself, as a certification check
+# ---------------------------------------------------------------------------
+
+
+def kit_buildability(hull: Hull) -> dict:
+    """Can THIS hull be built from CNC-cut flat sheets? The measured answer.
+
+    Runs the actual Gate 6D meter — `unroll.hull_panels` (the shipped
+    developable fit) refolded onto the moulded surface via
+    `refold_surface_deviation_mm`, both panels, against `limits.REFOLD_BAR_MM`
+    — and returns a BUILD ROUTE, not a pass/fail on the hull:
+
+        route = "sheet-kit"   both panels refold within the bar
+        route = "mould"       the shell is intrinsically too twisted (or has
+                              a radiused bilge) — build it on a mould/strip-
+                              plank; a routing fact, not a defect
+
+    WHY A ROUTE AND NOT A GATE ON EVERY HULL — the 2026-08-19 measurement
+    campaign, reference 7 m hull:
+
+      * The deviation is INTRINSIC surface twist, not unroller error.
+        Transverse seams at 1, 2 and 3 stations moved the two-sided set
+        metric by < 0.1 mm (bottom stayed 124.0 mm to the second decimal):
+        the twist is local to the forefoot, not accumulated along the
+        development, so no amount of cutting fixes it.
+      * Dial isolation: deadrise warp (8 -> 30 deg) alone puts the bottom at
+        ~52 mm even under a C1-smooth area curve; flare 10 deg alone holds
+        the topside above ~40 mm; forefoot rise contributes at the ~1 mm
+        level on its own but interacts with warp.
+      * THE LOW-TWIST CORNER EXISTS, under the shipped kernel: at
+        flare = 0, forefoot = 0, warp <= +8 deg the reference proportions
+        measure 4.6-5.0 mm on BOTH panels — sharpie/dory-class shapes. The
+        kit product class is that corner; everything else is a mould boat.
+
+    Cost: ~9 s on the reference hull (the developable-pairing LM ladder is
+    ~4 s and the two-sided meter ~5 s), which is why `certify` runs this only
+    when asked (`with_kit=True`) and records honestly when it did not.
+    """
+    from .limits import REFOLD_BAR_MM
+    from .unroll import hull_panels, refold_surface_deviation_mm
+
+    try:
+        panels = hull_panels(hull)
+    except ValueError as e:
+        # roundness > 0: a radiused bilge is not a two-panel developable
+        # shell — the unroller's own refusal text says "take this hull to a
+        # mould, not a cutter", and this is where that routing lands.
+        return {"route": "mould", "kit_buildable": False,
+                "why": str(e), "bar_mm": REFOLD_BAR_MM,
+                "basis": BASIS_GEOMETRY}
+    refold_mm = {p.name: float(refold_surface_deviation_mm(hull, p))
+                 for p in panels}
+    ok = all(v <= REFOLD_BAR_MM for v in refold_mm.values())
+    return {"route": "sheet-kit" if ok else "mould",
+            "kit_buildable": ok,
+            "refold_mm": refold_mm,
+            "bar_mm": REFOLD_BAR_MM,
+            "why": ("both panels refold within the bar" if ok else
+                    "intrinsic shell twist exceeds the kit bar — mould build"),
+            "basis": BASIS_GEOMETRY}

@@ -86,3 +86,50 @@ C. Sequencing: implement ONLY after the Mac's current window closes and
 Reproduction: ~/.claude/jobs tmp 6d-profile/6d-hull2panel scripts, or
 re-derive from this file's tables; refold_surface_deviation_mm is the
 judge either way.
+
+---
+
+## The implementation campaign (2026-08-19) — measured, and the plan REVISED
+
+The C1 family was built and probed (a SHARPER form than §"The C1 family"
+banked: parameterise by FULLNESS f = int h directly — direct smoothed-power
+h = (p+1)s^p − p·s^(p+1) for f ≤ 1/2, its mirror for f > 1/2, meeting at
+smoothstep — flat at BOTH endpoints for every f, closed moments, and Cp
+LINEAR in the two fullnesses so one bisection solves the LCB). Fleet demand
+verified reachable: 299/300 sampled designs. Probe results, reference hull:
+
+    kernel      bottom (two-sided)   topside    x_mb crease [0.5,0.6)
+    current            124.0           43.7          16.3
+    C1-hybrid           52.3           57.3           2.2  <- crease KILLED
+
+Three further measurements MOVED THE PLAN:
+
+1. **Transverse seams are a null result.** 1, 2, 3 seam cuts move the
+   two-sided set metric < 0.1 mm. The deviation is LOCAL intrinsic twist
+   in the last ~30%, not accumulated development error.
+2. **Dial isolation.** Deadrise warp drives the bottom (8→30° = 52 mm
+   under C1; no warp = 7.9; no warp + no forefoot = 4.1). Flare drives
+   the topside (flare 0 = 9.4 mm; 3° alone = 26.8). The topside WORSENED
+   under C1 because the flare envelope follows a(x) forward of x_mb.
+3. **The low-twist corner EXISTS UNDER THE SHIPPED KERNEL**: flare = 0,
+   forefoot = 0, warp ≤ +8° → 4.6–5.0 mm BOTH panels. Sharpie/dory-class.
+
+REVISED DECISION: the kernel swap is NOT landed — it does not cross the
+bar on warped hulls, the corner needs no swap, and swapping mid-window
+invalidates the Mac's calibration corpus. What LANDED instead is the KIT
+ADMISSION: `buildability.kit_buildability` (the gate's own meter, per
+design, route = sheet-kit | mould), surfaced via `certify(with_kit=True)`,
+REFOLD_BAR_MM single-sourced in limits.py, pinned by
+tests/test_manufacturing.py::test_kit_admission_*. Gate 6D's re-framing
+(watermark on a pinned kit-corner reference vs the mould-class reference
+hull) is a decision OWED TO THE OPERATOR — see the gate-ledger row.
+The C1 fullness-hybrid stays banked here for the post-calibration window;
+its probe scripts: ~/.claude jobs tmp probe_c1_family.py.
+
+**Existence proof (same day):** the KIT REFERENCE HULL — 12.2 m dory-class
+(constant 9° deadrise, zero flare/forefoot, Cp 0.639), certifiable
+(MARGINAL) AND sheet-kit at 4.16/4.16 mm; pinned by
+`test_the_kit_reference_hull_is_certifiable_and_kit_buildable`. The 7 m
+proportions in the corner refold fine but fail the 18 mm-ply cold-bend
+radius — the Kit-Line's admissible region is the INTERSECTION of the refold
+corner with the cold-bend and stability floors, and it is non-empty.

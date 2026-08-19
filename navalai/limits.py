@@ -402,6 +402,20 @@ CATEGORY_TABLE: dict[str, tuple[float, float, float, float]] = {
 # constraint. Not an ISO number; a build-sense floor.
 FREEBOARD_FLOOR_M = 0.25
 
+# Kit-line refold acceptance [mm]: a CNC-cut flat panel, refolded onto the
+# moulded surface, may deviate at most this much anywhere on the sheet
+# (BuildPlan 12.3; the meter is `unroll.refold_surface_deviation_mm`,
+# two-sided). 5 mm is the epoxy-fillet gap a stitch-and-glue joint absorbs
+# without shimming. This bar GOVERNS THE KIT PRODUCT CLASS, not all hulls:
+# MEASURED 2026-08-19 (Gate 6D dial isolation, reference 7 m hull) the
+# deviation is intrinsic surface twist, not an unroller artifact — deadrise
+# warp 8->30 deg alone puts the bottom at ~52 mm, flare 10 deg alone puts the
+# topside at ~40 mm, and transverse seams move the number by < 0.1 mm
+# (measured at 1, 2 and 3 seam cuts) because the twist is local, not
+# accumulated along the development. A hull outside the low-twist corner is a
+# MOULD build — a build route, not a defect (`buildability.kit_buildability`).
+REFOLD_BAR_MM = 5.0
+
 # Plywood cold-bend limit: sheet thickness [m] and the minimum bend radius as a
 # multiple of it. These two are consumed by the optimizer's bend constraint AND
 # by the weight model's panel thickness; keeping them together stops the sheet

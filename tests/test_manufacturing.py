@@ -41,7 +41,11 @@ from tests.test_phase0 import mid_params
 # either direction — the rebuilt topside got 1.5x better and the rebuilt bottom
 # got 2.6x WORSE, and both are readable only because the divisor is fixed.
 # See test_gate6_refold_clause_is_red_on_the_hull.
-REFOLD_BAR_MM = 5.0
+#
+# The number itself now lives in `limits.REFOLD_BAR_MM` (single source: the
+# kit-line admission `buildability.kit_buildability` consumes the same bar),
+# imported here so this file cannot drift from the one the product enforces.
+from navalai.limits import REFOLD_BAR_MM
 
 
 def _chord_error_mm(hull, edge, params):
@@ -1255,3 +1259,103 @@ def test_the_old_twelve_station_loft_really_did_lose_half_a_percent(tmp_path):
     assert rec["n_stations_exported"] == 12
     assert rec["solid_volume_m3"] == pytest.approx(29.363, abs=0.01)
     assert rec["volume_error_pct"] == pytest.approx(-0.5066, abs=0.01)
+
+
+# ---------------------------------------------------------------------------
+# The kit-line admission: build ROUTE, measured with the gate's own meter
+# ---------------------------------------------------------------------------
+
+
+def _corner_params():
+    """The reference proportions moved into the LOW-TWIST CORNER.
+
+    MEASURED 2026-08-19 (the Gate 6D dial-isolation campaign): with
+    flare = 0, forefoot = 0 and no deadrise warp (beta_bow = beta_mid) the
+    reference 7 m proportions refold at 4.6/4.7 mm — the first hull in this
+    repository to pass the 5 mm bar on BOTH panels. The corner tolerates
+    warp up to ~+8 deg OR forefoot 0.2 individually, and flare 3 deg alone
+    breaks the topside (26.8 mm): flare is the topside's hard constraint,
+    deadrise warp the bottom's. Sharpie/dory-class shapes live here; the
+    kit product class is this corner.
+    """
+    v = np.asarray(mid_params(), float).copy()
+    v[9] = v[8]      # beta_bow = beta_mid: no deadrise warp
+    v[13] = 0.0      # no forefoot rise
+    v[14] = 0.0      # no flare
+    return v
+
+
+def test_kit_admission_corner_hull_is_sheet_buildable():
+    """The corner hull routes to sheet-kit, under the bar on both panels."""
+    from navalai.buildability import kit_buildability
+
+    kit = kit_buildability(Hull(_corner_params()))
+    assert kit["route"] == "sheet-kit" and kit["kit_buildable"]
+    assert kit["bar_mm"] == REFOLD_BAR_MM
+    for name, mm in kit["refold_mm"].items():
+        assert mm <= REFOLD_BAR_MM, f"{name} {mm:.2f} mm"
+        # ...and not by accident of a degenerate panel: the deviation is a
+        # real measured number in the corner's known band, not machine zero.
+        assert 2.0 < mm, f"{name} {mm:.2f} mm suspiciously perfect"
+
+
+def test_kit_admission_reference_hull_routes_to_mould():
+    """The reference hull (warp 22 deg, flare 10 deg) is a MOULD boat.
+
+    Same numbers as `test_gate6_refold_clause_is_red_on_the_hull` — the
+    admission and the gate read one meter. The route is a routing fact,
+    not a defect: the hull remains certifiable, it is just not a kit.
+    """
+    from navalai.buildability import kit_buildability
+
+    kit = kit_buildability(Hull(mid_params()))
+    assert kit["route"] == "mould" and not kit["kit_buildable"]
+    assert 118.0 < kit["refold_mm"]["bottom-stbd"] < 130.0
+    assert 40.0 < kit["refold_mm"]["topside-stbd"] < 48.0
+
+
+def test_kit_admission_round_bilge_routes_to_mould_without_a_meter():
+    """roundness > 0 is not a two-panel shell: mould, by construction."""
+    from navalai.buildability import kit_buildability
+
+    v = np.asarray(mid_params(), float).copy()
+    v[11] = 0.3
+    kit = kit_buildability(Hull(v))
+    assert kit["route"] == "mould" and not kit["kit_buildable"]
+    assert "refold_mm" not in kit and "mould" in kit["why"]
+
+
+# The KIT REFERENCE HULL: the first design in this repository that is BOTH
+# certifiable (MARGINAL — every floor met, some within the marginal band) AND
+# sheet-kit buildable (both panels under REFOLD_BAR_MM). Found 2026-08-19 by
+# searching the low-twist corner under the full certification: a 12.2 m
+# dory-class monohull — constant 9.0 deg deadrise (no warp), zero flare,
+# zero forefoot rise, Cp 0.639. The searches that FAILED on the way are the
+# instructive part: the 7 m reference proportions in the corner REFUSE on the
+# 18 mm-ply cold-bend radius (0.94 m < 1.44 m — kit-refoldable but not
+# cold-bendable), and several 11.5-12.6 m corner variants refold 11-26 mm
+# (the corner has structure; flat dials alone do not guarantee the bar).
+KIT_REFERENCE_PARAMS = [
+    12.24464859, 3.105685017, 0.55, 1.55, 0.6392941018, -1.0,
+    0.4760097448, 0.3, 9.039289126, 9.039289126, 0.35, 0.0,
+    0.15, 0.0, 0.0, 0.18]
+
+
+def test_the_kit_reference_hull_is_certifiable_and_kit_buildable():
+    """The Kit-Line's existence proof, pinned: certification + kit route.
+
+    If a geometry-kernel change moves this hull off either verdict, the
+    Kit-Line's premise moved — that is exactly the regression this pin is
+    for (Gate 6D's proposed re-framing keys on it; see the ledger row).
+    """
+    from navalai.buildability import kit_buildability
+    from navalai.certify import certify
+    from navalai.mission import MissionSpec
+
+    v = np.asarray(KIT_REFERENCE_PARAMS, float)
+    cert = certify(v, MissionSpec(), with_gz=False)
+    assert cert.verdict in ("ACCEPT", "MARGINAL"), cert.reasons
+    kit = kit_buildability(Hull(v))
+    assert kit["kit_buildable"], kit
+    for name, mm in kit["refold_mm"].items():
+        assert 2.0 < mm <= REFOLD_BAR_MM, f"{name} {mm:.2f} mm"

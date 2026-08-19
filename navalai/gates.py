@@ -743,7 +743,11 @@ GATES = [
     Gate("Gate 6D", "developable-panel refold: EXPORTED panels back onto the "
          "hull vs the 5 mm bar (BuildPlan 12.3)",
          status=Verdict.RED,
-         detail="see data/gate-ledger.json for the measured watermark"),
+         detail="mould-class reference hull 124/44 mm vs the 5 mm bar; the "
+                "low-twist KIT CORNER passes at 4.6-5.0 mm and the kit "
+                "admission (buildability.kit_buildability) routes builds — "
+                "re-framing decision owed to the operator "
+                "(docs/GATE-6D-DESIGN.md + the ledger row)"),
 ]
 
 # Summary line only. pytest writes it two ways depending on flags —

@@ -211,6 +211,10 @@ def test_the_certification_and_the_ladder_plank_the_same_boat_C05():
     assert "refused" not in cert.buildability
     assert cert.buildability["structure_kg"] == pytest.approx(
         ev.weights.structure_kg, abs=0.5)
+    # The kit route is OPT-IN (the refold meter costs ~9 s) and an absent
+    # check is recorded as absent — never implied as a pass.
+    assert cert.buildability["kit"]["route"] == "not measured"
+    assert "with_kit" in cert.buildability["kit"]["why"]
 
 
 def test_a_round_bilge_hull_can_be_cfd_worthy_C19():

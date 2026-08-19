@@ -28,7 +28,7 @@ import numpy as np
 
 from . import formcheck, grammar
 from . import __version__ as _NAVALAI_VERSION
-from .buildability import BuildabilityError, shell_complexity
+from .buildability import BuildabilityError, kit_buildability, shell_complexity
 from .energy import energy_report
 from .evaluate import evaluate
 from .geometry import Hull
@@ -307,11 +307,15 @@ _MARGINAL_G = -0.05
 
 
 def certify(params, mission: MissionSpec,
-            with_gz: bool = True) -> DesignCertification:
+            with_gz: bool = True, with_kit: bool = False) -> DesignCertification:
     """The screening engine: one design, one mission, one classified answer.
 
     Cost: a few seconds — evaluate + descriptors + speed sweep + loading
     states + (optionally) the righting-arm solve. No CFD, no BEM.
+    `with_kit=True` adds the measured sheet-kit build-route check
+    (`buildability.kit_buildability`, ~9 s — the Gate 6D meter itself); it is
+    opt-in because of that cost, and the build report says so when it is off
+    rather than implying the check passed.
     """
     x = np.asarray(params, float)
     ev = evaluate(x, mission)
@@ -480,6 +484,17 @@ def certify(params, mission: MissionSpec,
         buildability = {"refused": str(e),
                         "note": "developability analysis inapplicable "
                                 "(sheet-built tool); NOT a physics verdict"}
+
+    # Build route: sheet-kit vs mould, MEASURED (the Gate 6D meter) when
+    # asked. When not asked, the report says "not measured" — an absent
+    # check recorded as absent, never implied as a pass.
+    if with_kit:
+        buildability["kit"] = kit_buildability(hull)
+    else:
+        buildability["kit"] = {"route": "not measured",
+                               "why": "with_kit=False (the refold meter "
+                                      "costs ~9 s; opt in to route the "
+                                      "build)"}
 
     # --- verdict ----------------------------------------------------------
     marginal: list[str] = []
