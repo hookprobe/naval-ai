@@ -1,10 +1,13 @@
 """Gate 6R — the parity review record.
 
-Gate 6R is the one gate no amount of code can close: it asks whether our
-numeric thresholds match the LICENSED standard text, which requires a
-qualified human with the purchased documents. This module is where that
-human's verdict is recorded, so that `basis` on every RuleFinding is derived
-from an attributable review rather than asserted in the source.
+Gate 6R is the one gate no amount of code can close by itself: it asks
+whether our numeric thresholds match the standard text. REFRAMED 2026-08-19
+(operator's direction): the gate is NOT blocked on a document purchase — it
+is blocked on FIVE SPECIFIC pieces of clause text, enumerated in
+docs/GATE-6R-REQUEST.md, which the operator sources however they source
+them. This module records the attributable verdict once each piece is
+verified, so `basis` on every RuleFinding derives from a review rather
+than an assertion.
 
 WHAT A CONFIRMATION HERE DOES AND DOES NOT MEAN
 
