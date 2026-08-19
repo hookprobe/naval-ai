@@ -259,9 +259,62 @@ def repair(source, cell: float | None = None,
     V, T = weld(V, T)
     if rep.found["degenerate_faces"] or rep.found["sliver_faces"]:
         q = triangle_quantities(V, T)
-        keep = np.asarray(q["area"], dtype=float) >= 1e-12
+        degen = np.asarray(q["area"], dtype=float) < 1e-12
+        # A DEGENERATE FACE CAN BE LOAD-BEARING (MEASURED 2026-08-19, the
+        # Gate 2M coarse blocker): kcs.stl carries two mirror-image needle
+        # faces at the stern (collinear-to-1e-12 verts ~0.1-0.24 mm apart)
+        # whose three edges each pair with exactly one REAL face. Dropping
+        # them unconditionally opened the closed 10402-face shell into
+        # 10400 faces with 6 boundary edges — and shipped it under a
+        # closed-shell receipt (the second defect, fixed below). The rule:
+        # a degenerate face may be dropped ONLY when every one of its real
+        # edges has multiplicity >= 3 (so the drop HEALS a non-manifold
+        # pairing instead of opening a hole). Load-bearing degenerates are
+        # KEPT and named: they carry topology; their zero area contributes
+        # nothing to the signed volume, and _reorient propagates winding by
+        # edge traversal, not by their (undefined) normals, so keeping them
+        # pollutes no downstream decision.
+        # SET-LEVEL, not per-face: an edge shared only among faces that all
+        # drop vanishes entirely (count 0 — no edge, no hole), so the drop
+        # of one degenerate can legitimise the drop of its twin. Propose
+        # dropping every degenerate, then UN-DROP any whose edges would be
+        # left with exactly one owner, until no proposed drop opens a hole.
+        # Bounded by the degenerate count; each pass un-drops at least one.
+        from collections import Counter
+
+        def _edges_of(t):
+            return [(min(t[i], t[(i + 1) % 3]), max(t[i], t[(i + 1) % 3]))
+                    for i in range(3) if t[i] != t[(i + 1) % 3]]
+
+        ecount: Counter = Counter()
+        for t in T:
+            for e in _edges_of(t):
+                ecount[e] += 1
+        drop = set(int(k) for k in np.flatnonzero(degen))
+        while True:
+            dropped_per_edge: Counter = Counter()
+            for k in drop:
+                for e in _edges_of(T[k]):
+                    dropped_per_edge[e] += 1
+            holes = {e for e, n in dropped_per_edge.items()
+                     if ecount[e] - n == 1}
+            if not holes:
+                break
+            undrop = {k for k in drop
+                      if any(e in holes for e in _edges_of(T[k]))}
+            assert undrop, "no candidate touches a hole edge — impossible"
+            drop -= undrop
+        keep = np.ones(len(T), dtype=bool)
+        keep[list(drop)] = False
+        kept_load_bearing = int(degen.sum()) - len(drop)
         T = T[keep]
-        rep.applied.append(f"dropped {int((~keep).sum())} degenerate faces")
+        dropped = int((~keep).sum())
+        if dropped:
+            rep.applied.append(f"dropped {dropped} degenerate faces")
+        if kept_load_bearing:
+            rep.applied.append(
+                f"kept {kept_load_bearing} degenerate face(s): topologically "
+                f"load-bearing — dropping them opens the shell")
     if rep.found["duplicate_faces"]:
         seen, keep = set(), []
         for k, t in enumerate(T):
@@ -273,6 +326,27 @@ def repair(source, cell: float | None = None,
     if rep.found["winding_conflicts"]:
         T = _reorient(V, T)
         rep.applied.append("reoriented to a consistent outward winding")
+    # THE RECEIPT DESCRIBES THE OUTPUT, NOT THE INPUT (the second half of
+    # the 2026-08-19 blocker): `found` was diagnosed on the surface as
+    # LOADED, then faces were dropped and windings flipped — so the caller's
+    # closed-shell guard read the input's 0 boundary edges while the output
+    # had 6. The edge topology is re-measured here on the exact (V, T)
+    # being returned; the input's counts survive in the refusal text when
+    # they differ.
+    ecount2: dict = {}
+    for t in T:
+        for a, b in ((t[0], t[1]), (t[1], t[2]), (t[2], t[0])):
+            if a != b:
+                e = (min(a, b), max(a, b))
+                ecount2[e] = ecount2.get(e, 0) + 1
+    out_boundary = sum(1 for n in ecount2.values() if n == 1)
+    out_nonmanifold = sum(1 for n in ecount2.values() if n > 2)
+    for key, out_n in (("boundary_edges", out_boundary),
+                       ("nonmanifold_edges", out_nonmanifold)):
+        if out_n != rep.found[key]:
+            rep.applied.append(
+                f"{key}: {rep.found[key]} as loaded -> {out_n} after repair")
+        rep.found[key] = out_n
     for defect in ("boundary_edges", "nonmanifold_edges", "self_intersections"):
         if rep.found[defect]:
             rep.refused.append(

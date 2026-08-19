@@ -146,3 +146,79 @@ def test_an_unmeasured_intersection_count_is_never_reported_as_zero():
     finally:
         F.self_intersections = saved
         assert orig is None or True
+
+
+def test_a_load_bearing_degenerate_face_is_kept_and_the_shell_stays_closed():
+    """The Gate 2M coarse blocker (2026-08-19). kcs.stl carries two
+    mirror-image needle faces at the stern — collinear to below the 1e-12
+    area floor, yet each edge paired with exactly one REAL face. The old
+    unconditional drop opened the closed 10402-face shell into 10400 faces
+    with 6 boundary edges, and the report — diagnosed on the INPUT — still
+    said boundary_edges=0, so the caller's closed-shell guard shipped an
+    open surface to the mesher. The Mac's three-artifact bisection blamed
+    the C-10 emitter; the emitter reproduced its input faithfully and was
+    innocent. Rule now: a degenerate face drops ONLY when every real edge
+    has multiplicity >= 3 (the drop heals a non-manifold pairing);
+    load-bearing degenerates are KEPT and named; and found[] edge counts
+    describe the OUTPUT.
+    """
+    from collections import Counter
+
+    from navalai.cfd.case import _tris_to_ascii_stl
+    from navalai.mesh_repair import IMPORTED, repair
+    from navalai.stl_forensics import load_stl
+
+    V, T, rep = repair("data/benchmark_geom/kcs.stl", origin=IMPORTED)
+    assert len(T) == 10402, "the load-bearing needles must be kept"
+    assert any("load-bearing" in a for a in rep.applied)
+    assert rep.found["boundary_edges"] == 0
+    assert rep.found["nonmanifold_edges"] == 0
+
+    # and the receipt is about the OUTPUT: the returned topology itself
+    # is closed, so a re-emit through THE one facet emitter round-trips
+    # closed too (the innocence of C-10, asserted).
+    def bad_edges(T):
+        c = Counter()
+        for t in T:
+            for a, b in ((t[0], t[1]), (t[1], t[2]), (t[2], t[0])):
+                c[tuple(sorted((int(a), int(b))))] += 1
+        return sum(1 for n in c.values() if n != 2)
+
+    assert bad_edges(T) == 0
+    import tempfile
+    from pathlib import Path as _P
+    d = _P(tempfile.mkdtemp())
+    (d / "re.stl").write_bytes(_tris_to_ascii_stl(V, T))
+    V2, T2 = load_stl(d / "re.stl")
+    assert len(T2) == 10402 and bad_edges(T2) == 0
+
+
+def test_a_degenerate_that_heals_a_nonmanifold_pairing_still_drops():
+    """The other branch of the rule: a needle whose edges are all shared by
+    TWO real faces besides itself (multiplicity 3) is exactly the case the
+    drop exists for — removing it takes each edge 3 -> 2, healing the
+    pairing — and it must still drop, or the fix would have traded a hole
+    bug for a non-manifold one.
+    """
+    import numpy as np
+
+    from navalai.mesh_repair import IMPORTED, repair
+
+    # a closed tetrahedron, plus a zero-area needle glued across an edge
+    # of it and duplicated so the shared edge reads multiplicity 4 -> the
+    # needle pair drops back to the tetrahedron's clean 2.
+    V = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0],
+                  [0.0, 1.0, 0.0], [0.0, 0.0, 1.0],
+                  [0.5, 0.0, 0.0]])            # midpoint ON edge 0-1
+    tet = [(0, 2, 1), (0, 1, 3), (1, 2, 3), (2, 0, 3)]
+    needles = [(0, 4, 1), (0, 4, 1)]           # zero area, duplicated
+    T = np.array(tet + needles)
+    V2, T2, rep = repair((V, T), origin=IMPORTED)
+    # weld renumbers vertices, so the assertion is geometric, not by index:
+    # the four true tetrahedron faces survive, the zero-area needles do not.
+    assert len(T2) == 4, f"expected the bare tetrahedron, got {len(T2)} faces"
+    areas = 0.5 * np.linalg.norm(
+        np.cross(V2[T2[:, 1]] - V2[T2[:, 0]], V2[T2[:, 2]] - V2[T2[:, 0]]),
+        axis=1)
+    assert (areas > 1e-12).all(), "a needle survived the drop"
+    assert rep.found["boundary_edges"] == 0
