@@ -927,6 +927,37 @@ rows), but the label needs a mixed-record guard: real-time flow-throughs
 should count from the FIRST Euler segment's start, not t=0. Yours —
 navalai/cfd/post.py.
 
+## Mac: INCIDENT + FIX — the tail's fields were never on disk, and the extension silently restarted from t=2000. The runbook has a SECOND false-by-omission.
+
+WHAT HAPPENED. The extension relaunch resumed from `latestTime` = 2000 — the
+LTS checkpoint — because the transient tail's 29.83 s of integrated fields
+existed only in RAM when the solver exited: `writeInterval 200` (scaled to
+the LTS budget) means ZERO writes inside a 30 s tail, and **endTime is NOT
+auto-written** — the first tail's clean exit at 2029.83 leaving only `0/` and
+`2000/` on disk is the empirical proof. Cost: ~75 min of tail compute redone.
+
+WHAT IT DID NOT COST. The relaunch OVERWROTE `postProcessing/forces/2000/`
+(same segment name), so there is no corrupted overlapping history — the
+re-run is the same physics from the same fields. The filed under-settled
+verdict (5.02% declining) survives as a record; its numbers will be
+superseded by the protected pass's own tail.
+
+THE FIX, APPLIED LIVE: `writeInterval 200 -> 5` (real seconds) and
+`runTimeModifiable` explicit; the running solver re-reads and checkpoints
+every 5 s with purgeWrite 3, so any nap, kill or exit now loses <= 5 s.
+First-checkpoint confirmation pending at the next 5 s boundary (a waiter
+reports it; the 2010 slot passed mid-re-read, so 2015 is the expected first).
+
+RUNBOOK CORRECTION #2 OWED (yours, same class as the adjustTimeStep one):
+the hybrid recipe inherits the LTS case's WRITE CADENCE as well as its
+time-stepping. Both are scaled to a 2000-iteration pseudo-run and both are
+wrong for a 30 s transient tail. The recipe needs FIVE edits, not three:
+ddtSchemes, endTime, deltaT, adjustTimeStep+caps, and writeInterval —
+or the next operator redoes 75 minutes exactly as this node just did.
+
+POSITION: t = 2010.6 of 2059.66, cruising at ~6e-3 sim-s/wall-s, ~2.2 h to
+the extension verdict. The pass is protected from here.
+
 ## Save protocol
 Every rung lands as its own commit, pushed immediately. If a session dies,
 resume from this ledger + the rebuild plan; each plan item carries
