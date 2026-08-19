@@ -570,6 +570,146 @@ def settled_drag(case: str | Path, *, drift_tol: float = DRIFT_TOL,
     }
 
 
+def _mser_truncate(t: np.ndarray, y: np.ndarray,
+                   n_grid: int = 20) -> int:
+    """MSER-class truncation index: drop the initial transient by choosing
+    the cut that minimises the standard error of the REMAINING mean.
+
+    The classic MSER statistic on a time-weighted record: for each candidate
+    cut on a coarse grid, SE^2 ~ var(remaining) / n_remaining. The cut that
+    minimises it marks where deleting more data stops buying stationarity.
+    A minimising cut in the LAST QUARTER of the record is the estimator's
+    own refusal: the record is transient-dominated and no stationary mean
+    exists inside it.
+    """
+    n = len(t)
+    best_i, best_se = 0, float("inf")
+    for k in range(n_grid):
+        i = int(n * k / n_grid)
+        if n - i < 16:
+            break
+        seg = y[i:]
+        se = float(np.var(seg) / max(len(seg), 1))
+        if se < best_se:
+            best_se, best_i = se, i
+    return best_i
+
+
+def estimate_settled_mean(t: np.ndarray, y: np.ndarray,
+                          confidence: float = 0.95) -> dict:
+    """Stationary-mean ESTIMATE with a confidence interval — the operator's
+    fix #1 (2026-08-20): settledness as estimation, not waiting.
+
+    The windowed-drift bar time-averages until a crude statistic goes
+    quiet, so a broadband oscillation (the measured ~9% batch behaviour;
+    the 5.53 s tank mode) must AVERAGE OUT before the bar passes — flow-
+    throughs bought to shrink a variance term. A batch-means estimator
+    reports mean +/- CI at stated confidence from the record it HAS:
+
+      1. MSER-class truncation drops the initial transient (and REFUSES a
+         record whose best cut sits in its last quarter — still transient);
+      2. time-weighted batch means (adaptive dt: batches are equal TIME
+         spans, means by trapezoid) with the batch count halved until the
+         batch means' lag-1 autocorrelation is inside +-0.3 — the
+         oscillation's correlation time sets the batch size, no period
+         estimator needed (tank_resonance refuted a coherent single mode:
+         broadband variance modelling, not harmonic subtraction);
+      3. a t-interval on the surviving batches; fewer than 8 independent
+         batches is a REFUSAL (the record cannot support a statistic),
+         never a smaller divisor.
+
+    Returns {mean, ci_half, rel_ci, n_batches, truncated_frac, method} or
+    {refused: why}. THE BAR IS NOT MOVED by this function: the consumer
+    still holds 5%, now as "the 95% CI half-width is inside 5% of the
+    mean" — a strictly stronger statement than a point drift.
+    """
+    from scipy import stats as _stats  # scipy ships with the stack
+    t = np.asarray(t, float)
+    y = np.asarray(y, float)
+    if len(t) < 32:
+        return {"refused": f"{len(t)} samples cannot support truncation + "
+                           f"8 independent batches"}
+    i0 = _mser_truncate(t, y)
+    if i0 > 0.75 * len(t):
+        return {"refused": "MSER truncation lands in the record's last "
+                           "quarter — the signal is transient-dominated and "
+                           "holds no stationary mean to estimate"}
+    tt, yy = t[i0:], y[i0:]
+    span = float(tt[-1] - tt[0])
+    if span <= 0.0:
+        return {"refused": "truncated record spans no time"}
+    k = 32
+    while k >= 8:
+        edges = tt[0] + span * np.arange(k + 1) / k
+        means = []
+        for j in range(k):
+            m = (tt >= edges[j]) & (tt <= edges[j + 1])
+            if m.sum() < 2:
+                means = None
+                break
+            means.append(_time_average(tt[m], yy[m]))
+        if means is None:
+            k //= 2
+            continue
+        means = np.asarray(means)
+        d = means - means.mean()
+        denom = float((d * d).sum())
+        rho1 = (float((d[:-1] * d[1:]).sum()) / denom) if denom > 0 else 0.0
+        if abs(rho1) <= 0.3:
+            mean = float(means.mean())
+            se = float(means.std(ddof=1) / math.sqrt(k))
+            tcrit = float(_stats.t.ppf(0.5 + confidence / 2.0, k - 1))
+            ci = tcrit * se
+            return {"mean": mean, "ci_half": ci,
+                    "rel_ci": ci / max(abs(mean), 1e-12),
+                    "n_batches": k, "lag1_rho": rho1,
+                    "truncated_frac": i0 / len(t),
+                    "confidence": confidence,
+                    "method": (f"MSER truncation ({100*i0/len(t):.0f}% "
+                               f"dropped) + {k} time-weighted batch means "
+                               f"(lag-1 rho {rho1:+.2f}) + t-interval at "
+                               f"{100*confidence:.0f}%")}
+        k //= 2
+    return {"refused": "batch means stay autocorrelated (|rho1| > 0.3) down "
+                       "to 8 batches — the record is shorter than the "
+                       "oscillation's correlation time can support"}
+
+
+def settled_estimate(case: str | Path, rel_bar: float = DRIFT_TOL,
+                     confidence: float = 0.95) -> dict:
+    """The ESTIMATION route to a settled drag — beside settled_drag, never
+    replacing it. Same components discipline (total AND pressure AND
+    viscous must each carry a CI inside the bar), same 5% number, stronger
+    meaning: a 95% CI, not a point drift. Refusals are the estimator's own.
+    """
+    case = Path(case)
+    fpath = forces_path(case)
+    t, fx = parse_forces(fpath)
+    tc, fp, fv = parse_forces_components(fpath)
+    if len(t) != len(tc):
+        return {"refused": "total and component histories disagree in length"}
+    factor = 2.0 if is_symmetric(case) else 1.0
+    out: dict = {"parts": {}, "settled": True, "reasons": []}
+    for name, arr in (("total", fx), ("pressure", fp), ("viscous", fv)):
+        est = estimate_settled_mean(t, factor * arr, confidence)
+        out["parts"][name] = est
+        if "refused" in est:
+            out["settled"] = False
+            out["reasons"].append(f"{name}: {est['refused']}")
+        elif est["rel_ci"] > rel_bar:
+            out["settled"] = False
+            out["reasons"].append(
+                f"{name}: CI half-width {100*est['rel_ci']:.1f}% of the "
+                f"mean exceeds {100*rel_bar:.0f}%")
+    if out["settled"]:
+        out["drag_n"] = out["parts"]["total"]["mean"]
+        out["ci_half_n"] = out["parts"]["total"]["ci_half"]
+    out["method"] = ("batch-means estimation (see parts[*].method); the "
+                     "windowed-drift settled_drag remains the conservative "
+                     "route and neither bar moved")
+    return out
+
+
 def family_refinement(coarse: int | None, medium: int | None,
                       fine: int | None) -> dict:
     """The refinement ratio of a triplet, MEASURED from its cell counts.

@@ -1100,6 +1100,45 @@ anchor; they cannot and must not delete it.
 Mac holds: no hardware is rented, the weekend triplet is ON HOLD pending the
 re-derived plan, the 2U solve campaign continues (its rows feed fixes 2-3).
 
+## fortress001 -> Mac: the re-derived calibration plan (the directive's four fixes — status and the new 2M shape)
+
+FIX 1, LANDED (navalai/cfd/post.py): `estimate_settled_mean` /
+`settled_estimate` — MSER-class truncation (refuses a transient-dominated
+record), time-weighted batch means with the batch size grown until the
+batch means decorrelate (|lag-1 rho| <= 0.3; broadband per
+tank_resonance, no period estimator), t-interval at 95%. The bar is the
+SAME 5%, now as a CI half-width — strictly stronger than a point drift —
+on total AND components. VALIDATED synthetically on the measured signal
+class (5.53 s mode, ~9% amplitude): the mean recovers within 2% with the
+CI inside the bar from ~8 cycles, where the drift bar waits; ramps and
+sub-cycle records are refused. The drift-based settled_drag remains the
+conservative route; neither bar moved. USE IT on the running 2U tails
+and any future transient: verdict = settled_estimate(case).
+
+FIX 4, DERIVED (limits.WH_PER_NM_SIGMA_PRODUCT = 0.10): measured across
+the canonical fleet, the nearest verdict that consumes Wh/NM flips at
+25.2% (case e); +-10% calibration leaves >= 2.5x guard. The 2% GCI is
+deferred until a product decision names the verdict needing it.
+
+FIXES 2-3, THE RE-DERIVED 2M SHAPE (replacing the weekend triplet):
+  ANCHOR (the irreducible floor): ONE medium-grid KCS transient,
+    settled by the ESTIMATOR (fix 1 shortens it), against the Tokyo-2015
+    C_T -> the RANS method's bias + band. Discretisation evidence for
+    the anchor: the coarse/medium PAIR's first-order Richardson delta,
+    declared as a band with basis approx — NOT a grid-family GCI.
+    Estimated bill: one overnight (~2-4x coarse), not a weekend.
+  MODEL: CoKriging (surrogate.py, Forrester-validated, currently unused
+    by 2M) fusing dense L1 Michell over admissible genome hulls (free)
+    with the 2U solve rows as RANS anchors + active selection (built)
+    choosing every further CFD point where the fused sigma is largest.
+    TARGET: fused Wh/NM sigma <= WH_PER_NM_SIGMA_PRODUCT on the
+    certifiable fleet — the product's number, not tradition's.
+  KCS's role narrows to METHOD truth (is our RANS honest vs a tank);
+  the fleet's calibration lives in the genome hulls the product ships.
+
+The weekend triplet stays cancelled. The Mac's next CFD spend after the
+2U rows: the ONE medium KCS anchor, estimator-settled.
+
 ## Save protocol
 Every rung lands as its own commit, pushed immediately. If a session dies,
 resume from this ledger + the rebuild plan; each plan item carries

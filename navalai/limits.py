@@ -133,6 +133,20 @@ class StabilityCriterion(enum.Enum):
         return self is StabilityCriterion.MONOHULL_GM_FLOOR
 
 
+# THE SIGMA THE PRODUCT NEEDS (operator fix #4, derived 2026-08-20, the
+# measured route: from the energy budget's own margins, not tradition).
+# Wh/NM feeds exactly two product decisions: the solar-day verdict
+# (net = solar - hotel - prop) and battery range (linear in 1/Wh_NM).
+# MEASURED across the canonical fleet at their missions: the NEAREST
+# verdict flip is 25.2% of Wh/NM away (case e; others 39..104%), so a
+# calibrated band of +-10% leaves a >= 2.5x guard factor to the tightest
+# decision the number participates in — while a paper-grade 2% GCI buys
+# nothing any current verdict can feel. Gate 2M's calibration target is
+# therefore THIS number; tightening it below 10% is a product decision
+# that must name the verdict which needs it.
+WH_PER_NM_SIGMA_PRODUCT = 0.10
+
+
 def stability_criterion(vessel=None) -> StabilityCriterion:
     """The criterion family that governs, from the vessel's hull count."""
     return (StabilityCriterion.MONOHULL_GM_FLOOR

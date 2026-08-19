@@ -624,3 +624,39 @@ def test_a_mixed_lts_transient_history_counts_flow_throughs_from_the_tail(
         "Flow time scale min/max = 1.1e-4, 2.0e-2\n")
     rep2 = post.settled_drag(case2)
     assert math.isnan(rep2["flow_throughs"])
+
+
+def test_the_estimator_settles_the_oscillation_the_drift_bar_waits_out():
+    """The operator's fix #1 (2026-08-20): the measured KCS-class signal —
+    a stationary mean under a broadband oscillation (the 5.53 s tank mode,
+    ~9% batch behaviour) — fails the windowed-drift bar on a short record
+    and costs >= 5 flow-throughs to average. The batch-means estimator
+    reports the SAME mean with a 95% CI inside the bar from the record it
+    has: the oscillation becomes a variance term instead of a wait.
+    """
+    rng = np.random.default_rng(7)
+    t = np.linspace(0.0, 45.0, 1400)          # ~8 cycles of the tank mode
+    mean = -4000.0
+    y = mean * (1.0
+                + 0.045 * np.sin(2 * np.pi * t / 5.53)
+                + 0.02 * np.sin(2 * np.pi * t / 2.1 + 1.0)
+                + 0.01 * rng.standard_normal(len(t)))
+    est = post.estimate_settled_mean(t, y)
+    assert "refused" not in est, est
+    assert est["rel_ci"] <= 0.05, est
+    assert est["mean"] == pytest.approx(mean, rel=0.02)
+    assert est["n_batches"] >= 8
+
+    # THE FAIL DIRECTIONS (LESSONS class 3), all three:
+    # a ramp holds no stationary mean — MSER refuses it
+    ramp = mean - 40.0 * t
+    r = post.estimate_settled_mean(t, ramp)
+    assert "refused" in r and "transient-dominated" in r["refused"]
+    # a record shorter than the oscillation's correlation time refuses on
+    # the batch floor rather than shrinking the divisor
+    t_short = np.linspace(0.0, 6.0, 200)      # ~1 cycle
+    y_short = mean * (1.0 + 0.09 * np.sin(2 * np.pi * t_short / 5.53))
+    rs = post.estimate_settled_mean(t_short, y_short)
+    assert ("refused" in rs) or rs["rel_ci"] > 0.05, rs
+    # and a tiny sample count is refused outright
+    assert "refused" in post.estimate_settled_mean(t[:20], y[:20])
