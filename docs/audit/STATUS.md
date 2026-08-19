@@ -769,6 +769,18 @@ foamDictionary edits, no case-writer change:
     foamDictionary system/controlDict -entry maxCo -set 5
     foamDictionary system/controlDict -entry maxAlphaCo -set 2
     foamDictionary system/controlDict -entry maxDeltaT -set 2e-3
+    # RUNBOOK CORRECTION #2 (2026-08-19, the write-cadence incident —
+    # same defect class as adjustTimeStep): the LTS case's writeInterval
+    # is scaled to a 2000-iteration pseudo-run and writes NOTHING inside
+    # a ~30 s real-time tail; endTime is not auto-written, so a clean
+    # exit leaves the tail's fields in RAM only and the next resume
+    # silently redoes the whole tail (measured cost: ~75 min). The
+    # recipe is FIVE edits, not three:
+    foamDictionary system/controlDict -entry writeControl -set adjustableRunTime
+    foamDictionary system/controlDict -entry writeInterval -set 5
+    foamDictionary system/controlDict -entry purgeWrite -set 3
+    # (checkpoints every 5 real seconds, keep 3 — a nap, kill, or exit
+    #  loses at most 5 s of integration: resumability, not throttling)
     echo "transient_tail_from=<latestTime>" >> case.info
     # (the flow-through receipt: settled_drag counts real seconds from
     #  this mark on a mixed LTS->Euler history; without it the count is
