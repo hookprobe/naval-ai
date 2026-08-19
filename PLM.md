@@ -93,14 +93,16 @@ CFD spends only on novel keeps (active learning), by design.
 | when (from 2026-08-19) | what works |
 |---|---|
 | **now** | a design pack a builder can be shown: standard-confirmed scantlings, stability with a real multihull criterion, cut files, the evidence trail — resistance carrying a DECLARED (uncalibrated) sigma |
-| **+1 week** — after the Gate 2M calibration weekend (transient triplet, machine time, mostly unattended) | resistance calibrated against the KCS tank benchmark with a stated GCI — the Wh/NM the product is sold on becomes trustworthy for solar sizing |
+| **+1 week** — the re-derived Gate 2M plan (the transient triplet was CANCELLED by the operator's math directive, 2026-08-19) | resistance calibrated the estimator's way: ONE estimator-settled medium KCS anchor (overnight, `post.settled_estimate`) + a coarse/medium Richardson delta declared as a band (basis approx) + CoKriging fusing dense L1 Michell with the 2U RANS rows + active selection, to the `WH_PER_NM_SIGMA_PRODUCT` = 0.10 target — see `docs/audit/STATUS.md` "the re-derived calibration plan" |
 | **+2–3 weeks** — fortress001's queue (loading conditions, the 6D refold that is the Kit-Line's premise, tier E/F mass admission) | **Recreational v1**: mission -> buildable monohull or catamaran, plywood, with evidence — usable by a technically capable person |
-| **later, separately** | the drone line — missing PHYSICS (the low-Reynolds/transition regime has no valid friction line here), plus the mission layer; deliberately descoped until v1 earns it |
+| **later, separately** | the drone line — now QUANTIFIED (2026-08-19 regime study + independent evidence sweep, `docs/research/SMALL-CRAFT-REGIMES.md`; `docs/BUILD-PLAN.md` §11.8): minimum sensible drone is **2–3 m LWL** — three walls close below that: the fully-turbulent-Re × displacement-Fn window is EMPTY below L ≈ 2.6 m [THY, corroborated by ITTC's Re 5e6 stimulation floor and the 3 m Delft-372 validation anchor]; the environment dominates below ~1 m (windage 4–50× hull drag, SS3 orbital ≥ cruise speed — measured with the repo's own L0); and the cube-law payload floor bites at ~1.5–2.5 m [PROP]. Un-block list: a transitional friction line (±40%→±15% sigma), a windage/orbital environment estimator, and the rulebook gap (ISO/RCD scope starts at 2.5 m) — plus the mission layer. Deliberately descoped until v1 earns it |
 
 Two commissioning items gate the first two rows and are in flight as this is
 written: the unattended-CFD reliability campaign on the shipped genome
-(running), and the calibration triplet (queued for its weekend window,
-checkpointed from generation). Status lives in `python -m navalai.gates` and
+(running), and the re-derived calibration lane — the single estimator-settled
+medium KCS anchor plus the 2U solve rows the Mac is accumulating (the
+weekend triplet stays cancelled; the estimator route replaces waiting-out
+the drift bar). Status lives in `python -m navalai.gates` and
 `docs/audit/STATUS.md`, never in this file.
 
 ## 1 · The platform ("one system")

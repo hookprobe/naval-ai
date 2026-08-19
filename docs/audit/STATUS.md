@@ -1167,6 +1167,70 @@ are its test bed and every one of them can be RE-SCORED for free — worth more
 than 8 additional rows measured under an estimator about to be superseded.
 The Mac holds: no CFD running, nothing rented, weekend triplet still ON HOLD.
 
+## fortress001, 2026-08-19: Gate 6D measured to its root + the kit admission
+
+The 6D campaign ran to a decision (full record: docs/GATE-6D-DESIGN.md
+"implementation campaign" + the Gate 6D ledger row):
+- The C1 fullness-hybrid family kills the x_mb crease (16.3 -> 2.2 mm)
+  and moves the bottom 124 -> 52 mm — but no kernel family reaches the
+  5 mm bar on a warped hull, transverse seams are a NULL result
+  (< 0.1 mm at 1/2/3 cuts: the twist is local, not accumulated), and
+  the deviation's drivers are the DIALS: deadrise warp (bottom), flare
+  (topside).
+- THE LOW-TWIST CORNER EXISTS UNDER THE SHIPPED KERNEL: flare 0,
+  forefoot 0, warp <= +8 deg -> 4.6-5.0 mm BOTH panels (sharpie/dory
+  class). The kit product class is that corner.
+- LANDED: buildability.kit_buildability (the gate meter per design,
+  route sheet-kit | mould), certify(with_kit=True), REFOLD_BAR_MM moved
+  to limits.py (single source), 4 new pins. The C1 family is BANKED,
+  not landed — landing it mid-window would invalidate the Mac's
+  calibration corpus for a change that does not cross the bar.
+
+OPERATOR DECISION OWED (Gate 6D re-framing): point the watermark row at
+a pinned kit-corner reference hull (PASSES, and the admission guards
+every shipped kit design), keeping the mould-class reference hull as a
+labelled companion — or keep the gate on the mould hull and RED. The
+bar does not move in either case.
+
+Mac: no action needed from you on this; your calibration corpus stays
+valid — the kernel did NOT change.
+
+## fortress001 -> Mac: the validation ladder (2026-08-19, three-agent study)
+
+The flow forensics (full design: docs/BUILD-PLAN.md §11.8) confirmed the
+runner already refuses a failed checkMesh BEFORE the solver — the
+full-solve-price waste in our record is SOLVER-stage pathology (h2 startup
+FPE at iter 104 on a clean mesh; h18 tau-collapse; unsettledness found at
+the end of a budget). The missing stage is cheap and is yours to land:
+
+1. **run-case.sh SMOKE_ONLY=N mode.** After checkMesh + setFields +
+   decomposePar, run interFoam to iteration N (~200) with the tau receipt
+   and the 1e-12 abort armed; write `smoke_verdict=` to case.info, KEEP the
+   checkpoint, exit 0/1. Promotion is FREE: the existing resume branch
+   continues from the checkpoint and merges force histories, so a promoted
+   hull pays zero net — only refused hulls pay ~3 min instead of ~28.
+2. **Emit `checkMesh -allGeometry` receipts** (minVol/minFaceArea) so
+   fortress can calibrate the geometric-tau candidate (min V/(A_max·U)
+   from the finished mesh — STATUS's own filed item; promote it to a
+   stage-1 bar ONLY if it separates on the paired gate2u corpus).
+3. **Instrumented potentialFoam-init trial** on ~10 hulls behind a flag
+   before making it default — the published evidence for its probe value
+   is one training-deck sentence; measure whether it changes any smoke
+   outcome here before buying it.
+4. **Land the h11/h12 solve rows** (the ladder-recovery proof at solve
+   level).
+
+What the ladder does NOT claim: settledness, late divergence (h19-class,
+onset ~410) and resistance-vs-tank truth are only measurable by solving —
+the live tau abort caps those at onset-price, and that is the honest floor.
+The genome-lane saving is real but modest (~1 h per 25 hulls — the runner
+already gates well); THE BIG MONEY IS THE CALIBRATION LANE, already
+redesigned above (estimator + cancelled triplet + CoKriging active
+selection). Fortress-side ladder items (the smoke-verdict parser in
+post.py, `classify()` smoke-refused buckets in mesh_robustness.py) are
+being implemented on fortress in parallel — a smoke refusal must never
+read as a solve failure.
+
 ## Save protocol
 Every rung lands as its own commit, pushed immediately. If a session dies,
 resume from this ledger + the rebuild plan; each plan item carries

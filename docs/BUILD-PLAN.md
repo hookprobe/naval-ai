@@ -1633,6 +1633,82 @@ observed matrix, so a 25-hull campaign goes from ~40 min to ~77 min mesh-only �
 
 ---
 
+### 11.8 The validation ladder and the fidelity governor (2026-08-19, three-agent investigation)
+
+Three parallel investigations (regime physics from theory; independent
+published-evidence verification; validation-flow forensics against this
+repo's own campaign record) landed the same day. Full reports:
+`docs/research/SMALL-CRAFT-REGIMES.md`; the flow forensics is folded into
+this section and `docs/audit/STATUS.md`.
+
+**The honest finding about the current flow:** the runner already refuses a
+mesh that fails checkMesh BEFORE the solver starts — "mesh errors reaching
+the solver" is not where the money goes. The full-solve-price discoveries in
+the actual record are SOLVER-stage pathology: startup FPE (h2, died at
+iteration 104 on a mesh that passed every bar), tau-collapse (h18, 4.4e-18 s,
+checkMesh-blind), late divergence (h19, onset ~410), unsettledness (found at
+the END of a solve budget), and wrong-regime (the KCS LTS lane, found by a
+35-min solve + a 3 h probe). The confusion table also proves the pre-mesh
+screen CANNOT predict checkMesh outcomes (measured at chance; the admissible
+layer set has holes) — so the ladder's stages are real detectors, not
+paperwork.
+
+**The ladder** (stage N runs only on stage N-1 passers; each failure class is
+caught by the cheapest detector that can catch it):
+
+| stage | where | what | cost | catches |
+|---|---|---|---|---|
+| 0 | fortress | L0 + admissibility screen (EXISTS) | ~10 ms | geometric infeasibility, sub-cell features |
+| 1 | Mac | mesh-only + checkMesh + layer ladder (EXISTS) + the geometric-tau receipt (TO BUILD, calibrate on the paired gate2u corpus first) | ~80 s–5 min | all checkMesh classes, layer collapse; candidate: the h2 class at mesh price |
+| 2 | Mac | **the SMOKE SOLVE (the missing stage): ~200 LTS iterations of the REAL solve, checkpoint kept** — promotion costs ZERO net because run-case.sh's resume branch continues from the checkpoint | ~3 min gross, ~0 net for passers | startup FPE, tau-collapse, BC/setFields pathology — at 3 min instead of 28 |
+| 3 | Mac | the full solve, resumed from the smoke checkpoint (EXISTS) | ~28 min median | late divergence (capped at onset by the live tau abort), resistance truth |
+| 4 | both | settledness by ESTIMATION (`post.settled_estimate`, EXISTS — wire as the verdict route) | free | unsettledness without waiting out the drift bar; candidate 2–3x on transient tails |
+
+**What the ladder does NOT claim:** settledness, late divergence and
+resistance-vs-tank truth are only measurable by solving — the ladder
+eliminates discovering AVOIDABLE failures at full-solve price and guarantees
+the single Mac solve slot only ever holds designs that passed every cheaper
+detector. Measured expectation on a 25-hull campaign: ~1 h of waste avoided
+(the runner already gates well) — **the "two weeks of CFD" lives in the
+CALIBRATION lane**, and that is killed by the estimator + the cancelled
+triplet (one estimator-settled medium anchor + a coarse/medium Richardson
+band) + CoKriging active selection (STATUS "the re-derived calibration
+plan"), not by the ladder.
+
+**The fidelity governor** (from the regime physics; conceptual — implement
+only against `docs/research/SMALL-CRAFT-REGIMES.md` §16): every CFD request
+passes gates before costing anything —
+(0) ENVIRONMENT: if wave-follower (lambda/L > 5) or windage/orbital forces
+dominate hull resistance, calm-water refinement cannot change the decision →
+ANALYTICAL, flagged;
+(1) WAVE EXISTENCE: V < 0.23 m/s has no wave system; V < 0.5 m/s is
+capillary-contaminated;
+(2) FRICTION REGIME: Re < 5e5 laminar → analytical only; 5e5–5e6 transitional
+→ CFD BARRED unless transition-modelled (fully-turbulent RANS reproduces
+ITTC-57's own bias — higher cost, same wrongness);
+(3) FROUDE: Fn ≤ 0.20 → L0 (wave < 5–8%, measured); 0.20–0.45 slender → L1;
+0.45–0.65 → CFD is the only honest tier at L ≥ 3 m;
+(4) DECISION-WORTHINESS: upgrade fidelity only when the expected correction
+exceeds `WH_PER_NM_SIGMA_PRODUCT` (0.10) AND a verdict could flip.
+Gates 2/3/4 map onto existing seams (`limits.RE_TRANSITION_BAND`,
+`FN_MICHELL_MAX`, `WH_PER_NM_SIGMA_PRODUCT`); gates 0/1 are new physics
+(windage/orbital estimator; the wave-existence flags). First code
+consequence already landed: `holtrop.envelope_violations` gained the missing
+Reynolds clause (it validated a 0.5 m hull at Re 2.3e5 that
+`resistance.flow_regime` refuses — the L1H badge could contradict L1).
+
+**The size floor this buys the roadmap:** the full-fidelity window closes
+below L ≈ 2.6 m (no speed is simultaneously turbulent-Re and displacement-
+Fn); the independent evidence agrees (RANS validated at 3 m on Delft 372,
+measured ≥30% friction error at 1 m, ITTC's own Re 5e6 stimulation floor,
+and 30+ Microtransat attempts at ≤2.4 m with ONE finisher — which optimised
+survivability, not resistance). **Minimum sensible maritime drone: 2–3 m
+LWL** — and below ~1 m, hull-form calculus never matters at any speed
+(environment 4–50x hull drag). The drone line's un-block list is therefore
+three items, not one: a transitional friction line (±40%→±15% sigma), the
+environment estimator (windage + orbital), and the 2–3 m sizing doctrine —
+plus the rulebook gap (ISO/RCD scope starts at 2.5 m).
+
 ## 12 · Manufacturing
 
 ### 12.1 The shortest real path to a boat you can order
