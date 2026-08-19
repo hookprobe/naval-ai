@@ -1203,12 +1203,36 @@ class MultihullGZAssessment:
     heel_at_gz_max_deg: float        # measured, clause (b) LHS
     clause_b_satisfied: bool         # >= 10 deg
     unassessable: tuple[str, ...]
-    passes: None = None
+    # Clauses (c)/(d), computed ONLY from a DECLARED windage (2026-08-19,
+    # the full cl 1.4 read): None = undeclared, still in `unassessable`.
+    wind_lever_m: float | None = None            # h_w = P.A.Z/(9800.disp_t)
+    wind_heel_deg: float | None = None           # steady heel under h_w
+    clause_c_satisfied: bool | None = None       # <= 16 deg
+    crowd_lever_m: float | None = None           # h_p (footnote 33)
+    theta_h_deg: float | None = None             # heel under h_w + h_p
+    residual_area_m_rad: float | None = None     # A2, clause (d) LHS
+    clause_d_satisfied: bool | None = None       # >= 0.028 m.rad
+    # bool once every clause is measured; None while any is unassessable.
+    passes: bool | None = None
+
+
+def _first_upcrossing(heels_deg, gz_minus_lever) -> float | None:
+    """First heel where the shifted curve crosses zero from below, linear
+    interpolation on the computed grid; None = no equilibrium in range."""
+    h = np.asarray(heels_deg, float)
+    g = np.asarray(gz_minus_lever, float)
+    for i in range(1, len(h)):
+        if g[i - 1] < 0.0 <= g[i]:
+            f = -g[i - 1] / (g[i] - g[i - 1])
+            return float(h[i - 1] + f * (h[i] - h[i - 1]))
+    return None
 
 
 def multihull_gz_assessment(hull: Hull, disp_kg: float, kg_above_keel: float,
                             rho: float = RHO_WATER, vessel=None,
-                            trim_deg: float = 0.0) -> MultihullGZAssessment:
+                            trim_deg: float = 0.0,
+                            windage=None,
+                            persons: int = 0) -> MultihullGZAssessment:
     """Clauses (a) and (b) of NZ Maritime Rules Part 40A App. 1 cl. 1.4,
     COMPUTED from the righting-arm curve (docs/research/standards/
     NATIONAL-CODES.md §8.4, read verbatim; cross-attested by AMSA NSCV C6A
@@ -1231,20 +1255,82 @@ def multihull_gz_assessment(hull: Hull, disp_kg: float, kg_above_keel: float,
     theta = candidates[theta_basis]
     area = curve.area_m_rad(theta)
     area_req = 0.055 * 30.0 / max(theta, 1e-9)
+    a_ok = area >= area_req
+    b_ok = curve.heel_at_gz_max_deg >= 10.0
+
+    # ---- clauses (c)/(d): DECLARED windage or honest refusal --------------
+    # Read in full 2026-08-19 (NATIONAL-CODES.md §8.4, PDF sha256
+    # 8038515939b7c5a8 — the earlier "paywall cut" was a transcription stop,
+    # not a paywall). (c): steady-wind heel <= 16 deg on
+    # h_w = P.A.Z/(9800.Delta_t), h_w CONSTANT at all angles (footnote 32),
+    # Z from the centre of A to HALF the lightest service draught. (d):
+    # residual area A2 >= 0.028 m.rad between the GZ curve and the constant
+    # (h_w + h_p) lever, beyond theta_h, up to 15 deg of ROLL or the
+    # downflooding angle — read here as theta_h + 15 deg (the IMO-weather-
+    # criterion shape, and the only reading under which the area is
+    # non-empty whenever (c) holds; figure (4)(b) is an unread image and
+    # this note travels with the number). h_p per footnote 33 = the
+    # cl 1.2(8)(d)(i) crowding moment / displacement, every person at the
+    # vessel's outboard deck edge (conservative, as in cl 1.3).
+    wind_lever = wind_heel = c_ok = None
+    crowd_lever = theta_h = a2 = d_ok = None
+    unassessable: list[str] = []
+    if windage is not None and getattr(windage, "declared", False):
+        t_design = -float(hull.z_keel.min())
+        disp_t = disp_kg / 1000.0
+        z_lever = float(windage.centroid_above_wl_m) + 0.5 * t_design
+        p_pa = float(windage.pressure_pa())
+        wind_lever = (p_pa * float(windage.lateral_area_m2) * z_lever
+                      / (9800.0 * max(disp_t, 1e-9)))
+        heels = np.asarray(curve.heels_deg, float)
+        gz = np.asarray(curve.gz_m, float)
+        wind_heel = _first_upcrossing(heels, gz - wind_lever)
+        c_ok = wind_heel is not None and wind_heel <= 16.0
+
+        n_hulls2, _s2, d_m2 = vessel_terms(hull, vessel)
+        y_edge = d_m2 + float(hull.y_sheer.max())
+        crowd_lever = (75.0 * float(persons) * y_edge
+                       / max(disp_kg, 1e-9))
+        theta_h = _first_upcrossing(heels, gz - (wind_lever + crowd_lever))
+        if theta_h is None:
+            d_ok = False        # no equilibrium under wind+crowd: hard fail
+        else:
+            lim = theta_h + 15.0
+            if curve.deck_edge_deg is not None:
+                lim = min(lim, curve.deck_edge_deg)
+            hs_grid = heels[(heels >= theta_h) & (heels <= lim)]
+            grid = np.unique(np.concatenate(
+                [[theta_h], hs_grid, [lim]]))
+            gz_i = np.interp(grid, heels, gz)
+            excess = np.clip(gz_i - (wind_lever + crowd_lever), 0.0, None)
+            a2 = float(np.trapezoid(excess, np.radians(grid)))
+            d_ok = a2 >= 0.028
+    else:
+        unassessable.append(
+            "(c) steady-wind heel <= 16 deg on h_w = P.A.Z/(9800.disp_t): "
+            "the projected lateral area A above the waterline is not "
+            "declared — declare mission.windage (WindageSpec: lateral area, "
+            "centroid height; on a solar catamaran the roof and bridge-deck "
+            "house ARE the windage, and deriving A from the bare hull "
+            "profile would understate the heeling moment, the flattering "
+            "direction)")
+        unassessable.append(
+            "(d) residual area A2 >= 0.028 m.rad (READ 2026-08-19): needs "
+            "the same declared windage as (c) plus the crowding lever")
+
+    passes = None
+    if c_ok is not None and d_ok is not None:
+        passes = bool(a_ok and b_ok and c_ok and d_ok)
+
     return MultihullGZAssessment(
         curve=curve, theta_deg=theta, theta_basis=theta_basis,
         area_to_theta_m_rad=area, area_required_m_rad=area_req,
-        clause_a_satisfied=area >= area_req,
+        clause_a_satisfied=a_ok,
         heel_at_gz_max_deg=curve.heel_at_gz_max_deg,
-        clause_b_satisfied=curve.heel_at_gz_max_deg >= 10.0,
-        unassessable=(
-            "(c) steady-wind heel <= 16 deg on h_w = P.A.Z/(9800.disp_t): "
-            "the projected lateral area A above the waterline is not "
-            "declared in the genome or the mission — on a solar catamaran "
-            "the roof and bridge-deck house ARE the windage, and deriving A "
-            "from the bare hull profile would understate the heeling "
-            "moment, the flattering direction",
-            "(d) the residual-area condition: the clause body is NOT READ "
-            "(NATIONAL-CODES.md §8.4 records the paywall cut) — an "
-            "unread requirement cannot be implemented",
-        ))
+        clause_b_satisfied=b_ok,
+        unassessable=tuple(unassessable),
+        wind_lever_m=wind_lever, wind_heel_deg=wind_heel,
+        clause_c_satisfied=c_ok,
+        crowd_lever_m=crowd_lever, theta_h_deg=theta_h,
+        residual_area_m_rad=a2, clause_d_satisfied=d_ok,
+        passes=passes)

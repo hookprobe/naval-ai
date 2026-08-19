@@ -241,6 +241,62 @@ EVALUABLE_TOPOLOGIES = (Topology.MONOHULL, Topology.CATAMARAN)
 
 
 @dataclass(frozen=True)
+class WindageSpec:
+    """The DECLARED above-water profile — the input NZ Part 40A App.1
+    cl 1.4(c)/(d) cannot do without (§9's minimal slice, 2026-08-19).
+
+    On a solar catamaran the roof and bridge-deck house ARE the windage;
+    deriving A from the bare hull profile would understate the heeling
+    moment — the flattering direction — which is exactly why the criterion
+    REFUSES rather than derives when this is absent. Declared quantities,
+    validated not clamped: an unspecified windage is an unspecified vessel.
+
+    `lateral_area_m2` — projected lateral area of everything above the
+    lightest service waterline (hull topsides + house + roof), one side.
+    `centroid_above_wl_m` — height of that area's centroid above the same
+    waterline; the clause's lever Z is computed from it as
+    Z = centroid_above_wl + T/2 ("to a point one half the lightest service
+    draught", read verbatim).
+    `wind_pressure_pa` — the cl 1.2(8)(d)(ii) table row: 500 (Offshore/
+    Coastal), 450 (Restricted Coastal), 350 (Restricted Limits). Default
+    None = the STRICTEST row (500 Pa), basis-noted — a declared operating
+    limit may relax it to a value FROM THE TABLE, never below it.
+    """
+
+    lateral_area_m2: float | None = None
+    centroid_above_wl_m: float | None = None
+    wind_pressure_pa: float | None = None
+
+    _TABLE_PA = (500.0, 450.0, 350.0)
+
+    def __post_init__(self) -> None:
+        for name in ("lateral_area_m2", "centroid_above_wl_m"):
+            v = getattr(self, name)
+            if v is not None and not (
+                    isinstance(v, (int, float)) and math.isfinite(v)
+                    and v > 0.0):
+                raise ValueError(
+                    f"WindageSpec: {name} = {v!r} — a declared windage "
+                    f"quantity is finite and positive, or absent")
+        p = self.wind_pressure_pa
+        if p is not None and float(p) not in self._TABLE_PA:
+            raise ValueError(
+                f"WindageSpec: wind_pressure_pa = {p!r} is not a row of the "
+                f"cl 1.2(8)(d)(ii) table {self._TABLE_PA}; the pressure is "
+                f"the RULE's, not a tuning knob")
+
+    @property
+    def declared(self) -> bool:
+        return (self.lateral_area_m2 is not None
+                and self.centroid_above_wl_m is not None)
+
+    def pressure_pa(self) -> float:
+        """The table row, defaulting to the strictest."""
+        return float(self.wind_pressure_pa
+                     if self.wind_pressure_pa is not None else 500.0)
+
+
+@dataclass(frozen=True)
 class PayloadSpec:
     """Mission EQUIPMENT payload (§11) — a drone's instruments, a workboat's
     cargo. DISTINCT, deliberately, from `EnergySpec.payload_kg`, which is
@@ -402,6 +458,9 @@ class MissionSpec:
     # §11: the mission's equipment payload — see PayloadSpec's docstring for
     # the deliberate split from EnergySpec.payload_kg (crew provision).
     payload: PayloadSpec = field(default_factory=PayloadSpec)
+    # §9's minimal slice: the declared above-water profile for the cl 1.4
+    # wind clauses. Absent = the >= 15 m multihull class stays refusal-first.
+    windage: WindageSpec = field(default_factory=WindageSpec)
     notes: str = ""
 
     def __post_init__(self) -> None:
@@ -417,6 +476,8 @@ class MissionSpec:
             self.vessel = VesselConfig(**self.vessel)
         if isinstance(self.payload, dict):
             self.payload = PayloadSpec(**self.payload)
+        if isinstance(self.windage, dict):
+            self.windage = WindageSpec(**self.windage)
         # C-12: `energy` was the ONE nested spec this boundary did not
         # rehydrate, so ui/server dropped the key silently and a wire
         # mission's battery/solar terms never reached the evaluation. Same

@@ -43,6 +43,7 @@ from .holtrop import envelope_violations as holtrop_envelope_violations
 from .holtrop import particulars_from_floated
 from .hydrostatics import (HydroState, gm, gm_long,
                            multihull_crowding_heel,
+                           multihull_gz_assessment,
                            multihull_stability_refusal, solve,
                            solve_equilibrium, solve_to_displacement,
                            vessel_terms)
@@ -952,6 +953,7 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
     # until the windage declarables land (clauses (c)/(d) — (d) is READ
     # as of 2026-08-19; (c) still needs a declared lateral area).
     _cht = None
+    _cl14 = None
     if hs.n_hulls > 1:
         _persons = 0 if manning is Manning.UNCREWED else int(mission.crew)
         _loa = float(hull.x[-1] - hull.x[0])
@@ -971,6 +973,30 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
                     f"at the outboard deck edge), bar 8 deg on both. "
                     f"CONSERVATIVE placement: a fail here is marginal "
                     f"evidence — see CrowdingHeelTest.basis.")
+        elif mission.windage.declared:
+            # The >= 15 m / > 50 passenger class WITH a declared windage:
+            # the full four-clause cl 1.4 verdict (2026-08-19 — (c)/(d)
+            # computable once A and its centroid are declared). Costly
+            # (a full GZ curve), honest, and only on declaration.
+            _kg13 = kg
+            _mha = multihull_gz_assessment(
+                hull, float(hs.disp_kg), _kg13, rho,
+                vessel=mission.vessel,
+                trim_deg=float(trim if trim is not None else 0.0),
+                windage=mission.windage, persons=_persons)
+            _cl14 = _mha
+            if _mha.passes is False:
+                fails = [n for n, ok in (
+                    ("(a) GZ area", _mha.clause_a_satisfied),
+                    ("(b) GZmax heel >= 10 deg", _mha.clause_b_satisfied),
+                    ("(c) wind heel <= 16 deg", _mha.clause_c_satisfied),
+                    ("(d) residual area >= 0.028", _mha.clause_d_satisfied),
+                ) if not ok]
+                viol.append(
+                    "multihull stability: NZ Part 40A App.1 cl 1.4 FAILED "
+                    "on " + "; ".join(fails) + " (declared windage "
+                    f"{mission.windage.lateral_area_m2} m2 at "
+                    f"{mission.windage.centroid_above_wl_m} m)")
         else:
             viol.extend(multihull_stability_refusal(
                 hs, gm_m,
@@ -1078,6 +1104,15 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
                        "multihull safety")),
         # R2.2's receipt: the criterion that DECIDED, with its numbers — a
         # PASSING verdict must be as auditable as a refusal.
+        "cl14": (None if _cl14 is None else {
+            "wind_heel_deg": _cl14.wind_heel_deg,
+            "theta_h_deg": _cl14.theta_h_deg,
+            "residual_area_m_rad": _cl14.residual_area_m_rad,
+            "clauses": {"a": _cl14.clause_a_satisfied,
+                        "b": _cl14.clause_b_satisfied,
+                        "c": _cl14.clause_c_satisfied,
+                        "d": _cl14.clause_d_satisfied},
+            "passes": _cl14.passes}),
         "cl13": (None if _cht is None else {
             "persons": _cht.persons,
             "heel_deg": _cht.heel_deg,

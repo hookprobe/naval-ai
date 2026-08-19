@@ -356,9 +356,13 @@ def certify(params, mission: MissionSpec,
     if with_gz:
         kg = ev.masses.vcg_above_keel(float(grammar.named(x)["T"]))
         if n_hulls > 1:
+            _crew = (0 if mission.vessel.manning.value == "uncrewed"
+                     else int(mission.crew))
             a = multihull_gz_assessment(hull, float(hs.disp_kg), kg,
                                         vessel=mission.vessel,
-                                        trim_deg=float(ev.trim_deg))
+                                        trim_deg=float(ev.trim_deg),
+                                        windage=mission.windage,
+                                        persons=_crew)
             # R2.2 (2026-08-19): the governing clause SPLITS by class. Under
             # 15 m LOA with <= 50 persons, cl 1.3 governs and the ladder
             # COMPUTED it (ev.vessel["cl13"]); the cl 1.4 curve clauses are
@@ -385,6 +389,15 @@ def certify(params, mission: MissionSpec,
                              "satisfied": a.clause_a_satisfied},
                 "clause_b": {"heel_at_gz_max_deg": a.heel_at_gz_max_deg,
                              "satisfied": a.clause_b_satisfied},
+                "clause_c": (None if a.clause_c_satisfied is None else
+                             {"wind_lever_m": a.wind_lever_m,
+                              "wind_heel_deg": a.wind_heel_deg,
+                              "satisfied": a.clause_c_satisfied}),
+                "clause_d": (None if a.clause_d_satisfied is None else
+                             {"theta_h_deg": a.theta_h_deg,
+                              "residual_area_m_rad": a.residual_area_m_rad,
+                              "satisfied": a.clause_d_satisfied}),
+                "cl14_passes": a.passes,
                 "unassessable": a.unassessable,
                 "gz_max_m": a.curve.gz_max_m,
                 "deck_edge_deg": a.curve.deck_edge_deg,

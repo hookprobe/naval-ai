@@ -988,3 +988,73 @@ def test_the_cl13_criterion_fails_and_capsizes_in_the_directions_it_should(
     t51 = multihull_crowding_heel(hull, ev.hydro, kg, 51,
                                   vessel=_cat(0.60), gm_m=ev.gm_m)
     assert t51.applicable is False and t51.passes is None
+
+
+def test_the_cl14_class_verdicts_with_a_declared_windage_and_refuses_without():
+    """R2.2's second half (2026-08-19): with clauses (c)/(d) READ and a
+    WindageSpec declared, the >= 15 m catamaran class gets the FULL
+    four-clause NZ Part 40A cl 1.4 verdict; undeclared, it refuses by name
+    exactly as before. MEASURED on the first >= 15 m-span cat of the
+    seed-0 population (17.83 m): 40 m2 at 2.0 m passes all four (wind
+    heel 0.7 deg); 400 m2 at 6.0 m fails (c) with the named violation.
+    """
+    from navalai import grammar
+    from navalai.geometry import Hull
+
+    X = grammar.sample(40, np.random.default_rng(0))
+    big = next(x for x in X
+               if float(Hull(x).x[-1] - Hull(x).x[0]) >= 15.0)
+    cfg = _cat(0.30)
+
+    m = MissionSpec(vessel=cfg, windage={"lateral_area_m2": 40.0,
+                                         "centroid_above_wl_m": 2.0})
+    ev = evaluate(big, m)
+    c14 = ev.vessel["cl14"]
+    assert c14 is not None and c14["passes"] is True
+    assert all(c14["clauses"].values())
+    assert not any(v.startswith("multihull stability")
+                   for v in ev.violations)
+
+    # the fail direction: an absurd sail-area declaration fails (c), named
+    m2 = MissionSpec(vessel=cfg, windage={"lateral_area_m2": 400.0,
+                                          "centroid_above_wl_m": 6.0})
+    e2 = evaluate(big, m2)
+    assert e2.vessel["cl14"]["passes"] is False
+    assert any("cl 1.4 FAILED" in v and "(c)" in v for v in e2.violations)
+
+    # undeclared: the refusal, by name, with the declaration instruction
+    e0 = evaluate(big, MissionSpec(vessel=cfg))
+    assert e0.vessel["cl14"] is None
+    assert any("mission.windage" in v or "lateral area" in v
+               for v in e0.violations)
+
+
+def test_the_wind_lever_is_the_rules_own_algebra():
+    """h_w = P.A.Z/(9800.Delta_t) with Z = centroid_above_wl + T/2, read
+    verbatim — asserted against hand arithmetic on the assessment's own
+    output, so the formula cannot drift inside the implementation."""
+    from navalai.evaluate import evaluate as _eval
+    from navalai.geometry import Hull
+    from navalai.hydrostatics import multihull_gz_assessment
+    from navalai.mission import WindageSpec
+    from tests.test_phase0 import mid_params
+
+    x = mid_params()
+    ev = _eval(x, MissionSpec(vessel=_cat(0.60)))
+    hull = Hull(x)
+    t_design = -float(hull.z_keel.min())
+    kg = float(ev.masses.vcg_above_keel(t_design))
+    w = WindageSpec(lateral_area_m2=25.0, centroid_above_wl_m=1.5,
+                    wind_pressure_pa=350.0)
+    a = multihull_gz_assessment(hull, float(ev.hydro.disp_kg), kg,
+                                vessel=_cat(0.60), windage=w, persons=2)
+    z = 1.5 + 0.5 * t_design
+    want = 350.0 * 25.0 * z / (9800.0 * (float(ev.hydro.disp_kg) / 1000.0))
+    assert a.wind_lever_m == pytest.approx(want, rel=1e-12)
+    # theta_h (wind + crowd) can never sit BELOW the wind-only heel
+    if a.wind_heel_deg is not None and a.theta_h_deg is not None:
+        assert a.theta_h_deg >= a.wind_heel_deg - 1e-9
+    # and the spec refuses an off-table pressure — the rule's, not a knob
+    with pytest.raises(ValueError, match="not a row"):
+        WindageSpec(lateral_area_m2=25.0, centroid_above_wl_m=1.5,
+                    wind_pressure_pa=400.0)
