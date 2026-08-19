@@ -540,14 +540,30 @@ def test_a_fluid_property_appears_exactly_once_in_case_py(literal, home):
     format anything), in the deep-water half-wavelength and in the wavelength
     receipt. A claim of single-sourcing is worse than no claim, because it
     stops the next reader looking. This is the limits.py grep, for fluids."""
+    # RE-POINTED 2026-08-19: the one home MOVED. The section-18 constants
+    # consolidation made navalai/constants.py the single home for fluid
+    # properties and case.py now IMPORTS its aliases (RHO_FRESH_20C as
+    # _RHO_WATER, ...), so the honest assertion is ZERO literals in case.py
+    # and exactly one definition in constants.py — the same claim, one
+    # module over. (This fence asserted the old home for five days of
+    # failures that a piped exit code hid; the count is now asserted at
+    # both ends so the next move cannot strand it again.)
     src = _code_lines(_ROOT / "navalai" / "cfd" / "case.py")
-    hits = [ln for ln in src.splitlines()
-            if re.search(rf"(?<![\d.]){re.escape(literal)}(?![\d])", ln)]
-    assert len(hits) == 1, (
-        f"{literal} appears {len(hits)} time(s) outside comments; it has one "
-        f"home, {home}, and everything else formats it in:\n  "
+    pat = rf"(?<![\d.]){re.escape(literal)}(?![\d])"
+    hits = [ln for ln in src.splitlines() if re.search(pat, ln)]
+    assert not hits, (
+        f"{literal} reappeared in case.py outside comments; its one home is "
+        f"navalai/constants.py and case.py imports the {home} alias:\n  "
         + "\n  ".join(h.strip() for h in hits))
-    assert home in hits[0], f"the one occurrence must be {home}'s definition"
+    assert any(home in ln and "import" in ln for ln in src.splitlines()), (
+        f"case.py no longer imports {home} from navalai.constants — the "
+        f"alias seam moved; re-point this fence to wherever it went")
+    const = _code_lines(_ROOT / "navalai" / "constants.py")
+    chits = [ln for ln in const.splitlines() if re.search(pat, ln)
+             and "=" in ln.split("#")[0]]
+    assert len(chits) == 1, (
+        f"{literal} must be DEFINED exactly once in constants.py; found "
+        f"{len(chits)}:\n  " + "\n  ".join(h.strip() for h in chits))
 
 
 # --------------------------------------------------------------------------
