@@ -449,3 +449,35 @@ or at minimum before any acceptance claim — so that the distance between
 "the fence is green" and "the suite is green" can never again grow to 30
 without anyone noticing. The fence stays as it is: it is fast because it
 is a subset, and that is the right trade for a pre-push hook.
+
+
+## Part VII.b — today's number, and a mistake in how I measured it
+
+A full-suite run on the WORKING TREE (mid-campaign, before the kernel
+performance work landed) finished after 5h07m:
+
+    BASELINE (pristine starting HEAD):  30 failed, 1299 passed, 39 skipped
+    TODAY    (mid-campaign tree):       22 failed, 1406 passed, 24 skipped
+
+Eight failures cleared, 107 tests added, 15 fewer skips. The direction is
+right and the remaining 22 are the honest §16.A backlog.
+
+**A METHOD MISTAKE WORTH RECORDING, because it cost the most useful half
+of the result.** Both runs were launched through a `grep -E "^FAILED|
+passed|failed"` filter to keep the log small. pytest colourises its
+summary, so every `FAILED` line begins with an ANSI escape and `^FAILED`
+matched NONE of them — leaving a 1.1 KB file with the totals and not one
+test name, from a five-hour run, twice. The totals are real; the triage
+list is gone and cannot be recovered without re-running.
+
+WHAT TO DO INSTEAD, for whoever runs this next: `python3 -m pytest tests/
+-q -p no:cacheprovider -rf --color=no > full-suite.log 2>&1` — `-rf`
+prints a clean failure list, `--color=no` removes the escapes that broke
+the filter, and NOTHING is filtered at launch. Filter the file afterwards,
+when it is cheap to re-filter and free to be wrong.
+
+The run also cannot be repeated right now for a second reason worth
+stating: the tree is under active optimisation (kernel landed, resistance
+in flight), so a five-hour run measures a tree that no longer exists by
+the time it finishes. The full suite belongs on a schedule against a
+QUIET tree, which is exactly the recommendation Part VII already makes.

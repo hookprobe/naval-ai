@@ -621,6 +621,14 @@ GATES = [
     # nothing composed them, so every caller re-derived Fn, Re, the regime
     # and the model's validity for itself. This row owns the composition —
     # above all that the four questions stay FOUR verdicts.
+    # The resistance tier's own suite. Registered when the file appeared
+    # under a bit-exactness brief: the Michell integral is ~50% of what
+    # `evaluate()` still costs, and any speed work on it must reproduce the
+    # SAME accumulation order — a 1e-16 difference here moves pinned
+    # numbers downstream.
+    Gate("Gate RT", "the resistance tier: its envelope, and bit-exact "
+         "values under any optimisation of the Michell integral",
+         "tests/test_resistance.py"),
     Gate("Gate HC", "the hull evaluation contract: four separate verdicts, "
          "a regime, a derived mesh+solver prescription and its cost, in one "
          "receipt that never reads OK without evidence",
