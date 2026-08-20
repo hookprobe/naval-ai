@@ -1,5 +1,5 @@
 {
- "_README": "Size-band MESHING-COVERAGE hulls for the Mac work order Block 4 (directive \u00a715). Each is grammar-valid, geometrically real, mesh-screen OK, and carries a mission whose cruise speed puts it at Fn 0.25 so the size bands are compared at the SAME Froude number rather than at one boat's speed. THEY ARE NOT CERTIFIABLE DESIGNS and are not presented as any: measured 2026-08-20 over 60 Fn-matched uniform grammar draws, 40 REFUSE and 1 is MARGINAL, dominated by NEGATIVE GM (29/60) \u2014 the grammar box admits geometry, not stable boats. Their purpose is to exercise the MESHER across the size range, which is what Block 4 measures. ROUNDING FIX 2026-08-20: the Mac's Block 4 measured all four bands writing at 19.90 cells per wavelength against a bar of 20 \u2014 the prescription inverted the floor exactly and the writer then rounded the background cell count to NEAREST, stepping under it. contract.mesh_prescription now rounds UP (one background cell in x at most), so these genomes clear the bar on a re-run without changing the genomes themselves: the miss was in the DENSITY DERIVATION, not in the hulls, so the set is still valid and does not need regenerating.",
+ "_README": "Size-band MESHING-COVERAGE hulls for the Mac work order Block 4 (directive \u00a715). Each is grammar-valid, geometrically real, mesh-screen OK, and carries a mission whose cruise speed puts it at Fn 0.25 so the size bands are compared at the SAME Froude number rather than at one boat's speed. THEY ARE NOT CERTIFIABLE DESIGNS and are not presented as any: measured 2026-08-20 over 60 Fn-matched uniform grammar draws, 40 REFUSE and 1 is MARGINAL, dominated by NEGATIVE GM (29/60) \u2014 the grammar box admits geometry, not stable boats. Their purpose is to exercise the MESHER across the size range, which is what Block 4 measures. ROUNDING FIX 2026-08-20: the Mac's Block 4 measured all four bands writing at 19.90 cells per wavelength against a bar of 20 \u2014 the prescription inverted the floor exactly and the writer then rounded the background cell count to NEAREST, stepping under it. contract.mesh_prescription now rounds UP (one background cell in x at most), so these genomes clear the bar on a re-run without changing the genomes themselves: the miss was in the DENSITY DERIVATION, not in the hulls, so the set is still valid and does not need regenerating. NAMED FORMS ADDED 2026-08-20: a catamaran and a wave-piercing monohull, both MARGINAL on the hull tier (better than any sampled monohull in this file) and mesh-screen OK \u2014 the two forms directive \u00a715 names by name and the tree actually supports.",
  "target_fn": 0.25,
  "bands": {
   "3.0-5.0": {
@@ -87,5 +87,63 @@
    "cruise_speed_kn": 5.130598549445272
   }
  },
- "wave_floor_note": "cleared after the ceil fix: 20.246 cells per wavelength at Fn 0.25, against the bar of 20"
+ "wave_floor_note": "cleared after the ceil fix: 20.246 cells per wavelength at Fn 0.25, against the bar of 20",
+ "named_forms": {
+  "catamaran": {
+   "genome": [
+    12.188158580177777,
+    1.513619813913514,
+    0.6005387815142569,
+    2.425243779344977,
+    0.6398688371522872,
+    -1.5036177194294227,
+    0.5735612311265958,
+    0.2864391581728915,
+    4.3793070365967415,
+    26.853151681670553,
+    0.22434467838064068,
+    0.30461150680655236,
+    0.44738265019606815,
+    0.30096211290965524,
+    10.976362977442445,
+    0.3727158800805127
+   ],
+   "lwl_m": 12.188158580177777,
+   "cruise_speed_kn": 5.313803054090179,
+   "speed_ms": 2.7336540983583677,
+   "fn": 0.25,
+   "mission": "VesselConfig(topology=CATAMARAN, separation_over_lwl=0.30)",
+   "B_scale": 1.0175,
+   "derived_n_layers": 7,
+   "verdict_on_fortress": "MARGINAL (hull), mesh-screen OK"
+  },
+  "wave-piercing": {
+   "genome": [
+    13.559965227603502,
+    3.0085140881050934,
+    1.2950338712933773,
+    2.1956230213237813,
+    0.7058190496626844,
+    0.40227304097613015,
+    0.5869031909235889,
+    0.22437875251329392,
+    1.9846017208528355,
+    20.125705077171403,
+    0.3216993281620142,
+    0.06460557557806523,
+    0.297516594520627,
+    0.0,
+    0.0,
+    0.05
+   ],
+   "lwl_m": 13.559965227603502,
+   "cruise_speed_kn": 5.6048719350624445,
+   "speed_ms": 2.8833927377612643,
+   "fn": 0.25,
+   "mission": "monohull; flare=0, forefoot=0, sheer_rise=0.05 (plumb, fine, low)",
+   "B_scale": 1.0175,
+   "derived_n_layers": 7,
+   "verdict_on_fortress": "MARGINAL (hull), mesh-screen OK"
+  }
+ }
 }

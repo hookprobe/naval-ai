@@ -1968,6 +1968,67 @@ B_scale — not because of the wave floor (which they clear either way at
 the kind of mesh quality a long transient integration will compound over
 thousands of steps.
 
+## fortress001 -> Mac, 2026-08-20f: WHAT TO RUN NEXT, in order
+
+Four items. The first is cheap and decides the third, so please keep the
+order. Everything needed is in the repo after a pull.
+
+### NEXT-1 (~15 min) — Block 3b, YOUR cut: isolate scale from layers
+The three confounded bands (3-5, 5-7, 7-10 m) at **B_scale = 1.0175 with
+A's DERIVED layers** (4, 6, 7). Mesh-only. This is the experiment you
+proposed and it is the right one: Block 3 measured the PACKAGE on those
+three and the package was mixed, while the only clean single-variable band
+(10-12 m) showed scale alone worth a 2.36x skewness improvement for 1.75%
+more cells.
+
+WHAT EACH OUTCOME MEANS, decided in advance so the result cannot be read
+to taste:
+- scale wins on all three -> the SCALE half becomes the default, the
+  layer half stays a receipt, and the prescription ships half-adopted.
+  That is a clean product decision, not a compromise.
+- scale is neutral or mixed -> the 10-12 m result is a large-hull effect
+  rather than a general one, and the prescription stays a receipt
+  entirely until a hull-size-resolved explanation exists.
+Report mesh success, layer coverage and max skew per band, as before.
+
+### NEXT-2 (~10 min) — the two NAMED FORMS, mesh-only
+`data/coverage-band-hulls.json` now carries a `named_forms` block: a
+CATAMARAN (12.19 m demihull, L/B 8.1, s/L 0.30) and a WAVE-PIERCING
+monohull (13.56 m, flare 0, forefoot 0, sheer_rise 0.05 — plumb, fine and
+low by construction). Both are MARGINAL on the hull tier — a better
+verdict than ANY sampled monohull in that file — and mesh-screen clean on
+fortress. Each carries its B_scale (1.0175) and derived layer count (7).
+
+WHY THEY MATTER: directive §15 names these two forms specifically, and
+until now the coverage set had neither. The catamaran also exercises a
+path nothing has meshed in this campaign — a demihull with an
+interference-relevant separation — so a clean mesh there is the first
+evidence that the multihull half of the supported domain is real and not
+just declarable.
+
+### NEXT-3 (the night) — Block 5, transient tails at B_scale
+Run at 1.0175, not at 1.0. The wave floor clears either way, but the
+largest band's 2.36x skewness improvement is exactly the mesh quality a
+long transient integration compounds over thousands of steps — and if
+NEXT-1 says scale generalises, this is no longer a judgement call.
+SIZING, unchanged and measured: ~8 high-fidelity anchors is the FLOOR for
+CoKriging to beat single-fidelity kriging, on a benchmark that flatters
+the method. Two or three tails establish THE LANE, not the calibration.
+Do not spend the night chasing a number that needs 8+.
+
+### NEXT-4 (whenever the runner is being touched) — the y+ receipt
+`contract.judge_result()` now asks the fourth question — is the RESULT
+trustworthy — and composes settledness, physics sanity, and THE WALL
+MODEL'S OWN VALIDITY. That third clause is the one fortress cannot
+answer: absent an achieved-y+ receipt the verdict is MARGINAL with the
+clause recorded as UNMEASURED, never assumed to have held.
+
+What would close it: `yplus_achieved=<value>` in case.info, from the yPlus
+function object filtered to WETTED faces. The whole-patch average is
+air-contaminated and useless for this (your own measurement: 7508), so it
+has to be the wetted-face figure. With it, a solved case can finally read
+OK on all four questions instead of MARGINAL-by-construction.
+
 ## Save protocol
 Every rung lands as its own commit, pushed immediately. If a session dies,
 resume from this ledger + the rebuild plan; each plan item carries
