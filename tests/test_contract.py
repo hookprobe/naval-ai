@@ -443,17 +443,83 @@ def test_the_supported_domains_lower_edge_is_derivable_from_two_constants():
     nothing to do with either. Getting 2.61 m out of two constants the code
     already owns is a check on the research, not a restatement of it.
     """
-    from navalai.limits import RE_TRANSITION_BAND
-    from navalai.resistance import FN_MICHELL_MAX
+    from navalai.limits import RE_TRANSITION_BAND, min_lwl_for_full_fidelity_m
+    from navalai.resistance import FN_MICHELL_MAX, NU_FRESH_15C
+    from navalai.constants import NU_SEA_HOLTROP, G_STANDARD
 
-    nu, g = 1.19e-6, 9.81
-    lwl = (RE_TRANSITION_BAND[1] * nu
-           / (FN_MICHELL_MAX * math.sqrt(g))) ** (2.0 / 3.0)
-    assert 2.55 < lwl < 2.70, lwl
+    # 2026-08-20: this test used to type `nu, g = 1.19e-6, 9.81` INLINE and
+    # import neither, while the commit it fences advertised "2.61 m from two
+    # constants the code already owns". It was two owned constants plus a
+    # literal -- and that literal is a SEAWATER viscosity, while the prose
+    # making the same argument at limits.py:284 cites the FRESH one. Same
+    # formula, two fluids, 2.8% apart in L. Both are now IMPORTED and the
+    # edge is computed by the one function that owns the closed form.
+    lwl_fresh = min_lwl_for_full_fidelity_m(
+        NU_FRESH_15C, FN_MICHELL_MAX, G_STANDARD)
+    lwl_sea = min_lwl_for_full_fidelity_m(
+        NU_SEA_HOLTROP, FN_MICHELL_MAX, G_STANDARD)
+    assert 2.53 < lwl_fresh < 2.55, lwl_fresh   # MEASURED 2.5386
+    assert 2.60 < lwl_sea < 2.62, lwl_sea       # MEASURED 2.6098
 
-    # and the band's own ends behave as the closed form says
-    def fn_for_turbulent(L):
-        return RE_TRANSITION_BAND[1] * nu / (L * math.sqrt(g * L))
+    # THE FLUID IS THE DOMINANT UNCERTAINTY, so the third digit of "2.61" is
+    # not supportable and this test refuses to assert it. Sensitivity is
+    # +3.31% in L per +5% in nu; the fresh/sea span is 4.2% in nu.
+    assert lwl_sea > lwl_fresh
+    assert 0.02 < (lwl_sea - lwl_fresh) < 0.09, (lwl_sea, lwl_fresh)
+    lwl = lwl_sea
 
-    assert fn_for_turbulent(2.50) > FN_MICHELL_MAX     # window empty
-    assert fn_for_turbulent(3.00) < FN_MICHELL_MAX     # window open
+    # and the band's own ends behave as the closed form says -- checked for
+    # BOTH fluids, because the edge moves with nu and a claim about "the
+    # band" that only holds for one of them is a claim about that fluid.
+    def fn_for_turbulent(L, nu):
+        return RE_TRANSITION_BAND[1] * nu / (L * math.sqrt(G_STANDARD * L))
+
+    for nu in (NU_FRESH_15C, NU_SEA_HOLTROP):
+        assert fn_for_turbulent(2.50, nu) > FN_MICHELL_MAX   # window empty
+        assert fn_for_turbulent(3.00, nu) < FN_MICHELL_MAX   # window open
+
+
+def test_the_derived_full_fidelity_edge_is_ENFORCED_and_is_not_the_legal_bound():
+    """M1/M2, MEASURED 2026-08-20: the derived edge had NO CODE PATH.
+
+    `a62bf48` published the 2.61 m lower edge, tested it and documented it,
+    and `supported_domain` went on enforcing `RCD_HULL_LENGTH_SCOPE_M[0]`
+    = 2.5 m, which is a LEGAL scope and not a physical one. MEASURED before
+    the fix: `supported_domain(lwl_m=2.55)` returned `in_domain=True`, so a
+    hull between the legal bound and the physics edge passed the gate with
+    no honest friction line beneath it.
+
+    The two bounds answer DIFFERENT QUESTIONS and this test pins that they
+    stay separate reasons -- a legal scope and a regime boundary collapsed
+    into one number is how "we do not model this" becomes "this is
+    impossible".
+    """
+    from navalai.contract import supported_domain
+    from navalai.limits import min_lwl_for_full_fidelity_m
+    from navalai.resistance import FN_MICHELL_MAX, NU_FRESH_15C
+    from navalai.constants import NU_SEA_HOLTROP, G_STANDARD
+
+    for nu in (NU_FRESH_15C, NU_SEA_HOLTROP):
+        edge = min_lwl_for_full_fidelity_m(nu, FN_MICHELL_MAX, G_STANDARD)
+        just_under = edge - 0.01
+        just_over = edge + 0.01
+        assert just_under > 2.5, "fixture must sit ABOVE the legal bound"
+
+        ok_under, why_under = supported_domain(lwl_m=just_under, nu_m2_s=nu)
+        assert not ok_under, (
+            f"a hull at {just_under:.3f} m is inside the RCD scope but below "
+            f"the derived edge {edge:.3f} m and was NOT refused")
+        joined = " ".join(why_under)
+        assert "REGIME boundary" in joined, (
+            "the refusal must say it is a regime boundary, not an "
+            "impossibility: " + joined)
+        assert f"{nu:.4g}" in joined, "the refusal must NAME the fluid"
+
+        ok_over, _ = supported_domain(lwl_m=just_over, nu_m2_s=nu)
+        assert ok_over, f"{just_over:.3f} m is above the edge and must pass"
+
+    # AND IT MUST NOT INVENT A FLUID. With no `nu` there is no edge, and
+    # guessing one is the defect that produced the 2.61-vs-2.54 split.
+    ok_nofluid, _ = supported_domain(lwl_m=2.55)
+    assert ok_nofluid, ("with no fluid given the physics edge must not be "
+                        "applied at all -- refusing to guess is the point")

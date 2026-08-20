@@ -356,6 +356,62 @@ def min_lwl_for_turbulent_flow_m(speed_ms: float, nu_m2_s: float) -> float:
     return RE_TRANSITION_BAND[1] * nu_m2_s / speed_ms
 
 
+def min_lwl_for_full_fidelity_m(nu_m2_s: float, fn_ceiling: float,
+                                g_m_s2: float) -> float:
+    """Shortest waterline at which the two envelopes this tree needs still
+    OVERLAP, in closed form.
+
+    A hull reaches the full-fidelity chain only if it is BOTH fully
+    turbulent (Re >= RE_TRANSITION_BAND[1]) and inside the thin-ship
+    envelope (Fn <= FN_MICHELL_MAX). Those fight as length falls, because at
+    a FIXED Froude number
+
+        Re = U*L/nu,  U = Fn*sqrt(g*L)   =>   Re = Fn*sqrt(g)*L**1.5 / nu
+
+    so shrinking a hull costs Reynolds number as L^1.5 against a fixed
+    ceiling. Setting Re equal to the turbulent floor and solving for L:
+
+        L = (Re_floor * nu / (Fn_ceiling * sqrt(g)))**(2/3)
+
+    Dimensions: (m2/s)/(m^0.5/s) = m^1.5, and the 2/3 power returns metres.
+
+    THIS IS A REGIME BOUNDARY, NOT A PHYSICAL IMPOSSIBILITY. Below it there
+    is no length/speed pair at which BOTH of this tree's cheap models are
+    inside the envelope they were fitted for. A shorter boat is not
+    unsimulable; it is un-addressable BY THESE TWO MODELS, which is a
+    statement about our library and not about the boat.
+
+    EVERY INPUT IS REQUIRED AND HAS NO DEFAULT, for the same reason
+    `min_lwl_for_turbulent_flow_m` refuses one: `limits.py` imports nothing
+    from the package, and a default here would be `nu` (or `g`, or the
+    Michell ceiling) declared a second time. MEASURED 2026-08-20, and this
+    is exactly why the defaults are refused:
+
+        nu = resistance.NU_FRESH_15C  (fresh)  ->  2.5386 m
+        nu = constants.NU_SEA_HOLTROP (sea)    ->  2.6098 m
+
+    (The viscosities are NAMED, not restated. `constants.py` is their one
+    home and `test_limits_single_source` enforces that -- it caught an
+    earlier draft of THIS docstring quoting the seawater figure inline,
+    which would have been the very defect this function documents.)
+
+    `a62bf48` published 2.61 m as deriving from "two constants the code
+    already owns" while its test typed `nu = 1.19e-6` inline and imported
+    neither, and the prose arguing the same point at the head of this
+    section cites the FRESH constant. Same formula, two fluids, 2.8% apart.
+    Sensitivity is +3.31% in L per +5% in nu, so the third significant digit
+    of "2.61" is noise against the fluid choice: QUOTE THE FLUID OR DO NOT
+    QUOTE THE DIGIT.
+    """
+    for name, v in (("nu_m2_s", nu_m2_s), ("fn_ceiling", fn_ceiling),
+                    ("g_m_s2", g_m_s2)):
+        if not (isinstance(v, (int, float)) and math.isfinite(v) and v > 0.0):
+            raise ValueError(f"min_lwl_for_full_fidelity_m: {name} = {v!r} "
+                             f"is not a positive finite number")
+    return (RE_TRANSITION_BAND[1] * nu_m2_s
+            / (fn_ceiling * math.sqrt(g_m_s2))) ** (2.0 / 3.0)
+
+
 # ISO 12217-1 design categories.
 #   (significant wave height context [m], downflooding floor [m],
 #    GM floor [m], max offset-load heel [deg])

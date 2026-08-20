@@ -123,7 +123,7 @@ def classify_regime(lwl_m, speed_ms, fn, re, n_hulls: int = 1,
 
 
 def supported_domain(lwl_m=None, fn=None, re=None, n_hulls: int = 1,
-                     topology=None) -> tuple[bool, tuple[str, ...]]:
+                     topology=None, nu_m2_s=None) -> tuple[bool, tuple[str, ...]]:
     """(in_domain, reasons). Every bound is IMPORTED from its owner.
 
     Length is the RCD scope (`limits.RCD_HULL_LENGTH_SCOPE_M`), which is
@@ -134,8 +134,10 @@ def supported_domain(lwl_m=None, fn=None, re=None, n_hulls: int = 1,
     `mission.EVALUABLE_TOPOLOGIES`: a trimaran is declarable and not
     evaluable, and saying that plainly is the point.
     """
-    from .limits import RCD_HULL_LENGTH_SCOPE_M
+    from .limits import RCD_HULL_LENGTH_SCOPE_M, min_lwl_for_full_fidelity_m
     from .mission import EVALUABLE_TOPOLOGIES
+    from .constants import G_STANDARD
+    from .resistance import FN_MICHELL_MAX
 
     out: list[str] = []
     lo, hi = RCD_HULL_LENGTH_SCOPE_M
@@ -150,6 +152,37 @@ def supported_domain(lwl_m=None, fn=None, re=None, n_hulls: int = 1,
         elif lwl_m > hi:
             out.append(f"LWL {lwl_m:.2f} m is above the supported {hi:.1f} m "
                        f"(RCD scope)")
+        # M1/M2 (2026-08-20). The bound above is LEGAL -- the RCD's own scope
+        # -- and the one below is PHYSICAL: the length at which this tree's
+        # turbulent floor and thin-ship ceiling stop overlapping. They are
+        # NOT the same question and must never collapse into one number, so
+        # this is a SEPARATE reason naming its own derivation.
+        #
+        # MEASURED before this existed: supported_domain(lwl_m=2.55) returned
+        # in_domain=True. The derived edge was published in `a62bf48`, tested,
+        # documented -- and had NO CODE PATH, so every hull between the legal
+        # 2.5 m and the physical edge passed the gate with no honest friction
+        # line under it.
+        #
+        # `nu` is REQUIRED to ask the question. With no fluid there is no
+        # edge, and this REFUSES to guess one rather than defaulting to a
+        # viscosity -- the fresh/sea span is 2.8% in L and defaulting would
+        # be the number-declared-twice defect that produced the 2.61 m
+        # discrepancy in the first place.
+        if nu_m2_s is not None:
+            edge = min_lwl_for_full_fidelity_m(
+                nu_m2_s, FN_MICHELL_MAX, G_STANDARD)
+            if lo <= lwl_m < edge:
+                out.append(
+                    f"LWL {lwl_m:.2f} m is inside the RCD scope but below the "
+                    f"DERIVED full-fidelity edge {edge:.2f} m for nu="
+                    f"{nu_m2_s:.4g} m2/s: at Re_floor "
+                    f"{RE_TRANSITION_BAND[1]:.0e} and Fn_ceiling "
+                    f"{FN_MICHELL_MAX:.2f} there is NO speed at which both "
+                    f"the friction line and the thin-ship model are inside "
+                    f"their envelopes. This is a REGIME boundary, not a "
+                    f"physical impossibility -- the boat is fine, our two "
+                    f"cheap models simply do not overlap at that length.")
     if fn is not None and fn > FN_PLANING_ONSET_LOCAL:
         out.append(
             f"Fn {fn:.3f} is past the planing onset "
