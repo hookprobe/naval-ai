@@ -135,3 +135,64 @@ need, and the §22 table's missing half.
 6. Adversarial fixtures for the named holes (wave-piercer, narrow-gap cat,
    long/deep corner, fidelity-envelope adversaries).
 7. The fortress statistical campaign (overnight) -> the honest §22 table.
+
+---
+
+# Part II — the CONTRACT directive (2026-08-20, second instruction)
+
+The operator's follow-up: "a large part of the mathematical gap is now
+closed, but there is still no sufficiently simple DETERMINISTIC path from
+GENOME -> VALID HULL -> APPROPRIATE MODEL -> MESH PRESCRIPTION -> SOLVER ->
+VALID RESULT. The pieces exist but are distributed across grammar,
+geometry, admissibility, regime research, resistance, screen,
+mesh_robustness, CFD, calibration, surrogate and gates. Close it WITHOUT
+creating another framework. The goal is to make the mathematics simple
+enough that the computer always knows what to do next."
+
+## II.1 · ALREADY FIXED / REMAINING GAP / ROOT CAUSE / MINIMAL FIX
+
+| # | Already fixed | Remaining gap | Root cause | Minimal fix |
+|---|---|---|---|---|
+| 1 | Geometry truth is closed-form and refuses rather than clamps; STL/STEP derived with independent receipts | Nothing composes the stages into ONE answer; each caller re-derives Fn/Re/regime/validity | The pieces were built bottom-up, each correct in isolation; no top-level contract was ever written | ONE `evaluate_hull()` composing the EXISTING functions (no new physics) returning one receipt |
+| 2 | flow_regime, RE_TRANSITION_BAND, FN_MICHELL_MAX, holtrop's Re clause all exist and are correct | The CFD lane never consults any of them | Research landed as constants + reports, not as calls at the seam both entry points pass | Call them in `write_resistance_case` (in flight) and in the contract |
+| 3 | fidelity.estimate/admit/cheapest_admissible price and admit a case | Nothing DERIVES a mesh prescription from hull+physics; the case writer holds fixed levels | `admit()` answers "is this option admissible", never "what does THIS hull need" | A `mesh_prescription()` that inverts the existing floors (wave-resolution density, first_layer_thickness, geometric tau) into the numbers the case writer already accepts |
+| 4 | Settledness (MSER-5 + AR(1) + CI), product sigma, CoKriging, active selection, KCS anchor | They answer "how accurately do we know a VALID result", not "how does a valid hull REACH one" | Complementary questions; only the first was ever asked | Keep untouched (operator's §11); the contract consumes their verdicts |
+| 5 | h011/h012 are DETERMINISTIC geometry failures (both reproduce in two independent campaigns) | The invariant that breaks is not yet named | The screen was calibrated on meshability PROXIES, never on the failing invariant itself | Investigation in flight: name the invariant, exclude the region upstream, score FP/FN on the 25+17 corpus before adopting |
+| 6 | The screen's rung-0 half is MEASURED non-predictive and one criterion already demoted for it | Screen criteria carry no per-criterion FP/FN record | Criteria were added as they were hypothesised, scored only in aggregate | Per-criterion receipt table (criterion, equation, reason, source, evidence, FP, FN) — the operator's §7 form |
+
+## II.2 · THE SUPPORTED DOMAIN (operator §14 — declared, not implied)
+
+Stated from the audit evidence, to be ENFORCED by the contract rather than
+left as prose. Outside it, the honest answer is a named refusal.
+
+| Axis | Supported | Basis |
+|---|---|---|
+| LWL | 2.5 – 24 m | grammar box (RCD Art. 3(2)); below 2.5 m the rules tier has nothing to say AND no honest friction line exists (SMALL-CRAFT-REGIMES: the turbulent-Re + displacement-Fn window is EMPTY below ~2.6 m) |
+| Fn (resistance) | 0 – 0.45 | FN_MICHELL_MAX; 0.45–0.65 has NO valid empirical tier (CFD-only, and only at L >= 3 m); > 0.65 REFUSED (no Savitsky in the tree) |
+| Re | >= 5e5 refuse-below; 5e5–5e6 flagged transitional | RE_TRANSITION_BAND; ITTC 7.5-02-05-01's stimulation floor at 5e6; fully-turbulent RANS reproduces ITTC-57's own bias inside the band |
+| Topology | monohull, symmetric catamaran | EVALUABLE_TOPOLOGIES; trimaran refusal is pinned BY NAME; asymmetric cat is not expressible in the kernel |
+| Bilge | hard chine and round bilge | roundness gene; the KIT route additionally requires roundness = 0 |
+| Bow | plumb / fine-entry expressible (stem is plumb by construction) | formlib; NO fixture exercises it yet — a coverage gap, not a capability gap |
+| Environment | calm water; declared sea state/windage are RECORDED but do not yet gate | the environment gate is new physics (windage/orbital estimators) |
+
+NOT SUPPORTED, and the code should say so by name: LWL < 2.5 m (the drone
+line — three walls, not one), Fn > 0.65, trimaran, asymmetric catamaran,
+planing/semi-displacement case configuration (no config exists at all).
+
+## II.3 · The contract's shape (composition, NOT a new framework)
+
+`evaluate_hull(genome, mission, environment) -> HullEvaluation` calls, in
+order, functions that ALL EXIST TODAY, and adds only the prescription:
+
+    grammar.check            -> A: is the hull physically valid?
+    evaluate/certify         -> A: hydrostatics, stability, rules, verdict
+    resistance.flow_regime   -> B: is the MODEL valid here? (Fn/Re bands)
+    select_fidelity          -> B: which tier ANSWERS the question, and why
+    admissibility.screen     -> C: is the geometry numerically meshable?
+    mesh_prescription        -> C: what mesh does THIS hull require?  [NEW]
+    post.settled_drag /
+      physics_sanity         -> D: is the RESULT converged and trustworthy?
+
+The operator's §4 is honoured by construction: A, B, C and D are four
+SEPARATE verdicts on the receipt and are never collapsed into one
+valid/invalid flag. §12's receipt is that dataclass, serialised.
