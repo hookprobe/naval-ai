@@ -212,7 +212,7 @@ different Gate 2M numbers came to circulate at once (gap J1).
 | Gate 2B | Blender-native hull generation, measured and REFUSED on the hull path: a 0.05 m voxel remesh destroys the chine | `tests/test_blender_hull.py` (10 tests) |
 | Gate 2C | the campaign classifier names the mechanism that actually failed, and refuses one it cannot measure | `tests/test_campaign_classifier.py` (17 tests) |
 | Gate 2K | the smoke verdict is the runner's own bar, an absent or truncated log is never promoted, and a smoke refusal can never read as a solve failure | `tests/test_smoke_verdict.py` (9 tests) |
-| Gate HC | the hull evaluation contract: four separate verdicts, a regime, a derived mesh+solver prescription and its cost, in one receipt that never reads OK without evidence | `tests/test_contract.py` (11 tests) |
+| Gate HC | the hull evaluation contract: four separate verdicts, a regime, a derived mesh+solver prescription and its cost, in one receipt that never reads OK without evidence | `tests/test_contract.py` (12 tests) |
 | Gate 2N | physics sanity: a force must have the right sign, a finite magnitude, and a defensible ratio to the cheap model — and an unreadable history is never a result | `tests/test_physics_sanity.py` (11 tests) |
 | Gate 2W | the case writer consults the physics floors it was given: cells-per-wavelength and the Reynolds regime decide before a mesh is sized | `tests/test_case_wiring.py` (16 tests) |
 | Gate 2X | h011/h012: the geometry is provably clean, and no measured descriptor separates the failures from the passers — a criterion that does not separate is not a criterion | `tests/test_h011_h012_invariant.py` (15 tests) |
