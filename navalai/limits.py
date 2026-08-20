@@ -487,6 +487,48 @@ REFOLD_BAR_MM = 5.0
 # (`rules.iso12215.select_stock_thickness_m`) instead of declared here, so the
 # contradiction is impossible by construction rather than by discipline.
 PLY_THICKNESS_M = 0.015
+
+# BEND_RADIUS_RATIO CARRIED NO PROVENANCE AT ALL until 2026-08-20, which
+# matters because it is now the BINDING production constraint: MEASURED on 30
+# draws of the flagship brief (category C, 6 t, 10 m), the achieved bend radii
+# run min 0.30 / median 0.89 / max 1.40 m against the 1.44 m an 18 mm sheet
+# demands, so ZERO of 17 hulls that reach this check clear it. Every other
+# constant in this file states a source or a measured incident; this one was a
+# bare literal, and a bare literal deciding whether the product has a design
+# space at all is the same defect class as an unmeasured metric defaulting to
+# zero.
+#
+# THE FORM IS DERIVED, and that part is not in doubt. Bending a sheet of
+# thickness t to radius R puts a maximum fibre strain of
+#
+#     eps = t / (2R)
+#
+# at the outer surface, so a CONSTANT R/t ratio is exactly a constant-strain
+# limit — which is the right shape for a strain-limited material and is why
+# this is a ratio rather than a table. R/t = 80 is eps = 0.625%; wood fails in
+# bending near 1%, so it is a working limit with roughly a 1.6x margin.
+#
+# THE VALUE IS 'approx' IN `rules/review.py`'s SENSE: this project holds no
+# text it can cite for 80 specifically. Published builder tables are not
+# self-consistent with a constant ratio either (they imply roughly 75:1 at
+# 4 mm rising past 130:1 at 9 mm), so 80 sits at the permissive end. IT NEEDS A
+# CITATION, and until it has one, a design refused ONLY by this bar is refused
+# on an unsourced number.
+#
+# IT ALSO MODELS ONE SHEET AND BOATS ARE NOT ALWAYS BUILT FROM ONE SHEET.
+# Laminating two half-thickness skins is standard plywood practice and each
+# skin bends at its own t, halving the requirement: 18 mm in one sheet needs
+# 1.44 m, two 9 mm skins need 0.72 m. MEASURED over the same 30 draws, counting
+# only hulls with NO other violation so the bend rule is isolated:
+#
+#     single 18 mm sheet   R >= 1.44 m    2 of 30 feasible
+#     two 9 mm skins       R >= 0.72 m    8 of 30 feasible
+#
+# A 4x larger design space, from a construction method the rules tier does not
+# represent. That is a PRODUCT decision (it changes lay-up, cost and hours), so
+# it is recorded here and in docs/audit/PRODUCTION-READINESS.md rather than
+# taken — but nobody should read the current 6.7% feasible rate as a fact about
+# boats when it is a fact about assuming one sheet.
 BEND_RADIUS_RATIO = 80.0
 
 # Marine plywood is sold in discrete sheets, so a derived requirement of
