@@ -334,38 +334,34 @@ def test_the_multihull_stability_refusal_has_ONE_home():
 def test_physical_constants_have_one_home_S18():
     """Consolidation directive §18: four densities, three viscosities and
     two gravities were declared across seven modules. They now live ONLY in
-    navalai/constants.py; everything else imports. The fence greps for the
-    distinctive literals — a re-declaration anywhere else is the
-    number-declared-twice defect coming back.
+    navalai/constants.py; everything else imports.
+
+    THIS SCAN IS NO LONGER TEXTUAL (2026-08-20, second pass). It used to grep
+    each line for seven hand-typed spellings, and it had a hole: the predicate
+    required `"=" in stripped`, so it only ever saw ASSIGNMENTS and a constant
+    used inside an EXPRESSION walked through it. MEASURED — `contract.py`
+    carried `Re {speed_ms * lwl_m / 1.09e-6:.3g}` in an f-string for as long
+    as this fence had existed, and this test passed the whole time (gap J1's
+    shape, a fence with a hole in itself).
+
+    Dropping the `"="` closed that hole with a STRING-LEVEL patch to a
+    STRUCTURAL problem. `navalai/constpolicy.py` does it with `ast`: it walks
+    `ast.Constant`, reports `file:line:col`, skips docstrings (which quote
+    measurements on purpose), and CATEGORISES rather than bans — 2, 0.5,
+    100.0 and 1000.0 are mathematics and units and stay literal.
+
+    Two things kept it from being a softening, and `tests/test_constpolicy.py`
+    proves both: every one of the seven spellings this test used to hunt is
+    still watched (by VALUE now, so `0.00000109` is caught too), and the
+    watch set is PARSED out of `constants.py` rather than retyped here — this
+    test no longer carries a second copy of the list.
     """
-    import pathlib
-    import re
+    from navalai import constpolicy
 
-    import navalai
-
-    root = pathlib.Path(navalai.__file__).parent
-    distinctive = ("9.80665", "998.8", "1.09e-6", "1.13902e-6",
-                   "1.18831e-6", "1.1883e-6", "1026.0")
-    offenders = []
-    for py in root.rglob("*.py"):
-        if py.name == "constants.py":
-            continue
-        text = py.read_text()
-        for lit in distinctive:
-            for k, line in enumerate(text.splitlines(), 1):
-                stripped = line.split("#")[0]
-                # THE FENCE HAD A HOLE (2026-08-20). It required "=" in the
-                # line, so it only ever saw ASSIGNMENTS -- and a literal used
-                # inside an EXPRESSION walked straight through it. MEASURED:
-                # contract.py carried `Re {speed_ms * lwl_m / 1.09e-6:.3g}`
-                # in an f-string for as long as this fence has existed, and
-                # this test passed the whole time. Same shape as gap J1, a
-                # fence with a hole in itself.
-                if lit in stripped and "import" not in stripped:
-                    offenders.append(f"{py.relative_to(root)}:{k}: {line.strip()[:70]}")
-    assert not offenders, (
+    findings = constpolicy.scan_tree(subdirs=("navalai",))
+    assert not findings, (
         "physical-constant literals re-declared outside constants.py:\n  "
-        + "\n  ".join(offenders))
+        + constpolicy.report(findings))
 
 
 def test_the_displacement_regime_edge_IS_the_michell_validity_edge_C33():
@@ -404,20 +400,17 @@ def test_the_two_freeboard_floors_declare_their_relationship_C33():
 def test_scripts_do_not_redeclare_physical_constants_C33():
     """The S18 fence stops at the package boundary, and the first stray it
     missed was scripts/hull_form_audit.py's own `G = 9.80665`. Same fence,
-    scripts/ directory."""
-    import pathlib
+    scripts/ and ui/.
 
-    root = pathlib.Path(__file__).resolve().parents[1] / "scripts"
-    distinctive = ("9.80665", "998.8", "1.09e-6", "1.13902e-6",
-                   "1.18831e-6", "1.1883e-6", "1026.0")
-    offenders = []
-    for py in root.glob("*.py"):
-        for k, line in enumerate(py.read_text().splitlines(), 1):
-            stripped = line.split("#")[0]
-            if ("=" in stripped and "import" not in stripped
-                    and "`" not in stripped
-                    and any(lit in stripped for lit in distinctive)):
-                offenders.append(f"{py.name}:{k}: {line.strip()[:70]}")
-    assert not offenders, (
-        "physical-constant literals re-declared in scripts/:\n  "
-        + "\n  ".join(offenders))
+    This one kept the `"=" in stripped` clause until 2026-08-20 — the very
+    predicate that hid the contract.py f-string from the S18 scan, still live
+    in its sibling. It is now the same AST scan, so the hole is closed in both
+    at once instead of being patched in one and left in the other, which is
+    how a fence ends up with two behaviours and one name.
+    """
+    from navalai import constpolicy
+
+    findings = constpolicy.scan_tree(subdirs=("scripts", "ui"))
+    assert not findings, (
+        "physical-constant literals re-declared in scripts/ or ui/:\n  "
+        + constpolicy.report(findings))

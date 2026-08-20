@@ -414,6 +414,18 @@ GATES = [
          "govern, and the mission contract binds", "tests/test_gapfix_product.py"),
     Gate("Gate L", "one limit, one home; scantling derived from the rule",
          "tests/test_limits_single_source.py"),
+    # Gate L's own fence had gap J1's shape. Its scan required `"=" in
+    # stripped`, so it only ever inspected ASSIGNMENTS: contract.py carried
+    # `Re {speed_ms * lwl_m / 1.09e-6:.3g}` in an f-string for the entire life
+    # of that line, with "1.09e-6" on the hunted list, and Gate L was green
+    # throughout. Dropping the "=" was a string-level patch to a structural
+    # problem, so the scan is now AST-level (`navalai/constpolicy.py`) and
+    # this row is the proof that it CATEGORISES rather than bans: it fires on
+    # a crafted constant in seventeen syntactic positions and stays silent on
+    # 2, 0.5, 100.0 and 1000.0, which are mathematics and units.
+    Gate("Gate L2", "numeric literals are categorised, not banned: an AST "
+         "fence that catches a physical constant in any expression position",
+         "tests/test_constpolicy.py"),
     # Split out of Gate 6, which tested the RULES mechanics only. The
     # manufacturing back end is the other half of the plan's Phase 6 and it
     # was the half with no bar it could fail: no nesting, no BOM, no refold

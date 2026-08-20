@@ -195,6 +195,7 @@ different Gate 2M numbers came to circulate at once (gap J1).
 | Gate V3.0 | governance compiles to a parameter box and to constraint rows, ratchets only tighter, and the ladder never imports it | `tests/test_policy.py` (48 tests) |
 | Gate 6P | the product surface: scope guards refuse what does not govern, and the mission contract binds | `tests/test_gapfix_product.py` (27 tests) |
 | Gate L | one limit, one home; scantling derived from the rule | `tests/test_limits_single_source.py` (21 tests) |
+| Gate L2 | numeric literals are categorised, not banned: an AST fence that catches a physical constant in any expression position | `tests/test_constpolicy.py` (43 tests) |
 | Gate 6M | manufacturing back end: nesting, BOM, developability controls, export receipt (refold onto the hull: Gate 6D) | `tests/test_manufacturing.py` (38 tests) |
 | Gate R3 | the ladder is climbable: L2 escalation, monotone tier promotion, honest refusal of L3 | `tests/test_ladder.py` (8 tests) |
 | Gate S | the MDO spine: one terminal state per genome, append-only archive, legal-transition graph, unmeasured metric refused | `tests/test_pipeline.py` (48 tests) |
@@ -214,8 +215,8 @@ different Gate 2M numbers came to circulate at once (gap J1).
 | Gate 2K | the smoke verdict is the runner's own bar, an absent or truncated log is never promoted, and a smoke refusal can never read as a solve failure | `tests/test_smoke_verdict.py` (9 tests) |
 | Gate RT | the resistance tier: its envelope, and bit-exact values under any optimisation of the Michell integral | `tests/test_resistance.py` (17 tests) |
 | Gate XP | cross-machine parity: platform-class differences are distinguished from code-class ones, and a verdict is never excused by a tolerance | `tests/test_parity.py` (5 tests) |
-| Gate HC | the hull evaluation contract: four separate verdicts, a regime, a derived mesh+solver prescription and its cost, in one receipt that never reads OK without evidence | `tests/test_contract.py` (26 tests) |
-| Gate 2Y | population identity: (arity, seed) not seed alone, an undeclared seed is UNKNOWN and never silently development, and NO committed artifact may draw from the validation or held-out seed | `tests/test_population_split.py` (6 tests) |
+| Gate HC | the hull evaluation contract: four separate verdicts, a regime, a derived mesh+solver prescription and its cost, in one receipt that never reads OK without evidence | `tests/test_contract.py` (28 tests) |
+| Gate 2Y | population identity: (arity, seed) not seed alone, an undeclared seed is UNKNOWN and never silently development, and NO committed artifact may draw from the validation or held-out seed | `tests/test_population_split.py` (20 tests) |
 | Gate 2N | physics sanity: a force must have the right sign, a finite magnitude, and a defensible ratio to the cheap model — and an unreadable history is never a result | `tests/test_physics_sanity.py` (11 tests) |
 | Gate 2W | the case writer consults the physics floors it was given: cells-per-wavelength and the Reynolds regime decide before a mesh is sized | `tests/test_case_wiring.py` (16 tests) |
 | Gate 2X | h011/h012: the geometry is provably clean, and no measured descriptor separates the failures from the passers — a criterion that does not separate is not a criterion | `tests/test_h011_h012_invariant.py` (15 tests) |
