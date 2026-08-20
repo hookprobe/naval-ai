@@ -505,16 +505,19 @@ def _theta_grid(n_theta: int) -> tuple[np.ndarray, np.ndarray]:
     return thetas, 1.0 / np.cos(thetas)
 
 
-def _free_wave_vals(xs: np.ndarray, zs: np.ndarray, Y: np.ndarray,
-                    speed: float, thetas: np.ndarray,
-                    sec: np.ndarray) -> np.ndarray:
-    """|I(theta)|^2 sec^3(theta) for ONE centreplane — the expensive part.
+def _free_wave_vals_per_theta(xs: np.ndarray, zs: np.ndarray, Y: np.ndarray,
+                              speed: float, thetas: np.ndarray,
+                              sec: np.ndarray) -> np.ndarray:
+    """THE REFERENCE INTEGRAND — one theta at a time, exactly as first written.
 
-    Factored out of `michell_rw` verbatim so that a separation sweep pays the
-    x-z double integral ONCE instead of once per separation: the interference
-    factor is the only thing that depends on the separation, and it is a
-    multiply. Nothing here is reordered — the monohull result is bit-identical
-    (`tests/test_phase1.py::test_michell_monohull_is_bit_identical_...`).
+    Kept in the module rather than in a commit message for two reasons. It is
+    the FALLBACK for grids `_free_wave_vals` does not fast-path (a non-1-D `xs`
+    or `zs`, which `np.trapezoid` accepts and the batched form does not
+    reproduce term-for-term), and it is the DEFINITION the batched form is
+    tested against — `tests/test_resistance.py` transcribes it independently
+    and asserts bit equality over every grid and Froude number the golden
+    covers. A speedup whose only proof is that it agrees with itself is not
+    proved.
     """
     k0 = G / speed**2
     dydx = np.gradient(Y, xs, axis=0)
@@ -528,6 +531,163 @@ def _free_wave_vals(xs: np.ndarray, zs: np.ndarray, Y: np.ndarray,
         re = np.trapezoid(fx * np.cos(phase), xs)
         im = np.trapezoid(fx * np.sin(phase), xs)
         vals[i] = (re**2 + im**2) * sc**3
+    return vals
+
+
+# HOW BIG A BITE OF THE THETA SWEEP TO TAKE AT ONCE. A MEMORY bound, never a
+# numerical one: every theta node is independent, so the chunk size cannot
+# reach the answer (`tests/test_resistance.py::
+# test_free_wave_vals_is_chunk_size_independent` measures that from 1 byte to
+# 1 GiB). It exists because the un-chunked form would materialise an
+# (n_theta, nx, nz) tensor, and the catamaran rule reaches n_theta = 17 600 at
+# s/Lwl = 20 — 1.5 GB on the production grid, for an answer that is 17 600
+# doubles.
+#
+# 512 KiB was MEASURED, not guessed, over the four grid shapes this module is
+# asked for (best-of-9, per-call ms, against the per-theta reference above):
+#
+#     grid      n_theta   reference   128 KiB   256 KiB   512 KiB   1 MiB   2 MiB
+#     241x44        220      27.00      19.26     15.01     12.95   14.81   19.63
+#     241x44        880     108.41      77.07     59.80     52.60   59.37   76.38
+#      41x14        220      14.67       1.68      1.57      1.53    1.57    1.49
+#      97x25        880      86.63      26.79     21.41     19.81   23.10   27.53
+#     481x88        220      90.93      57.54     58.25     58.19   68.41  119.05
+#
+# The optimum is a CACHE optimum — the working set is two buffers of this size
+# — which is why it is flat-ish from 256 KiB to 1 MiB and falls off hard above,
+# and why it is expressed in bytes rather than in theta nodes: a 481x88 grid
+# gets 1 node per chunk and a 41x14 grid gets 111, which is the intent.
+_FREE_WAVE_CHUNK_BYTES = 1 << 19
+
+
+def _free_wave_vals(xs: np.ndarray, zs: np.ndarray, Y: np.ndarray,
+                    speed: float, thetas: np.ndarray,
+                    sec: np.ndarray) -> np.ndarray:
+    """|I(theta)|^2 sec^3(theta) for ONE centreplane — the expensive part.
+
+    Factored out of `michell_rw` so that a separation sweep pays the x-z double
+    integral ONCE instead of once per separation: the interference factor is
+    the only thing that depends on the separation, and it is a multiply. The
+    monohull path is bit-identical to the pre-multihull module
+    (`tests/test_phase1.py::test_michell_monohull_is_bit_identical_without_a_separation`)
+    and stayed so through this rewrite.
+
+    THE SAME ARITHMETIC AS `_free_wave_vals_per_theta`, IN THE SAME ORDER, ONE
+    CHUNK OF THETA NODES AT A TIME. That claim is the whole of this function's
+    licence to exist and it is MEASURED, bit for bit, over every grid and
+    Froude number in `tests/test_resistance.py`'s 4906-key golden — because
+    `michell_rw` feeds pinned numbers all over this repository and a one-ulp
+    drift here is a change, not a rounding error.
+    MEASURED cost on the production 241x44 grid at n_theta 220: 27.0 -> 13.0 ms
+    (2.1x); on a 41x14 grid 14.7 -> 1.5 ms (9.6x), where the per-theta form was
+    almost entirely `np.trapezoid` wrapper overhead — 660 calls at ~60 us.
+
+    NOTHING PHYSICAL MOVED. Not a constant, not the theta density, not the
+    quadrature resolution, not a tolerance. The three places the batch could
+    have silently changed the answer, and what was done about each:
+
+      1. `sc ** 2` on a numpy SCALAR is libm `pow`; `arr ** 2` is rewritten by
+         numpy into `square`, the correctly-rounded product. MEASURED: they
+         disagree on 388 of 400 000 doubles in [0.5, 5000). `np.float_power`
+         is the array form that reproduces the scalar path, and is used here
+         for exactly that reason and for no other. (`** 3` has no numpy fast
+         path, so scalar and array agree and it is left alone — the trap is
+         not "use float_power everywhere".)
+      2. `np.trapezoid` ends in a PAIRWISE `.sum(axis)`, so promoting the
+         reduction to a new leading axis is a real question. MEASURED: a 1-D
+         reduction equals row i of the 2-D `axis=-1` one, a 2-D `axis=1`
+         equals a 3-D `axis=2`, and chunking the leading axis changes nothing.
+         That measurement is what allows the batch at all.
+      3. `x / 2.0` is replaced by `x * 0.5` — the same exact real, one IEEE
+         rounding, identical for every double including subnormals, +-0 and
+         +-inf (MEASURED over 4.2M random bit patterns). It is worth a third
+         of this function's remaining time, because a vector divide is not a
+         vector multiply.
+
+    WHAT WAS REFUSED. `fx[i] = sum_j w_j dydx[i,j]` is a matrix-vector product
+    and BLAS would do it several times faster — in its OWN accumulation order,
+    which is not this one. Likewise folding the `0.5` into `dz` (or past the
+    sum) saves another pass and is exact only while no partial sum lands in the
+    subnormal range; it is worth ~1 ms of 13 and was not taken for it.
+    """
+    xa, za, seca = (np.asanyarray(xs), np.asanyarray(zs), np.asanyarray(sec))
+    k0 = G / speed**2
+    dydx = np.gradient(Y, xs, axis=0)
+    # WHEN THE FAST PATH DOES NOT APPLY, SAY SO AND USE THE REFERENCE rather
+    # than answering a slightly different question. Two conditions, both real:
+    # `np.trapezoid` accepts an `x` matching `y`'s rank (nothing in this module
+    # produces one, and reproducing that broadcast term-for-term is not worth a
+    # second fast path); and the batch accumulates into float64 buffers, which
+    # is what the per-theta form does anyway UNLESS every input is narrower —
+    # an all-float32 call would be promoted here and not there, so it is sent
+    # back. Neither branch is reachable from `michell_rw`; they exist so that
+    # "faster" can never quietly mean "different".
+    if (xa.ndim != 1 or za.ndim != 1
+            or np.result_type(dydx.dtype, seca.dtype, xa.dtype,
+                              za.dtype) != np.float64):
+        return _free_wave_vals_per_theta(xs, zs, Y, speed, thetas, sec)
+
+    n = len(thetas)
+    nx, nz = dydx.shape
+    vals = np.empty(n)
+    if n == 0:
+        return vals
+
+    # The per-theta scalars, computed once for the whole sweep. `float_power`
+    # is trap 1 above: it is the array expression that equals `sc ** 2` on the
+    # numpy scalar the reference loop iterated. `sec ** 3` needs no such care.
+    kdepth = k0 * np.float_power(seca, 2.0)    # == k0 * sc**2
+    kphase = k0 * seca                         # == k0 * sc
+    sec3 = np.float_power(seca, 3.0)           # == sc**3
+
+    # `np.trapezoid(y, x, axis=a)` is `(d * (y[1:] + y[:-1]) / 2.0).sum(a)`
+    # with `d = diff(x)` broadcast onto `a`. Written out here so the two
+    # multiplies can run in place on a reused buffer instead of allocating
+    # four full-size temporaries per chunk; the operation ORDER is the
+    # expression's, term for term.
+    dz = np.diff(za).reshape(1, 1, -1)
+    dx = np.diff(xa).reshape(1, -1)
+
+    # Two chunk sizes, because the z-integral carries an nz factor the
+    # x-integral does not: on the production grid the whole 220-node sweep
+    # does its x-integral in ONE batch while the z-integral takes 6 nodes at a
+    # time, which is where the last of the per-call overhead goes.
+    step_z = max(1, min(n, _FREE_WAVE_CHUNK_BYTES // max(nx * nz * 8, 1)))
+    step_x = max(step_z, min(n, _FREE_WAVE_CHUNK_BYTES // max(nx * 8, 1)))
+
+    gz = np.empty((step_z, nx, nz))            # dydx * depth
+    zt = np.empty((step_z, nx, max(nz - 1, 0)))   # the z-trapezoid terms
+    fxb = np.empty((step_x, nx))               # the z-integral, per theta
+    xw = np.empty((step_x, nx))                # fx * cos/sin(phase)
+    xt = np.empty((step_x, max(nx - 1, 0)))    # the x-trapezoid terms
+    ri = np.empty((2, step_x))                 # Re I, Im I
+
+    for lo in range(0, n, step_x):
+        hi = min(lo + step_x, n)
+        m = hi - lo
+        for a in range(lo, hi, step_z):
+            b = min(a + step_z, hi)
+            k = b - a
+            # zs must be <= 0 (below the actual free surface); clamp defensively
+            depth = np.exp(np.minimum(kdepth[a:b, None] * za[None, :], 0.0))
+            g, t = gz[:k], zt[:k]
+            np.multiply(dydx[None, :, :], depth[:, None, :], out=g)
+            np.add(g[:, :, 1:], g[:, :, :-1], out=t)
+            t *= dz
+            t *= 0.5
+            np.sum(t, axis=-1, out=fxb[a - lo:b - lo])
+        fx = fxb[:m]
+        phase = kphase[lo:hi, None] * xa[None, :]
+        for j, trig in enumerate((np.cos, np.sin)):
+            w, t = xw[:m], xt[:m]
+            np.multiply(fx, trig(phase), out=w)
+            np.add(w[:, 1:], w[:, :-1], out=t)
+            t *= dx
+            t *= 0.5
+            np.sum(t, axis=-1, out=ri[j, :m])
+        # (re**2 + im**2) on numpy scalars is libm pow twice — trap 1 again.
+        vals[lo:hi] = (np.float_power(ri[0, :m], 2.0)
+                       + np.float_power(ri[1, :m], 2.0)) * sec3[lo:hi]
     return vals
 
 
@@ -655,7 +815,10 @@ def michell_rw_separation_sweep(xs: np.ndarray, zs: np.ndarray, Y: np.ndarray,
     the separation, so a sweep of N separations costs one spectrum plus N
     multiplies rather than N spectra. MEASURED on the Wigley demihull at
     n_theta = 880: the spectrum is 14.4 ms and each additional separation is
-    ~0.05 ms, so a 60-point sweep is 17 ms instead of 0.9 s.
+    ~0.05 ms, so a 60-point sweep is 17 ms instead of 0.9 s. (The spectrum half
+    of that has since got ~2x cheaper — see `_free_wave_vals` — which only
+    widens the gap the paragraph is arguing for; the figures are left as
+    recorded rather than rescaled to a different machine's clock.)
 
     `n_theta` is resolved ONCE, from the LARGEST separation asked for, so every
     point of the sweep is on one grid and on the right side of the resolution
@@ -976,7 +1139,11 @@ def total_resistance(hull: Hull, speed: float, wetted: float, cb: float,
     obeying it on the production grid (241 x 44 offsets, reference hull):
     6.2 ms at 220 nodes, 24.3 ms at 880 — so a catamaran evaluation is ~18 ms
     dearer than a monohull one and Gate 1's 50 ms bar is a MONOHULL bar. The
-    bar was not touched; see `tests/test_multihull.py` for the catamaran's own
+    bar was not touched. (Those two absolute figures PREDATE the batched
+    integrand and are left as recorded rather than silently rescaled to a
+    different machine's clock; both halves got ~2.1x cheaper together, so the
+    4x RATIO the paragraph is about is unchanged — see `_free_wave_vals`.)
+    See `tests/test_multihull.py` for the catamaran's own
     measured latency gate.
     """
     nz = int(PRODUCTION_GRID["nz"] if nz is None else nz)
