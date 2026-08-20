@@ -5,10 +5,12 @@ reports are the evidence base (`docs/forensics/`: failure-paths,
 tests-honesty-batch, import-graph, scripts-files-artifacts, docs-vs-code,
 tests-phase-batch, ownership, e2e-map, shadow-api) — treat them as
 appendices; every claim below carries file:line evidence there. Companion
-deliverables: `LIVE_SYSTEM_MAP.md`, `CODE_FORENSICS_E2E_MAP.md`
-(= forensics/e2e-map.md), `CODE_IMPORT_GRAPH.md` (= forensics/
-import-graph.md), `SCRIPT_FORENSICS.md` (= forensics/
-scripts-files-artifacts.md), `CODE_CONSOLIDATION_PLAN.md`.
+deliverables: `LIVE_SYSTEM_MAP.md`, `docs/forensics/e2e-map.md`,
+`docs/forensics/import-graph.md`,
+`docs/forensics/scripts-files-artifacts.md`,
+`CODE_CONSOLIDATION_PLAN.md`. (The three forensics files had a
+byte-identical second copy at the top level of `docs/` until
+2026-08-20; the duplicates are deleted and these are the one home.)
 
 ## The verdict in one paragraph
 

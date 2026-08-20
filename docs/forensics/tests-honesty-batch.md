@@ -1,4 +1,13 @@
 # Forensics — test batch: honesty/product/meta suites (16 files)
+
+> **DATED SNAPSHOT — NOT A CURRENT STATE.** This file was measured at
+> `HEAD 3527a59` (2026-08-18). That commit is now **174 commits**
+> behind `master`. Read it as evidence of what was true THEN, never as
+> an answer to "what is the state now" — CLAUDE.md routes that question
+> to `python -m navalai.gates` and `python scripts/reconcile_gaps.py`.
+> The 2026-08-11 incident this repo records is exactly this failure: four
+> documents each asserted a subsystem did not exist, and all four were
+> false because they were read as current.
 Sub-agent batch report (parent test-forensics agent died at session
 limit; this batch completed). HEAD 3527a59.
 

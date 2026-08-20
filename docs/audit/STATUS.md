@@ -1,4 +1,13 @@
-# Architecture audit + rebuild — execution status (updated 2026-08-14)
+# Mac <-> fortress001 channel, and the 2026-08-14 rebuild status
+
+> **THIS FILE IS APPEND-ONLY AND LIVE.** Its header said "updated
+> 2026-08-14" while entries were being appended daily, most recently
+> 2026-08-20 — a date that reads as the file's currency while six days
+> of entries had been appended past it. Newest entries are at the BOTTOM.
+> It is a CHANNEL, not a status source: what is true now comes from
+> `python -m navalai.gates` and `python scripts/reconcile_gaps.py`.
+> The Phase-1/Phase-2 sections immediately below are the original
+> 2026-08-14 rebuild record and are HISTORY.
 
 Campaign: deep inspection -> docs/NAVALAI_GEOMETRY_ARCHITECTURE_AUDIT.md ->
 docs/NAVALAI_REBUILD_PLAN.md -> incremental execution. NO CFD runs.

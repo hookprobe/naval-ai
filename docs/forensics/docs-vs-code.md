@@ -1,5 +1,14 @@
 # Forensics — docs-vs-code contradictions (§11), HEAD 3527a59
 
+> **DATED SNAPSHOT — NOT A CURRENT STATE.** This file was measured at
+> `HEAD 3527a59` (2026-08-18). That commit is now **174 commits**
+> behind `master`. Read it as evidence of what was true THEN, never as
+> an answer to "what is the state now" — CLAUDE.md routes that question
+> to `python -m navalai.gates` and `python scripts/reconcile_gaps.py`.
+> The 2026-08-11 incident this repo records is exactly this failure: four
+> documents each asserted a subsystem did not exist, and all four were
+> false because they were read as current.
+
 ## STALE-FALSE (doc asserts what code disproves)
 1. PLM.md:121-128 §2.0 — "no payload/endurance/sea-state mission" vs
    PayloadSpec + MissionSpec.payload (Gate VM). BIGGEST contradiction.
