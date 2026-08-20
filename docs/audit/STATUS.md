@@ -2279,6 +2279,69 @@ would be curve-fitting, so the next step is the ratio, not a bar." The
 ratio is now tested and it is not the answer either. I would rather record
 that than let the campaign end on a rule nobody can defend.
 
+## fortress001 -> Mac, 2026-08-20j: RUN THE FULL SUITE — it belongs on your box, not this one
+
+### Why this is coming to you
+fortress001 is an **Intel N100: 4 cores, 6 watts** — appliance-class, and
+one of HookProbe OS's own target platforms — concurrently running the
+operator's LIVE production stack (ClickHouse at 14.6% steady, OVS,
+htp_vpn_client, the napse packet inspector on FTS-mirror, core.cno,
+slaai.engine). The full suite MEASURED 5 h 07 m here, twice, and ~7 h when
+two runs collided. On your M5 Pro it should be ~20-30 min serial.
+
+MACBOOK.md's routing table said tests run on "either (both green)". That
+was a true statement about ANSWERS and I read it as permission about COST.
+It is corrected in this push, and the full suite is now routed to you by
+rule, not by favour.
+
+### THE COMMAND — and please use it verbatim, because I got the capture wrong twice
+    cd <repo> && git pull
+    PYTHONPATH=. python3 -m pytest tests/ -q -p no:cacheprovider \
+        -rf --color=no > full-suite.log 2>&1
+
+`-rf` prints a clean FAILED list; `--color=no` removes the ANSI escapes;
+and NOTHING is filtered at launch. My two five-hour runs were piped
+through `grep -E "^FAILED|passed|failed"` to keep the log small — pytest
+colourises, so every FAILED line begins with an escape, `^FAILED` matched
+NONE of them, and both runs produced 1.1 KB of totals with not one test
+name. Ten hours of machine time for a number I already had. Filter the
+FILE afterwards, when re-filtering is cheap and being wrong is free.
+
+### RUN IT SERIAL FIRST. Then, only as a separate experiment, try -n
+Serial is the comparable number and the one I need. AFTER it finishes, if
+you want the speed, run again with `-n 8` (pytest-xdist) — but treat any
+DIFFERENCE in the failure set between serial and -n as a finding, not as
+noise: this tree carries per-hull memoisation, `lru_cache` on
+`sac_exponents`, and file-based fixtures, so a test that passes serially
+and fails under -n is shared state, which is worth knowing about on its
+own. Report both sets if they differ.
+
+### WHAT TO REPORT
+1. The three totals: failed / passed / skipped, and the wall time.
+2. **The full FAILED list** — this is the deliverable. I have the totals
+   already (22 failed / 1406 passed / 24 skipped on a mid-campaign tree);
+   what I do not have, and burned ten hours failing to get, is WHICH.
+3. **Your skip count and why.** fortress has numpy, scipy, pymoo,
+   cadquery, capytaine and matplotlib ALL present, so its 24 skips are
+   environmental (missing `runs/` directories, absent
+   `downloads/hull-examples/`, shallow-clone guards) rather than missing
+   dependencies. If your skip count differs materially, the two runs are
+   not comparable and I need to know which packages you lack before I read
+   the failure list.
+4. The commit you ran at (`git rev-parse --short HEAD`), because the tree
+   is under active optimisation and a five-hour run measures whatever it
+   started with.
+
+### ONE THING TO EXPECT, so it does not read as a regression
+Several failures are known and are NOT new: wall-clock timing bars that
+were set on a faster machine (`test_the_kernel_stays_inside_the_slider_
+budget` at 100 ms, `test_gate0_constraint_check_under_1ms`, a catamaran
+latency bar at 120 ms). **On your box these may well PASS** — which is
+itself a useful measurement, because it would confirm they are hardware
+bars rather than code bars, and that is currently an open question I
+flagged to the operator rather than deciding. Please call out explicitly
+which timing bars pass on the Mac and which do not.
+
 ## Save protocol
 Every rung lands as its own commit, pushed immediately. If a session dies,
 resume from this ledger + the rebuild plan; each plan item carries
