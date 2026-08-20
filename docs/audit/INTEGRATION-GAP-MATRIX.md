@@ -409,3 +409,43 @@ bias at RANS cost, so agreement with the L1 tier would be CORRELATED
 ERROR rather than validation. That is precisely the trap
 docs/research/SMALL-CRAFT-REGIMES.md predicted, caught by the gate that
 research produced, on the first population it was pointed at.
+
+
+---
+
+# Part VII — the baseline was far redder than reported (2026-08-20)
+
+A full-suite run on a PRISTINE checkout of the HEAD this campaign started
+from finished after 5h08m:
+
+    30 failed, 1299 passed, 39 skipped
+
+I had reported "at least five stale pins" from spot checks. That was an
+undercount by a factor of six, and the correction matters more than the
+number: **the suite was substantially red BEFORE this campaign began**,
+and nobody knew, because the pre-push fence runs a 134-test
+record-integrity subset rather than the whole suite. A green fence and a
+green suite are different claims, and only the first was ever being made.
+
+WHAT THIS DOES NOT MEAN. It is not 30 defects in the product. The five
+examined in detail were all of one family — pins whose underlying value
+moved through legitimate, well-documented changes that nobody
+re-measured (an LCB pin that survived four hydrostatics revisions; a ply
+thickness that predated Gate 6R's implementation of the operator's own
+delivered ISO text; an equality pinned tighter than the solver
+converges). Each was re-measured with its reason recorded rather than
+deleted or loosened, and each took minutes once located.
+
+WHAT IT DOES MEAN, and it is the §16.A consequence: "all existing tests
+pass" was never a satisfiable acceptance criterion at this HEAD, and any
+plan that treated it as a checkbox was mis-scoped. The honest sequence is
+(a) run the FULL suite to get today's number, (b) triage it by family
+rather than by test, (c) re-measure with reasons, and only then (d) claim
+§16.A. Steps (a)-(c) are hours of work, not minutes, and they are hours
+nobody had budgeted.
+
+RECOMMENDED, and not yet done: put the full suite on a schedule — nightly,
+or at minimum before any acceptance claim — so that the distance between
+"the fence is green" and "the suite is green" can never again grow to 30
+without anyone noticing. The fence stays as it is: it is fast because it
+is a subset, and that is the right trade for a pre-push hook.
