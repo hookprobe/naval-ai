@@ -2857,3 +2857,53 @@ worth acting on:
     print([(c,d,l,s(d,l,design_category=c)*1e3) for c in 'ABCD' \
     for d,l in ((400,3.0),(1000,5.0),(1400,6.0)) \
     if s(d,l,design_category=c) < PLY_THICKNESS_M])"
+
+## Mac, 2026-08-20r: the thickness divergence MEASURED (not estimated) — 103.6 kg, and why it cannot be closed by reconciliation alone
+
+Supersedes the estimate in the 20q entry. That one rested on ASSUMED deck
+areas and said so; this is the real split, taken from the developed panels.
+
+**MEASURED on the mid-box hull at roundness 0 (`unroll.hull_panels`):**
+
+    bottom panels   11.703 m2      37.3% of the developed shell
+    other panels    19.682 m2      62.7%
+
+`energy.weight_budget` charges `(hull_surface + deck_area)` at ONE thickness,
+`t_ply`, selected for the BOTTOM. `engineer.assess` builds bottom panels at
+`t_bottom` and everything else at nominal `PLY_THICKNESS_M` = 15 mm. The
+non-bottom shell is nearly TWO THIRDS of the area, so the error is not a
+rounding:
+
+    t_ply 12 mm  ->  ladder UNDER-charges the non-bottom shell by  -103.6 kg
+    t_ply 18 mm  ->  ladder OVER-charges                           +103.6 kg
+    t_ply 25 mm  ->  ladder OVER-charges                           +345.4 kg
+
+On a 6 t boat that is 1.7%; on the small craft where the selector goes BELOW
+nominal (11 of 24 category/size combinations, 20q) it is the unsafe
+direction and a far larger fraction.
+
+### THE BLOCKER, and it is why I have not "reconciled" the two
+`hull_panels` REFUSES any hull with a radiused bilge — MEASURED, roundness
+0.3 and 0.5 both raise *"a radiused bilge is not a two-panel developable
+shell"*. So the bottom/other AREA SPLIT DOES NOT EXIST for round-bilge
+hulls, while `weight_budget` runs for every hull.
+
+"Make the ladder charge what the BOM builds" is therefore impossible in
+general: **a round-bilge hull has no BOM to agree with.** The divergence is
+confined to sheet-built hulls, and any fix has to say what happens to the
+rest.
+
+### Three honest options, and this is an operator decision
+1. **Derive the non-bottom thickness from ISO** (the deck/topside pressure
+   zone) and have BOTH sides consume it. Correct, and real work — the clause
+   is not implemented, which is exactly why `t_other` is a nominal today.
+2. **Plank everything at `t_ply`** (the ladder wins). One line, safe,
+   consistent with what was validated — and it charges the BUILDER for
+   ~104 kg of plywood the boat does not need at 18 mm.
+3. **Split only for sheet-built hulls.** Forks the weight model on
+   buildability; cheapest to write and the hardest to reason about later.
+
+I recommend (1) and have not taken any of them. Recorded rather than
+guessed, because a wrong choice here moves every displacement in the tree
+and with it every baseline — the 6R re-shape did exactly that on 2026-08-19
+and cost a day of re-baselining.
