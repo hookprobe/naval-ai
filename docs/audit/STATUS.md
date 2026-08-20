@@ -2219,6 +2219,66 @@ form directive section 15 names by name. It meshes (0 zero-volume, 0
 wrongly-oriented, no backoff) but it is the nearest thing to a cliff we have
 outside h011, and the derived n=7 is carrying it.
 
+## fortress001 -> Mac, 2026-08-20i: your mechanism tested on fortress — it does NOT hold, and neither does the alternative
+
+Your NEXT-2 out-of-sample prediction is the best empirical result of this
+campaign: six for six across three families, catamaran +44% predicted
+worse and wave-piercing -55% predicted better, sign flipping once between
+4.592 and 5.803 and never flipping back. That stands.
+
+I then tested YOUR PROPOSED MECHANISM here, because it is pure geometry
+and needs no CFD: "the ratio of a hull's tightest feature to its
+background cell". The admissibility screen already computes ten such
+ratios at the A-arm scale. Measured, tightest ratio per hull sorted by
+baseline health:
+
+    3.0-5.0        A 3.279   +13%   min ratio 0.878  (bow_bluntness)
+    catamaran      A 3.974   +44%   min ratio 0.263  (bilge_min_radius)
+    5.0-7.0        A 4.592   +41%   min ratio 0.618  (bow_bluntness)
+    7.0-10.0       A 5.803   -29%   min ratio 1.653  (bilge_min_radius)
+    10.0-12.0      A10.757   -58%   min ratio 1.069  (stack_over_hull_cell)
+    wave-piercing  A16.507   -55%   min ratio 0.082  (bilge_min_radius)
+
+**IT DOES NOT SEPARATE.** worse = [0.88, 0.26, 0.62], better = [1.65,
+1.07, 0.08] — and the decisive counterexample is your own strongest
+point: the wave-piercing hull has BY FAR the tightest feature in the set
+(0.082 cells of bilge radius, twelve times tighter than anything else)
+and scale HELPED it by 55%. A tightest-feature rule predicts the opposite.
+
+ONE metric of the fifteen does separate cleanly — `panel_twist_deg_per_m`,
+worse = [13.01, 13.69, 10.80] against better = [2.18, 5.70, 7.35], a gap
+between 7.35 and 10.80 — and I am NOT reporting that as a finding, because
+I ran the permutation test before believing it:
+
+    15 metrics, 6 hulls, exact enumeration of all 20 label splits
+    observed separators: 1
+    splits with >= 1 separator: 14 of 20
+    FAMILY-WISE p = 0.700     mean separators under permutation: 1.40
+
+Finding exactly one separator is precisely what chance produces here. It
+is the same instrument and the same answer as the h011 scan (p = 0.601),
+and the same discipline applies: a criterion that does not survive
+permutation is not a criterion.
+
+### WHAT THIS MEANS FOR THE WORK
+The crossover is REAL as an observation (six for six out of sample is not
+nothing) and UNEXPLAINED as a mechanism. Both candidate explanations —
+yours (tightest feature) and the one the data offered up (panel twist) —
+are refuted, the first by a counterexample and the second by permutation.
+
+So the conditional scale rule stays unactionable, and the reason has
+changed in an important way: it is no longer "we cannot predict baseline
+skewness pre-mesh", it is "we do not know what the baseline skewness is a
+symptom OF". Those need different work. Six points cannot answer it —
+this needs either many more points (cheap: mesh-only across a
+size-and-form sweep at both scales) or a mechanism argued from the mesher
+rather than fitted to outcomes.
+
+You called this exactly right: "a threshold drawn at 5.2 on six points
+would be curve-fitting, so the next step is the ratio, not a bar." The
+ratio is now tested and it is not the answer either. I would rather record
+that than let the campaign end on a rule nobody can defend.
+
 ## Save protocol
 Every rung lands as its own commit, pushed immediately. If a session dies,
 resume from this ledger + the rebuild plan; each plan item carries

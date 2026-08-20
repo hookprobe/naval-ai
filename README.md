@@ -164,7 +164,7 @@ different Gate 2M numbers came to circulate at once (gap J1).
 |---|---|---|
 | Gate 0G | the ladder cannot be talked into passing | `tests/test_gate_integrity.py` (38 tests) |
 | Gate 0R | a missed clause is RED BY RECORD, never prose in a scope | `tests/test_red_by_record.py` (14 tests) |
-| Gate 0K | geometry kernel: SAC/DWL design curves + N-point section | `tests/test_geometry_kernel.py` (19 tests) |
+| Gate 0K | geometry kernel: SAC/DWL design curves + N-point section | `tests/test_geometry_kernel.py` (24 tests) |
 | Gate 1E | the stages agree with each other: one geometry, one resistance, one ply, tier+sigma across every handoff | `tests/test_end_to_end_flow.py` (14 tests) |
 | Gate 0F | the hull-form library: bands ordered, every band carries its basis, no family contradicts its own Froude regime | `tests/test_formlib.py` (49 tests) |
 | Gate 0X | the experiment suite: controlled sweeps hold their controlled quantities, out-of-envelope points are refused, and the Michell interference phase matches an independent superposition | `tests/test_experiments.py` (52 tests) |
