@@ -317,12 +317,37 @@ restartable — each case is independent.
 
 ## 6 · What stays where
 
-| Work | Machine |
-|---|---|
-| L0/L1 ladder, slider UI, agents, rules, flywheel, tests | either (both green) |
-| OpenFOAM Gate 2M campaign | **Mac only** |
-| Diffusion + LoRA training | Mac (MPS/MLX) |
-| ISO licensed-text parity (Gate 6R) | neither — a qualified reviewer, not compute |
+**"EITHER" MEANT CORRECTNESS, AND IT WAS READ AS COST.** That row said the
+two machines are both green on the ladder and the tests — which is true and
+is a statement about ANSWERS. On 2026-08-20 it was read as permission to
+RUN there, and ten hours of the full test suite went onto fortress001 in
+two five-hour passes. The hardware makes that indefensible:
+
+| | fortress001 | Mac |
+|---|---|---|
+| CPU | **Intel N100, 4 cores, 6 W** — appliance-class, and one of HookProbe OS's own target platforms | Apple M5 Pro, np=10 measured |
+| concurrent load | **the operator's LIVE production stack** — ClickHouse (14.6% steady), OVS, htp_vpn_client, the napse packet inspector on FTS-mirror, core.cno, slaai.engine | idle between solves |
+| full pytest suite | **5 h 07 m MEASURED** (and ~7 h when two runs collide) | ~20-30 min est. serial, ~5-10 min with `-n 8` |
+
+So the correct rule is not "either", it is **whichever machine the work
+does not starve** — and fortress001 is a 6-watt box whose day job is
+running the operator's network.
+
+| Work | Machine | Why |
+|---|---|---|
+| L0/L1 ladder, slider UI, agents, rules, flywheel | either | seconds; both green |
+| **the full pytest suite** | **Mac** | 5 h on an N100 against ~20 min on the Mac; it is the single heaviest recurring job in the repo and it has no business on a production appliance |
+| targeted test files (the normal edit-test loop) | fortress | minutes, and it is where the code is written |
+| OpenFOAM Gate 2M campaign | **Mac only** | — |
+| Diffusion + LoRA training | Mac (MPS/MLX) | — |
+| ISO licensed-text parity (Gate 6R) | neither — a qualified reviewer, not compute | — |
+
+BEFORE STARTING ANY LONG JOB ON FORTRESS, CHECK WHAT THE BOX IS:
+`nproc; grep -m1 'model name' /proc/cpuinfo; uptime`. The 2026-08-20
+incident diagnosed the SYMPTOM correctly — wall-clock test bars were
+failing and were written up as "measuring the box, not the code" — while
+never once asking what the box was. One `nproc` would have routed the
+whole thing differently.
 
 Results flow back by re-bundling the repo (provenance DB + baselines.json
 travel with it, `data/*.sqlite3` is gitignored — copy it explicitly or
