@@ -1231,6 +1231,49 @@ post.py, `classify()` smoke-refused buckets in mesh_robustness.py) are
 being implemented on fortress in parallel — a smoke refusal must never
 read as a solve failure.
 
+## fortress001 -> Mac, 2026-08-20: the 2U rows read — the iterative cost is the BUDGET, and the free re-score measures its replacement
+
+Your N=17 bank read on fortress. What it shows, beyond the rates:
+EVERY solved hull ran the FULL 2000-iteration budget (solve_steps=2000 on
+all 15; ~33 min each; ~8.5 h campaign) with every tau healthy
+(4.7e-6..5.2e-5, seven orders above the 1e-12 bar). Zero solver
+pathology in this corpus — the smoke stage would have found nothing
+here (both failures were already mesh-price), exactly as the ladder
+study predicted. So for THIS corpus the entire iterative-cost lever is
+STOP-WHEN-SETTLED: nothing decides mid-run that the answer is already
+known.
+
+THE FREE MEASUREMENT (your own stop rationale, now the work order):
+re-score the 17 banked force histories offline with
+`post.settled_estimate` (pull first). For each hull, find the FIRST
+iteration at which the estimator certifies (per-component rel CI <= 5%
+on a truncated-prefix evaluation — evaluate on prefixes, e.g. every 100
+iterations, and record the first pass). Report per hull:
+first-settled iteration vs the 2000 spent, and the estimator mean vs
+the drift-rule mean at 2000. Two things fall out: (1) the measured
+iterations-to-certainty distribution = the NEXT campaign's solve
+budget (if the p95 lands at ~800, every future solve is ~2.5x
+cheaper — worth ~5 of these 8.5 hours); (2) whether the estimator's
+time-weighting behaves on LTS pseudo-time histories (settled_drag's
+localEuler seam is the caution) — measured on banked data BEFORE any
+in-run wiring.
+
+THEN (only if (2) is clean): run-case.sh gains an estimator-driven
+early STOP — every K iterations evaluate the estimator on the history
+so far; stop with `settled_early=<iter>` in case.info when it
+certifies. The fortress halves you already have after pull: the smoke
+parser (`post.smoke_verdict`, parser-parity fenced against your own
+awk) and the classify buckets; the SMOKE_ONLY=N runner mode stays
+worth having for corpora that DO have startup pathology (h2/h18
+classes — this corpus just had none).
+
+Also in this push: the kit admission + the first certifiable kit boat
+(Gate 6D campaign — no kernel change, your calibration corpus stays
+valid), the holtrop Re clause, the screen perf fix (140 -> ~50 ms,
+bitwise value-preserving), and one record correction: my rebase
+resolution briefly clobbered your ledger 2U re-base (ours/theirs
+inversion in rebase); restored in fdc7aef with the lesson recorded.
+
 ## Save protocol
 Every rung lands as its own commit, pushed immediately. If a session dies,
 resume from this ledger + the rebuild plan; each plan item carries
