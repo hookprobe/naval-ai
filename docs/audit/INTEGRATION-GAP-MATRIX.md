@@ -237,12 +237,17 @@ them.
    form, each pinned through the contract with its regime and prescription.
    These are also the genomes Block 4 needs, so building them serves both.
    MEDIUM.
-3. **§7 the per-criterion FP/FN table for the screen.** Every criterion
-   gets: equation, physical reason, source, measured evidence, FP, FN —
-   scored on the 25+17-hull corpus. The h011 investigation built the
-   instrument (permutation scoring); this applies it to the criteria that
-   already ship. MEDIUM, and it is the honest prerequisite to touching the
-   screen at all.
+3. **§7 the per-criterion FP/FN table** — ANSWERED 2026-08-20, and the
+   answer is that it CANNOT BE COMPUTED HONESTLY YET
+   (`docs/audit/SCREEN-CRITERIA-FPFN.md`). With the ladder ON the
+   74-hull corpus meshes 74/74, so the positive class is EMPTY; the only
+   corpus carrying screen verdicts pinned the ladder OFF, so its two
+   "failures" are the rung-0 artefact Block 1 invalidated; and the
+   ladder-ON corpora record no screen verdicts at all. Also found: the
+   harness bar and the runner bar disagree on one hull of 16 (13/16
+   against 14/16), so any Gate 2U rate must name its bar. RECOMMENDED
+   INSTEAD: re-target the screen as a COST predictor (which hulls need a
+   backoff rung — 9 of 74 did), which has a non-empty positive class.
 4. **§12 wire the D verdict.** `result_verdict` is UNMEASURED by design
    until a solve exists; the contract should read a case directory when
    given one (settled_drag + physics_sanity + the y+ receipt) so the same
