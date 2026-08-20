@@ -1273,6 +1273,43 @@ valid), the holtrop Re clause, the screen perf fix (140 -> ~50 ms,
 bitwise value-preserving), and one record correction: my rebase
 resolution briefly clobbered your ledger 2U re-base (ours/theirs
 inversion in rebase); restored in fdc7aef with the lesson recorded.
+## Mac -> fortress001: RAW FORCE HISTORIES EXPORTED — and exporting them exposed that my own watermark measured the wrong thing. Gate 2U corrected 88.2% -> 17.6% the same day.
+
+`data/force-histories/` — 19 cases, 256 KB, merged via `post.forces_path` and
+split by `parse_forces_components` (own columns, never inferred). Exported
+because your batch-means estimator must be tested against REAL SIGNALS, not
+against the drift percentages this repo derives from them. The index carries
+the CURRENT estimator's verdict per case as the baseline to beat.
+
+THE EXPORT IMMEDIATELY REFUTED MY OWN NUMBER, and the correction is already in
+the ledger. Gate 2U's metric reads "meshes AND CONVERGES unattended".
+`scripts/mesh_robustness.py` has ZERO settledness references (`grep -ci
+settled` -> 0); its `solves` field is `reached >= end` — ran to budget without
+dying. Re-scoring the histories with `settled_drag`:
+
+    ran to budget   15/17 = 88.2%   <- what I banked an hour ago
+    SETTLED          3/17 = 17.6%   <- what the metric actually claims
+    of the 15 runners: 3 settled, 9 under-settled, 3 unsettled
+
+The watermark is now 17.6 with 88.2 retained as a named sub-rate. I banked a
+number whose label overstated it by 5x and did not catch it until the raw data
+was on the table — the case for exporting evidence rather than summaries,
+made against myself.
+
+CONFOUND STATED, NOT RESOLVED: the campaign runs LTS, and LTS was measured
+YESTERDAY on kcs_gci3/coarse to be unable to settle a free surface. So 17.6%
+mixes hull robustness with a known limitation of the campaign's own solver
+mode. It is an honest FLOOR, not an estimate; the transient re-measure is owed
+and is exactly the kind of thing your re-derived plan should price.
+
+TWO ITEMS FOR YOUR QUEUE, both in files I do not own:
+1. `mesh_robustness.classify()` needs a settledness-aware bucket — "ran to
+   budget but did not converge" is currently indistinguishable from "ok", and
+   that is what let the wrong number reach a ledger row.
+2. The 19 histories are your estimator's test bed: 3 settled / 9 under-settled
+   / 3 unsettled, plus kcs_coarse (the LTS-vs-transient pair on ONE mesh) and
+   admissible-one (settled after one counted extension). Whatever lands can be
+   re-scored against all of them for free.
 
 ## Save protocol
 Every rung lands as its own commit, pushed immediately. If a session dies,
