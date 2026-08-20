@@ -2146,6 +2146,77 @@ run the reconciler.
 
 ## 16 · Roadmap
 
+### 2026-08-20 — the math-contract consolidation, and where the suite stands
+
+**This subsection is the plan's alignment with the day's research.** Its
+evidence is `docs/audit/MATH-CONSOLIDATION.md` (the PROVEN / PARTIAL /
+EMPIRICAL / REFUTED / MISSING matrix) and `docs/research/CROSSOVER.md`;
+neither is restated here. Gap ids M1-M8 are that matrix's rows.
+
+CLOSED, each with a gate test and a measured incident in its commit:
+
+| row | what was wrong | commit |
+|---|---|---|
+| M1/M2 | the derived supported-domain lower edge had NO code path — `supported_domain(2.55)` returned `in_domain=True`, because the enforced bound was the RCD's LEGAL 2.5 m | `d37b212` |
+| M3 | the refuted crossover mechanism lived only in commit messages and a rolling log | `635eb07` |
+| M6 | `seed=0` named TWO DISJOINT populations sharing zero hulls | `210b00d` |
+| M4 | the prescription claimed every number carried provenance; 11 of 15 carried none | `cfa75c1` |
+| M5 | cost and escalation were not fields; the cost hid at `mesh.wall_s` (11 h) | `cf006a9` |
+| M7 | the minimum state vector is `{Lwl, U, y+}`; Fn was a fourth ARGUMENT that could contradict the two it is derived from | `d3c8d1b` |
+| — | populations became REGENERABLE: the 16-gene banks reproduce 25/25 hull-for-hull, the 74-hull bank 0 of 74 | `7b501a7` |
+| — | the single-source fence only ever read ASSIGNMENTS; it now reads the AST | `99c02e2`, `81fbf6b` |
+| — | a multihull reaching NEITHER stability clause came back clean — a silent pass at >= 15 m | `b7a91ef` |
+
+**The transferable finding, and it is a defect CLASS rather than nine
+incidents.** Every one of the above is *a bar that exists and is not
+consulted, or consults the wrong quantity*: a derivation with no caller, a
+refusal pointing at a receipt that was never computed, a fence that only
+inspected assignments, a comparator measuring elementwise ulps against a
+batched result. Three of them were in work landed the same day by the
+machine that then found them. **When you add a bar, prove it fires on the
+path that matters, in BOTH directions** — a fence that merely passes proves
+nothing.
+
+### The suite, and a rule in §16 that the tree is currently breaking
+
+MEASURED 2026-08-20 on a stable tree, nothing edited during the run:
+**12 failed, 1555 passed, 17 skipped** (20 m 55 s on the M5 Pro; the same
+suite measures 5 h 07 m on fortress001's N100, which is why it is routed
+here). The morning's baseline was 14 / 1436 / 18, so this is +119 passing
+and -2 failing with no bar weakened.
+
+Of the 12: **one is red by construction** (`test_resistance`'s golden was
+recorded on x86-64 and this node is arm64 — re-measured, 530 of 4906 keys
+move, max relative 5.656e-13, none exceeding the 1e-12 parity bar), and
+**one is a gate promotion waiting to be taken** (`test_phase6r` fails
+BECAUSE the editions got recorded; Gate 6R sits in the ledger at watermark
+0). **Ten are genuine open defects and NONE of them is in the ledger.**
+
+This table's own rule, stated above and worth quoting against ourselves:
+*"A failing test is not a plan item. A suite failure is fixed in the change
+that caused it, or recorded in the ledger with a watermark, an owner and a
+`review_by`."* Ten failures are neither — they are the constant red the
+ledger exists to prevent. They are **not** listed as plan rows here, because
+doing that would be exactly the mistake the rule names. The action owed is a
+decision by their owner: fix, or ledger with a watermark and a date.
+
+The ten, by cluster: `test_blender_hull` x3; the scantling chain
+`test_phase6` x2 + `test_stageC` (one `TypeError` —
+`design_pressure_bottom() missing 1 required positional argument: 'lwl_m'` —
+plausibly explains all three, unverified); `test_constraints_honest` (LCB
+out by 0.056 against a 0.05 tolerance); `test_physical_form[e]` (the ratchet:
+`BM_m` and `displacement_floated_kg` moved, and the test forbids
+re-baselining without measured justification); `test_stageF`;
+`test_phase7` (whose NAME says `_is_timed` and which does not fail on a
+clock — it dies on `assert c["validated"] is True`).
+
+**17 skips, and 12 of them are ONE gap**: the admissibility screen's bars
+were calibrated on a 15-parameter genome against this tree's 16, so the
+campaign labels cannot be transferred. `7b501a7` makes that fixable by
+making populations regenerable. The remaining 5 are absent `runs/`
+directories, which is an environment fact.
+
+
 Ordering rule: **anything that makes the machinery lie comes before anything
 that uses the machinery**, extended 2026-08-13 by one clause: **a vessel-level
 quantity the ladder does not model at all ranks with the lies, not with the
