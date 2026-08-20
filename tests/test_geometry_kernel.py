@@ -545,15 +545,47 @@ def test_the_section_sampler_is_uniform_in_arc_length():
 # ---------------------------------------------------------------------------
 
 
+#: Ulps of slack allowed between a batched kernel and the per-station
+#: definition it replaces. ZERO ON x86-64 — measured, and that is what the
+#: optimisation was verified against. NOT ZERO ACROSS ARCHITECTURES.
+#:
+#: MEASURED 2026-08-20: this file's exact-equality form passed on
+#: fortress001 (Intel N100, x86-64) and FAILED on the Mac (Apple M5 Pro,
+#: arm64) with `section rho=0.35 n=41 i=0: 62 of 514 elements differ,
+#: worst |diff| 1.110e-16` — exactly ONE ULP at unit scale. The batched
+#: form and the loop form are the same arithmetic in a different SIMD and
+#: FMA schedule; IEEE-754 permits them to differ by a rounding, and on
+#: x86-64 with this numpy build they happened not to. Exact equality was a
+#: property of ONE PLATFORM mistaken for a property of the code.
+#:
+#: This is the SECOND independent route to the same fact. The h011/h012
+#: investigation measured `stl_sha256` to be non-portable between these
+#: two machines (13 of 3.47M printed %.6e numbers within 1e-12 of a
+#: rounding boundary). Both say: fortress and the Mac do not agree
+#: bitwise, and any cross-machine claim resting on exact float equality is
+#: a claim about one of them.
+#:
+#: 4 ulps, not 1e-12: it stays tight enough to catch a genuine algebra
+#: change (which moves results by orders of magnitude, not roundings)
+#: while admitting the rounding IEEE allows. The per-station function is
+#: still the DEFINITION; this only says how the comparison is read.
+_BATCH_ULP_SLACK = 4
+
+
 def _exactly(got, want, what: str) -> None:
     g, w = np.asarray(got, dtype=float), np.asarray(want, dtype=float)
     assert g.shape == w.shape, (what, g.shape, w.shape)
-    bad = ~((g == w) | (np.isnan(g) & np.isnan(w)))
+    same = (g == w) | (np.isnan(g) & np.isnan(w))
+    if same.all():
+        return
+    # within N ulps of the definition, elementwise, is still the definition
+    tol = _BATCH_ULP_SLACK * np.spacing(np.maximum(np.abs(g), np.abs(w)))
+    bad = ~(same | (np.abs(g - w) <= tol))
     if bad.any():
         raise AssertionError(
-            "%s: %d of %d elements differ, worst |diff| %.3e"
-            % (what, int(bad.sum()), g.size,
-               float(np.max(np.abs(g[bad] - w[bad])))))
+            "%s: %d of %d elements differ by more than %d ulp, worst |diff| "
+            "%.3e" % (what, int(bad.sum()), g.size, _BATCH_ULP_SLACK,
+                      float(np.max(np.abs(g[bad] - w[bad])))))
 
 
 def test_the_batched_section_machinery_is_the_per_station_definition():

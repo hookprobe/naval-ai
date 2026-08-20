@@ -470,20 +470,50 @@ def test_numpy_trapezoid_batches_bit_exactly():
         assert np.array_equal(bits(full), bits(chunked))
 
 
+#: The architecture this golden was RECORDED on. A bit-for-bit baseline is
+#: a claim about one machine's floating point, and this file says which.
+GOLDEN_ARCH = "x86_64"
+
+
 def test_resistance_is_bit_identical_to_the_golden():
     """THE BAR. Every number this module produces, to the last bit.
 
     Not `allclose`. Not 1e-15. `float.hex()` and a SHA-256 over the raw IEEE
     bytes, because `michell_rw` feeds pinned figures across this repository and
     a one-ulp move is a change, not a rounding error.
+
+    AND THE BAR IS PLATFORM-LOCAL, which is not a weakness but has to be
+    SAID. MEASURED 2026-08-20: the geometry kernel's sibling equality test
+    passed on fortress001 (Intel N100, x86-64) and failed on the Mac
+    (Apple M5 Pro, arm64) at 62 of 514 elements, worst |diff| 1.110e-16 —
+    exactly one ulp. Same arithmetic, different SIMD and FMA schedule;
+    IEEE-754 permits the rounding. The h011/h012 investigation found the
+    same fact from the other end, measuring `stl_sha256` non-portable
+    between these two machines.
+
+    So a mismatch HERE means one of two very different things, and the
+    failure must say which: on x86-64 it is a REGRESSION and the number
+    moved; on another architecture it is EXPECTED and the golden simply
+    was not recorded there. Reporting the second as the first would send
+    someone hunting a defect that does not exist.
     """
+    import platform
+
     got = golden_payload()
     assert set(got) == set(GOLDEN), (
         "golden key set moved: +%s -%s"
         % (sorted(set(got) - set(GOLDEN))[:8], sorted(set(GOLDEN) - set(got))[:8]))
     bad = [(k, GOLDEN[k], got[k]) for k in sorted(GOLDEN) if GOLDEN[k] != got[k]]
-    assert not bad, "%d of %d keys moved:\n%s" % (
-        len(bad), len(GOLDEN),
+    here = platform.machine()
+    where = ("REGRESSION: this is %s, the architecture the golden was "
+             "recorded on, so the numbers genuinely moved." % GOLDEN_ARCH
+             if here == GOLDEN_ARCH else
+             "PLATFORM: this is %r and the golden was recorded on %r. A "
+             "one-ulp spread between architectures is IEEE-legal and "
+             "MEASURED between these two machines; re-record the golden "
+             "here before reading this as a code change." % (here, GOLDEN_ARCH))
+    assert not bad, "%d of %d keys moved. %s\n%s" % (
+        len(bad), len(GOLDEN), where,
         "\n".join("  %s: golden %s -> got %s" % b for b in bad[:20]))
 
 
