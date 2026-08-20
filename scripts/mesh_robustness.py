@@ -39,6 +39,7 @@ from navalai.admissibility import screen
 from navalai.cfd.case import (layer_backoff_ladder, layer_spec,
                               write_resistance_case)
 from navalai.evaluate import sample_valid
+from navalai import population as _POP
 from navalai.geometry import Hull
 from navalai.mission import MissionSpec
 
@@ -930,6 +931,17 @@ def _write_json(args, rows) -> None:
     Path(args.json).write_text(json.dumps(
         {"n": len(rows), "scale": args.scale, "speed": args.speed,
          "seed": args.seed, "np": args.np_procs,
+         # POPULATION IDENTITY (M6, 2026-08-20). The seed alone is NOT an
+         # identity: every bank in data/ records seed 0, and the 15-gene and
+         # 16-gene banks share ZERO hulls, because sample_valid draws from
+         # default_rng(seed) and adding a gene changes the draw sequence. A
+         # bank written without its arity cannot be compared to any other
+         # bank, and the 74-hull bank -- the largest evidence base here --
+         # is a 15-gene population this tree can no longer regenerate.
+         "genome_arity": _POP.current_arity(),
+         "population_id": _POP.population_id(
+             _POP.current_arity(), args.seed, len(rows)),
+         "split": _POP.split_of_seed(args.seed),
          "regime": "transient" if args.transient else "LTS",
          "solve_requested": args.solve,
          "success_pct": 100.0 * ok / max(len(rows), 1),

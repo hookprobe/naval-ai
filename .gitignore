@@ -102,3 +102,4 @@ docs/research/*.png
 !docs/assets/
 skips.log
 full-suite.log
+full-suite-2.log

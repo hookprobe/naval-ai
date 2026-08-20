@@ -640,6 +640,16 @@ GATES = [
          "a regime, a derived mesh+solver prescription and its cost, in one "
          "receipt that never reads OK without evidence",
          "tests/test_contract.py"),
+    # M6 (2026-08-20). A ">= 95% unattended" claim is a claim about a
+    # POPULATION, and MEASURED that day every Gate 2U bank recorded seed 0
+    # while the 15-gene and 16-gene banks shared ZERO hulls — the same seed
+    # naming two disjoint populations, and the larger one no longer
+    # regenerable by this tree. This gate keeps the three splits apart and
+    # makes "never tuned against" checkable instead of promised.
+    Gate("Gate 2Y", "population identity: (arity, seed) not seed alone, an "
+         "undeclared seed is UNKNOWN and never silently development, and NO "
+         "committed artifact may draw from the validation or held-out seed",
+         "tests/test_population_split.py"),
     Gate("Gate 2N", "physics sanity: a force must have the right sign, a "
          "finite magnitude, and a defensible ratio to the cheap model — and "
          "an unreadable history is never a result",
