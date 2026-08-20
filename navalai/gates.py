@@ -610,6 +610,17 @@ GATES = [
     Gate("Gate 2K", "the smoke verdict is the runner's own bar, an absent or "
          "truncated log is never promoted, and a smoke refusal can never "
          "read as a solve failure", "tests/test_smoke_verdict.py"),
+    # A solver that exits 0 has not thereby produced physics. Until
+    # 2026-08-20 nothing checked the SIGN or MAGNITUDE of an extracted
+    # force: every C_T was produced through abs(), which also made
+    # pipeline.check_cfd's `ct <= 0` refusal unreachable, so a sign-flipped
+    # thrust could mint an L3 "measured" badge. This row owns the bars that
+    # close it — including the reader, where a NaN row did not merely drop
+    # but parsed as EXACTLY ZERO.
+    Gate("Gate 2P", "physics sanity: a force must have the right sign, a "
+         "finite magnitude, and a defensible ratio to the cheap model — and "
+         "an unreadable history is never a result",
+         "tests/test_physics_sanity.py"),
     # The repair literature's whole taxonomy, implemented on the IMPORT
     # boundary only. MEASURED 2026-08-12: our own surfaces are already clean by
     # every classical metric (0 degenerate, 0 slivers, 0 zero-length edges,

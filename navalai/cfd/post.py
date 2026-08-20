@@ -24,13 +24,50 @@ def parse_forces(path: str | Path):
     Returns (t, fx_total) with pressure+viscous x-components summed.
     """
     t, fx = [], []
-    for line in Path(path).read_text().splitlines():
+    lines = Path(path).read_text().splitlines()
+    for i, line in enumerate(lines):
         line = line.strip()
         if not line or line.startswith("#"):
             continue
+        low = line.lower()
+        if "nan" in low or "inf" in low:
+            # WORSE THAN A DROPPED ROW: IT PARSES AS ZERO. `_NUM` matches
+            # [-+0-9.eE], and "nan" contributes NO characters — so
+            # "10.0 (nan 0 0) (nan 0 0) (nan 0 0)" still yields seven
+            # numbers (the time and the six zeros) and the row entered the
+            # history as a force of EXACTLY ZERO. A NaN-poisoned record did
+            # not shorten into a clean one; it acquired fabricated zeros,
+            # and `settled_drag`'s non-finite guard can only see what it is
+            # handed. Both readings are defect class 1; the check is on the
+            # TOKEN, before any arithmetic.
+            raise ForceHistoryError(
+                f"{path}: non-finite token in a force row ({line[:80]!r}). "
+                f"A history with NaN/Inf in it is not a shorter clean "
+                f"history and it is not a row of zeros — it is unusable.")
         nums = [float(x) for x in _NUM.findall(line)]
         if len(nums) < 7:
-            continue
+            # A DATA ROW THAT DOES NOT PARSE IS NOT A ROW TO SKIP.
+            #
+            # `_NUM` matches only [-+0-9.eE], so a row carrying `nan` or
+            # `-inf` yields FEWER than 7 numbers and the old `continue`
+            # silently DROPPED it: a NaN-poisoned history shortened into a
+            # clean-looking one, and `settled_drag`'s non-finite guard —
+            # which can only see what it is handed — never fired. That is
+            # defect class 1 (an unmeasurable value scored as a passing
+            # one) sitting under every drag this project reports.
+            #
+            # A truncated LAST line is the one benign case: the solver was
+            # killed mid-write. It is tolerated (and only for the final
+            # line); anything else, and any row containing a non-finite
+            # TOKEN, refuses by name.
+            rest = [ln.strip() for ln in lines[i + 1:]]
+            if any(r and not r.startswith("#") for r in rest):
+                raise ForceHistoryError(
+                    f"{path}: unparseable force row {i + 1} "
+                    f"({line[:80]!r}) with {len(nums)} numbers, and it is "
+                    f"not the final line — the file is corrupt, not "
+                    f"truncated.")
+            break                     # tolerate one truncated final write
         t.append(nums[0])
         # Column layout, from the file's own header:
         #   Time | total_x total_y total_z | pressure_x .. | viscous_x ..
@@ -1446,3 +1483,99 @@ def stl_submerged_properties(path, waterline: float = 0.0,
     return {"volume_m3": abs(vol),
             "lcb": float(centroid[0]), "tcb": float(centroid[1]),
             "vcb": float(centroid[2]) + waterline}
+
+
+# ---------------------------------------------------------------------------
+# PHYSICS SANITY — a solver that exits 0 has not thereby produced physics
+# ---------------------------------------------------------------------------
+
+# The two-level bars on |CFD drag / L1 prior|. NEITHER is an accuracy bar:
+# the calibration lane (CoKriging + the KCS anchor) is what makes L3 numbers
+# accurate, and the ratio itself stays recorded for it either way.
+#
+# IMPOSSIBLE (refuse): outside [1/10, 10]. A tenth or ten times the
+# thin-ship + ITTC-57 estimate is not a modelling difference; it is a unit,
+# area or reference-velocity error.
+#
+# SUSPECT (flag, never silently badge): outside [1/1.8, 1.8]. The bar is set
+# BELOW the two force defects this repository has actually shipped, because
+# a bar above them would be decoration — the first draft of this constant was
+# 2.5 and its own test caught it passing a 2.19x error unremarked:
+#   * the double-counted pressure column: KCS C_t read 9.33e-3 against
+#     forceCoeffs' 4.26e-3, a factor of 2.19;
+#   * forceCoeffs wrong by exactly 2.0x on every symmetric run.
+# 1.8 catches both with margin. THE OTHER SIDE OF THIS BAR IS NOT MEASURED:
+# how far an honest RANS result may sit from thin-ship + ITTC-57 in this
+# fleet is exactly what the calibration lane (CoKriging + the KCS anchor) is
+# being built to measure. Until it reports an L3/L1 ratio distribution, 1.8
+# is a CALIBRATED-not-derived choice on one side, and it only ever FLAGS —
+# it never refuses — so an honest outlier is delayed by an explanation, not
+# discarded.
+PHYSICS_RATIO_IMPOSSIBLE = 10.0
+PHYSICS_RATIO_SUSPECT = 1.8
+
+
+def physics_sanity(drag_n: float, *, prior_n: float | None = None,
+                   tow_convention: str = "negative") -> dict:
+    """Is this force a resistance at all? Sign, finiteness, magnitude.
+
+    THE DEFECT THIS CLOSES, walked end to end on 2026-08-20: nothing in the
+    tree checked the SIGN or the MAGNITUDE of an extracted force. Every C_T
+    is produced through `abs()` — which also made `pipeline.check_cfd`'s
+    `ct <= 0` refusal unreachable — so a sign-flipped -500 N (a thrust, not
+    a drag) passed `settled_drag`, was rectified by `abs()`, landed inside
+    the Tokyo band and minted an L3 "measured" badge. Rectifying a sign is
+    not a correction; it is the loss of the one bit that says whether the
+    hull was pushed or pulled.
+
+    `tow_convention="negative"`: the x-force ON the hull opposes the tow, so
+    a resistance is NEGATIVE in the solver frame. MEASURED across the Mac's
+    2026-08-20 export: all 19 histories carry drag_n < 0 (-238 to -20206 N).
+    A settled POSITIVE total is therefore not a resistance and is refused by
+    name rather than absolute-valued into one.
+
+    Returns {"ok": bool, "reasons": [...], "flags": [...], "ratio": float|None}.
+    Pure: no I/O, so the bars can be tested against synthetic values.
+    """
+    reasons: list[str] = []
+    flags: list[str] = []
+    d = float(drag_n)
+    if not math.isfinite(d):
+        return {"ok": False, "reasons": [f"drag is {d!r} — not a number"],
+                "flags": [], "ratio": None}
+    if d == 0.0:
+        return {"ok": False, "reasons": ["drag is exactly zero — a hull in a "
+                                         "moving fluid has resistance; this "
+                                         "is an empty or unwritten history"],
+                "flags": [], "ratio": None}
+    if tow_convention == "negative" and d > 0.0:
+        reasons.append(
+            f"settled x-force is +{d:.4g} N — under the tow convention a "
+            f"resistance is negative (the flow opposes the motion). A "
+            f"positive total is a thrust, a flipped normal or a swapped "
+            f"column, and abs() would hide all three.")
+    elif tow_convention == "positive" and d < 0.0:
+        reasons.append(f"settled x-force is {d:.4g} N against a positive "
+                       f"tow convention")
+
+    ratio = None
+    if prior_n is not None and math.isfinite(prior_n) and prior_n != 0.0:
+        ratio = abs(d) / abs(float(prior_n))
+        if not math.isfinite(ratio):
+            reasons.append("CFD/L1 ratio is not finite")
+        elif (ratio > PHYSICS_RATIO_IMPOSSIBLE
+                or ratio < 1.0 / PHYSICS_RATIO_IMPOSSIBLE):
+            reasons.append(
+                f"|CFD| / |L1| = {ratio:.3g}, outside "
+                f"[1/{PHYSICS_RATIO_IMPOSSIBLE:.0f}, "
+                f"{PHYSICS_RATIO_IMPOSSIBLE:.0f}] — that is a unit, area or "
+                f"reference-velocity error, not a modelling difference")
+        elif (ratio > PHYSICS_RATIO_SUSPECT
+                or ratio < 1.0 / PHYSICS_RATIO_SUSPECT):
+            flags.append(
+                f"|CFD| / |L1| = {ratio:.3g} exceeds the {PHYSICS_RATIO_SUSPECT} "
+                f"suspect band — the scale of this repository's own measured "
+                f"force defects (2.19x pressure double-count, 2.0x symmetric "
+                f"reference area). Explain it before quoting the number.")
+    return {"ok": not reasons, "reasons": reasons, "flags": flags,
+            "ratio": ratio}

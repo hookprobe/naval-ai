@@ -334,7 +334,34 @@ def solve_one(case: Path) -> dict:
         "crashed": crashed,
         "solves": (bool(end) and reached >= end - 1e-9
                    and "--> FOAM FATAL" not in text and not crashed),
+        # RAN-TO-BUDGET IS NOT A RESULT, and the two were the same field until
+        # 2026-08-20. `solves` above is time-only: it asks whether the solver
+        # reached endTime without dying. The Mac's own same-day correction of
+        # Gate 2U (88.2% "converges" -> 17.6% settled) is what that distance
+        # costs when the two are conflated. This second field asks the
+        # separate question the metric actually needs — is there a READABLE,
+        # FINITE force history to read a resistance off — and a corrupt or
+        # absent force.dat now has somewhere to be recorded instead of
+        # passing as `ok`.
+        "forces_readable": _forces_readable(case),
     }
+
+
+def _forces_readable(case: Path) -> bool | None:
+    """True/False/None(=no history at all). Never raises: the campaign's job
+    is to CLASSIFY a bad run, not to die on one."""
+    try:
+        from navalai.cfd.post import forces_path, parse_forces
+    except Exception:                                    # noqa: BLE001
+        return None
+    try:
+        t, fx = parse_forces(forces_path(case))
+    except FileNotFoundError:
+        return None
+    except Exception:                                    # noqa: BLE001
+        return False                                     # corrupt / non-finite
+    import numpy as _np
+    return bool(len(t) >= 2 and _np.all(_np.isfinite(fx)))
 
 
 def classify(r: dict) -> str:
@@ -415,6 +442,13 @@ def classify(r: dict) -> str:
         if (r.get("runner_exit") == 0 and r.get("solve_attempted")
                 and r.get("solve_steps", 0) > 0):
             return "checkmesh-unparsed"
+        # RESOURCE REFUSAL IS NOT A MESH FAILURE. run-case.sh exits 3 when
+        # the concurrency/oversubscription guard refuses to start — nothing
+        # about the mesh was measured, and calling it `mesh-build-failed`
+        # is the "wall of false failures" this file already documents in
+        # another form. It gets its own bucket and stays out of the rate.
+        if r.get("runner_exit") == 3:
+            return "resource-limit-refused"
         # checkMesh never ran: snappy or the layer pass died first.
         return "mesh-build-failed"
     if r.get("zero_volume_cells", 0) > 0:
@@ -438,6 +472,26 @@ def classify(r: dict) -> str:
         # setFields itself). Not a mesh-quality refusal — those returned above.
         return "runner-refused-before-solver"
     if r.get("solves"):
+        # RAN-TO-BUDGET IS NOT A RESULT. `solves` is time-only (reached
+        # endTime without dying), and until 2026-08-20 that WAS `ok` — the
+        # same conflation the Mac corrected in Gate 2U on the same day
+        # (88.2% "converges" against 17.6% actually settled). A run whose
+        # force history cannot be read has produced no resistance to grade,
+        # so it gets its own bucket instead of the campaign's success label.
+        # UNMEASURED IS NOT FAILED — and the distinction is the KEY, not the
+        # value. Rows banked before this field existed (every campaign JSON
+        # through 2026-08-20) carry no `forces_readable` at all, and
+        # retroactively grading them as force-extraction failures would be
+        # fabricating a measurement nobody took; those rows keep the label
+        # their own evidence supports. Where the field IS present, `None`
+        # means the run left no force history and `False` means one that
+        # cannot be read — neither is a resistance, and neither is `ok`.
+        if "forces_readable" in r:
+            fr = r["forces_readable"]
+            if fr is False:
+                return "force-extraction-failed"
+            if fr is None:
+                return "force-history-missing"
         return "ok"
     if r.get("solve_steps", 0) == 0:
         return "solver-died-on-startup"

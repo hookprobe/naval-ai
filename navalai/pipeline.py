@@ -738,13 +738,22 @@ def check_mesh(metrics: Mapping[str, Any],
     return _passed("mesh", Stage.MESHING, evidence)
 
 
-def check_cfd(drift: Any, ct: Any = None, flow_throughs: Any = None) -> StageCheck:
+def check_cfd(drift: Any, ct: Any = None, flow_throughs: Any = None,
+              drag_n: Any = None, prior_n: Any = None) -> StageCheck:
     """A force history that has not settled is not a result.
 
     `drift` is the fractional change over the last fifth, as `gate2m.py`
     computes it, and the tolerance is read out of that file. `flow_throughs`,
     when given, is refused below 1.0: CLAUDE.md states that any number from
     under one flow-through describes startup, not resistance.
+
+    `drag_n` (SIGNED, in newtons) is the physics-sanity input, and it exists
+    because the `ct <= 0` clause below WAS UNREACHABLE. Every C_T in this
+    tree is produced through `abs()`, so no caller could ever hand this
+    function a non-positive one: the guard read like a sign check and could
+    not fire. The signed force is where a sign flip is still visible, and
+    `prior_n` (the L1 estimate at the same speed, optional) is where a unit
+    or reference-area error is still visible.
     """
     tol = settle_tolerance()
     d = _as_measured(drift)
@@ -764,6 +773,16 @@ def check_cfd(drift: Any, ct: Any = None, flow_throughs: Any = None) -> StageChe
         if c is None or c <= 0.0:
             reasons.append(f"C_T is {ct!r}, which is not a positive resistance "
                            f"coefficient")
+    if drag_n is not None:
+        from .cfd.post import physics_sanity
+        g = _as_measured(drag_n)
+        if g is None:
+            reasons.append(f"drag could not be measured ({drag_n!r})")
+        else:
+            p = _as_measured(prior_n) if prior_n is not None else None
+            sane = physics_sanity(g, prior_n=p)
+            evidence["physics_sanity"] = sane
+            reasons.extend(sane["reasons"])
     if flow_throughs is not None:
         f = _as_measured(flow_throughs)
         evidence["flow_throughs"] = f if f is not None else "UNMEASURED"

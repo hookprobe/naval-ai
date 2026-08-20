@@ -1407,36 +1407,69 @@ def l3_case_evidence(case_dir, hull: Hull, mission: MissionSpec,
             f"{forces} holds {len(t)} samples — too short to average. A drag "
             f"read off a handful of startup timesteps is not a resistance.")
 
-    drag_tail, scatter = post.mean_resistance(forces)
-    # The drift estimate reuses post.mean_resistance's OWN window rather than
-    # declaring a second one — the fraction is read off its signature, so the
-    # two windows are the same length by construction and there is no number
-    # here to drift out of step with it. The previous window sits immediately
-    # before the tail; the gap between the two means is what a run that has not
-    # settled still has, and it is folded into sigma rather than turned into a
-    # pass/fail bar. Stationarity is `scripts/gate2m.py`'s verdict to give;
-    # this module's job is to make sure the band it reports is not narrower
-    # than the evidence supports.
-    frac = float(inspect.signature(post.mean_resistance)
-                 .parameters["tail_frac"].default)
-    span = float(t[-1] - t[0])
-    lo = t[0] + max(1.0 - 2.0 * frac, 0.0) * span
-    hi = t[0] + (1.0 - frac) * span
-    prev = fx[(t >= lo) & (t < hi)]
-    drift = abs(drag_tail - float(np.mean(prev))) if len(prev) else 0.0
-    sigma = max(abs(scatter), drift)
+    # THE INGEST PATH IS THE ONE PLACE CFD REACHES A SCORE, AND IT USED TO BE
+    # THE WEAKEST LINK IN THE CHAIN. Until 2026-08-20 this block took a RAW
+    # tail mean (`post.mean_resistance`) with no finiteness check, computed
+    # its own drift with an `else 0.0` fallback on an empty window — a
+    # too-short record therefore scored drift ZERO, the most settled answer
+    # there is — and carried no LTS pseudo-time seam, so a diverged LTS case
+    # whose "time" is pseudo-iterations could read as more than one
+    # flow-through. It then took `abs()` of the result, which rectified a
+    # SIGN FLIP into a resistance and made `pipeline.check_cfd`'s `ct <= 0`
+    # refusal unreachable.
+    #
+    # It now delegates to `post.settled_drag`, which is the module that owns
+    # every one of those seams (three-outcome vocabulary, per-component
+    # drift AND batch error, symmetric doubling, the pseudo-time and
+    # mixed-history NaN rules). An L3 badge means a SETTLED record here;
+    # "ran to budget" is not convergence, and the Mac's 2026-08-20 export
+    # measured how far apart those two are (15 runners, 3 settled).
+    sd = post.settled_drag(case)
+    if not sd["settled"]:
+        raise TierRefusal(
+            f"{case} is {sd['outcome']}: " + "; ".join(sd["reasons"]) +
+            ". An unsettled record is a picture of a transient, not a "
+            "resistance, and it gets no L3 badge.")
+    drag_tail = float(sd["drag_n"])          # already symmetric-corrected
+    sigma = max(abs(float(sd["std_n"])), abs(float(sd["drift"])))
+    symmetric = bool(sd["symmetric"])
 
-    symmetric = info["symmetric"].strip().lower() == "true"
-    if symmetric:
-        # Half the hull is meshed, so the patch integral is half the force.
-        # CLAUDE.md records `forceCoeffs wrong by exactly 2x on every symmetric
-        # run` as a shipped defect; this is the same trap on the other side.
-        drag_tail, sigma = 2.0 * drag_tail, 2.0 * sigma
+    # PHYSICS SANITY, before any abs(). The L1 prior is this repository's own
+    # cheap model at the same speed — not an accuracy reference (that is the
+    # calibration lane's job) but the magnitude check that catches unit,
+    # reference-area and column errors, which is exactly the shape of the two
+    # force defects this project has actually shipped.
+    prior_n = None
+    try:
+        _hs = solve(hull, rho, 0.0)
+        _r = total_resistance(hull, u_case, hull.wetted_surface(0.0),
+                              _hs.cb, rho=rho, lwl_eff=_hs.lwl_eff)
+        prior_n = float(_r.total) if math.isfinite(_r.total) else None
+    except Exception:                        # noqa: BLE001 - prior is optional
+        # A missing prior must not become a passing magnitude check: the sign
+        # and finiteness clauses still run, and the ratio is simply absent
+        # from the receipt rather than defaulted to something agreeable.
+        prior_n = None
+    sanity = post.physics_sanity(drag_tail, prior_n=prior_n)
+    if not sanity["ok"]:
+        raise TierRefusal(
+            f"{case} fails physics sanity: " + "; ".join(sanity["reasons"]))
+
     drag = abs(drag_tail)
 
     if not (dom_len > 0.0):
         raise TierRefusal(f"{case} declares domain_length_m={dom_len!r}")
-    flow_throughs = float(t[-1]) * u_case / dom_len
+    # The flow-through count comes from settled_drag, which knows whether the
+    # record's "time" is real seconds or LTS pseudo-iterations. NaN means NOT
+    # APPLICABLE and must refuse here rather than compare false: a pseudo-time
+    # record has no flow-through count to clear a floor with.
+    flow_throughs = float(sd["flow_throughs"])
+    if not math.isfinite(flow_throughs):
+        raise TierRefusal(
+            f"{case} carries pseudo-time (LTS) or a mixed history without a "
+            f"`transient_tail_from` receipt, so it has NO flow-through count. "
+            f"Pseudo-iterations divided by a domain length in metres is "
+            f"fiction wearing a unit; an L3 badge needs real time.")
     if flow_throughs < _L3_MIN_FLOW_THROUGHS:
         raise TierRefusal(
             f"{case} covers {flow_throughs:.2f} of one flow-through "
