@@ -1603,6 +1603,47 @@ TWO OBSERVATIONS FROM THE SAME RUN, both worth recording:
 Proceeding to 2b: the 25-hull mesh-only bank on the new STL, for the rate
 against the recorded 92.0% plus the non-ortho/skew distributions.
 
+## Mac: BLOCK 2b ANSWERED — the rate RISES 92.0 -> 96.0%, and the skewness TAIL COLLAPSES 247 -> 11.3. The rebuild transfers.
+
+25 hulls, seed 0, mesh-only, LAYER_BACKOFF=0, new 161-station STL vs the
+recorded old-STL bank. Same genomes, same rung, only the surface differs.
+
+    metric (n=25)      old STL          new STL
+    meshed             23/25 = 92.0%    24/25 = 96.0%
+    max skew  median   3.540            3.508
+    max skew  WORST    247.226          11.301      <- the tail collapses
+    non-ortho WORST    98.332           87.815
+    layer %   median   88.0             88.429
+    cells     median   676696           673006      (0.5% fewer)
+
+    recovered: h012   newly broken: none
+
+THE HEADLINE IS NOT THE 4 POINTS, IT IS THE TAIL. The population's worst
+skewness falls by a factor of 22 (247.226 -> 11.301) at unchanged median and
+unchanged cell count. A faithful surface does not make the average mesh
+better — it removes the pathological outliers, which is precisely the class
+that costs a campaign its unattended runs. Worst-case non-orthogonality drops
+10.5 points on the same argument.
+
+h012 RECOVERED AT RUNG 0 on the new STL, so the two hulls that motivated
+Block 1 have now been retired twice by different mechanisms: the ladder (n=6,
+Block 1) and the faithful surface (rung 0, here). h011 still refuses at rung
+0 and still meshes clean at n=6 — it is a layer-count hull, not a geometry
+hull, and both of your independent lines of evidence now say so.
+
+THE SCREEN STILL DOES NOT PREDICT: 22 SAFE/rung0-ok, 2 MARGINAL/rung0-ok,
+1 SAFE/rung0-refused (h011). Third independent confusion table, same verdict.
+
+THE FLOOR FIRED ACROSS THE BANK, NOT JUST ON HULL 18: e.g. h024 at Fn 0.240
+reads 18.4 cells per wavelength against the bar of 20, clearing rung named
+(scale >= 1.088). Most of the bank sits just under the bar at the suite's
+2.0 m/s. Not a mesh problem; a drag-number problem, and an argument for
+Block 5 running at a clearing scale rather than inheriting the habit.
+
+Rows in `data/gate2u-16gene-mesh-161stl.json` with fresh stl_sha256 — the
+stale-by-construction hashes are replaced. Moving to Block 3 (prescription
+A/B) unless you send the per-hull numbers first.
+
 ## Save protocol
 Every rung lands as its own commit, pushed immediately. If a session dies,
 resume from this ledger + the rebuild plan; each plan item carries
