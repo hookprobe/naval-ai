@@ -413,3 +413,47 @@ def test_both_halves_of_the_prescription_carry_their_evidence_status():
     # the numbers are still DERIVED and still reported — a receipt is not a
     # blank, it is a measured recommendation with its evidence attached
     assert p.mesh_density is not None and p.n_layers is not None
+
+
+def test_the_supported_domains_lower_edge_is_derivable_from_two_constants():
+    """WHY THE 2.5-3.0 m COVERAGE BAND CAME BACK EMPTY, and it is not a
+    sampling accident.
+
+    A hull can only be handed to the full-fidelity chain if it is BOTH
+    fully turbulent (Re >= RE_TRANSITION_BAND[1]) and inside the thin-ship
+    envelope (Fn <= FN_MICHELL_MAX). Those two conditions fight each other
+    as length falls, because Re = Fn * sqrt(g) * L^1.5 / nu: shrinking the
+    hull costs Reynolds number as L^1.5 while the Froude ceiling is fixed.
+    Setting them equal gives the shortest hull for which the window is not
+    empty, in closed form:
+
+        L = (Re * nu / (Fn * sqrt(g)))^(2/3) = 2.61 m
+
+    MEASURED CONSEQUENCE across the band, at nu = 1.19e-6:
+        2.50 m needs Fn 0.48 for Re 5e6 — PAST the Michell limit
+        2.75 m needs Fn 0.42 — just inside
+        3.00 m needs Fn 0.37 — comfortably inside
+    so the band is not uniformly out of scope; its BOTTOM is and its TOP is
+    not, and the crossover sits at 2.61 m.
+
+    THIS IS THE THIRD INDEPENDENT ROUTE TO THE SAME NUMBER.
+    docs/research/SMALL-CRAFT-REGIMES.md derived ~2.6 m from three physical
+    walls (Reynolds, environment, cube-law payload); the RCD scope that
+    `supported_domain` enforces starts at 2.5 m for a legal reason that has
+    nothing to do with either. Getting 2.61 m out of two constants the code
+    already owns is a check on the research, not a restatement of it.
+    """
+    from navalai.limits import RE_TRANSITION_BAND
+    from navalai.resistance import FN_MICHELL_MAX
+
+    nu, g = 1.19e-6, 9.81
+    lwl = (RE_TRANSITION_BAND[1] * nu
+           / (FN_MICHELL_MAX * math.sqrt(g))) ** (2.0 / 3.0)
+    assert 2.55 < lwl < 2.70, lwl
+
+    # and the band's own ends behave as the closed form says
+    def fn_for_turbulent(L):
+        return RE_TRANSITION_BAND[1] * nu / (L * math.sqrt(g * L))
+
+    assert fn_for_turbulent(2.50) > FN_MICHELL_MAX     # window empty
+    assert fn_for_turbulent(3.00) < FN_MICHELL_MAX     # window open

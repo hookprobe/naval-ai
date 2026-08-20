@@ -481,3 +481,49 @@ stating: the tree is under active optimisation (kernel landed, resistance
 in flight), so a five-hour run measures a tree that no longer exists by
 the time it finishes. The full suite belongs on a schedule against a
 QUIET tree, which is exactly the recommendation Part VII already makes.
+
+
+---
+
+# Part VIII — the empty coverage band, explained in closed form (2026-08-20)
+
+`data/coverage-band-hulls.json` has no 2.5-3.0 m entry: nothing in that
+band came back meshing-clean in ten draws, and the file records the
+absence rather than substituting something. The reason is not sampling
+luck.
+
+A hull reaches the full-fidelity chain only if it is BOTH fully turbulent
+(Re >= `RE_TRANSITION_BAND[1]`) and inside the thin-ship envelope
+(Fn <= `FN_MICHELL_MAX`). Those conditions fight as length falls, because
+
+    Re = Fn * sqrt(g) * L^1.5 / nu
+
+so shrinking a hull costs Reynolds number as L^1.5 against a FIXED Froude
+ceiling. Setting them equal gives the shortest hull whose window is not
+empty:
+
+    L = (Re * nu / (Fn * sqrt(g)))^(2/3) = **2.61 m**
+
+Across the band, at nu = 1.19e-6:
+
+| LWL | Fn needed for Re 5e6 | verdict |
+|---|---|---|
+| 2.50 m | 0.48 | PAST the Michell limit — window empty |
+| 2.75 m | 0.42 | just inside |
+| 3.00 m | 0.37 | comfortably inside |
+
+So the band is not uniformly out of scope: its BOTTOM is and its TOP is
+not, with the crossover at 2.61 m.
+
+**THIS IS THE THIRD INDEPENDENT ROUTE TO THE SAME NUMBER, and that is why
+it is worth recording.** `docs/research/SMALL-CRAFT-REGIMES.md` derived
+~2.6 m from three physical walls (Reynolds, environmental forcing, and the
+cube-law payload floor) with no reference to Michell. The RCD scope that
+`supported_domain` enforces starts at 2.5 m for a legal reason unrelated
+to either. Recovering 2.61 m from two constants the code already owns is a
+CHECK on the research rather than a restatement of it — and it means the
+supported domain's lower edge is not a policy choice we could soften if we
+wanted to. It is where two of our own models stop overlapping.
+
+Pinned by `tests/test_contract.py::
+test_the_supported_domains_lower_edge_is_derivable_from_two_constants`.
