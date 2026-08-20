@@ -644,11 +644,21 @@ CHECKS: tuple[Check, ...] = (
                 "decimal-comma replacement, so '6,000 kg' is not 6.000 kg",
           lambda: has_code("navalai/mission.py",
                       r"re\.sub\(r\"\(\?<=\\d\),\(\?=\\d\{3\}")),
-    Check("B4", "the weight budget scales payload with mission.crew rather "
-                "than carrying a flat 800 kg (limits.CREW_MASS_KG reaching "
-                "energy.weight_budget / weight_items)",
-          lambda: imports("navalai/energy.py", ".limits", "CREW_MASS_KG")
-                  or has_code("navalai/energy.py", r"crew")),
+    # B4's predicate expected the scaling to live in energy.py. It is in
+    # mission.py instead, and deliberately: EnergySpec is a MISSION input, the
+    # mission is what knows the crew, and mission.__post_init__ already owns
+    # the sibling rule that zeroes the provision for an UNCREWED vessel. Doing
+    # it there keeps energy.weight_budget a pure consumer of spec.payload_kg
+    # rather than giving it a second opinion about the crew. The predicate now
+    # checks the PROPERTY -- CREW_MASS_KG and the stores split reach the
+    # payload -- instead of the file it was expected in.
+    Check("B4", "the payload provision scales with mission.crew through "
+                "limits.CREW_MASS_KG + STORES_AND_WATER_KG rather than a flat "
+                "800 kg default",
+          lambda: has_code("navalai/limits.py", r"STORES_AND_WATER_KG")
+                  and has_code("navalai/mission.py", r"STORES_AND_WATER_KG")
+                  and has_code("navalai/mission.py",
+                               r"float\(self\.crew\) \* _CM")),
     Check("B5", "something in the objective COSTS length (build cost, "
                 "structural scaling, a mooring or lock limit) rather than the "
                 "search running to the grammar ceiling",

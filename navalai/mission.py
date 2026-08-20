@@ -493,6 +493,33 @@ class MissionSpec:
         # payload_kg is the caller's declaration and is respected — and the
         # change is RECORDED, the clamp() rule this class already lives by.
         from dataclasses import replace as _dc_replace
+        # GAP B4: THE PROVISION FOLLOWS THE CREW. `EnergySpec.payload_kg` is a
+        # flat 800 kg "crew + stores + water" that did not move with
+        # `mission.crew`, so a 12-crew boat FLOATED at the 2-crew displacement
+        # while `iso12217`'s offset-load check put 12 x 85 kg on the rail. Two
+        # descriptions of one boat, which is the defect CREW_MASS_KG was
+        # centralised to end -- it reached the rules tier and never reached the
+        # weight budget.
+        #
+        # Only the UNTOUCHED class default is rescaled; an explicit payload_kg
+        # is the caller's declaration and is respected, exactly as the uncrewed
+        # rule below already works. And the decomposition is chosen so the
+        # DEFAULT crew of 2 reproduces 800.0 kg to the kilogram
+        # (2 x CREW_MASS_KG + STORES_AND_WATER_KG), so no existing hull moves
+        # and only a mission that declares a different crew changes.
+        if (self.vessel.manning is not Manning.UNCREWED
+                and self.energy.payload_kg == EnergySpec().payload_kg):
+            from .limits import CREW_MASS_KG as _CM
+            from .limits import STORES_AND_WATER_KG as _SW
+            _scaled = float(self.crew) * _CM + _SW
+            if abs(_scaled - self.energy.payload_kg) > 1e-9:
+                self.energy = _dc_replace(self.energy, payload_kg=_scaled)
+                extra.append(
+                    f"payload provision scaled to the declared crew: "
+                    f"{self.crew} x {_CM:.0f} kg + {_SW:.0f} kg stores/water "
+                    f"= {_scaled:.0f} kg (was the flat "
+                    f"{EnergySpec().payload_kg:.0f} kg default, which did not "
+                    f"move with crew)")
         if (self.vessel.manning is Manning.UNCREWED
                 and self.energy.payload_kg == EnergySpec().payload_kg):
             self.energy = _dc_replace(self.energy, payload_kg=0.0)

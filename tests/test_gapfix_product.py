@@ -786,3 +786,56 @@ def test_iso12215_2008E_equations_match_the_sourced_text_6R():
     p_min = (0.45 * 500 ** 0.33 + 0.9 * 18.0) * 0.6
     assert p == pytest.approx(p_min, rel=1e-12), (
         "Eq 8's floor must govern this configuration")
+
+
+def test_the_payload_provision_FOLLOWS_the_declared_crew_gap_B4():
+    """Gap B4. MEASURED: `EnergySpec.payload_kg` was a flat 800 kg
+    "crew + stores + water" that did not move with `mission.crew`, so a
+    12-crew boat FLOATED at exactly the 2-crew displacement while
+    `rules/iso12217.py`'s offset-load check put 12 x 85 kg on the rail.
+
+    Two descriptions of one boat, and it is the defect `limits.CREW_MASS_KG`
+    was centralised to end: that constant reached the RULES tier and never
+    reached the WEIGHT budget.
+
+    THE DECOMPOSITION IS DELIBERATELY NEUTRAL AT THE DEFAULT. 630 kg of
+    stores is not a new number — it is the existing 800 kg default minus
+    2 x CREW_MASS_KG — so the default mission's displacement is unchanged to
+    the kilogram and only a mission declaring a different crew moves. A
+    bookkeeping fix must not buy a re-baselining of every hull in the tree.
+    """
+    from navalai.energy import EnergySpec
+    from navalai.limits import CREW_MASS_KG, STORES_AND_WATER_KG
+    from navalai.mission import MissionSpec, Manning, VesselConfig
+
+    # the default is untouched, exactly
+    assert MissionSpec().energy.payload_kg == pytest.approx(800.0, abs=1e-9)
+    assert MissionSpec().crew == 2
+    assert (2 * CREW_MASS_KG + STORES_AND_WATER_KG
+            == pytest.approx(EnergySpec().payload_kg, abs=1e-9))
+
+    # ...and it MOVES with the crew, by exactly one person mass each
+    per_person = []
+    for crew in (1, 2, 4, 8, 12):
+        m = MissionSpec(crew=crew)
+        assert m.energy.payload_kg == pytest.approx(
+            crew * CREW_MASS_KG + STORES_AND_WATER_KG, abs=1e-9)
+        per_person.append(m.energy.payload_kg)
+    steps = [b - a for a, b in zip(per_person, per_person[1:])]
+    counts = [1, 2, 4, 4]           # crew deltas across (1, 2, 4, 8, 12)
+    for step, n in zip(steps, counts):
+        assert step == pytest.approx(n * CREW_MASS_KG, abs=1e-9)
+
+    # an EXPLICIT payload is the caller's declaration and is never rescaled
+    declared = MissionSpec(crew=12, energy=EnergySpec(payload_kg=500.0))
+    assert declared.energy.payload_kg == pytest.approx(500.0)
+
+    # the change is RECORDED, not silent — the clamp() rule this class lives by
+    noted = MissionSpec(crew=12)
+    assert "payload provision scaled" in noted.notes, noted.notes
+
+    # and the uncrewed rule still wins: no crew, no crew provision
+    un = MissionSpec(crew=12,
+                     vessel=VesselConfig(manning=Manning.UNCREWED))
+    assert un.energy.payload_kg == pytest.approx(0.0), (
+        "an UNCREWED mission was given a crew provision")

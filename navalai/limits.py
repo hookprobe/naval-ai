@@ -550,6 +550,20 @@ FRAME_SPACING_M = 0.40
 # for the stability check and floated at exactly the 2-crew displacement.
 CREW_MASS_KG = 85.0
 
+# The NON-CREW half of the cruising provision: stores, water, tankage, personal
+# gear. Gap B4, MEASURED 2026-08-20: `EnergySpec.payload_kg` was a flat 800 kg
+# "crew + stores + water" that did not move with `mission.crew`, so a 12-crew
+# boat floated at exactly the 2-crew displacement while the STABILITY check
+# put 12 x 85 kg on the rail -- the same split-brain the CREW_MASS_KG comment
+# above records for the rules tier.
+#
+# 630 is not a new number: it is the existing 800 kg default decomposed at the
+# default crew of 2, i.e. 800 - 2 x 85. Chosen that way ON PURPOSE so the
+# default mission's displacement is UNCHANGED to the last kilogram and only a
+# mission that declares a different crew moves -- a re-baselining of every
+# hull in the tree is not something a bookkeeping fix should buy.
+STORES_AND_WATER_KG = 630.0
+
 
 def gm_floor(category: str) -> float:
     """Metacentric-height floor [m] for an ISO 12217 design category."""

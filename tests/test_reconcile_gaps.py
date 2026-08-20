@@ -411,9 +411,29 @@ def test_a_comment_cannot_close_a_gap():
     assert rg.has("navalai/energy.py", r"crew"), "the comment is still there"
     assert not rg.has_code("navalai/energy.py", r"crew"), (
         "a comment about crew mass would close gap B4 again")
+
+    # B4 IS NOW GENUINELY CLOSED, BY CODE (2026-08-20), and this assertion
+    # used to be `not b4.closed()`. That was a SNAPSHOT of B4's state, not the
+    # principle this test is named for — the principle is that a COMMENT must
+    # not close a gap, and the two assertions above are what carry it. Pinning
+    # the state as well meant the test would have to fail on the day the gap
+    # was actually fixed, which is the stale-RED failure mode in miniature.
+    #
+    # What closed it: mission.__post_init__ now scales the untouched default
+    # provision as crew x limits.CREW_MASS_KG + limits.STORES_AND_WATER_KG,
+    # decomposed so the default crew of 2 reproduces 800.0 kg exactly. The
+    # scaling is CODE in mission.py, not prose in energy.py — so the fence
+    # above still forbids the thing it forbade, and the gap closed on its
+    # own merits.
     b4 = next(c for c in rg.CHECKS if c.source_id == "B4")
-    assert not b4.closed(), (
-        "B4 is OPEN: nothing scales payload_kg with mission.crew")
+    assert b4.closed(), (
+        "B4 regressed: nothing scales payload_kg with mission.crew any more")
+
+    # and the closure must NOT be reachable from energy.py's comment: strip
+    # the real implementation and the gap must re-open
+    assert rg.has_code("navalai/mission.py", r"STORES_AND_WATER_KG"), (
+        "B4's closure no longer rests on code in mission.py — re-check that "
+        "it is not being closed by a comment somewhere else")
 
 
 def test_a_docstring_cannot_close_a_gap_either():
