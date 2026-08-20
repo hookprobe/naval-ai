@@ -594,3 +594,100 @@ def test_a_RECEIPT_ONLY_number_says_so_and_is_not_dressed_as_a_derivation():
             f"{field} is a measured envelope and must be labelled "
             f"{BASIS_RECEIPT!r}, not dressed as a derivation: "
             f"{pres.basis[field][:80]}")
+
+
+def _mid_genome(**over):
+    import numpy as _np
+    from navalai import grammar as _g
+    d = {n: 0.5 * (lo + hi)
+         for n, lo, hi in zip(_g.NAMES, _g.LOW, _g.HIGH)}
+    d.update(over)
+    return _g.vector(d)
+
+
+def test_the_contract_states_its_COST_and_whether_it_must_ESCALATE():
+    """M5 (operator brief SS9), MEASURED 2026-08-20.
+
+    The contract is required to determine "expected cost" and "escalation
+    requirement" and did neither as a FIELD. The cost sat on
+    `mesh.wall_s` -- 39474 s, ELEVEN HOURS, on a mid-box genome -- where a
+    caller had to know to read through to the mesh prescription, and
+    escalation was implied by the tier and never stated.
+
+    NEITHER FIELD MAY DECIDE ANYTHING NEW. SS9 says one authoritative
+    calculation, so `escalation_required` reads the tier `select_fidelity`
+    already chose and `expected_cost_s` reads the estimate `mesh` already
+    carries. This test pins the CONSISTENCY, which is what would break if
+    someone later grew a second rule here.
+    """
+    from navalai.contract import evaluate_hull
+    from navalai.select_fidelity import TIER_FULL_CFD, TIER_LOW_FIDELITY_CFD
+
+    ev = evaluate_hull(_mid_genome())
+    assert isinstance(ev.escalation_required, bool)
+    assert ev.escalation_why, "an escalation decision with no reason is a guess"
+
+    needs_cfd = ev.fidelity_tier in (TIER_FULL_CFD, TIER_LOW_FIDELITY_CFD)
+    if ev.in_domain:
+        assert ev.escalation_required == needs_cfd, (
+            f"escalation {ev.escalation_required} disagrees with the tier "
+            f"{ev.fidelity_tier} that select_fidelity chose — a SECOND rule "
+            f"has grown here")
+
+    # a cheap answer must not carry a CFD price tag, and vice versa
+    if ev.escalation_required:
+        assert ev.expected_cost_s and ev.expected_cost_s > 0.0
+    else:
+        assert not ev.expected_cost_s
+
+    assert "expected_cost_s" in ev.to_dict()
+    assert "escalation_required" in ev.to_dict()
+
+
+def test_a_REFUSED_genome_does_not_report_itself_IN_the_supported_domain():
+    """FAIL CLOSED. MEASURED 2026-08-20: `in_domain` defaulted to True and
+    neither early REFUSED return set it, so a genome the grammar rejected
+    came back `in_domain=True` with `lwl_m=None` — "yes, inside the
+    supported domain" about a hull with no length.
+
+    That is this repository's oldest defect class, an absence rendered as a
+    result, and the same move as `${VAR:-0}` turning "could not measure"
+    into "perfect". The default is now False and the reason distinguishes
+    NOT REACHED from OUT OF SCOPE, because collapsing those two is how "we
+    never asked" becomes "we checked and it failed".
+    """
+    from navalai.contract import REFUSED, evaluate_hull
+
+    ev = evaluate_hull(_mid_genome(LWL=2.5))
+    if ev.hull_verdict != REFUSED:
+        import pytest
+        pytest.skip("this genome now solves; pick another refusal fixture")
+
+    assert ev.lwl_m is None
+    assert ev.in_domain is False, (
+        "a refused genome reported itself inside the supported domain")
+    assert ev.domain_reasons, "a False in_domain with no reason is a bare bar"
+    joined = " ".join(ev.domain_reasons)
+    assert "never REACHED" in joined, (
+        "the reason must say the question was not reached, NOT that the "
+        "design is out of scope: " + joined[:120])
+
+
+def test_the_derived_edge_is_reached_on_the_MAIN_path_not_only_in_the_helper():
+    """The fix that was enforced by nobody.
+
+    `d37b212` taught `supported_domain` the derived full-fidelity edge and
+    `evaluate_hull` went on calling it with NO `nu`, so the edge never
+    applied on the path everything actually uses. The fluid is now inverted
+    from the Re that was already computed (nu = U*L/Re), which is what keeps
+    it the SAME water rather than a second constant to drift.
+    """
+    from navalai.contract import evaluate_hull
+    from navalai.resistance import NU_FRESH_15C
+
+    ev = evaluate_hull(_mid_genome())
+    assert ev.re and ev.lwl_m and ev.speed_ms
+    nu_implied = ev.speed_ms * ev.lwl_m / ev.re
+    assert nu_implied == pytest.approx(NU_FRESH_15C, rel=1e-6), (
+        f"the domain edge would be judged in {nu_implied:.4g} m2/s while the "
+        f"resistance tier used {NU_FRESH_15C:.4g} — two fluids again")

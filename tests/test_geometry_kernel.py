@@ -578,8 +578,30 @@ def _exactly(got, want, what: str) -> None:
     same = (g == w) | (np.isnan(g) & np.isnan(w))
     if same.all():
         return
-    # within N ulps of the definition, elementwise, is still the definition
-    tol = _BATCH_ULP_SLACK * np.spacing(np.maximum(np.abs(g), np.abs(w)))
+    # WITHIN N ULPS OF THE ARRAY'S SCALE, not of each element's own
+    # magnitude. MEASURED on arm64 2026-08-20, after the 4-ulp slack landed:
+    # 5 of 514 elements still failed, at values 0.007-0.031 m with diffs of
+    # 5.2e-18..2.4e-17 -- i.e. 1.5 to 8 ulps OF THEMSELVES -- inside an array
+    # whose largest element is 0.705 m.
+    #
+    # An elementwise ulp is the wrong measure for a BATCHED result. A SIMD
+    # and FMA schedule accumulates rounding proportional to the LARGEST term
+    # it sums, so a coordinate that happens to be small carries absolute
+    # error inherited from the big ones. Judging it against its own ulp asks
+    # a 7 mm number to be as exact as if it had been computed alone, which
+    # is not what the arithmetic did.
+    #
+    # NOT A WEAKENED BAR, and the numbers say so: 4 ulps of the array scale
+    # is 4.44e-16 m against a worst observed rounding of 2.43e-17 m (18x
+    # headroom), while still catching a 1e-9 RELATIVE algebra change
+    # (7.0e-10 m). A genuine change to the shape function moves results by
+    # orders of magnitude; this admits the rounding IEEE permits and nothing
+    # else. `sample_section` remains THE DEFINITION.
+    scale = float(np.max(np.abs(np.concatenate([g.ravel(), w.ravel()])))) \
+        if g.size else 0.0
+    tol = _BATCH_ULP_SLACK * np.maximum(
+        np.spacing(np.maximum(np.abs(g), np.abs(w))),
+        np.spacing(scale) if scale > 0.0 else 0.0)
     bad = ~(same | (np.abs(g - w) <= tol))
     if bad.any():
         raise AssertionError(

@@ -312,7 +312,16 @@ class HullEvaluation:
     regimes: tuple[str, ...] = ()
     #: §14: is this design even in scope? Asked BEFORE the four verdicts,
     #: because out-of-domain is not a judgement on the boat.
-    in_domain: bool = True
+    # FAIL CLOSED (2026-08-20). This defaulted to True, and the two early
+    # REFUSED returns -- grammar refusal and geometry refusal -- do not set
+    # it. MEASURED: a genome the grammar refused came back with
+    # `in_domain=True` and `lwl_m=None`, i.e. "yes, this is inside the
+    # supported domain" about a hull with no length. That is this
+    # repository's oldest defect class, an absence rendered as a result,
+    # and it is the same move as `${VAR:-0}` turning "could not measure"
+    # into "perfect". A path that forgets to answer must now read as NOT
+    # established, and `domain_reasons` says which of the two it is.
+    in_domain: bool = False
     domain_reasons: tuple[str, ...] = ()
 
     hull_verdict: str = UNMEASURED        # A
@@ -328,6 +337,22 @@ class HullEvaluation:
 
     mesh: MeshPrescription = field(
         default_factory=lambda: MeshPrescription(None, None, None, None))
+    # M5 (2026-08-20, operator brief SS9). The contract is required to
+    # determine "expected cost" and "escalation requirement", and did
+    # neither as a FIELD: the cost sat at `mesh.wall_s` where a caller had
+    # to know to look for it, and escalation was implied by the tier and
+    # never stated. MEASURED on a mid-box genome: mesh.wall_s = 39474 s,
+    # i.e. ELEVEN HOURS, reachable only by reading through to the mesh
+    # prescription. A cost that is not a field is a cost nobody prices.
+    #
+    # NEITHER FIELD DECIDES ANYTHING NEW. `escalation_required` reads the
+    # tier `select_fidelity` already chose, and `expected_cost_s` reads the
+    # estimate `mesh` already carries. Inventing a second confidence rule
+    # here is exactly what SS9 forbids -- one authoritative calculation --
+    # so these EXPOSE a decision rather than making one.
+    escalation_required: bool = False
+    escalation_why: str = ""
+    expected_cost_s: float | None = None
     reasons: tuple[str, ...] = ()
     warnings: tuple[str, ...] = ()
     detail: dict = field(default_factory=dict)
@@ -370,6 +395,9 @@ class HullEvaluation:
             "fidelity_why": self.fidelity_why,
             "resistance_n": self.resistance_n, "sigma_n": self.sigma_n,
             "tier_of_resistance": self.tier_of_resistance,
+            "escalation_required": self.escalation_required,
+            "escalation_why": self.escalation_why,
+            "expected_cost_s": self.expected_cost_s,
             "mesh": self.mesh.to_dict(),
             "reasons": list(self.reasons), "warnings": list(self.warnings),
             "status": self.status,
@@ -741,6 +769,11 @@ def evaluate_hull(genome, mission: MissionSpec | None = None,
             genome_sha256=sha, lwl_m=None, speed_ms=None, fn=None, re=None,
             hull_verdict=REFUSED,
             fidelity_why="grammar refused the genome before any physics",
+            domain_reasons=("the supported-domain question was never "
+                            "REACHED: the genome was refused before any "
+                            "geometry existed, so there is no length, Fn or "
+                            "Re to judge. This is not a statement that the "
+                            "design is out of scope.",),
             mesh=mesh_prescription(None, None, None),
             reasons=tuple(reasons), warnings=tuple(warnings), detail=detail)
 
@@ -754,6 +787,11 @@ def evaluate_hull(genome, mission: MissionSpec | None = None,
             genome_sha256=sha, lwl_m=None, speed_ms=None, fn=None, re=None,
             hull_verdict=REFUSED,
             fidelity_why="the section solve refused this genome",
+            domain_reasons=("the supported-domain question was never "
+                            "REACHED: the genome was refused before any "
+                            "geometry existed, so there is no length, Fn or "
+                            "Re to judge. This is not a statement that the "
+                            "design is out of scope.",),
             mesh=mesh_prescription(None, None, None),
             reasons=tuple(reasons), warnings=tuple(warnings), detail=detail)
 
@@ -838,11 +876,38 @@ def evaluate_hull(genome, mission: MissionSpec | None = None,
     regimes = classify_regime(lwl, speed, fn, re, n_hulls=n_hulls,
                               environment_dominated=env_dominated)
     topo = getattr(getattr(mission, "vessel", None), "topology", None)
+    # THE FLUID COMES FROM THE Re THAT WAS ALREADY COMPUTED, not from a
+    # constant chosen here. nu = U*L/Re inverts the definition, so the
+    # domain edge is evaluated in EXACTLY the water this evaluation used --
+    # and there is no second viscosity to drift from the first. Without
+    # this the physics edge added in d37b212 was enforced by the function
+    # and reached by nobody: MEASURED, evaluate_hull called supported_domain
+    # with no nu, so every hull between the RCD's legal 2.5 m and the
+    # derived edge passed the main path exactly as before the fix.
+    nu_used = None
+    if re and lwl and speed and re > 0.0:
+        nu_used = float(speed) * float(lwl) / float(re)
     in_domain, domain_reasons = supported_domain(
-        lwl_m=lwl, fn=fn, re=re, n_hulls=n_hulls, topology=topo)
+        lwl_m=lwl, fn=fn, re=re, n_hulls=n_hulls, topology=topo,
+        nu_m2_s=nu_used)
     if not in_domain:
         warnings.extend(f"out of supported domain: {r}" for r in domain_reasons)
     detail.pop("_decision", None)
+
+    # M5: EXPOSE the escalation decision and the price of taking it. Neither
+    # is decided here -- the tier is what `select_fidelity` already chose and
+    # the cost is what `mesh` already estimated.
+    _escalate = tier in (TIER_FULL_CFD, TIER_LOW_FIDELITY_CFD)
+    if not in_domain:
+        _escalate = False
+        _why = ("out of the supported domain: nothing escalates, because a "
+                "refusal is not a question CFD can answer")
+    elif _escalate:
+        _why = (f"tier {tier} needs a solve: the cheap tiers cannot answer "
+                f"this design ({why})")
+    else:
+        _why = (f"tier {tier} answers without a solve ({why})")
+    _cost = mesh.wall_s if (_escalate and mesh is not None) else 0.0
 
     return HullEvaluation(
         genome_sha256=sha, lwl_m=lwl, speed_ms=speed, fn=fn, re=re,
@@ -854,6 +919,8 @@ def evaluate_hull(genome, mission: MissionSpec | None = None,
         hull_verdict=hull_verdict, model_verdict=model_verdict,
         mesh_verdict=mesh_verdict, result_verdict=result_verdict,
         fidelity_tier=tier, fidelity_why=why,
+        escalation_required=_escalate, escalation_why=_why,
+        expected_cost_s=_cost,
         resistance_n=resistance_n, sigma_n=sigma_n,
         tier_of_resistance=tier_of_resistance,
         mesh=presc, reasons=tuple(reasons), warnings=tuple(warnings),
