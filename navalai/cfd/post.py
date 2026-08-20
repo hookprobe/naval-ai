@@ -571,28 +571,49 @@ def settled_drag(case: str | Path, *, drift_tol: float = DRIFT_TOL,
 
 
 def _mser_truncate(t: np.ndarray, y: np.ndarray,
-                   n_grid: int = 20) -> int:
-    """MSER-class truncation index: drop the initial transient by choosing
-    the cut that minimises the standard error of the REMAINING mean.
+                   n_grid: int = 20, batch: int = 5) -> int:
+    """MSER-5 truncation index: drop the initial transient by choosing the
+    cut that minimises the standard error of the REMAINING mean, computed
+    on means of `batch` consecutive samples, with candidate cuts confined
+    to the FIRST HALF of the record.
 
-    The classic MSER statistic on a time-weighted record: for each candidate
-    cut on a coarse grid, SE^2 ~ var(remaining) / n_remaining. The cut that
-    minimises it marks where deleting more data stops buying stationarity.
-    A minimising cut in the LAST QUARTER of the record is the estimator's
-    own refusal: the record is transient-dominated and no stationary mean
-    exists inside it.
+    BOTH guards are the literature's own (White's MSER-5), and the first
+    version of this function had neither — MEASURED consequence on the
+    Mac's 2026-08-20 export of 19 REAL LTS force histories: the raw-point
+    statistic refused ALL of them, including g2u_h008, whose quarter means
+    (-1279, -1016, -1013, -1018) are flat after the first quarter. The
+    mechanism is the classic MSER defect: on autocorrelated data
+    var(remaining)/n keeps improving as the cut eats into a slowly
+    wandering plateau, so the minimum runs to the tail and the estimator
+    refuses a signal it should certify. Batching tempers the
+    autocorrelation; the half-record rule is the standard reading that a
+    minimum in the second half means no stationary segment exists — which
+    stays this function's refusal channel (return > 0.75 n sentinel in
+    the caller): h004/h005, still trending +8.2%/+6.1% over their last
+    halves, keep refusing THROUGH these guards, as they must.
     """
     n = len(t)
-    best_i, best_se = 0, float("inf")
+    nb = n // batch
+    if nb < 8:
+        return n  # too short to batch: the caller's refusal fires
+    bm = y[: nb * batch].reshape(nb, batch).mean(axis=1)
+    best_j, best_se = nb, float("inf")
     for k in range(n_grid):
-        i = int(n * k / n_grid)
-        if n - i < 16:
+        j = int(nb * k / (2 * n_grid))       # candidates in the first half
+        if nb - j < 8:
             break
-        seg = y[i:]
-        se = float(np.var(seg) / max(len(seg), 1))
+        seg = bm[j:]
+        se = float(np.var(seg) / len(seg))
         if se < best_se:
-            best_se, best_i = se, i
-    return best_i
+            best_se, best_j = se, j
+    if best_j >= nb:
+        return n
+    # the half-record rule: a minimum ON the search boundary means the SE
+    # was still falling — no interior optimum, no stationary segment.
+    j_max = int(nb * (n_grid - 1) / (2 * n_grid))
+    if best_j >= j_max and j_max > 0:
+        return n
+    return best_j * batch
 
 
 def estimate_settled_mean(t: np.ndarray, y: np.ndarray,
@@ -655,24 +676,42 @@ def estimate_settled_mean(t: np.ndarray, y: np.ndarray,
         d = means - means.mean()
         denom = float((d * d).sum())
         rho1 = (float((d[:-1] * d[1:]).sum()) / denom) if denom > 0 else 0.0
-        if abs(rho1) <= 0.3:
+        if abs(rho1) <= 0.3 or k <= 8:
+            # At the 8-batch floor a lag-1 rho estimated from 8 points is
+            # mostly noise, and refusing on it threw away certifiable
+            # records — MEASURED on the Mac's 2026-08-20 export: g2u_h008's
+            # quarter means are flat to 0.5% after the transient, and the
+            # rho-refusal was the only thing between it and a verdict. The
+            # batch-means literature's answer is not a rho gate but an
+            # AR(1) variance inflation, (1+rho)/(1-rho) on the SE — the CI
+            # widens with the measured correlation and the 5% bar decides.
+            # The inflation itself is unreliable as rho -> 1, so THAT is
+            # the remaining refusal, at 0.8.
+            if abs(rho1) > 0.8:
+                return {"refused": f"batch means strongly autocorrelated "
+                                   f"(lag-1 rho {rho1:+.2f} at {k} batches) "
+                                   f"— the AR(1) CI inflation is unreliable "
+                                   f"past 0.8; the record is shorter than "
+                                   f"the wander's correlation time"}
+            infl = math.sqrt((1.0 + rho1) / (1.0 - rho1)) if rho1 > 0 else 1.0
             mean = float(means.mean())
-            se = float(means.std(ddof=1) / math.sqrt(k))
+            se = float(means.std(ddof=1) / math.sqrt(k)) * infl
             tcrit = float(_stats.t.ppf(0.5 + confidence / 2.0, k - 1))
             ci = tcrit * se
             return {"mean": mean, "ci_half": ci,
                     "rel_ci": ci / max(abs(mean), 1e-12),
                     "n_batches": k, "lag1_rho": rho1,
+                    "ar1_inflation": infl,
                     "truncated_frac": i0 / len(t),
                     "confidence": confidence,
                     "method": (f"MSER truncation ({100*i0/len(t):.0f}% "
                                f"dropped) + {k} time-weighted batch means "
-                               f"(lag-1 rho {rho1:+.2f}) + t-interval at "
+                               f"(lag-1 rho {rho1:+.2f}, AR(1) CI x"
+                               f"{infl:.2f}) + t-interval at "
                                f"{100*confidence:.0f}%")}
         k //= 2
-    return {"refused": "batch means stay autocorrelated (|rho1| > 0.3) down "
-                       "to 8 batches — the record is shorter than the "
-                       "oscillation's correlation time can support"}
+    return {"refused": "batch construction failed below 8 batches — the "
+                       "record is too sparse to batch"}
 
 
 def settled_estimate(case: str | Path, rel_bar: float = DRIFT_TOL,

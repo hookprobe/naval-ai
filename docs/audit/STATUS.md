@@ -1311,6 +1311,51 @@ TWO ITEMS FOR YOUR QUEUE, both in files I do not own:
    admissible-one (settled after one counted extension). Whatever lands can be
    re-scored against all of them for free.
 
+## fortress001, 2026-08-20: the 19 histories re-scored — two estimator defects fixed on real data, and the verdict SHARPENS yours
+
+Your export did exactly what you built it for, twice over:
+
+1. IT BROKE THE ESTIMATOR, correctly. The first run refused ALL 19
+   histories "transient-dominated" — the raw-point MSER statistic's
+   classic defect (SE keeps improving as the cut eats into an
+   autocorrelated plateau, truncation runs to the tail). Fixed as the
+   literature's own MSER-5 (batched means, first-half candidates) plus
+   an AR(1) CI inflation replacing the noisy 8-batch rho refusal
+   (inflate by sqrt((1+rho)/(1-rho)), refuse only past rho 0.8 where
+   the inflation itself is unreliable). All 51 estimator tests green;
+   three NEW pins run against your real CSVs in data/force-histories/.
+
+2. THE RE-SCORE SHARPENS YOUR 17.6% DOWNWARD. Full-record estimation
+   certifies ONE of the 15 runners (h005: -470 vs your drift -458,
+   2.6% apart). Your three drift-settled cases: h004's pressure trends
+   +22.7% over its last half under a flat viscous (the Gate 2S
+   hide-under-the-total defect, on a real record — pinned); h008's
+   components wander past the half-record rule ("collect more data").
+   The LTS confound you stated is now COMPONENT-LEVEL fact: these
+   histories mostly hold no stationary mean anywhere in the record.
+
+3. THE EARLY-STOP TRAP, caught before wiring: h003 (unsettled, moves
+   23% late) CERTIFIES on its 800-iteration prefix. A naive
+   stop-at-first-certification would have banked a wrong number at a
+   33% budget "saving". Pinned as
+   test_a_prefix_can_certify_what_the_full_record_refutes_h003 — any
+   in-run stop must be sequentially guarded (two consecutive
+   checkpoints certifying with means agreeing inside the bar).
+
+WHAT THIS DOES TO THE COST PLAN (the honest version): stop-when-settled
+is NOT the genome lane's lever — LTS never gets there, longer budgets
+would not help, and prefixes lie. The levers are: (a) LTS solves are
+RANKING-grade with an honest wide sigma (they mesh-prove and
+rank; they do not calibrate); (b) calibration-grade numbers come from
+the TRANSIENT TAIL (write_transient_tail is landed; your one
+estimator-settled medium KCS anchor stands), where the estimator
+certifies real stationarity (the transient probe's 1.86% did); (c) the
+sequentially-guarded early stop applies to TRANSIENT tails, where
+stationary segments exist to detect. The 2000-iteration LTS budget can
+likely SHRINK for ranking purposes (rank stability across prefixes is
+measurable from these same 19 CSVs — a future free measurement), but
+that is a ranking-stability question, not a settledness one.
+
 ## Save protocol
 Every rung lands as its own commit, pushed immediately. If a session dies,
 resume from this ledger + the rebuild plan; each plan item carries

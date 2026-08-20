@@ -660,3 +660,78 @@ def test_the_estimator_settles_the_oscillation_the_drift_bar_waits_out():
     assert ("refused" in rs) or rs["rel_ci"] > 0.05, rs
     # and a tiny sample count is refused outright
     assert "refused" in post.estimate_settled_mean(t[:20], y[:20])
+
+
+# ---------------------------------------------------------------------------
+# The estimator against REAL LTS histories (the Mac's 2026-08-20 export)
+# ---------------------------------------------------------------------------
+
+
+def _history(case):
+    import csv
+    p = Path(__file__).resolve().parents[1] / "data" / "force-histories"
+    rows = list(csv.reader(open(p / f"{case}.csv")))
+    a = np.array(rows[1:], float)
+    return a[:, 0], a[:, 1], a[:, 2]
+
+
+def test_mser5_certifies_the_flat_real_record_the_raw_statistic_refused():
+    """g2u_h005: drift-settled AND genuinely flat late (quarter means within
+    ~5%), and the FIRST estimator refused it — the raw-point MSER statistic
+    kept improving as the cut ate into the autocorrelated plateau, so
+    truncation ran to the tail and EVERY one of the Mac's 19 exported
+    histories read 'transient-dominated'. MSER-5 (batched means, first-half
+    candidates) + the AR(1) CI inflation certify it, and the estimate agrees
+    with the drift-rule mean it is meant to replace (-470 vs -458, 2.6%)."""
+    from navalai.cfd.post import DRIFT_TOL, estimate_settled_mean
+
+    t, fp, fv = _history("g2u_h005")
+    for arr in (fp + fv, fp, fv):
+        est = estimate_settled_mean(t, arr)
+        assert "refused" not in est, est
+        assert est["rel_ci"] <= DRIFT_TOL, est
+    tot = estimate_settled_mean(t, fp + fv)
+    assert abs(tot["mean"] - (-458.0)) / 458.0 < 0.05
+
+
+def test_a_trending_component_cannot_hide_under_a_stable_total_h004():
+    """g2u_h004: the drift rule said SETTLED, but its pressure component
+    trends +22.7% over the last half of the record (quarter means -102,
+    -99, -92, -82). The estimator must refuse the pressure — the same
+    hide-under-the-total defect Gate 2S exists for, now caught by
+    ESTIMATION on a real record. (The viscous, which decays until
+    mid-record, draws the half-record rule's conservative refusal — that
+    is MSER-5's own "collect more data" verdict, not asserted either way
+    here.)"""
+    from navalai.cfd.post import DRIFT_TOL, estimate_settled_mean
+
+    t, fp, fv = _history("g2u_h004")
+    press = estimate_settled_mean(t, fp)
+    assert ("refused" in press) or press["rel_ci"] > DRIFT_TOL, press
+
+
+def test_a_prefix_can_certify_what_the_full_record_refutes_h003():
+    """THE SEQUENTIAL TRAP, pinned on the real case that exposed it:
+    g2u_h003 is UNSETTLED by the drift rule, and its full record refuses
+    estimation — but its 800-iteration PREFIX certifies, with a mean 23%
+    away from where the record later goes. A naive estimator-driven early
+    stop would have banked that number. Any in-run stop rule must be
+    sequentially guarded (two consecutive checkpoints agreeing within the
+    bar) — this test is the measured reason why, and it must keep failing
+    any future 'just stop at first certification' simplification."""
+    from navalai.cfd.post import DRIFT_TOL, estimate_settled_mean
+
+    t, fp, fv = _history("g2u_h003")
+    tot = fp + fv
+    m = t <= 800.0
+
+    def certified(tt, yy):
+        est = estimate_settled_mean(tt, yy)
+        return ("refused" not in est) and est["rel_ci"] <= DRIFT_TOL, est
+
+    ok_prefix, est_prefix = certified(t[m], tot[m])
+    assert ok_prefix, est_prefix                      # the trap fires...
+    ok_full, _ = certified(t, tot)
+    assert not ok_full                                # ...and the record refutes it
+    late = tot[t > 1500.0].mean()
+    assert abs(est_prefix["mean"] - late) / abs(late) > 0.10
