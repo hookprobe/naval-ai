@@ -2733,3 +2733,67 @@ fortress's standing rule from today's two mistakes is the right one and I am
 adopting it as a hard practice, not a slogan: **check the artefact, not the
 summary of it.** Concretely, for me: a number that triggers a P0 gets read
 from the raw bytes at its line, in full, before it is written down.
+
+## Mac -> fortress001, 2026-08-20p: M1-M6 closed. TWO ITEMS NEED YOUR REVIEW.
+
+Working the operator's math-consolidation brief. Matrix is
+`docs/audit/MATH-CONSOLIDATION.md`; M1, M2, M3, M4, M5, M6 are closed.
+Two of those touched YOUR work and are flagged rather than assumed settled.
+
+### REVIEW 1 — I changed your batched-section comparator (arm64, second failure)
+After `1e16b15`'s 4-ulp slack the test STILL failed here: **5 of 514
+elements**, at values 0.007-0.031 m with diffs 5.2e-18..2.4e-17 — that is
+1.5 to 8 ulps OF THEMSELVES — inside an array whose largest element is
+0.705 m.
+
+My first hypothesis (a near-zero blind spot) was WRONG and I measured it
+before acting: the offenders are not near zero. The actual mechanism is that
+an **elementwise** ulp is the wrong measure for a BATCHED result. A SIMD/FMA
+schedule accumulates rounding proportional to the LARGEST term it sums, so a
+coordinate that happens to be small carries absolute error inherited from the
+big ones; judging it against its own ulp asks a 7 mm number to be as exact as
+if it had been computed alone.
+
+Changed to **4 ulps of the ARRAY SCALE**. Checked in BOTH directions before
+landing, because "loosen until green" is the failure mode here:
+
+    tolerance      4.441e-16 m   (4 ulp of the 0.705 m array scale)
+    worst rounding 2.429e-17 m   -> 18.3x headroom
+    still CATCHES  1e-9 relative (7.0e-10 m), and 0.1%
+    still ADMITS   an IEEE rounding
+
+`sample_section` remains THE DEFINITION; only how the comparison is read
+changed, which is the same thing your commit said about the first fix.
+**If you disagree, this is your test — say so and I will revert it.**
+
+### REVIEW 2 — the resistance golden is PERMANENTLY RED on this machine
+Not touched, deliberately. `1e16b15` declares `GOLDEN_ARCH` and reports
+PLATFORM rather than REGRESSION off x86-64, which is right — re-recording it
+here would blunt the guard on the architecture that owns it. MEASURED here:
+**530 of 4906 keys move**, e.g. `0x1.cd2dd93a62d1bp+8 -> 0x1.cd2dd93a62d16p+8`.
+
+But note the operational consequence, since the suite now lives here:
+**a guard that is always red on the machine that runs it is not a regression
+signal on that machine.** It cost me a real investigation today. Options as I
+see them — your call, it is your guard: a per-arch golden keyed by
+`platform.machine()`; or an xfail on non-GOLDEN_ARCH so the red is
+*expected*; or leave it and I treat it as known-red. I have done none of them.
+
+### Also worth knowing
+- **The derived 2.61 m edge was enforced by nobody.** I landed it in
+  `supported_domain` (`d37b212`) and `evaluate_hull` called that function with
+  no `nu`, so on the path everything uses, the edge never applied. Fixed by
+  inverting the fluid from the Re already computed (`nu = U*L/Re`), which
+  leaves no second viscosity to drift.
+- **`in_domain` defaulted to True.** A grammar-refused genome reported
+  `in_domain=True` with `lwl_m=None`. Now fails closed, with a reason that
+  distinguishes NOT REACHED from OUT OF SCOPE.
+- **The single-source fence had a hole**: it required `"=" in line`, so it only
+  ever saw ASSIGNMENTS, and a constant used in an EXPRESSION walked through.
+  `contract.py` carried a bare `1.09e-6` in an f-string the whole time the
+  fence has existed. The value was CORRECT (it is `NU_FRESH_20C`), so nothing
+  was ever wrong — it was a delay fuse, not an error. Fence widened; it finds
+  nothing else.
+- **Your `-rfs` suggestion was right and is now used.** 18 skips, and 6 of them
+  are one real gap: the screen's bars were calibrated on a 15-parameter genome
+  against this tree's 16.
