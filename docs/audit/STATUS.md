@@ -1405,6 +1405,90 @@ TWO THINGS THAT AFFECT YOUR ARTEFACTS:
    population before we keep it; do not re-run a campaign against the new
    STL until that lands.
 
+## fortress001 -> Mac, 2026-08-20c: THE SOLAR-DAY WORK ORDER (run in this order)
+
+Sized for a day of sun and ordered so that the CHEAPEST question that can
+change the plan is answered FIRST. Each block states its cost, its stop
+rule, and what its answer changes. Nothing here is a 200-hull campaign:
+the directive's §16 gates that behind these, and so do we.
+
+BEFORE ANYTHING: `git pull --rebase`. fortress has landed the contract
+(`navalai/contract.py`), the fidelity governor, the physics-sanity layer,
+the smoke parser and a 161-STATION STL REBUILD that changes every hull's
+geometry file. Blocks 1-2 exist because of that last one.
+
+### BLOCK 1 (~20 min) — the layer ladder on h011 and h012
+`--layer-backoff 3` on those two hulls ONLY. They are Gate 2U's two
+failures, they refused at RUNG 0 having already achieved 5.73 of 7
+layers, and nobody has ever tried a lower rung on them.
+WHY FIRST: fortress spent a full investigation proving there is NOTHING
+WRONG WITH THEIR GEOMETRY (docs/audit/H011-H012-ROOT-CAUSE.md: section
+solve feasible with 118x more margin than a hull that meshed, z-monotone,
+watertight, 0 folded/inward quads, and an 83-descriptor separation scan
+returning family-wise p = 0.601). If they mesh at n=6 or n=5, the
+mechanism is the DERIVED LAYER COUNT, the ladder already handles it,
+Gate 2U's rate is understated by two hulls, and no generator change is
+owed at all.
+STOP RULE: if both fail at every rung, label them `no_admissible_rung`
+and STOP — do not re-run the campaign; that is a different finding and
+fortress will scan again with usable labels.
+
+### BLOCK 2 (~35 min) — re-mesh the 25-hull bank on the NEW STL
+Mesh-only (`MESH_ONLY=1`), same genomes, same seed, no solves.
+WHY: the 161-station rebuild cuts loft error 13.5x but is NOT MONOTONE in
+snappy-facing terms — hull 18 goes from 0 to 53 over-30-degree feature
+edges. A geometric win does not automatically transfer to a meshing win,
+and every stl_sha256 in data/gate2u-*.json is stale by construction now.
+DELIVER: the rung-0 mesh rate on the new STL against the recorded 92.0%,
+per-hull, plus checkMesh non-ortho/skew so the distributions can be
+compared rather than just the pass count.
+STOP RULE: if the rate FALLS, say so plainly — fortress will make the
+station count per-hull or split the STEP and CFD paths. Do not tune
+around it.
+
+### BLOCK 3 (~30 min) — the PRESCRIPTION A/B, mesh-only
+For 4 hulls spanning the size range, mesh twice: once with the shipped
+fixed configuration, once with the numbers `contract.mesh_prescription`
+derives for that hull (mesh_density, and the cell sizes it implies).
+Print both. fortress will send the exact per-hull numbers with the pull.
+WHY: §5's whole claim is "what mesh does THIS hull require" instead of
+"will this generic mesh happen to work". The claim is untested. If the
+derived prescription meshes no better, that is worth knowing before it
+becomes the default.
+
+### BLOCK 4 (~40 min) — the regime coverage matrix, mesh-only
+One hull per row: 2.5-3 m, 3-5 m, 5-7 m, 7-10 m, 10-12 m, plus one
+catamaran and one plumb-bow/zero-flare form, each at its cruise Fn.
+fortress will send the genomes (they come out of the contract, so each
+already carries its regime, its prescription and its expected tau).
+WHY: the directive's §15 — the supported domain must be shown to WORK
+across its width, not just at the reference hull. This is the first
+measurement of mesh behaviour by SIZE rather than by draw order.
+
+### BLOCK 5 (rest of the sun) — calibration-grade numbers, transient
+Two or three genome hulls with `write_transient_tail`, NOT LTS.
+WHY: fortress re-scored your 19 exported histories and only ONE certifies
+under the estimator. LTS records hold no stationary mean to certify —
+they are RANKING-grade. Calibration-grade truth lives in transient tails,
+which is where `settled_estimate` can actually do its job, and where the
+sequentially-guarded early stop becomes worth building. If the sun
+outlasts this, the ONE estimator-settled medium KCS anchor is next.
+
+### WHAT NOT TO SPEND SUN ON
+- The 200-hull campaign. Gated behind blocks 1-4 by the directive itself.
+- The GCI triplet. Cancelled; the coarse/medium Richardson band plus the
+  estimator replaced it.
+- Longer LTS budgets to chase settledness. Measured: those records hold
+  no stationary mean at ANY length; longer costs power and buys nothing.
+
+### RECEIPTS WE NEED BACK
+Per case: `smoke_verdict=` (once run-case.sh gains SMOKE_ONLY), the
+`checkMesh -allGeometry` minVol/minFaceArea receipt (for calibrating the
+geometric tau against the prescription's prediction), and — new — the
+portable `genome_sha256` beside `stl_sha256`, because the STL hash is NOT
+reproducible across our two machines (13 of h011's 3.47M printed numbers
+sit within 1e-12 of a rounding boundary; the genome reproduces exactly).
+
 ## Save protocol
 Every rung lands as its own commit, pushed immediately. If a session dies,
 resume from this ledger + the rebuild plan; each plan item carries

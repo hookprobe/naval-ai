@@ -196,3 +196,71 @@ order, functions that ALL EXIST TODAY, and adds only the prescription:
 The operator's §4 is honoured by construction: A, B, C and D are four
 SEPARATE verdicts on the receipt and are never collapsed into one
 valid/invalid flag. §12's receipt is that dataclass, serialised.
+
+---
+
+# Part III — the BUILD PLAN to completion (2026-08-20)
+
+What is closed, what is open, who runs it, and in what order. The
+directive's §16 acceptance items are the exit criteria; this is the path to
+them.
+
+## III.1 · Closed by this campaign
+
+| Directive | Closed by | Evidence |
+|---|---|---|
+| §3 one contract | `navalai/contract.py` | 10 pins, Gate HC |
+| §4 four verdicts | A/B/C/D on the receipt | reference hull: A=REFUSED, B=OK, C=OK |
+| §5 mesh prescription | `mesh_prescription` | cell sizes in metres, first layer, expected tau, dt, cells, wall, RAM |
+| §6 Gate 2U mathematically | the h011/h012 investigation | no invariant breaks; p=0.601; criterion refused |
+| §8 regime taxonomy | `classify_regime` | tuple, not label; boundaries imported |
+| §9 fidelity governor | `select_fidelity` | 5 gates, 42 pins, first consumer of the product sigma |
+| §11 calibration preserved | untouched + improved | MSER-5 + AR(1) on real histories |
+| §13 no new physics | composition only | contract calls, never re-derives |
+| §18 the matrix | this document | Parts I-III |
+| (unasked) physics sanity | `post.physics_sanity` | the walked exploit closed, Gate 2N |
+
+## III.2 · Open, fortress-side, in order
+
+1. **§14 enforce the supported domain in ONE place.** It is declared in
+   II.2 and enforced piecemeal (grammar box, governor gates). The contract
+   should carry a single `supported_domain()` check whose refusal names the
+   axis and the bound. SMALL — and it makes "we do not claim to solve every
+   boat" a code fact rather than a sentence.
+2. **§15 the coverage matrix as fixtures.** One certifiable genome per size
+   band (2.5-3, 3-5, 5-7, 7-10, 10-12 m) plus a catamaran and a plumb-bow
+   form, each pinned through the contract with its regime and prescription.
+   These are also the genomes Block 4 needs, so building them serves both.
+   MEDIUM.
+3. **§7 the per-criterion FP/FN table for the screen.** Every criterion
+   gets: equation, physical reason, source, measured evidence, FP, FN —
+   scored on the 25+17-hull corpus. The h011 investigation built the
+   instrument (permutation scoring); this applies it to the criteria that
+   already ship. MEDIUM, and it is the honest prerequisite to touching the
+   screen at all.
+4. **§12 wire the D verdict.** `result_verdict` is UNMEASURED by design
+   until a solve exists; the contract should read a case directory when
+   given one (settled_drag + physics_sanity + the y+ receipt) so the same
+   receipt carries the solver and physics verdicts. SMALL once the Mac's
+   y+ receipt lands.
+5. **The stale pins at HEAD.** At least three numeric pins and two
+   wall-clock bars fail on a pristine HEAD checkout, independent of this
+   campaign — one traced to a pin written before four legitimate
+   hydrostatics changes moved the value under it. Each needs
+   re-measurement WITH THE REASON RECORDED, never deletion. SMALL each,
+   and until they are done "all tests pass" (§16.A) cannot be claimed.
+6. **§10 tier-bias measurement.** Data-gated: it needs the Mac's
+   transient-tail numbers (Block 5) beside the L1 predictions. Then
+   CoKriging bridges MEASURED bias rather than assumed bias.
+
+## III.3 · The exit criteria, restated honestly
+
+§16.A (all tests pass) is blocked by III.2.5, not by new work. §16.B
+(regime boundaries + refusals) is DONE (42 governor pins + the contract's
+regime tests). §16.C (h011/h012) is DONE, with the answer "generated
+validly, no repair needed" pending Block 1's confirmation. §16.D (mesh
+bank) is Block 2. §16.E (end-to-end per regime) is III.2.2 + Block 4.
+§16.F (the 200-hull campaign) stays GATED behind all of the above, and
+Gate 2U stays RED until its evidence changes — at 17.6% settled, which is
+harsher than the 88.2% the directive quotes, because "ran to budget" was
+never convergence.
