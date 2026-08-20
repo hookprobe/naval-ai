@@ -264,3 +264,48 @@ bank) is Block 2. §16.E (end-to-end per regime) is III.2.2 + Block 4.
 Gate 2U stays RED until its evidence changes — at 17.6% settled, which is
 harsher than the 88.2% the directive quotes, because "ran to budget" was
 never convergence.
+
+
+---
+
+# Part IV — the §22 rate nobody had measured (2026-08-20)
+
+Building the §15 coverage genomes produced the population rate the audit
+listed as missing, and it is worth more than the genomes were.
+
+**MEASURED, 60 uniform grammar draws, each given a mission whose cruise
+speed puts it at Fn 0.25 (so size bands are compared at the same Froude
+number rather than at one boat's speed): 40 REFUSED, 1 MARGINAL, 0
+ACCEPT.** Dominant causes, in order:
+
+| count / 60 | cause |
+|---|---|
+| 29 | **GM negative** — the hull is unstable |
+| 29 | static list UNDEFINED (the same hulls: no positive GM, so no equilibrium heel) |
+| 20 | panel bend radius below the plywood cold-bend limit |
+| 14 | GM positive but under the category floor |
+| 13 | floated L/B outside its band |
+| 6 | floated B/T outside its band |
+
+**THE GRAMMAR BOX IS A GEOMETRY BOX, NOT A DESIGN BOX.** It admits hulls
+that are buildable as surfaces and unstable as boats. Two consequences
+that matter more than the number:
+
+1. **The supported domain (II.2) is not the grammar box** — it is a much
+   smaller subset inside it, and certifiable designs must be SEARCHED
+   (which is what the optimiser is for), not sampled. Any statement of
+   the form "N% of the design space is valid" must say which denominator
+   it used; uniform-in-box is nearly all invalid and that is not a defect.
+2. **A coverage matrix built by rejection sampling cannot be a matrix of
+   certifiable designs.** `data/coverage-band-hulls.json` is therefore
+   labelled for what it is: MESHING-coverage hulls, grammar-valid and
+   mesh-screen clean, spanning 3-12 m at a common Fn — the right input for
+   Block 4, which measures the MESHER across the size range. The 2.5-3 m
+   band yielded nothing even meshing-clean in ten draws, which is its own
+   small finding about where the box thins out.
+
+Found on the way, and fixed: 5 of the first 40 draws were refused with
+"constraint 'rules' is not a finite number" — an UNDECIDABLE ES-TRIN
+finding (ES-REC reports `measured = nan` on purpose, because craft type
+is not modelled) poisoning a `max()` aggregate. That is now 0 of 40; see
+the commit for the mechanism.
