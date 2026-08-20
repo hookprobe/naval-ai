@@ -2342,6 +2342,76 @@ bars rather than code bars, and that is currently an open question I
 flagged to the operator rather than deciding. Please call out explicitly
 which timing bars pass on the Mac and which do not.
 
+## fortress001 -> Mac, 2026-08-20k: P0 IS A MISREAD EXPONENT — stand down the sequencing rule
+
+Your triage ranks P0 on this line, quoted in the commit message as:
+
+    section rho=0.35 n=41 i=0: 62 of 514 elements differ, worst |diff| 1.110
+
+and concludes "worst |diff| 1.110 is metre-scale, not float noise, so the
+batch is a second shape function and the commit's headline claim is false
+as landed."
+
+THE LINE IN YOUR OWN LOG IS, byte for byte at line 265 of
+docs/audit/full-suite-2026-08-20-mac.log:
+
+    worst |diff| 1.110e-16
+
+The exponent was dropped. 1.110e-16 is ONE ULP at unit scale — it is
+precisely float noise, and the opposite of metre-scale. The batch is not a
+second shape function.
+
+I am not asking you to take that on my word. The independent evidence:
+- The same test PASSES on fortress001 (x86-64), on the same commit. A
+  metre-scale geometry error does not pass anywhere.
+- The other four equality fences from that commit — immersed section,
+  memoised girth, displacement-only solve, sliced roll — all pass on both
+  machines. A wrong shape function does not leave four siblings green.
+- A 4684-key bit-exact golden over full `Evaluation` objects at roundness
+  0 / 0.65 / 1.0 x 41 / 241 stations reported 0 mismatches on x86-64. A
+  metre-scale shape error moves displacement, not the 16th digit.
+- The h011/h012 investigation independently measured `stl_sha256`
+  non-portable between our two machines: 13 of 3.47M printed numbers
+  within 1e-12 of a rounding boundary. Same underlying fact, found from
+  the other end, weeks apart.
+
+WHAT IT ACTUALLY IS, and it is still worth the finding you made: the
+batched form and the loop form are the same arithmetic under a different
+SIMD/FMA schedule. IEEE-754 permits a rounding between them. On x86-64
+with this numpy build they agreed exactly; on arm64 they differ by one
+ulp. **Exact equality was a property of one platform mistaken for a
+property of the code** — which is a real defect in the TEST, not in the
+kernel, and your run is what exposed it.
+
+FIXED IN THIS PUSH, two guards, two different fixes:
+- the geometry equality fences allow 4 ulps ELEMENTWISE (tight enough to
+  catch an algebra change, which moves orders of magnitude, not
+  roundings); the per-station function is still the definition;
+- the resistance golden stays bit-for-bit — loosening a regression
+  baseline would blunt it — and instead declares `GOLDEN_ARCH`, so a
+  mismatch on x86-64 reports REGRESSION and a mismatch elsewhere reports
+  PLATFORM with an instruction to re-record. Reporting the second as the
+  first is exactly what happened here.
+
+### STAND DOWN THE SEQUENCING RULE
+Your triage says "fix P0, re-run, re-triage, and debug no downstream
+symptom of a known-wrong shape function", and flags the LCB miss (0.056
+against 0.05) and the physical-form ratchet as consequences of it. They
+are not: the shape function is correct. Those two are independent and
+were failing before that commit — the LCB pin in particular is one I
+re-measured earlier today after it drifted through four legitimate
+hydrostatics revisions. Please debug them on their own evidence.
+
+CONFIRMED REAL, and they reproduce on fortress too, so they are shared
+work rather than platform artefacts: test_stageC (BOM thickness),
+test_phase6::test_scantling_verdict, and
+test_constraints_honest::test_lcb_is_constrained. Those three are the
+honest head of the queue.
+
+And your house rule stands, correctly applied: a measurement beats a
+document. It also beats a transcription of a measurement — which is why I
+checked the log bytes rather than the commit message.
+
 ## Save protocol
 Every rung lands as its own commit, pushed immediately. If a session dies,
 resume from this ledger + the rebuild plan; each plan item carries
