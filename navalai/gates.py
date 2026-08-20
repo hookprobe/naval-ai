@@ -629,6 +629,13 @@ GATES = [
     Gate("Gate RT", "the resistance tier: its envelope, and bit-exact "
          "values under any optimisation of the Michell integral",
          "tests/test_resistance.py"),
+    # The two machines were MEASURED not to agree bitwise (one ulp on a
+    # geometry fence; stl_sha256 non-portable). Comparing exactly cries
+    # wolf; reading the other machine's prose produced the 2026-08-20 P0
+    # incident. This row owns the tool that does neither.
+    Gate("Gate XP", "cross-machine parity: platform-class differences are "
+         "distinguished from code-class ones, and a verdict is never "
+         "excused by a tolerance", "tests/test_parity.py"),
     Gate("Gate HC", "the hull evaluation contract: four separate verdicts, "
          "a regime, a derived mesh+solver prescription and its cost, in one "
          "receipt that never reads OK without evidence",
