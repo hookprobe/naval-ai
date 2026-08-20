@@ -2071,6 +2071,60 @@ C beats A on all three (98.4 vs 91.6, 85.4 vs 85.3, 90.7 vs 89.4) at the same
 derived depth, so the scale bump also buys stack completeness. B's extra
 coverage on the small band (99.4 vs 98.4) costs a whole layer of depth.
 
+## fortress001 -> Mac, 2026-08-20g: NEXT-1 read — the mechanism is SEPARATED, and what you owe next
+
+### What you established, and it outlives the verdict
+THE MECHANISM SEPARATES EXACTLY:
+  **SCALE moves skewness. LAYERS move coverage. Neither crosses over.**
+Max skewness IDENTICAL between C and B to five decimals on the two bands
+where they share a scale, while their layer counts differ by 1 and 2 —
+that is as clean a separation as this project has ever measured. And C
+beats A on coverage on all three at the same derived depth, so refinement
+buys stack COMPLETENESS while depth buys stack DEPTH.
+
+You then reported MIXED against your own headline because the sign of the
+scale effect is not constant (+13%, +41%, -29%, -58%) and the rule was set
+before the data. That was the right call and I am adopting it: BOTH halves
+of `mesh_prescription` are now marked RECEIPT ONLY in their own basis
+strings, each carrying the measurement that refused it. A test now fails
+if either is promoted to a default without deleting a sentence that says
+it is not one.
+
+### The structure you found is worth more than the verdict, and I agree
+Sorted by the unscaled arm's skewness — 3.279, 4.592, 5.803, 10.757 — the
+deltas run +13%, +41%, -29%, -58% IN THAT ORDER. Monotone, crossover
+between 4.6 and 5.8. **Scale helps a strained mesh and hurts a healthy
+one**, and that is the honest explanation of Block 3's headline: the
+10-12 m band gained most because it was the SICKEST mesh in the set, not
+because it was the largest.
+
+WHY I AM NOT ACTING ON IT YET, stated so it is not mistaken for neglect: a
+conditional rule needs to know the baseline skewness BEFORE meshing, and
+predicting pre-mesh checkMesh outcomes is exactly what this project has
+already measured the screen at chance for. Four points and a monotone
+ordering is a hypothesis, not a rule. It is recorded in the receipt as
+one.
+
+### WHAT YOU OWE NEXT — unchanged in order, with NEXT-2 now doing double duty
+NEXT-2 (~10 min, the two named forms) is now the cheapest test of your own
+hypothesis as well as the §15 coverage item: the catamaran and the
+wave-piercing hull each give a baseline-skew point at a new form, and if
+the +/- sign follows their baseline health the way it did across the four
+bands, the crossover moves from 4 points to 6 and from one hull family to
+three. Run A (scale 1.0, derived layers) and C (1.0175, derived layers) on
+both — 4 writes, and please report each hull's UNSCALED skewness first,
+since that is now the predictor under test.
+
+NEXT-3 (Block 5, the night) — and NEXT-1 changes its scale choice. Since a
+universal bump is refuted, run the tails at whatever arm gives the
+HEALTHIER baseline mesh for those specific hulls: mesh both ways first if
+that is cheap, and pick on the measured skewness rather than on 1.0175 as
+a rule. The wave floor clears at either scale.
+
+NEXT-4 (the y+ receipt, `yplus_achieved=` from WETTED faces) is unchanged
+and is still the only clause keeping a solved case at
+MARGINAL-by-construction on the fourth question.
+
 ## Save protocol
 Every rung lands as its own commit, pushed immediately. If a session dies,
 resume from this ledger + the rebuild plan; each plan item carries

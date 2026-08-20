@@ -386,3 +386,30 @@ def test_the_contract_asks_D_only_when_given_a_case():
 
     v, why, _ = judge_result("/nonexistent/case")
     assert v == UNMEASURED and "does not exist" in why[0]
+
+
+def test_both_halves_of_the_prescription_carry_their_evidence_status():
+    """NEITHER HALF OF THIS PRESCRIPTION IS A DEFAULT, and the receipt says
+    so — because both were measured and both fell short of the rule that was
+    declared BEFORE the data.
+
+    LAYERS (Mac Block 3): reducing below the writer's derived count is
+    unsupported and the 5-7 m arm was worse on coverage AND skew.
+    SCALE (Mac NEXT-1): the C arm separated the mechanism exactly — max
+    skewness IDENTICAL between C and B to five decimals where they share a
+    scale while layer counts differ by 1 and 2, so layers move skewness by
+    NOTHING and scale moves it on every band. But the SIGN of the scale
+    effect flips with baseline mesh health (+13%, +41%, -29%, -58%,
+    monotone in the unscaled arm's skewness, crossover near 4.6-5.8), so a
+    universal bump is refuted.
+
+    This test exists so that the day either half is promoted to a default,
+    the promotion has to delete a sentence that says it is not one.
+    """
+    p = mesh_prescription(lwl_m=11.36, speed_ms=2.639, fn=0.25)
+    assert "RECEIPT ONLY" in p.basis["mesh_density_evidence"]
+    assert "RECEIPT ONLY" in p.basis["n_layers_evidence"]
+    assert "refuted" in p.basis["mesh_density_evidence"]
+    # the numbers are still DERIVED and still reported — a receipt is not a
+    # blank, it is a measured recommendation with its evidence attached
+    assert p.mesh_density is not None and p.n_layers is not None

@@ -360,6 +360,35 @@ def mesh_prescription(lwl_m: float | None, speed_ms: float | None,
                                density_for_wave_resolution)
         density = float(density_for_wave_resolution(fn))
         cpw = float(cells_per_wavelength(fn, density))
+        # EVIDENCE STATUS OF THE SCALE HALF, 2026-08-20 (Mac NEXT-1). The
+        # C arm (B's scale, A's derived layers) separated the mechanism
+        # exactly: max skewness is IDENTICAL between C and B to five
+        # decimals on the two bands where they share a scale while their
+        # layer counts differ by 1 and 2 — so LAYERS MOVE SKEWNESS BY
+        # NOTHING and SCALE MOVES IT ON EVERY BAND. Coverage is the mirror:
+        # C beats A on all three at the same derived depth, so refinement
+        # buys stack completeness.
+        #
+        # BUT THE SIGN OF THE SCALE EFFECT IS NOT CONSTANT: +13%, +41%,
+        # -29%, -58% across the four bands, and it is MONOTONE IN THE
+        # BASELINE MESH'S HEALTH — sorted by the unscaled arm's skewness
+        # (3.279, 4.592, 5.803, 10.757) the deltas run in that order, with
+        # the crossover between 4.6 and 5.8. Scale HELPS a strained mesh
+        # and HURTS a healthy one. That also explains Block 3's headline
+        # honestly: the 10-12 m band gained most because it was the sickest
+        # mesh in the set, not because it was the largest.
+        #
+        # So a UNIVERSAL scale bump is REFUTED by the pre-declared rule, and
+        # this stays a RECEIPT. The conditional form — bump only where the
+        # baseline is strained — is a live hypothesis on four points and is
+        # NOT actionable yet, because predicting baseline skewness before
+        # meshing is exactly what the screen was measured at chance for.
+        basis["mesh_density_evidence"] = (
+            "RECEIPT ONLY: a universal scale bump is refuted (the sign "
+            "flips with baseline mesh health, +41% to -58%). Scale, not "
+            "layers, is what moves skewness; layers move coverage. The "
+            "conditional form (bump only a strained mesh, crossover near "
+            "baseline skew 4.6-5.8) is an untested hypothesis on 4 points.")
         basis["mesh_density"] = (
             f"inverted from MIN_CELLS_PER_WAVELENGTH="
             f"{MIN_CELLS_PER_WAVELENGTH:g} at Fn {fn:.3f} "
