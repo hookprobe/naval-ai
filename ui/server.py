@@ -73,6 +73,7 @@ import numpy as np
 
 from navalai import grammar
 from navalai.evaluate import evaluate, sample_valid
+from navalai.flywheel import DeployedSurrogate
 from navalai.generative import HullGenerator, make_generator
 from navalai.mission import MissionSpec, parse_mission
 
@@ -352,6 +353,99 @@ def pareto_payload(mission_d: dict | None = None) -> dict:
             "mission_notes": mission.notes,
             "live": not cached,
             "elapsed_ms": round((time.perf_counter() - t0) * 1e3, 3)}
+
+
+def surrogate_status(mission_d: dict | None = None) -> dict:
+    """GAP I14: THE SURROGATE SPINE GETS A CONSUMER, and an honest one.
+
+    `flywheel.DeployedSurrogate` is "the ONLY caller-facing way to ask a
+    deployed surrogate for a number" — it refuses off-support rows and
+    escalates to the ladder instead of badging a guess. Until now NOTHING in
+    the served product consumed it, so the whole cheap-model tier existed for
+    tests. That is the shape of gap A4 one layer out: machinery that looks
+    load-bearing and carries nothing.
+
+    This endpoint answers the question the operator's architecture actually
+    asks — "of the candidates in front of us, how many could a cheap model
+    answer, and how many must escalate?" — which is the N_candidate >> N_CFD
+    economics made visible rather than asserted.
+
+    IT FABRICATES NOTHING. Deploying a surrogate needs a provenance database
+    of harvested runs (`flywheel.retrain`), and a served process may have
+    none. With no deployed model this returns `deployed: False` and says so;
+    it does NOT fit one on the request path, and it does NOT report a split it
+    could not measure. An absence is reported as an absence.
+    """
+    mission = _mission_from(mission_d) if mission_d else _mission_default
+    out: dict = {"deployed": False, "quantity": None, "tier": None,
+                 "n_candidates": 0, "answered": 0, "escalated": 0,
+                 "note": ""}
+    model = _deployed_surrogate()
+    if model is None:
+        out["note"] = (
+            "no surrogate is deployed in this process. One is produced by "
+            "flywheel.retrain() from a provenance database of harvested "
+            "runs; none is fitted here, because fitting on a request would "
+            "make the first caller pay for it and a model fitted on the fly "
+            "has no frozen-benchmark receipt behind it.")
+        return out
+
+    pool = get_pool(mission)
+    X = pool.get("X")
+    if X is None or not len(X):
+        out["note"] = "no candidate pool for this mission"
+        return out
+
+    answered = escalated = 0
+    for row in X:
+        try:
+            model.query(row, escalate=False)
+            answered += 1
+        except Exception:                                    # noqa: BLE001
+            # OODRefusal and anything else the guarded path raises: the row
+            # is one the cheap tier declines, which is the ANSWER here, not
+            # an error to swallow.
+            escalated += 1
+    out.update(deployed=True, quantity=model.quantity, tier=model.tier,
+               n_candidates=len(X), answered=answered, escalated=escalated,
+               frozen_ood_rate=model.frozen_ood_rate,
+               note=(f"{answered} of {len(X)} candidates answerable by the "
+                     f"cheap tier; {escalated} would escalate to the ladder"))
+    return out
+
+
+#: The process's deployed surrogate. None until `deploy_surrogate` installs
+#: one; never fitted implicitly.
+_DEPLOYED_SURROGATE = None
+
+
+def deploy_surrogate(model) -> None:
+    """Install a deployed surrogate for this process, and REFUSE a bare GP.
+
+    This is where the import earns its keep. Gap A4's finding is that a bare
+    `GP` answers any query with a confident-looking tuple and no tier — it
+    reported 770.9 Wh/NM with a sigma that looks like every other number the
+    model produces, on a row it had no support for. `DeployedSurrogate` is
+    the wrapper with no unguarded method: it refuses off-support rows and
+    escalates instead of badging a guess.
+
+    So the served product accepts ONLY the guarded object. Handing it a bare
+    GP is refused here rather than discovered later in a payload, which is
+    the difference between a type check and an incident.
+    """
+    global _DEPLOYED_SURROGATE
+    if model is not None and not isinstance(model, DeployedSurrogate):
+        raise TypeError(
+            f"deploy_surrogate: refusing a {type(model).__name__}. Only a "
+            f"flywheel.DeployedSurrogate may answer served queries — a bare "
+            f"GP has no tier and no OOD refusal, and would return a "
+            f"confident-looking number for a row it cannot support (gap A4).")
+    _DEPLOYED_SURROGATE = model
+
+
+def _deployed_surrogate():
+    """The process's deployed surrogate, or None. Never fits one."""
+    return _DEPLOYED_SURROGATE
 
 
 def prefit() -> dict:

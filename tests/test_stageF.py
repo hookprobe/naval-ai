@@ -452,3 +452,83 @@ def test_a_wire_mission_energy_dict_reaches_the_evaluation_C12():
     assert S.mission_key(m0) != S.mission_key(m1), (
         "two missions differing only in energy share a cache key — the "
         "served numbers would be conditioned on the wrong spec")
+
+
+def test_the_surrogate_spine_has_a_CONSUMER_and_it_fabricates_nothing():
+    """Gap I14. `flywheel.DeployedSurrogate` is "the ONLY caller-facing way to
+    ask a deployed surrogate for a number" — it refuses off-support rows and
+    escalates rather than badging a guess — and NOTHING in the served product
+    consumed it. The whole cheap-model tier existed for tests, which is gap
+    A4's shape one layer out: machinery that looks load-bearing and carries
+    nothing.
+
+    `ui.server.surrogate_status` answers the question the architecture
+    actually asks: of the candidates in front of us, how many could the cheap
+    tier answer and how many must escalate? That is the N_candidate >> N_CFD
+    economics measured rather than asserted.
+
+    WHAT THIS TEST IS REALLY FOR is the absence path. A served process may
+    have no provenance database and therefore no deployed model, and the
+    honest answer is to SAY SO — not to fit one on the request (making the
+    first caller pay, with no frozen-benchmark receipt behind it) and not to
+    report a split that was never measured. An absence reported as a number
+    is this repository's oldest defect.
+    """
+    import ui.server as S
+
+    st = S.surrogate_status()
+    assert set(("deployed", "answered", "escalated", "note")) <= set(st)
+    assert isinstance(st["deployed"], bool)
+
+    if not st["deployed"]:
+        assert st["answered"] == 0 and st["escalated"] == 0, (
+            "a split was reported with no model to produce it")
+        assert st["note"], "an absence with no explanation"
+        assert "no surrogate is deployed" in st["note"]
+        # and it must not have quietly fitted one
+        assert st["quantity"] is None and st["tier"] is None
+        return
+
+    # deployed: the split must ACCOUNT for every candidate, with no residue
+    assert st["answered"] + st["escalated"] == st["n_candidates"], (
+        f"{st['answered']} + {st['escalated']} != {st['n_candidates']} — "
+        f"candidates went missing between the two buckets")
+    assert st["quantity"] and st["tier"]
+
+
+def test_the_server_REFUSES_a_bare_GP_as_a_deployed_surrogate():
+    """The half of gap I14 that makes the import load-bearing rather than
+    decorative.
+
+    Gap A4's finding: a bare `GP` answers ANY query with a confident-looking
+    tuple and no tier — it reported 770.9 Wh/NM with a sigma indistinguishable
+    from every other number it produces, on a row it had no support for.
+    `flywheel.DeployedSurrogate` is the wrapper with no unguarded method.
+
+    A served product that accepted either would re-open A4 at the wire, so
+    the type is refused at install time — the difference between a check and
+    an incident.
+    """
+    import pytest
+
+    import ui.server as S
+
+    class _LooksLikeAModel:
+        quantity = "wh_per_nm"
+        tier = "L1-SURROGATE"
+
+        def query(self, x, escalate=True):
+            return {"value": 770.9, "sigma": 0.72, "tier": self.tier}
+
+    with pytest.raises(TypeError) as e:
+        S.deploy_surrogate(_LooksLikeAModel())
+    assert "DeployedSurrogate" in str(e.value)
+    assert "gap A4" in str(e.value) or "OOD" in str(e.value)
+
+    # duck-typing must not be enough: the object above answers `query` and
+    # carries a tier, and is still refused
+    assert S.surrogate_status()["deployed"] is False
+
+    # None is how a process says it has no model, and is accepted
+    S.deploy_surrogate(None)
+    assert S.surrogate_status()["deployed"] is False

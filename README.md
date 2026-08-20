@@ -189,7 +189,7 @@ different Gate 2M numbers came to circulate at once (gap J1).
 | Gate C | agentic PLM network + engineer + STEP/IGES | `tests/test_stageC.py` (14 tests) |
 | Gate D | waves/RAO response + dynamics + CFD post | `tests/test_stageD.py` (19 tests) |
 | Gate E | latent-space evolution + latent GP | `tests/test_stageE.py` (3 tests) |
-| Gate F | panel unroll/DXF + Pareto dash + handoff receipt | `tests/test_stageF.py` (12 tests) |
+| Gate F | panel unroll/DXF + Pareto dash + handoff receipt | `tests/test_stageF.py` (14 tests) |
 | Gate G | APSE: similitude/ITTC-78/cost/planner/evidence | `tests/test_stageG.py` (53 tests) |
 | Gate V2.1 | arrangement grammar: envelope, spaces, deck zones, and an L0-A that names the space it refuses | `tests/test_arrangement.py` (42 tests) |
 | Gate V3.0 | governance compiles to a parameter box and to constraint rows, ratchets only tighter, and the ladder never imports it | `tests/test_policy.py` (48 tests) |
