@@ -83,9 +83,9 @@ Retracted in full; `d7984da` and `2b48383` are NOT implicated. Recorded in
 
 | # | Gap | Brief § | Severity |
 |---|---|---|---|
-| M1 | The derived L_min has **no code path**. `supported_domain` enforces `RCD_HULL_LENGTH_SCOPE_M[0] = 2.5 m` (a LEGAL bound). MEASURED: `supported_domain(lwl_m=2.55)` returns `in_domain=True`. Hulls in [2.50, 2.61] pass the gate with no honest friction line. | §4 | **HIGH** |
-| M2 | The two bounds are DIFFERENT QUESTIONS collapsed to one number: RCD 2.5 m is legal scope; ~2.54–2.61 m is a physics envelope. A refusal must say WHICH. | §4, §6 | HIGH |
-| M3 | The crossover refutation exists only in commit messages and `STATUS.md` (a rolling channel). **No `docs/research/` record.** CLAUDE.md routes "what was MEASURED and what was refuted" to `docs/research/*.md`. A refutation that lives only in a rolling log will be re-proposed. | §3 | **HIGH** |
+| ~~M1~~ **CLOSED d37b212** | ~~The derived L_min has **no code path**.~~ `supported_domain` enforces `RCD_HULL_LENGTH_SCOPE_M[0] = 2.5 m` (a LEGAL bound). MEASURED: `supported_domain(lwl_m=2.55)` returns `in_domain=True`. Hulls in [2.50, 2.61] pass the gate with no honest friction line. | §4 | **HIGH** |
+| ~~M2~~ **CLOSED d37b212** | ~~Two DIFFERENT QUESTIONS collapsed to one number:~~ RCD 2.5 m is legal scope; ~2.54–2.61 m is a physics envelope. A refusal must say WHICH. | §4, §6 | HIGH |
+| ~~M3~~ **CLOSED 635eb07** (`docs/research/CROSSOVER.md`) | ~~The crossover refutation exists only in commit messages and `STATUS.md` (a rolling channel). **No `docs/research/` record.** CLAUDE.md routes "what was MEASURED and what was refuted" to `docs/research/*.md`. A refutation that lives only in a rolling log will be re-proposed. | §3 | **HIGH** |
 | M4 | `MeshPrescription` fields carry no per-field provenance. Brief §10 requires VALUE + EQUATION + REASON + VALIDITY DOMAIN + EVIDENCE. Today one comment says "DERIVED"; nothing distinguishes derived from receipt-only at runtime. | §10 | MED |
 | M5 | `expected_cost` and `escalation_required` are not first-class fields on `HullEvaluation`. | §9 | MED |
 | M6 | No DEVELOPMENT / VALIDATION / HELD-OUT split exists. Gate 2U's 17-hull bank has been tuned against repeatedly. | §13, §14 | **HIGH** |
@@ -96,3 +96,26 @@ Retracted in full; `d7984da` and `2b48383` are NOT implicated. Recorded in
 From today's two errors, one on each machine (fortress ran a 5-hour job
 without checking `nproc`; this node quoted a truncated measurement):
 **CHECK THE ARTEFACT, NOT THE SUMMARY OF IT.**
+
+
+---
+
+## G. PROGRESS (this is a live matrix; update it in the same commit as the fix)
+
+| Gap | State | Commit |
+|---|---|---|
+| M1 derived L_min had no code path | **CLOSED** | `d37b212` |
+| M2 legal vs physical bound collapsed | **CLOSED** | `d37b212` |
+| M3 crossover refutation not durable | **CLOSED** | `635eb07` |
+| M4 MeshPrescription provenance | open | — |
+| M5 cost/escalation not first-class | open — but note Gate HC already covers cost; re-audit before building | — |
+| M6 no dev/validation/held-out split | open — **highest remaining** | — |
+| M7 minimum state vector | open (hypothesis only) | — |
+| M8 suite accounting / validation-set identity | open | — |
+
+### Skip reasons, captured (the `-rfs` gap fortress asked about)
+18 skips, 12 distinct lines. The dominant one is a REAL gap and feeds M6:
+**6 skips** read "the screen's bars were calibrated on a 15-parameter genome
+and this tree has 16; the campaign labels cannot be transferred — re-run
+`scripts/mesh_robustness.py` on the current genome". The rest are absent
+`runs/` directories (gitignored) and one recalibration-needed guard fixture.
