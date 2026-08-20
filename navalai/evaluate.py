@@ -1424,7 +1424,38 @@ def l3_case_evidence(case_dir, hull: Hull, mission: MissionSpec,
     # mixed-history NaN rules). An L3 badge means a SETTLED record here;
     # "ran to budget" is not convergence, and the Mac's 2026-08-20 export
     # measured how far apart those two are (15 runners, 3 settled).
-    sd = post.settled_drag(case)
+    try:
+        sd = post.settled_drag(case)
+    except post.ForceHistoryError as e:
+        # THE LADDER'S CONTRACT IS `TierRefusal`. `settled_drag` raises its
+        # own error class for a history it cannot read or that cannot
+        # support a window; letting that escape here would make an
+        # unreadable case look like a CRASH to every caller that knows how
+        # to handle a refusal. It is a refusal — a named one.
+        raise TierRefusal(
+            f"{case} has no history a settled verdict can be read from "
+            f"({e}). An unmeasurable record is a refusal, not a badge."
+        ) from e
+    # ORDER MATTERS, AND THE RUN'S LENGTH IS CHECKED FIRST. A record covering
+    # less than one flow-through is ALSO unsettled — necessarily, since the
+    # free stream has not crossed the domain — but "0.57 of a flow-through"
+    # sends the next session to the run length, while "the batch error
+    # exceeds 5%" sends it to the statistics. The more specific cause is the
+    # one worth naming, and `settled_drag` returns its verdict (rather than
+    # raising) for a merely-unsettled record, so both are in hand here.
+    flow_throughs = float(sd["flow_throughs"])
+    if not math.isfinite(flow_throughs):
+        raise TierRefusal(
+            f"{case} carries pseudo-time (LTS) or a mixed history without a "
+            f"`transient_tail_from` receipt, so it has NO flow-through count. "
+            f"Pseudo-iterations divided by a domain length in metres is "
+            f"fiction wearing a unit; an L3 badge needs real time.")
+    if flow_throughs < _L3_MIN_FLOW_THROUGHS:
+        raise TierRefusal(
+            f"{case} covers {flow_throughs:.2f} of one flow-through. The free "
+            f"stream has not crossed the domain, so the average still "
+            f"contains the initial condition: this describes startup, not "
+            f"resistance. No L3 badge is issued for it.")
     if not sd["settled"]:
         raise TierRefusal(
             f"{case} is {sd['outcome']}: " + "; ".join(sd["reasons"]) +
@@ -1459,24 +1490,6 @@ def l3_case_evidence(case_dir, hull: Hull, mission: MissionSpec,
 
     if not (dom_len > 0.0):
         raise TierRefusal(f"{case} declares domain_length_m={dom_len!r}")
-    # The flow-through count comes from settled_drag, which knows whether the
-    # record's "time" is real seconds or LTS pseudo-iterations. NaN means NOT
-    # APPLICABLE and must refuse here rather than compare false: a pseudo-time
-    # record has no flow-through count to clear a floor with.
-    flow_throughs = float(sd["flow_throughs"])
-    if not math.isfinite(flow_throughs):
-        raise TierRefusal(
-            f"{case} carries pseudo-time (LTS) or a mixed history without a "
-            f"`transient_tail_from` receipt, so it has NO flow-through count. "
-            f"Pseudo-iterations divided by a domain length in metres is "
-            f"fiction wearing a unit; an L3 badge needs real time.")
-    if flow_throughs < _L3_MIN_FLOW_THROUGHS:
-        raise TierRefusal(
-            f"{case} covers {flow_throughs:.2f} of one flow-through "
-            f"({t[-1]:.1f} s of {dom_len / u_case:.2f} s). The free stream has "
-            f"not crossed the domain, so the average still contains the "
-            f"initial condition: this describes startup, not resistance. No "
-            f"L3 badge is issued for it.")
 
     s_wetted = post.stl_wetted_area(str(stl), waterline=0.0)
     ct = post.resistance_coefficient(drag, s_wetted, u_case, rho)

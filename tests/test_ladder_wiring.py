@@ -266,7 +266,7 @@ _SPEED = MissionSpec().cruise_speed_ms()          # 2.572 m/s at the 5 kn defaul
 
 def write_recorded_case(tmp_path, params, *, speed=_SPEED, symmetric=False,
                         t_end=30.0, drag=900.0, domain_length=None,
-                        omit=(), lwl=None) -> pathlib.Path:
+                        omit=(), lwl=None, tau_s=5.0, amp=0.6) -> pathlib.Path:
     """A campaign directory as `make_case.py` + a completed run leave it.
 
     Written by hand rather than by calling the case generator because this test
@@ -299,13 +299,25 @@ def write_recorded_case(tmp_path, params, *, speed=_SPEED, symmetric=False,
     lines.append("run: navalai/cfd/run-case.sh <this-dir> <np>")
     (case / "case.info").write_text("\n".join(lines) + "\n")
 
-    # A settled force history: 60 samples, a small oscillation about `drag`,
+    # A settled force history: 200 samples, a small oscillation about `drag`,
     # in the exact column layout post.parse_forces reads (total | pressure |
     # viscous, x y z each).
+    #
+    # 60 SAMPLES WAS TOO FEW ONCE L3 STOPPED TAKING A RAW TAIL MEAN. On
+    # 2026-08-20 `l3_case_evidence` was hardened to delegate to
+    # `post.settled_drag` (it previously had no finiteness check, an
+    # `else 0.0` drift fallback that scored a too-short record as perfectly
+    # settled, and no LTS pseudo-time seam). settled_drag requires
+    # MIN_WINDOW_SAMPLES = 20 in EACH of its two comparison windows, and a
+    # 60-sample record puts 12 in each — a drift between two means of a
+    # handful of samples is noise, not a stationarity test. The fixture is
+    # lengthened rather than the bar lowered: these tests are about the
+    # LADDER's wiring, and a case that cannot support a settledness verdict
+    # is not the case they mean to describe.
     fdir = case / "postProcessing" / "forces" / "0"
     fdir.mkdir(parents=True, exist_ok=True)
     rows = ["# Time  (total_x total_y total_z)  (pressure_x ...)  (viscous_x ...)"]
-    n = 60
+    n = 200
     for i in range(n):
         t = t_end * (i + 1) / n
         # A startup transient with a 5 s time constant — in ABSOLUTE time, so a
@@ -313,7 +325,23 @@ def write_recorded_case(tmp_path, params, *, speed=_SPEED, symmetric=False,
         # written as exp(-4t/t_end) first, which is the same curve at every
         # run length and therefore could not tell a settled run from a
         # drifting one at all: the drift test below passed 1.00x.)
-        fx = drag * (1.0 + 0.6 * np.exp(-t / 5.0) + 0.01 * np.sin(9.0 * t))
+        # NEGATIVE, because that is what a towed hull actually produces.
+        # This fixture wrote POSITIVE x-forces until 2026-08-20 and nothing
+        # noticed, because every C_T in the tree was produced through abs()
+        # — the same rectification that let a sign-flipped result mint an
+        # L3 badge (see post.physics_sanity). MEASURED convention, all 19
+        # of the Mac's exported histories: drag_n < 0, -238 to -20206 N.
+        # The caller still passes `drag` as a positive magnitude; the
+        # SIGN belongs to the solver frame, and l3_case_evidence takes the
+        # absolute value only AFTER the sign has been checked.
+        # `tau_s` is the transient's time constant IN ABSOLUTE TIME. It is a
+        # parameter because the run length and the transient length are two
+        # independent facts, and a fixture that ties them together cannot
+        # build the case that matters most: a run LONG enough to clear one
+        # flow-through and still DRIFTING. (Before 2026-08-20 the drifting
+        # case was made by shortening the run, which the flow-through clause
+        # now — correctly — refuses first, for a different reason.)
+        fx = -drag * (1.0 + amp * np.exp(-t / tau_s) + 0.01 * np.sin(9.0 * t))
         half = 0.5 * fx if symmetric else fx
         rows.append(f"{t:.5f}\t(({half:.6e} 0 0) ({0.7 * half:.6e} 0 0) "
                     f"({0.3 * half:.6e} 0 0))")
@@ -402,11 +430,18 @@ def test_a_symmetric_case_has_its_force_doubled(tmp_path):
                                                 symmetric=True),
                             Hull(x), m)
     assert half["symmetric"] and not full["symmetric"]
-    # 1e-6, not 1e-9: the force file itself is written to six significant
-    # figures, so halving and re-doubling loses the ninth digit in the FIXTURE,
-    # not in the doubling.
-    assert half["drag_n"] == pytest.approx(full["drag_n"], rel=1e-6)
-    assert half["sigma_n"] == pytest.approx(full["sigma_n"], rel=1e-6)
+    # 1e-5, not 1e-9: the force file itself is written to six significant
+    # figures, so halving and re-doubling loses the low digits in the FIXTURE,
+    # not in the doubling. MEASURED 2026-08-20, when L3 stopped taking a raw
+    # tail mean and began reading `post.settled_drag`: the two paths now
+    # agree to 4.6e-6 relative rather than under 1e-6, because the settled
+    # window is a different (shorter) span of the same record, so fewer
+    # samples average the fixture's per-line rounding. That is a property of
+    # a 7-significant-figure FIXTURE, not of the doubling — and 1e-5 still
+    # refuses the defect this test exists for by four orders of magnitude
+    # (`forceCoeffs wrong by exactly 2x on every symmetric run`).
+    assert half["drag_n"] == pytest.approx(full["drag_n"], rel=1e-5)
+    assert half["sigma_n"] == pytest.approx(full["sigma_n"], rel=1e-5)
 
 
 def test_l3_refuses_a_campaign_run_on_a_different_hull(tmp_path):
@@ -513,20 +548,52 @@ def test_l3_refuses_a_directory_with_no_forces_and_no_case_info(tmp_path):
     assert "force history" in str(e.value)
 
 
-def test_l3_sigma_widens_when_the_run_is_still_drifting(tmp_path):
-    """The sigma is measured, not declared: the scatter over the settled tail,
-    or the drift between that tail and the window before it, whichever is
-    larger. A run whose transient has not died reports a WIDE L3 band rather
-    than a confident wrong one — the honest alternative to inventing a
-    settledness threshold this module does not own (gate2m.py does)."""
+def test_a_still_drifting_run_is_refused_rather_than_badged_with_a_wide_band(
+        tmp_path):
+    """THIS TEST'S PREMISE WAS SUPERSEDED ON 2026-08-20, AND THE REPLACEMENT
+    IS STRICTER.
+
+    It used to assert that a run whose transient had not died still earned an
+    L3 badge, carrying a WIDER sigma — "the honest alternative to inventing a
+    settledness threshold this module does not own". That reasoning was
+    sound while `l3_case_evidence` took a raw tail mean and owned no
+    stationarity verdict. It no longer does: the ingest path now delegates to
+    `post.settled_drag`, which owns exactly that verdict (three outcomes, per
+    component, with the LTS pseudo-time and mixed-history seams), so a
+    drifting record is REFUSED rather than badged wide.
+
+    Why stricter is right here: a wide sigma still enters the evidence graph
+    as a MEASURED L3 number, and the Mac's 2026-08-20 export measured how far
+    "ran to budget" sits from "settled" (15 runners, 3 settled by the drift
+    rule, 1 by estimation). A band drawn around a transient is a number that
+    looks like evidence; the refusal is the honest answer.
+
+    The settled case still badges, and its sigma is still measured, not
+    declared — that half of the original claim is asserted below.
+    """
     m = MissionSpec()
     x = np.array(mid_params())
     from navalai.geometry import Hull
     settled = l3_case_evidence(write_recorded_case(tmp_path / "s", x,
                                                    t_end=60.0), Hull(x), m)
-    drifting = l3_case_evidence(write_recorded_case(tmp_path / "d", x,
-                                                    t_end=18.0), Hull(x), m)
-    # same hull, same nominal drag; the shorter run is still shedding its
-    # transient, so its band has to be the wider one
-    assert drifting["sigma_n"] > 3.0 * settled["sigma_n"]
     assert settled["sigma_n"] > 0.0
+
+    # 30 s at 2.572 m/s over a 45 m domain is 1.71 flow-throughs — the run
+    # length clause is CLEAR — so this case can only fail on stationarity,
+    # which is the claim under test.
+    #
+    # CALIBRATING IT TAUGHT SOMETHING WORTH KEEPING: a LONGER transient
+    # constant makes the measured drift SMALLER, not larger (tau 40/80/200 s
+    # at t_end 30 s measure 3.8%/2.4%/1.1% and all three SETTLE), because
+    # `settled_drag` compares two adjacent windows near the tail and so sees
+    # the transient's local SLOPE, not its remaining amplitude. A slow enough
+    # drift is invisible to any windowed bar — which is exactly why the
+    # estimator route (`settled_estimate`) exists beside it. The drifting
+    # fixture therefore needs a transient comparable to the window span AND a
+    # large amplitude: tau 20 s, amp 2.0 measures 12.0% drift.
+    with pytest.raises(TierRefusal) as e:
+        l3_case_evidence(write_recorded_case(tmp_path / "d", x, t_end=30.0,
+                                             tau_s=20.0, amp=2.0),
+                         Hull(x), m)
+    msg = str(e.value)
+    assert "settled" in msg and "flow-through" not in msg, msg
