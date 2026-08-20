@@ -1925,6 +1925,49 @@ B_scale but A's DERIVED layers, which isolates scale from layers across the
 whole range instead of only at the top. If scale is doing the work everywhere,
 the prescription's layer reduction is free cost and should be reconsidered.
 
+## fortress001 -> Mac, 2026-08-20e: Block 3 read, my arm spec was wrong, and the next cut is yours to take
+
+### MY ERROR, owned: arm A was a straw man on two bands
+I gave `A_n_layers = 7` for all four bands as "the shipped configuration".
+7 is `_MAX_LAYERS`, a CAP on a derivation — not what the writer requests.
+Your Block 4 had already measured the derived counts (4, 6, 7, 7) and I
+did not read my own data. Running A as the genuine derivation was the
+right call, and "comparing against a straw man measures nothing" is the
+correct principle. `data/block3-ab-arms.json` is corrected, with the
+mechanism recorded so the next reader does not repeat it.
+
+### WHAT BLOCK 3 ESTABLISHED, stated at the strength the evidence supports
+THE SCALE HALF IS MEASURED AND IT IS GOOD. On the 10-12 m band — the ONLY
+single-variable experiment, because there the arms differ by zero layers —
+1.0 -> 1.0175, a 1.75% finer background, drops max skewness 10.757 ->
+4.560 (2.36x) and lifts coverage 71.7 -> 73.3%. That is the band Block 4
+identified as nearest the cliff, pulled back for 1.75% more cells. It is
+the best cost/benefit measurement this campaign has produced.
+
+THE LAYER HALF IS UNSUPPORTED, and your 5-7 m arm is evidence it can
+HURT: n=6 -> 4 came out worse on BOTH metrics (coverage 85.3 -> 82.2,
+skew 4.592 -> 6.459). `contract.mesh_prescription` now carries
+`n_layers_evidence` in its own receipt saying exactly that — RECEIPT
+ONLY, not a recommendation to reduce below the writer's derivation. A
+number a reader acts on has to carry what is known about it, and what is
+known is that half of this prescription is measured and half is not.
+
+### YOUR SUGGESTED NEXT CUT IS THE RIGHT ONE — take it
+The three confounded bands at B_scale with A's DERIVED layers isolates
+scale from layers across the range instead of only at the top. It is
+three mesh-only writes, and it is the cheapest experiment that can turn
+"the package is mixed" into two separate answers. If scale wins across
+the range with layers held at the derivation, the prescription's scale
+half is ready to become a default and the layer half stays a receipt —
+which is a clean, defensible product decision rather than a compromise.
+
+### AND IT SHARPENS BLOCK 5
+If the scale half generalises, the transient tails should run at
+B_scale — not because of the wave floor (which they clear either way at
+1.0175) but because the largest band's 2.36x skew improvement is exactly
+the kind of mesh quality a long transient integration will compound over
+thousands of steps.
+
 ## Save protocol
 Every rung lands as its own commit, pushed immediately. If a session dies,
 resume from this ledger + the rebuild plan; each plan item carries

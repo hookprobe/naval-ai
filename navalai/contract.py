@@ -445,6 +445,23 @@ def mesh_prescription(lwl_m: float | None, speed_ms: float | None,
                                               _LAYER_EXPANSION))
             n_layers = int(min(n_bridge, _MAX_LAYERS))
             n_cap = int(_MAX_LAYERS)
+            # EVIDENCE STATUS, 2026-08-20 (Mac Block 3): the SCALE half of
+            # this prescription is measured to help and the LAYER half is
+            # NOT. On the only single-variable band (10-12 m, where the arms
+            # differ by zero layers) a 1.75% finer background dropped max
+            # skewness 10.757 -> 4.560 and lifted coverage 71.7 -> 73.3%. The
+            # three bands that varied BOTH are mixed, and the 5-7 m arm
+            # (n=6 -> 4) came out worse on both metrics. So `n_layers` is
+            # reported as a RECEIPT and must not be taken as a recommendation
+            # to reduce below the writer's own derivation until an
+            # experiment isolates it. `n_layers_evidence` says so in the
+            # receipt itself, because a number a reader acts on must carry
+            # what is known about it.
+            basis["n_layers_evidence"] = (
+                "RECEIPT ONLY: reducing below the writer's derived count is "
+                "unsupported (Mac Block 3, 5-7 m band worse on coverage AND "
+                "skew). The scale half IS supported (2.36x skew improvement "
+                "on the single-variable band).")
             basis["n_layers"] = (
                 f"n_layers_to_bridge(first_layer {first_layer * 1000:.2f} mm, "
                 f"surface cell {surf * 1000:.1f} mm, expansion "

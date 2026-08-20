@@ -6,28 +6,30 @@
    "speed_ms": 1.4524906266663715,
    "fn": 0.25,
    "A_scale": 1.0,
-   "A_n_layers": 7,
+   "A_n_layers": 4,
    "B_scale": 1.0175,
    "B_n_layers": 3,
    "B_cells_per_wavelength": 20.246,
    "A_cells_per_wavelength": 19.897,
    "first_layer_m": 0.00361277225459391,
    "surface_cell_m": 0.008342806946194515,
-   "expected_tau_s": 0.00574379399978793
+   "expected_tau_s": 0.00574379399978793,
+   "A_n_layers_note": "CORRECTED 2026-08-20: this field said 7 (the _MAX_LAYERS CAP) and the shipped writer DERIVES the count \u2014 Block 4 measured 4/6/7/7. A forced 7 on the 3-5 m band is fatal at write time (stack 46.7 mm against a 17.0 mm hull cell, ratio 2.75 > 1.2), so arm A as first specified was unbuildable on one band and not-the-shipped-config on two. The Mac ran the genuine derivation, which is right: comparing against a straw man measures nothing."
   },
   "5.0-7.0": {
    "lwl_m": 5.8688398667117445,
    "speed_ms": 1.896927105420142,
    "fn": 0.25,
    "A_scale": 1.0,
-   "A_n_layers": 7,
+   "A_n_layers": 6,
    "B_scale": 1.0175,
    "B_n_layers": 4,
    "B_cells_per_wavelength": 20.246,
    "A_cells_per_wavelength": 19.897,
    "first_layer_m": 0.0029727373768093078,
    "surface_cell_m": 0.01422940700441964,
-   "expected_tau_s": 0.007501293520326408
+   "expected_tau_s": 0.007501293520326408,
+   "A_n_layers_note": "CORRECTED 2026-08-20: this field said 7 (the _MAX_LAYERS CAP) and the shipped writer DERIVES the count \u2014 Block 4 measured 4/6/7/7. A forced 7 on the 3-5 m band is fatal at write time (stack 46.7 mm against a 17.0 mm hull cell, ratio 2.75 > 1.2), so arm A as first specified was unbuildable on one band and not-the-shipped-config on two. The Mac ran the genuine derivation, which is right: comparing against a straw man measures nothing."
   },
   "7.0-10.0": {
    "lwl_m": 7.289318993614833,
@@ -41,7 +43,8 @@
    "A_cells_per_wavelength": 19.897,
    "first_layer_m": 0.002742597093214762,
    "surface_cell_m": 0.017673456611673893,
-   "expected_tau_s": 0.0083599466819169
+   "expected_tau_s": 0.0083599466819169,
+   "A_n_layers_note": "CORRECTED 2026-08-20: this field said 7 (the _MAX_LAYERS CAP) and the shipped writer DERIVES the count \u2014 Block 4 measured 4/6/7/7. A forced 7 on the 3-5 m band is fatal at write time (stack 46.7 mm against a 17.0 mm hull cell, ratio 2.75 > 1.2), so arm A as first specified was unbuildable on one band and not-the-shipped-config on two. The Mac ran the genuine derivation, which is right: comparing against a straw man measures nothing."
   },
   "10.0-12.0": {
    "lwl_m": 11.362221624245555,
@@ -55,7 +58,14 @@
    "A_cells_per_wavelength": 19.897,
    "first_layer_m": 0.002320048829455184,
    "surface_cell_m": 0.027548489929474673,
-   "expected_tau_s": 0.010437383898176302
+   "expected_tau_s": 0.010437383898176302,
+   "A_n_layers_note": "CORRECTED 2026-08-20: this field said 7 (the _MAX_LAYERS CAP) and the shipped writer DERIVES the count \u2014 Block 4 measured 4/6/7/7. A forced 7 on the 3-5 m band is fatal at write time (stack 46.7 mm against a 17.0 mm hull cell, ratio 2.75 > 1.2), so arm A as first specified was unbuildable on one band and not-the-shipped-config on two. The Mac ran the genuine derivation, which is right: comparing against a straw man measures nothing."
   }
+ },
+ "_RESULT": {
+  "clean_experiment": "only the 10-12 m band is single-variable (the arms differ by ZERO layers there)",
+  "scale_effect_measured": "1.0 -> 1.0175, a 1.75% finer background: max skewness 10.757 -> 4.560 (2.36x better), coverage 71.7 -> 73.3%",
+  "layer_effect": "UNSUPPORTED and possibly harmful. The other three bands vary scale AND layers together and are mixed; the 5.0-7.0 arm (n=6 -> 4) is worse on BOTH metrics (coverage 85.3 -> 82.2, skew 4.592 -> 6.459)",
+  "next_cut": "the three confounded bands at B_scale with A's DERIVED layers \u2014 isolates scale from layers across the range"
  }
 }
