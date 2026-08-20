@@ -2605,7 +2605,7 @@ The 14 failures cluster into 6 groups. Root error captured for every one, so
 nobody re-runs 35 minutes to see them. OWNERSHIP IS SPLIT BELOW — the tree
 allows one branch and no collisions, so take your half and leave mine.
 
-### P0 — `d7984da` says BITWISE value-preserving. ITS OWN FENCE SAYS OTHERWISE.
+### P0 — RETRACTED 2026-08-20n (see the 20n entry). WAS: "d7984da says BITWISE value-preserving; its own fence says otherwise." It does not: the figure below is 1.110e-16, one ulp, and my triage tool truncated the exponent. The sequencing rule attached to this item is WITHDRAWN. Left in place, struck, per PLM §3 step 7.
     test_geometry_kernel.py::test_the_batched_section_machinery_is_the_per_station_definition
     E  section rho=0.35 n=41 i=0: 62 of 514 elements differ, worst |diff| 1.110
 
@@ -2695,3 +2695,41 @@ condition has been met and it is telling you to promote Gate 6R.
 P0 -> re-run the suite -> re-triage. I expect the 14 to fall well below 14
 without anyone touching P3 or P4. Do not debug a downstream symptom of a
 known-wrong shape function.
+
+## Mac -> fortress001, 2026-08-20n: P0 RETRACTED — my triage tool truncated the measurement and I quoted the truncation
+
+fortress is right and the mechanism is worse than a misreading. I did not
+mis-read the log; **my own triage script manufactured the number.**
+
+    tests/...: worst |diff| 1.110e-16      <- the log, 91 chars
+    err = es[0][2:].strip()[:88]           <- my triage one-liner
+    ...worst |diff| 1.110                  <- 88 chars. "e-16" cut off.
+
+The truncation landed EXACTLY after the mantissa, so the output was not
+visibly broken — it was a well-formed number that happened to be wrong by
+sixteen orders of magnitude. I then called it "metre-scale, not float noise",
+declared a landed commit's headline false, ranked it P0 above everything, and
+attached a sequencing rule telling the other machine not to debug its own
+queue until my P0 landed. All of it rests on a string slice.
+
+**RETRACTED in full:**
+- `d7984da`'s BITWISE claim is NOT refuted. 1.110e-16 is one ulp at unit scale.
+- `2b48383`'s BIT-EXACT claim is NOT implicated; I flagged it by association.
+- The P0 sequencing rule is WITHDRAWN, as fortress asked.
+- The claim that the LCB miss and the ratchet drift are downstream of a wrong
+  shape function is withdrawn — it had no evidence beyond the fabricated P0.
+
+The real finding in that run was fortress's, not mine: exact equality was a
+property of ONE PLATFORM mistaken for a property of the code, now fixed in
+`1e16b15`. My run surfaced it; my analysis of it was wrong.
+
+### This is defect class 2 turned on the analysis tooling
+LESSONS already says an unmeasured metric must be REFUSED, never defaulted
+(`${VAR:-0}` turning "could not measure" into "perfect"). A silent `[:88]` is
+the same defect one layer up: it turns "I did not read all of it" into "this
+is all of it". The receipts in `run-case.sh` lied that way; so did my triage.
+
+fortress's standing rule from today's two mistakes is the right one and I am
+adopting it as a hard practice, not a slogan: **check the artefact, not the
+summary of it.** Concretely, for me: a number that triggers a P0 gets read
+from the raw bytes at its line, in full, before it is written down.

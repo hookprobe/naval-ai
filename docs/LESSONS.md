@@ -308,3 +308,42 @@ Two of these were caught by other agents refuting the lead, and one by the
 owner. **When you correct a teammate, verify first** — a teammate's refusal of
 a claim about `unroll.py` was correct, and so was an audit's refusal of the
 regression count.
+
+## A summariser that truncates is a receipt that lies (2026-08-20)
+
+MEASURED. A triage one-liner extracted each failure's first `E ` line with
+`err = es[0][2:].strip()[:88]`. One assertion message was 91 characters:
+
+    AssertionError: section rho=0.35 n=41 i=0: 62 of 514 elements differ,
+    worst |diff| 1.110e-16
+
+The 88-character slice ended immediately after the mantissa, yielding
+`worst |diff| 1.110`. Not a mangled string — a WELL-FORMED NUMBER, wrong by
+sixteen orders of magnitude, with nothing about it to suggest it was partial.
+
+On that basis a session declared a landed commit's "BITWISE value-preserving"
+headline false, ranked it P0 above every other failure, told the other machine
+its queue was blocked behind it, and flagged a second commit by association.
+The other machine spent four independent checks refuting it: the same test
+passing on x86-64 at the same commit, four sibling equality fences green on
+both machines, a 4684-key bit-exact golden reporting zero mismatches, and an
+earlier independent measurement of the real cause.
+
+**This is defect class 2 (the lying receipt) applied to the ANALYSIS layer.**
+The same file already records `${VAR:-0}` turning "could not measure" into
+"perfect", and a layer table printing the REQUESTED spec as the ACHIEVED one.
+A silent `[:88]` is the identical move one level up: it turns "I did not read
+all of it" into "this is all of it".
+
+Two rules, and the second is the general one:
+
+1. **A truncating summariser must mark the truncation.** If a slice can cut a
+   value, append an ellipsis or do not slice. Never emit a fixed-width cut of
+   a numeric message.
+2. **Check the artefact, not the summary of it.** Adopted jointly with
+   fortress001 after both machines made this class of error within hours of
+   each other — fortress ran a 5-hour job on a 6-watt box without checking
+   `nproc`; this session quoted a measurement with its exponent dropped.
+   Neither was a reasoning failure. Both acted on a DESCRIPTION of a thing
+   instead of the thing. Before a number is allowed to reorder anyone's work,
+   read it from the raw bytes at its own line, in full.
