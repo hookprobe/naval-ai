@@ -247,6 +247,35 @@ def vessel_terms(hull: Hull, vessel=None) -> tuple[int, float, float]:
     return n, sep, 0.5 * sep
 
 
+def _disp_kg_only(hull: Hull, rho: float, wl: float, vessel) -> float:
+    """`solve(hull, rho, wl, vessel).disp_kg`, WITHOUT the rest of the state.
+
+    THE ARITHMETIC IS `solve`'s, LINE FOR LINE — the same `hydro_arrays`, the
+    same `vessel_terms`, the same `2.0 * trapezoid(a, x)`, the same
+    `rho * (n_hulls * vol_demi)` and the same refusal at 1e-9 — so the float
+    it returns is bit-identical to reading `.disp_kg` off the full state, and
+    so is the ValueError. Fenced in
+    tests/test_geometry_kernel.py::test_the_displacement_only_solve_is_the_
+    full_solve, at exactly 0.0, over the whole bracket both bilge kinds.
+
+    WHY IT EXISTS: `solve_to_displacement` bisects on displacement and reads
+    NOTHING else off the states it builds, but `solve` computes all eleven
+    waterplane integrals and a full `wetted_surface` at every step.
+    MEASURED 2026-08-20 (cProfile, `evaluate()` on the 12-hull slider
+    fixture): 14 `solve` calls per evaluation, 12 of them inside the
+    bisection, carrying 154 `np.trapezoid` calls (62 us of wrapper each) and
+    19 `wetted_surface` calls — 0.458 s and 0.297 s of a 1.894 s profile.
+    Ten of the eleven integrals and all but two of the wetted-surface sweeps
+    were computed for a caller that discards them.
+    """
+    a, _b, _zc = hull.hydro_arrays(wl)
+    n_hulls, _separation, _d = vessel_terms(hull, vessel)
+    vol_demi = 2.0 * float(np.trapezoid(a, hull.x))
+    if vol_demi <= 1e-9:
+        raise ValueError("hull has no displacement at this waterline")
+    return rho * (n_hulls * vol_demi)
+
+
 def solve(hull: Hull, rho: float = RHO_WATER, wl: float = 0.0,
           vessel=None) -> HydroState:
     """Hydrostatics at a given waterline height wl (0 = design WL).
@@ -674,7 +703,11 @@ def solve_to_displacement(hull: Hull, target_kg_mass: float,
     """
     z_lo = float(hull.z_keel.min()) * 0.98          # nearly dry, NOT dry
     z_hi = float(hull.z_sheer.min()) - 0.02          # just below deck edge
-    m_hi = solve(hull, rho, z_hi, vessel).disp_kg
+    # EVERY PROBE BELOW READS ONLY `disp_kg`, so every one of them takes
+    # `_disp_kg_only` — the same arithmetic, without the ten waterplane
+    # integrals and the wetted-surface sweep no line here consults. The state
+    # that is RETURNED is still a full `solve`, at the converged waterline.
+    m_hi = _disp_kg_only(hull, rho, z_hi, vessel)
     if m_hi < target_kg_mass:
         raise ValueError(
             f"hull swamps: max buoyant mass {m_hi:.0f} kg < target {target_kg_mass:.0f} kg")
@@ -682,7 +715,7 @@ def solve_to_displacement(hull: Hull, target_kg_mass: float,
     # that is the GOOD case: it means the bracket really does reach zero
     # displacement and any positive target is reachable.
     try:
-        m_lo = solve(hull, rho, z_lo, vessel).disp_kg
+        m_lo = _disp_kg_only(hull, rho, z_lo, vessel)
     except ValueError:
         m_lo = 0.0
     if m_lo > target_kg_mass:
@@ -697,7 +730,7 @@ def solve_to_displacement(hull: Hull, target_kg_mass: float,
     for _ in range(80):
         mid = 0.5 * (lo + hi)
         try:
-            m = solve(hull, rho, mid, vessel).disp_kg
+            m = _disp_kg_only(hull, rho, mid, vessel)
         except ValueError:
             lo = mid
             continue
@@ -747,12 +780,11 @@ def solve_trimmed(hull: Hull, rho: float = RHO_WATER, wl0: float = 0.0,
     L = float(x[-1] - x[0])
     tanb = math.tan(math.radians(trim_deg))
     wl_x = wl0 + tanb * (x - (x[0] + 0.5 * L))
-    n = hull.n_stations
-    a = np.empty(n)
-    b = np.empty(n)
-    zc = np.empty(n)
-    for i in range(n):
-        a[i], b[i], zc[i] = hull.immersed_section(i, float(wl_x[i]))
+    # ONE waterline per station — which `Hull.hydro_arrays` now takes, so the
+    # trimmed plane goes through the same batched clip as the level one
+    # instead of a per-station Python loop. Bit-identical: see
+    # `geometry._immersed_batch`.
+    a, b, zc = hull.hydro_arrays(wl_x)
     n_hulls, separation, d = vessel_terms(hull, vessel)
     vol_demi = 2.0 * float(np.trapezoid(a, x))
     if vol_demi <= 1e-9:

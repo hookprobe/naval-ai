@@ -661,8 +661,9 @@ def _resample_batch(polys: np.ndarray, n: int) -> np.ndarray:
     tests/test_admissibility.py::test_the_batch_section_sampler_is_the_loop,
     including at the screen's real 600x120 resolution:
 
-      * diff, the 2-term norm and cumsum run along the point axis of the
-        stack, the same values in the same order per row;
+      * diff, the 2-term norm (written out — see the note at the top of the
+        body) and cumsum run along the point axis of the stack, the same
+        values in the same order per row;
       * the query grid reproduces `np.linspace(0.0, L, n)` as numpy computes
         it — `arange(n) * (L / (n-1))`, then the endpoint pinned to L — one
         (k, n) array instead of k Python calls;
@@ -683,7 +684,16 @@ def _resample_batch(polys: np.ndarray, n: int) -> np.ndarray:
     calls and the grid to ~28 ms/hull, values unchanged.
     """
     k, mm, _ = polys.shape
-    d = np.linalg.norm(np.diff(polys, axis=1), axis=2)
+    # `np.linalg.norm(np.diff(polys, axis=1), axis=2)`, written out. That call
+    # is `sqrt(add.reduce(x*x, axis=2))` and numpy sums fewer than eight
+    # addends left to right from 0.0, so `sqrt(dy*dy + dz*dz)` is the same
+    # float. MEASURED 2026-08-20 on the 241-station resistance hull, 2.48 ms
+    # -> 1.14 ms: reducing over a LAST axis of length 2 makes numpy's inner
+    # loop two elements long and runs it 62k times, where the explicit form
+    # walks two contiguous (k, mm-1) arrays.
+    dy = polys[:, 1:, 0] - polys[:, :-1, 0]
+    dz = polys[:, 1:, 1] - polys[:, :-1, 1]
+    d = np.sqrt(dy * dy + dz * dz)
     cum = np.concatenate([np.zeros((k, 1)), np.cumsum(d, axis=1)], axis=1)
     L = cum[:, -1]
     T = np.arange(n) * (L / (n - 1))[:, None]
@@ -694,18 +704,28 @@ def _resample_batch(polys: np.ndarray, n: int) -> np.ndarray:
     j -= 1
     at_end = j >= mm - 1
     jc = np.minimum(j, mm - 2)
-    x0 = np.take_along_axis(cum, jc, axis=1)
-    dx = np.take_along_axis(cum, jc + 1, axis=1) - x0
+    jc1 = jc + 1
+    # `A[rows, idx]` IS what `take_along_axis` does — it builds exactly this
+    # index pair and calls the same gather, so the values are identical and
+    # only the wrapper goes. MEASURED 2026-08-20: 144 `take_along_axis` calls
+    # per 6 `evaluate()` calls cost 0.043 s tottime plus 0.012 s in
+    # `_make_along_axis_idx`, on gathers of (241, 129).
+    rows = np.arange(k, dtype=np.intp)[:, None]
+    x0 = cum[rows, jc]
+    dx = cum[rows, jc1] - x0
     # a zero-width interval is only ever selected where a mask below already
     # decides the value (exact hit or endpoint); the guard silences 0/0 there
     dx = np.where(dx != 0.0, dx, 1.0)
     out = np.empty((k, n, 2))
     for c in (0, 1):
-        f0 = np.take_along_axis(polys[:, :, c], jc, axis=1)
-        f1 = np.take_along_axis(polys[:, :, c], jc + 1, axis=1)
+        # contiguous first: `polys[:, :, c]` is a strided view and the gather
+        # below then walks it with a stride of two doubles per element.
+        pc = np.ascontiguousarray(polys[:, :, c])
+        f0 = pc[rows, jc]
+        f1 = pc[rows, jc1]
         ans = (f1 - f0) / dx * (T - x0) + f0
         ans = np.where(x0 == T, f0, ans)
-        out[:, :, c] = np.where(at_end, polys[:, -1, c][:, None], ans)
+        out[:, :, c] = np.where(at_end, pc[:, -1][:, None], ans)
     deg = L <= 1e-15
     if deg.any():
         out[deg] = polys[deg, :1]
@@ -735,6 +755,69 @@ def _resample(poly: np.ndarray, n: int) -> np.ndarray:
     t = np.linspace(0.0, cum[-1], n)
     return np.stack([np.interp(t, cum, poly[:, 0]),
                      np.interp(t, cum, poly[:, 1])], axis=1)
+
+
+def _sections_batch(K: np.ndarray, C: np.ndarray, S: np.ndarray,
+                    W: np.ndarray, rho: float, n_lo: int,
+                    n_hi: int) -> np.ndarray:
+    """`sample_section` over a STACK of control points: (k, n_lo+n_hi+1, 2).
+
+    `sample_section` STAYS THE DEFINITION. This is that function with the
+    station axis broadcast in — the same linspaces, the same Bezier
+    coefficients off the same shared `s` grid, the same arc-length resample
+    (`_resample_batch`, itself already fenced against `_resample`), in the
+    same order — so every element is bit-identical, elementwise, to the
+    per-station call it replaces. Fenced at exactly 0.0 in
+    tests/test_geometry_kernel.py::
+    test_the_batched_section_machinery_is_the_per_station_definition, for
+    roundness 0 and roundness > 0, at 41 and 241 stations.
+
+    It was already written INLINE inside `Hull._sections_at_rows_batch` for
+    `admissibility.surface_grid`'s arbitrary-x consumers; lifting it out is
+    what lets the STATION-indexed memo (`Hull._prime_sections`) share it
+    rather than become a third copy of a shape function — defect class 2.
+
+    MEASURED 2026-08-20 (cProfile, `evaluate()` on the 12-hull slider
+    fixture): the per-station path spent 0.899 s of a 2.72 s profile (33%) in
+    1692 `sample_section` calls, of which 0.549 s was 3384 `_resample` calls
+    and 0.133 s was 1692 `_bezier` calls. The 241-station resistance hull
+    accounts for 241 of the 282 sections an evaluation builds, and every one
+    of them shares (rho, n_lo, n_hi) with all the others.
+    """
+    if rho <= 0.0:
+        t_lo = np.linspace(0.0, 1.0, n_lo + 1)
+        t_hi = np.linspace(0.0, 1.0, n_hi + 1)[1:]
+        lo = K[:, None, :] + t_lo[None, :, None] * (C - K)[:, None, :]
+        hi = C[:, None, :] + t_hi[None, :, None] * (S - C)[:, None, :]
+        return np.concatenate([lo, hi], axis=1)
+    P0 = C + rho * (K - C)
+    P2 = C + rho * (W - C)
+    m = max(128, 2 * max(n_lo, n_hi))
+    # `_bezier`'s coefficients off the ONE shared parameter grid: the
+    # per-element products are the scalar path's, in the scalar path's order,
+    # broadcast over the station axis.
+    # THE ARC IS BUILT (k, 2, 2m+1) AND TRANSPOSED AT THE END, not built
+    # (k, 2m+1, 2). Elementwise arithmetic is order-independent bit for bit,
+    # so this is the same float in every slot; what changes is that the
+    # contiguous axis numpy iterates innermost becomes the 513-long parameter
+    # axis instead of the 2-long coordinate axis. MEASURED 2026-08-20 on the
+    # 241-station resistance hull, 7.41 ms -> 3.72 ms for the same array.
+    # `a*P0 + b*C + c*P2` is accumulated LEFT TO RIGHT — the association the
+    # scalar expression already has — into one buffer instead of five, which
+    # on that hull saves 2 MB per avoided temporary.
+    s = np.linspace(0.0, 1.0, 2 * m + 1)[None, None, :]
+    arc = (1.0 - s) ** 2 * P0[:, :, None]
+    tmp = np.empty_like(arc)
+    np.multiply(2.0 * s * (1.0 - s), C[:, :, None], out=tmp)
+    arc += tmp
+    np.multiply(s * s, P2[:, :, None], out=tmp)
+    arc += tmp
+    del tmp
+    arc = np.ascontiguousarray(arc.transpose(0, 2, 1))
+    lo = np.concatenate([K[:, None, :], arc[:, :m + 1]], axis=1)
+    hi = np.concatenate([arc[:, m:], S[:, None, :]], axis=1)
+    return np.concatenate([_resample_batch(lo, n_lo + 1),
+                           _resample_batch(hi, n_hi + 1)[:, 1:]], axis=1)
 
 
 # THE LADDER'S STATION COUNT. CALIBRATED, NOT DERIVED — no convergence
@@ -799,6 +882,21 @@ class Hull:
     _f: np.ndarray = field(init=False, repr=False)   # enveloped tan(flare)
     _m: np.ndarray = field(init=False, repr=False)   # tan(deadrise)
     _sections: dict = field(init=False, repr=False, default_factory=dict)
+    # RESOLVED ONCE PER HULL, on the same standing assumption `_sections`
+    # already makes — that `params` does not change under a built `Hull`.
+    # MEASURED 2026-08-20 (cProfile, `evaluate()` on the 12-hull slider
+    # fixture): the `roundness` property re-ran `grammar.named` 7566 times per
+    # 6 evaluations (`section` and `section_control` both read it per call)
+    # for 0.087 s, 3.2% of a 2.72 s profile, to return the same float.
+    _rho: float = field(init=False, repr=False, default=0.0)
+    # `section_control`'s five points for EVERY station, built in one batch on
+    # first use: same expressions, station axis vectorised. See `_controls`.
+    _ctrl: object = field(init=False, repr=False, default=None)
+    # Per-station segment lengths of `section(i)`, for `wetted_surface`. See
+    # `_section_stack`.
+    _segs: dict = field(init=False, repr=False, default_factory=dict)
+    # The (n_stations, N, 2) array `_prime_sections` builds, kept whole.
+    _stack: object = field(init=False, repr=False, default=None)
 
     def __post_init__(self) -> None:
         # `_require_finite` BEFORE the linspace, not only inside `_stations`:
@@ -816,10 +914,14 @@ class Hull:
         self.y_wl, self.A_sac = s["y_wl"], s["A"]
         self._f, self._m = s["f"], s["m"]
         self._sections = {}
+        self._segs = {}
+        self._stack = None
+        self._ctrl = None
+        self._rho = float(p0["roundness"])
 
     @property
     def roundness(self) -> float:
-        return float(grammar.named(self.params)["roundness"])
+        return self._rho
 
     # ---- the three edge curves, at ARBITRARY x ------------------------------
 
@@ -864,13 +966,39 @@ class Hull:
         and `immersed_section` integrates it in closed form off these. At
         `roundness == 0` the three arc controls collapse onto the chine and the
         description degenerates to the old keel/chine/sheer polyline.
+
+        THE FIVE POINTS ARE BUILT FOR ALL STATIONS AT ONCE (`_controls`) and
+        this returns row `i` of each. The expressions are unchanged and every
+        one of them is elementwise, so the returned floats are bit-identical
+        to the per-station construction this replaced — fenced at exactly 0.0
+        in tests/test_geometry_kernel.py::
+        test_the_batched_section_machinery_is_the_per_station_definition.
+        MEASURED 2026-08-20 (cProfile, `evaluate()` on the 12-hull slider
+        fixture): the per-station version built four `np.array` objects and
+        ran two vector expressions on every one of 4182 calls per 6
+        evaluations — 0.133 s tottime, 4.9% of a 2.72 s profile — for five
+        points that do not depend on the waterline the caller is bisecting on.
         """
-        rho = self.roundness
-        K = np.array([0.0, self.z_keel[i]])
-        C = np.array([self.y_chine[i], self.z_chine[i]])
-        S = np.array([self.y_sheer[i], self.z_sheer[i]])
-        W = np.array([self.y_wl[i], 0.0])
-        return K, C + rho * (K - C), C, C + rho * (W - C), S
+        K, P0, C, P2, S = self._controls()
+        return K[i], P0[i], C[i], P2[i], S[i]
+
+    def _controls(self):
+        """(K, P0, C, P2, S), each (n_stations, 2). Memoised per hull."""
+        c = self._ctrl
+        if c is None:
+            zero = np.zeros(self.n_stations)
+            K = np.stack([zero, self.z_keel], axis=1)
+            C = np.stack([self.y_chine, self.z_chine], axis=1)
+            S = np.stack([self.y_sheer, self.z_sheer], axis=1)
+            W = np.stack([self.y_wl, zero], axis=1)
+            rho = self.roundness
+            c = (K, C + rho * (K - C), C, C + rho * (W - C), S)
+            # READ-ONLY: these rows are handed out to `_immersed`, which must
+            # not be able to write back into another station's control points.
+            for arr in c:
+                arr.flags.writeable = False
+            self._ctrl = c
+        return c
 
     def section(self, i: int) -> np.ndarray:
         """Section polyline, keel -> bilge -> sheer, as (N, 2) array of (y, z).
@@ -882,12 +1010,66 @@ class Hull:
         `hydrostatics.solve_to_displacement` bisects on draft: MEASURED, ten
         `evaluate()` calls built 7842 sections where 410 are distinct, and
         `wetted_surface` alone accounted for 0.53 s of a 0.87 s profile.
+
+        THE MISSES ARE FILLED FOR EVERY STATION AT ONCE (`_prime_sections`).
+        MEASURED 2026-08-20: the memo itself was already perfect — 1021
+        `section()` calls per evaluation, 282 misses, and 282 is exactly the
+        two hulls' station counts (241 + 41), so nothing was being rebuilt.
+        The cost was the 282 UNAVOIDABLE misses themselves, one Python call
+        into `sample_section` each, at 0.899 s of a 2.72 s profile. They all
+        share (rho, n_lo, n_hi) and a hull that needs one station's section
+        needs every station's, so they are built in one batch.
         """
         cached = self._sections.get(i)
         if cached is None:
+            self._prime_sections()
+            cached = self._sections.get(i)
+        if cached is None:
+            # a negative or out-of-range index: `_section_points` keeps its
+            # old numpy indexing semantics rather than becoming a KeyError.
             n = 1 if self.roundness <= 0.0 else SECTION_FILLET_SAMPLES
             cached = self._section_points(i, n, n)
             self._sections[i] = cached
+        return cached
+
+    def _prime_sections(self) -> None:
+        """Fill `_sections` for EVERY station, in one `_sections_batch` call.
+
+        `_section_points` stays the definition and this is the batch of it;
+        the equality is fenced at exactly 0.0 (see `_sections_batch`).
+        """
+        n = 1 if self.roundness <= 0.0 else SECTION_FILLET_SAMPLES
+        zero = np.zeros(self.n_stations)
+        pts = _sections_batch(
+            np.stack([zero, self.z_keel], axis=1),
+            np.stack([self.y_chine, self.z_chine], axis=1),
+            np.stack([self.y_sheer, self.z_sheer], axis=1),
+            np.stack([self.y_wl, zero], axis=1),
+            self.roundness, n, n)
+        self._stack = pts
+        for i in range(self.n_stations):
+            self._sections[i] = pts[i]
+
+    def _section_stack(self):
+        """(P, Z, SEG) for every station: points, the z column, segment lengths.
+
+        Every section on a hull has the same point count, so the whole set is
+        one (n_stations, N, 2) array — the array `_prime_sections` already
+        built — and its z column and segment lengths are one batch each rather
+        than 41 pairs of `np.diff`/`np.linalg.norm` calls per waterline.
+        `SEG[i]` is a contiguous row, so `SEG[i][:k-1].sum()` sums the same
+        operands in the same order as `norm(diff(pts[:k]))` did.
+        """
+        cached = self._segs.get("stack")
+        if cached is None:
+            if self._stack is None:
+                self._prime_sections()
+            P = self._stack
+            dy = P[:, 1:, 0] - P[:, :-1, 0]
+            dz = P[:, 1:, 1] - P[:, :-1, 1]
+            cached = (P, np.ascontiguousarray(P[:, :, 1]),
+                      np.sqrt(dy * dy + dz * dz))
+            self._segs["stack"] = cached
         return cached
 
     def section_area(self, i: int) -> float:
@@ -917,12 +1099,27 @@ class Hull:
     # ---- integral properties ------------------------------------------------
 
     def hydro_arrays(self, wl: float = 0.0):
-        a = np.empty(self.n_stations)
-        b = np.empty(self.n_stations)
-        zc = np.empty(self.n_stations)
-        for i in range(self.n_stations):
-            a[i], b[i], zc[i] = self.immersed_section(i, wl)
-        return a, b, zc
+        """(a, b, zc) over all stations. `wl` is a height, or one per station.
+
+        `immersed_section` STAYS THE DEFINITION and this is `_immersed_batch`,
+        which is that closed form with the station axis broadcast in — every
+        element bit-identical, fenced at exactly 0.0 in
+        tests/test_geometry_kernel.py::
+        test_the_batched_immersed_section_is_the_per_station_definition
+        across the whole draft bracket and both bilge kinds.
+
+        THE ARRAY FORM OF `wl` IS WHAT `hydrostatics.solve_trimmed` NEEDS: a
+        trimmed waterplane clips each station at its own local height, which
+        was already a per-station call and is now one batch.
+
+        MEASURED 2026-08-20 (cProfile, `evaluate()` on the 12-hull slider
+        fixture): 4182 `_immersed` calls per 6 evaluations cost 0.609 s of a
+        1.737 s profile — 35%, the largest single item — for a five-point
+        closed form whose Python and numpy call overhead dwarfs its
+        arithmetic. 574 of the 738 calls an evaluation makes come from this
+        method, 41 at a time, all at one waterline.
+        """
+        return _immersed_batch(*self._controls(), wl)
 
     def form_coefficients(self, n: int = 401) -> dict:
         """Cp, LCB, Cwp, LCF and Cm of the DELIVERED surface.
@@ -1025,21 +1222,38 @@ class Hull:
         return tot
 
     def wetted_surface(self, wl: float = 0.0) -> float:
-        """Wetted surface [m^2], strip sum of immersed girth x dx (both sides)."""
-        girth = np.empty(self.n_stations)
-        for i in range(self.n_stations):
-            pts = self.section(i)
-            if pts[0, 1] >= wl:
-                girth[i] = 0.0
-                continue
-            k = int(np.count_nonzero(pts[:, 1] < wl))   # z monotone
-            seg = np.linalg.norm(np.diff(pts[:k], axis=0), axis=1)
-            g = float(seg.sum())
-            if k < len(pts):
-                prev, cur = pts[k - 1], pts[k]
-                fr = (wl - prev[1]) / (cur[1] - prev[1])
-                g += float(np.hypot(*((prev + fr * (cur - prev)) - prev)))
-            girth[i] = g
+        """Wetted surface [m^2], strip sum of immersed girth x dx (both sides).
+
+        EVERYTHING BUT THE GIRTH SUM IS ONE BATCH over the stations: the dry
+        test, the immersed point count and the part-segment up to the
+        waterline are the same expressions with the station axis broadcast in.
+        The SUM stays per station and stays a contiguous slice of the memoised
+        segment lengths, because numpy's summation order is a function of the
+        run length and a `cumsum` would not reproduce it. Fenced against a
+        full recomputation at exactly 0.0 in
+        tests/test_geometry_kernel.py::test_the_memoised_girth_is_the_
+        recomputed_girth.
+
+        MEASURED 2026-08-20 (cProfile, `evaluate()` on the 12-hull slider
+        fixture): 19 calls per evaluation, each looping 41 stations in Python
+        and re-running `np.diff` and `np.linalg.norm` on 257-point sections
+        that were already memoised — 0.297 s of a 1.894 s profile.
+        """
+        P, Z, SEG = self._section_stack()
+        n, N = Z.shape
+        girth = np.zeros(n)
+        live = ~(Z[:, 0] >= wl)                        # keel above water: dry
+        ks = np.count_nonzero(Z < wl, axis=1)          # z monotone
+        for i in np.flatnonzero(live):
+            girth[i] = SEG[i, :max(int(ks[i]) - 1, 0)].sum()
+        cut = live & (ks < N)
+        if cut.any():
+            j = np.flatnonzero(cut)
+            kj = ks[j]
+            prev, cur = P[j, kj - 1], P[j, kj]
+            fr = ((wl - prev[:, 1]) / (cur[:, 1] - prev[:, 1]))[:, None]
+            step = (prev + fr * (cur - prev)) - prev
+            girth[j] += np.hypot(step[:, 0], step[:, 1])
         return 2.0 * float(np.trapezoid(girth, self.x))
 
     def deck_area(self) -> float:
@@ -1369,27 +1583,9 @@ class Hull:
         C = np.stack([lerp(self.y_chine), lerp(self.z_chine)], axis=1)
         S = np.stack([lerp(self.y_sheer), lerp(self.z_sheer)], axis=1)
         W = np.stack([lerp(self.y_wl), np.zeros_like(xs)], axis=1)
-        rho = self.roundness
-        if rho <= 0.0:
-            t_lo = np.linspace(0.0, 1.0, n_lo + 1)
-            t_hi = np.linspace(0.0, 1.0, n_hi + 1)[1:]
-            lo = K[:, None, :] + t_lo[None, :, None] * (C - K)[:, None, :]
-            hi = C[:, None, :] + t_hi[None, :, None] * (S - C)[:, None, :]
-            return np.concatenate([lo, hi], axis=1)
-        P0 = C + rho * (K - C)
-        P2 = C + rho * (W - C)
-        m = max(128, 2 * max(n_lo, n_hi))
-        # `_bezier`'s coefficients off the ONE shared parameter grid: the
-        # per-element products are the scalar path's, in the scalar path's
-        # order, broadcast over the station axis.
-        s = np.linspace(0.0, 1.0, 2 * m + 1)[None, :, None]
-        arc = ((1.0 - s) ** 2 * P0[:, None, :]
-               + 2.0 * s * (1.0 - s) * C[:, None, :]
-               + s * s * P2[:, None, :])
-        lo = np.concatenate([K[:, None, :], arc[:, :m + 1]], axis=1)
-        hi = np.concatenate([arc[:, m:], S[:, None, :]], axis=1)
-        return np.concatenate([_resample_batch(lo, n_lo + 1),
-                               _resample_batch(hi, n_hi + 1)[:, 1:]], axis=1)
+        # The body that used to be inlined here now lives in `_sections_batch`
+        # so the STATION-indexed memo can share it instead of copying it.
+        return _sections_batch(K, C, S, W, self.roundness, n_lo, n_hi)
 
     def min_bend_radius(self) -> float:
         """Smallest 3-D bend radius [m] along the keel and chine curves.
@@ -1528,11 +1724,213 @@ def _immersed(K, P0, P1, P2, S, wl: float):
     return abs(tot), b_wl, (a_p * gz + a_s * sz) / tot
 
 
+def _py_max0(v: np.ndarray) -> np.ndarray:
+    """`max(v, 0.0)` with PYTHON's tie rule, not `np.maximum`'s.
+
+    Python's `max(a, b)` returns `b` only when `b > a`, so `max(-0.0, 0.0)` is
+    -0.0 and `max(nan, 0.0)` is nan; `np.maximum` returns +0.0 for the first.
+    A sign of zero that reaches `_split_at_z`'s `s * P1` can flip the sign of
+    a zero in the returned control point, so the batch reproduces the scalar
+    rule rather than the nearest numpy one.
+    """
+    return np.where(0.0 > v, 0.0, v)
+
+
+def _py_min1(v: np.ndarray) -> np.ndarray:
+    """`min(v, 1.0)` with Python's tie rule. See `_py_max0`."""
+    return np.where(1.0 < v, 1.0, v)
+
+
+def _split_at_z_rows(P0: np.ndarray, P1: np.ndarray, P2: np.ndarray,
+                     z: np.ndarray):
+    """`_split_at_z` over a stack of arcs. `_split_at_z` stays the definition.
+
+    Operation for operation the scalar function, with the arc axis broadcast
+    in. Two places need care and get it:
+
+      * `(1.0 - s) ** 2` is a PYTHON float power in the scalar path, and
+        MEASURED on this box over 400k random doubles, `float.__pow__(x, 2)`
+        (libm `pow`) differs from `x * x` — and therefore from numpy's `x**2`,
+        which numpy rewrites to `square` — in 239 of 300,000 cases, one ulp.
+        `np.float_power(x, 2.0)` goes through the same libm `pow` and matches
+        it in all 400,000. That is why the exponent is spelled this way here
+        and must stay that way.
+      * `max`/`min` keep Python's tie rule (`_py_max0`, `_py_min1`).
+
+    The branch-free evaluation computes both roots for every arc, so the
+    degenerate denominators of the LINEAR rows are substituted before the
+    division rather than divided and discarded — no warning, and no reliance
+    on a discarded inf.
+    """
+    z0, z1, z2 = P0[:, 1], P1[:, 1], P2[:, 1]
+    a = z0 - 2.0 * z1 + z2
+    b = 2.0 * (z1 - z0)
+    c = z0 - z
+    lin = np.abs(a) < 1e-14
+    b_ok = np.abs(b) > 1e-14
+    s_lin = np.where(b_ok, -c / np.where(b == 0.0, 1.0, b), 0.0)
+    disc = _py_max0(b * b - 4.0 * a * c)
+    r = np.sqrt(disc)
+    den = np.where(lin, 1.0, 2.0 * a)
+    s1 = (-b + r) / den
+    s2 = (-b - r) / den
+    s = np.where(lin, s_lin, np.where((s1 >= 0.0) & (s1 <= 1.0), s1, s2))
+    s = _py_min1(_py_max0(s))[:, None]
+    one_minus = 1.0 - s
+    Q1 = one_minus * P0 + s * P1
+    X = (np.float_power(one_minus, 2.0) * P0
+         + 2.0 * s * one_minus * P1 + s * s * P2)
+    return P0, Q1, X
+
+
+def _immersed_batch(K: np.ndarray, P0: np.ndarray, P1: np.ndarray,
+                    P2: np.ndarray, S: np.ndarray, wl):
+    """`_immersed` over a stack of sections: (a, b_wl, zc), each (n,).
+
+    `_immersed` STAYS THE DEFINITION. This is the same four-case clip, the
+    same shoelace on the same vertices in the same order, and the same
+    Archimedes segment, with the station axis broadcast in — so every element
+    is bit-identical, not merely close. Fenced at exactly 0.0 in
+    tests/test_geometry_kernel.py::
+    test_the_batched_immersed_section_is_the_per_station_definition.
+
+    THE PADDING IS AREA-NEUTRAL BY CONSTRUCTION, which is what lets one
+    rectangular polygon array carry all four cases. The scalar clip emits 3,
+    4 or 5 vertices; here the LAST REAL VERTEX IS REPEATED up to five before
+    the closing `(0, wl)` point. A repeated vertex contributes
+    `y*z - y*z == 0.0` exactly to the shoelace and `(y+y) * 0.0 == 0.0` to
+    the centroid moment, and numpy sums fewer than eight addends left to
+    right exactly as the scalar path does, so the padded sum is the unpadded
+    sum term for term. `wl` is a scalar height or one per station.
+    """
+    n = K.shape[0]
+    w = np.empty(n, dtype=float)
+    w[:] = wl
+    a_out = np.zeros(n)
+    b_out = np.zeros(n)
+    zc_out = np.zeros(n)
+    # `~(zk >= wl)`, not `zk < wl`: the scalar guard is `if zk >= wl: dry`, so
+    # a NaN keel height falls through to the clip rather than being called dry.
+    live = ~(K[:, 1] >= w)
+    if not live.any():
+        return a_out, b_out, zc_out
+    # A HULL FLOATING ANYWHERE ON ITS OWN BRACKET HAS EVERY STATION WET, and
+    # the sub-selection is then five array copies that reproduce their inputs.
+    # `sel is None` is that case, and it changes nothing but the copies.
+    if live.all():
+        sel = None
+        Kv, P0v, P1v, P2v, Sv, wv = K, P0, P1, P2, S, w
+        m = n
+    else:
+        sel = np.flatnonzero(live)
+        Kv, P0v, P1v, P2v, Sv = (A[sel] for A in (K, P0, P1, P2, S))
+        wv = w[sel]
+        m = sel.size
+
+    # THE FOUR CASES, in the scalar function's order.
+    c1 = wv <= P0v[:, 1]                            # cut on the keel leg
+    c2 = ~c1 & (wv <= P2v[:, 1])                    # cut inside the bilge arc
+    c3 = ~c1 & ~c2 & (wv <= Sv[:, 1])               # cut on the topside leg
+    c4 = ~(c1 | c2 | c3)                            # fully immersed to sheer
+
+    v1 = np.empty((m, 2))
+    v2 = np.empty((m, 2))
+    v3 = np.empty((m, 2))
+    Q0 = np.zeros((m, 2))
+    Q1 = np.zeros((m, 2))
+    Q2 = np.zeros((m, 2))
+    weff = wv.copy()
+
+    if c1.any():
+        j = np.flatnonzero(c1)
+        A, B = Kv[j], P0v[j]
+        t = ((wv[j] - A[:, 1]) / (B[:, 1] - A[:, 1]))[:, None]
+        cut = A + t * (B - A)
+        v1[j] = cut
+        v2[j] = cut
+        v3[j] = cut                                 # no arc: seg is None
+    rest = np.flatnonzero(~c1)
+    v1[rest] = P0v[rest]
+    if c2.any():
+        j = np.flatnonzero(c2)
+        q0, q1, q2 = _split_at_z_rows(P0v[j], P1v[j], P2v[j], wv[j])
+        v2[j] = q2
+        v3[j] = q2
+        Q0[j], Q1[j], Q2[j] = q0, q1, q2
+    j34 = np.flatnonzero(c3 | c4)
+    if j34.size:
+        v2[j34] = P2v[j34]
+        Q0[j34], Q1[j34], Q2[j34] = P0v[j34], P1v[j34], P2v[j34]
+    if c3.any():
+        j = np.flatnonzero(c3)
+        A, B = P2v[j], Sv[j]
+        t = ((wv[j] - A[:, 1]) / (B[:, 1] - A[:, 1]))[:, None]
+        v3[j] = A + t * (B - A)
+    if c4.any():
+        j = np.flatnonzero(c4)
+        v3[j] = Sv[j]
+        weff[j] = Sv[j, 1]                          # wl = float(S[1])
+
+    poly = np.empty((m, 5, 2))
+    poly[:, 0] = Kv
+    poly[:, 1] = v1
+    poly[:, 2] = v2
+    poly[:, 3] = v3
+    poly[:, 4, 0] = 0.0
+    poly[:, 4, 1] = weff
+
+    py, pz = poly[:, :, 0], poly[:, :, 1]
+    qy, qz = np.roll(py, -1, axis=1), np.roll(pz, -1, axis=1)
+    cross = py * qz - qy * pz
+    a_p = 0.5 * cross.sum(axis=1)
+    small = np.abs(a_p) < 1e-15                     # `_signed_polygon`'s floor
+    gz = ((pz + qz) * cross).sum(axis=1) / np.where(small, 1.0, 6.0 * a_p)
+    a_p = np.where(small, 0.0, a_p)
+    gz = np.where(small, 0.0, gz)
+
+    a_s = (2.0 / 3.0) * 0.5 * ((Q1[:, 0] - Q0[:, 0]) * (Q2[:, 1] - Q0[:, 1])
+                               - (Q2[:, 0] - Q0[:, 0]) * (Q1[:, 1] - Q0[:, 1]))
+    sz = 0.4 * (Q0[:, 1] + Q2[:, 1]) + 0.2 * Q1[:, 1]
+
+    tot = a_p + a_s
+    tiny = np.abs(tot) < 1e-15
+    zc = (a_p * gz + a_s * sz) / np.where(tiny, 1.0, tot)
+    a_v = np.where(tiny, 0.0, np.abs(tot))
+    zc_v = np.where(tiny, 0.0, zc)
+    if sel is None:
+        return a_v, np.ascontiguousarray(v3[:, 0]), zc_v
+    a_out[sel] = a_v
+    b_out[sel] = v3[:, 0]
+    zc_out[sel] = zc_v
+    return a_out, b_out, zc_out
+
+
+def _roll_back_one(v: np.ndarray) -> np.ndarray:
+    """`np.roll(v, -1)` for a 1-D array, by slicing. VALUES ARE THE SAME.
+
+    A permutation of the elements, so this is bit-exact by construction and
+    not by tolerance — the shoelace sums below see the identical operands in
+    the identical order.
+
+    MEASURED 2026-08-20 (cProfile, `evaluate()` on the 12-hull slider
+    fixture): `np.roll` cost 38 us per call at 7578 calls per 6 evaluations —
+    0.29 s of a 2.72 s profile, 10.7% — because it goes through `normalize_
+    axis_tuple`, builds a slice pair per axis and dispatches two assignments.
+    On the 3-to-5-vertex polygons `_immersed` hands it, the wrapper is two
+    orders of magnitude more expensive than the copy it performs.
+    """
+    out = np.empty_like(v)
+    if v.size:
+        out[:-1] = v[1:]
+        out[-1] = v[0]
+    return out
+
+
 def _signed_polygon(pts) -> tuple[float, float, float]:
     """Signed area and centroid of a closed polygon (shoelace), open vertices."""
     p = np.asarray(pts, dtype=float)
     y1, z1 = p[:, 0], p[:, 1]
-    y2, z2 = np.roll(y1, -1), np.roll(z1, -1)
+    y2, z2 = _roll_back_one(y1), _roll_back_one(z1)
     cross = y1 * z2 - y2 * z1
     a = 0.5 * float(cross.sum())
     if abs(a) < 1e-15:
@@ -1551,7 +1949,7 @@ def _polygon(pts) -> tuple[float, float, float]:
     """
     p = np.asarray(pts, dtype=float)
     y1, z1 = p[:, 0], p[:, 1]
-    y2, z2 = np.roll(y1, -1), np.roll(z1, -1)
+    y2, z2 = _roll_back_one(y1), _roll_back_one(z1)
     cross = y1 * z2 - y2 * z1
     a = 0.5 * float(cross.sum())
     if abs(a) < 1e-12:

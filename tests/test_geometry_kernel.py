@@ -25,7 +25,7 @@ import math
 import numpy as np
 import pytest
 
-from navalai import geometry, grammar, limits
+from navalai import geometry, grammar, hydrostatics, limits
 from navalai.evaluate import sample_valid
 from navalai.geometry import GeometryError, Hull
 from navalai.mission import MissionSpec
@@ -519,6 +519,197 @@ def test_the_section_sampler_is_uniform_in_arc_length():
                 # estimator read as a crease.
                 step = np.abs(half[1:] / half[:-1] - 1.0).max()
                 assert step < 3e-3, step
+
+
+# ---------------------------------------------------------------------------
+# THE BATCHED KERNELS ARE THE PER-STATION KERNELS — the fences for the
+# 2026-08-20 cost work.
+#
+# THE INCIDENT. `evaluate()` measured p95 331 ms of CPU (wall 383 ms, box at
+# loadavg 4.5) against the 100 ms bar below, and cProfile put the cost in
+# per-station Python calls, not in arithmetic: 1692 `sample_section` calls
+# (0.899 s of a 2.72 s profile), 4182 `_immersed` calls (0.862 s), 7578
+# `np.roll` calls at 38 us each inside a 5-vertex shoelace (0.291 s), 4800
+# `np.trapezoid` calls at 62 us of wrapper each (0.353 s). The section memo
+# was NOT the defect and neither was `_section_at`: measured per evaluation,
+# `section()` took 1021 calls and missed 282 times, and 282 is exactly the two
+# hulls' station counts (241 + 41), so nothing was being rebuilt and the
+# arbitrary-x samplers were not on the path at all.
+#
+# THE CONSTRAINT these four tests exist to hold: every hydrostatic number in
+# this repo is pinned somewhere, so a batched kernel is only admissible if it
+# is BIT-IDENTICAL to the per-station one it replaces — not close, not within
+# 1e-12. The per-station function stays the definition in each pair; these
+# assert exact equality against it, on both bilge kinds, at both station
+# counts, across the whole draft bracket.
+# ---------------------------------------------------------------------------
+
+
+def _exactly(got, want, what: str) -> None:
+    g, w = np.asarray(got, dtype=float), np.asarray(want, dtype=float)
+    assert g.shape == w.shape, (what, g.shape, w.shape)
+    bad = ~((g == w) | (np.isnan(g) & np.isnan(w)))
+    if bad.any():
+        raise AssertionError(
+            "%s: %d of %d elements differ, worst |diff| %.3e"
+            % (what, int(bad.sum()), g.size,
+               float(np.max(np.abs(g[bad] - w[bad])))))
+
+
+def test_the_batched_section_machinery_is_the_per_station_definition():
+    """`Hull.section(i)` == `sample_section(...)` at station i, EXACTLY.
+
+    `_prime_sections` fills the memo for every station in one
+    `geometry._sections_batch` call instead of one `sample_section` call per
+    miss. `sample_section` stays the definition; this is the fence that keeps
+    the batch a transcription of it rather than a second shape function
+    (docs/LESSONS.md defect class 2).
+
+    241 is not decoration: `resistance.total_resistance` builds the hull it
+    integrates at 241 stations, and 241 of the 282 sections an `evaluate()`
+    call samples are that hull's.
+    """
+    for rho in (0.0, 0.35, 0.65, 1.0):
+        for nst in (41, 241):
+            h = Hull(grammar.vector({**MID, "roundness": rho}), n_stations=nst)
+            rr = h.roundness
+            n = 1 if rr <= 0.0 else geometry.SECTION_FILLET_SAMPLES
+            for i in range(nst):
+                want = geometry.sample_section(
+                    (0.0, h.z_keel[i]),
+                    (h.y_chine[i], h.z_chine[i]),
+                    (h.y_sheer[i], h.z_sheer[i]),
+                    (h.y_wl[i], 0.0), rr, n, n)
+                _exactly(h.section(i), want, "section rho=%s n=%d i=%d"
+                         % (rho, nst, i))
+            # and the arbitrary-x sampler that now shares the same batch body
+            xs = np.linspace(0.0, float(h.x[-1]), 37)
+            batch = h._sections_at_rows_batch(xs, 5, 7)
+            for q, xv in enumerate(xs):
+                _exactly(batch[q], h._section_at_rows(float(xv), 5, 7),
+                         "rows rho=%s n=%d x=%s" % (rho, nst, xv))
+
+
+def test_the_batched_immersed_section_is_the_per_station_definition():
+    """`Hull.hydro_arrays(wl)` == the loop over `immersed_section(i, wl)`.
+
+    `_immersed` stays the definition: the four-case clip, the shoelace and the
+    Archimedes segment are its arithmetic, and `_immersed_batch` only
+    broadcasts the station axis into it. The padding that lets one (n, 5, 2)
+    array carry 3-, 4- and 5-vertex polygons is area-neutral by construction
+    (a repeated vertex crosses to exactly 0.0), and that claim is what this
+    asserts rather than argues.
+
+    THE WATERLINES ARE THE BISECTION'S OWN BRACKET, not a convenient few:
+    `solve_to_displacement` sweeps [0.98*z_keel.min(), z_sheer.min()-0.02],
+    which is what walks the clip through all four cases and past both the
+    1e-15 area floors.
+
+    The per-station `wl` array is `solve_trimmed`'s case — one local waterline
+    per station on a tilted plane.
+    """
+    for rho in (0.0, 0.4, 1.0):
+        for nst in (41, 241):
+            h = Hull(grammar.vector({**MID, "roundness": rho}), n_stations=nst)
+            z_lo = float(h.z_keel.min()) * 0.98
+            z_hi = float(h.z_sheer.min()) - 0.02
+            for wl in np.linspace(z_lo, z_hi, 23):
+                want = np.array([h.immersed_section(i, float(wl))
+                                 for i in range(nst)])
+                got = np.stack(h.hydro_arrays(float(wl)), axis=1)
+                _exactly(got, want, "hydro rho=%s n=%d wl=%.6f"
+                         % (rho, nst, wl))
+            L = float(h.x[-1])
+            for trim in (-0.75, 0.0, 2.5):
+                wl_x = -0.05 + math.tan(math.radians(trim)) * (h.x - 0.5 * L)
+                want = np.array([h.immersed_section(i, float(wl_x[i]))
+                                 for i in range(nst)])
+                _exactly(np.stack(h.hydro_arrays(wl_x), axis=1), want,
+                         "trimmed rho=%s n=%d trim=%s" % (rho, nst, trim))
+
+
+def test_the_memoised_girth_is_the_recomputed_girth():
+    """`wetted_surface` off memoised segment lengths == recomputing them.
+
+    `_section_stack` caches `norm(diff(pts))` for the whole section, and
+    the girth then sums the leading slice of it. `seg[:k-1]` holds the same
+    operands in the same order as `norm(diff(pts[:k]))`, and numpy sums a
+    contiguous slice exactly as it sums a fresh array of the same length — so
+    the girth is bit-identical, which is what this asserts.
+
+    MEASURED 2026-08-20: `wetted_surface` ran 19 times per `evaluate()` (the
+    draft bisection called it once per step) and rebuilt all 41 sections'
+    segment lengths every time.
+    """
+    for rho in (0.0, 0.6):
+        for nst in (41, 241):
+            h = Hull(grammar.vector({**MID, "roundness": rho}), n_stations=nst)
+            for wl in np.linspace(float(h.z_keel.min()) * 0.98,
+                                  float(h.z_sheer.min()) - 0.02, 17):
+                girth = np.empty(nst)
+                for i in range(nst):
+                    pts = h.section(i)
+                    if pts[0, 1] >= wl:
+                        girth[i] = 0.0
+                        continue
+                    k = int(np.count_nonzero(pts[:, 1] < wl))
+                    seg = np.linalg.norm(np.diff(pts[:k], axis=0), axis=1)
+                    g = float(seg.sum())
+                    if k < len(pts):
+                        prev, cur = pts[k - 1], pts[k]
+                        fr = (wl - prev[1]) / (cur[1] - prev[1])
+                        g += float(np.hypot(
+                            *((prev + fr * (cur - prev)) - prev)))
+                    girth[i] = g
+                want = 2.0 * float(np.trapezoid(girth, h.x))
+                _exactly(h.wetted_surface(float(wl)), want,
+                         "wetted rho=%s n=%d wl=%.6f" % (rho, nst, wl))
+
+
+def test_the_displacement_only_solve_is_the_full_solve():
+    """`hydrostatics._disp_kg_only` == `solve(...).disp_kg`, and refuses alike.
+
+    The draft bisection reads NOTHING but `disp_kg` off the states it builds,
+    and `solve` computed eleven waterplane integrals and a full
+    `wetted_surface` for each one. Skipping them is only admissible if the
+    float the bisection branches on is the same float, bit for bit, at every
+    waterline in the bracket AND the ValueError that steers the low end fires
+    at exactly the same ones — otherwise the bisection takes a different path
+    and lands on a different waterline, which every number downstream is
+    measured at.
+    """
+    for rho in (0.0, 0.6):
+        h = Hull(grammar.vector({**MID, "roundness": rho}))
+        z_lo = float(h.z_keel.min()) * 0.98
+        z_hi = float(h.z_sheer.min()) - 0.02
+        for wl in np.linspace(z_lo - 0.05, z_hi, 41):
+            wl = float(wl)
+            try:
+                want = hydrostatics.solve(h, wl=wl).disp_kg
+            except ValueError:
+                with pytest.raises(ValueError):
+                    hydrostatics._disp_kg_only(h, hydrostatics.RHO_WATER,
+                                               wl, None)
+                continue
+            _exactly(hydrostatics._disp_kg_only(h, hydrostatics.RHO_WATER,
+                                                wl, None),
+                     want, "disp rho=%s wl=%.6f" % (rho, wl))
+
+
+def test_the_sliced_roll_is_numpy_roll():
+    """`geometry._roll_back_one` == `np.roll(v, -1)`, which is what the
+    shoelace's operand order depends on.
+
+    MEASURED 2026-08-20: `np.roll` cost 38 us per call and ran 7578 times per
+    6 `evaluate()` calls — 10.7% of the profile — on arrays of three to five
+    elements.
+    """
+    rng = np.random.default_rng(4)
+    for n in (0, 1, 2, 3, 5, 129):
+        v = rng.normal(size=n)
+        _exactly(geometry._roll_back_one(v), np.roll(v, -1), "roll n=%d" % n)
+        _exactly(geometry._roll_back_one(v[::-1]), np.roll(v[::-1], -1),
+                 "roll-strided n=%d" % n)
 
 
 def test_the_kernel_stays_inside_the_slider_budget():
