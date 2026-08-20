@@ -354,7 +354,14 @@ def test_physical_constants_have_one_home_S18():
         for lit in distinctive:
             for k, line in enumerate(text.splitlines(), 1):
                 stripped = line.split("#")[0]
-                if lit in stripped and "=" in stripped and "import" not in stripped:
+                # THE FENCE HAD A HOLE (2026-08-20). It required "=" in the
+                # line, so it only ever saw ASSIGNMENTS -- and a literal used
+                # inside an EXPRESSION walked straight through it. MEASURED:
+                # contract.py carried `Re {speed_ms * lwl_m / 1.09e-6:.3g}`
+                # in an f-string for as long as this fence has existed, and
+                # this test passed the whole time. Same shape as gap J1, a
+                # fence with a hole in itself.
+                if lit in stripped and "import" not in stripped:
                     offenders.append(f"{py.relative_to(root)}:{k}: {line.strip()[:70]}")
     assert not offenders, (
         "physical-constant literals re-declared outside constants.py:\n  "

@@ -430,13 +430,19 @@ def mesh_prescription(lwl_m: float | None, speed_ms: float | None,
         refusals.append(f"wave-resolution density unavailable: {e}")
 
     try:
-        from .cfd.case import first_layer_thickness
+        from .cfd.case import first_layer_thickness, _NU_WATER
         first_layer = float(first_layer_thickness(speed_ms, lwl_m,
                                                   target_yplus))
+        # The receipt must quote the fluid the VALUE was computed with. This
+        # line carried a bare `1.09e-6` until 2026-08-20; it happened to
+        # AGREE with constants.NU_FRESH_20C, so nothing was wrong -- but a
+        # restated constant that agrees today is a receipt that diverges
+        # silently the day the constant moves, which is the lying-receipt
+        # defect with a delay fuse rather than an error.
         basis["first_layer_m"] = (
             f"y+ {target_yplus:g} through ITTC-57 friction velocity at "
-            f"Re {speed_ms * lwl_m / 1.09e-6:.3g} "
-            f"(cfd.case.first_layer_thickness)")
+            f"Re {speed_ms * lwl_m / _NU_WATER:.3g} (nu {_NU_WATER:.4g}, "
+            f"cfd.case.first_layer_thickness)")
     except Exception as e:                                  # noqa: BLE001
         refusals.append(f"first-layer height unavailable: {e}")
 
