@@ -911,8 +911,26 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
         "list": INFEASIBLE_G if heel is None else abs(heel) - LIST_LIMIT_DEG,
         "lcb": abs(hs.lcb_pct_lwl) - LCB_BAND_PCT_LWL,
         "proportions": props[worst_prop],
-        "rules": (max(abs(f.measured - f.required) / max(abs(f.required), 1e-9)
-                      for f in fails) if fails else -0.01),
+        # AN UNDECIDABLE FINDING IS NOT A SHORTFALL, AND FOLDING IT IN HERE
+        # POISONED THE WHOLE CONSTRAINT. `ES-REC` reports `measured = nan`
+        # ON PURPOSE — ES-TRIN Art. 26.01 decides whether Chapter 4's bars
+        # govern at all, craft TYPE is not modelled, and the rule says so at
+        # length rather than inventing an answer. But `max()` over a NaN is
+        # NaN, so the aggregate became non-finite and EVERY design that
+        # reached the inland-waters tier was refused with "the quantity
+        # behind it could not be computed" — a sentence that reads like a
+        # broken computation and sends the next reader to look for one.
+        # MEASURED 2026-08-20 on 40 uniform grammar samples: 5 refused this
+        # way, 12.5% of the draw, none of them for a reason about the boat.
+        #
+        # The margin is now taken over findings whose numbers EXIST. The
+        # design still fails — ES-REC is `passed=False` and stays in the
+        # report with its full explanation, and ES-COV fails unconditionally
+        # for an in-scope craft — but it fails with a gradient the optimiser
+        # can descend and a reason a reader can act on. If every failing
+        # finding is undecidable, the constraint is INFEASIBLE_G: unmeasured
+        # is never a pass.
+        "rules": _rules_margin(fails),
     })
     why = {
         "freeboard": f"freeboard at load {hs.freeboard_min:.2f} m "
@@ -1642,6 +1660,21 @@ _L3_OPERATOR_ROUTE = (
     "scripts/gate2m.py runs/<name>`, then hand the directory back as "
     "`revalidate(ev, mission, 'L3', case_dir='runs/<name>')`. No L3 badge is "
     "issued for a number L3 did not produce.")
+
+
+def _rules_margin(fails) -> float:
+    """The worst RELATIVE shortfall over failing findings THAT HAVE NUMBERS.
+
+    Separated from the constraint table so the undecidable-vs-failing
+    distinction has one home. See the comment at its call site for the
+    incident.
+    """
+    finite = [f for f in fails
+              if is_real_finite(f.measured) and is_real_finite(f.required)]
+    if finite:
+        return max(abs(f.measured - f.required) / max(abs(f.required), 1e-9)
+                   for f in finite)
+    return INFEASIBLE_G if fails else -0.01
 
 
 def _l3_quantity(speed: float) -> str:

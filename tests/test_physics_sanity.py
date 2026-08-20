@@ -182,3 +182,47 @@ def test_check_cfd_can_finally_see_a_sign_flip():
     flipped = check_cfd(0.01, ct=0.004, flow_throughs=2.0, drag_n=+500.0)
     assert not flipped.ok
     assert "tow convention" in " ".join(flipped.reasons)
+
+
+def test_an_undecidable_rule_does_not_poison_the_rules_constraint():
+    """MEASURED 2026-08-20 on 40 uniform grammar samples: FIVE were refused
+    with "constraint 'rules' is not a finite number — the quantity behind it
+    could not be computed", and not one of them was about the boat.
+
+    The mechanism: `ES-REC` reports `measured = nan` ON PURPOSE. ES-TRIN
+    Art. 26.01 decides whether Chapter 4's numeric bars govern a
+    recreational craft at all, craft TYPE is not modelled here, and the rule
+    says so at length rather than inventing an answer. The constraint took
+    `max()` over failing findings, and max() over a NaN is NaN — so an
+    honest "undecidable" became a broken-computation message on every
+    inland-waters design.
+
+    The design must still FAIL (ES-REC is passed=False and ES-COV fails
+    unconditionally for an in-scope craft) — but with a gradient the
+    optimiser can descend and a reason a reader can act on.
+    """
+    import math
+
+    import numpy as np
+
+    from navalai.evaluate import INFEASIBLE_G, _rules_margin
+
+    class F:
+        def __init__(self, measured, required, passed=False):
+            self.measured, self.required, self.passed = measured, required, passed
+
+    undecidable = F(float("nan"), 4.0)
+    real = F(1.0, 33.0)
+
+    # the incident: one undecidable finding beside a real one
+    m = _rules_margin([undecidable, real])
+    assert math.isfinite(m), "an undecidable finding still poisons the margin"
+    assert m == pytest.approx(abs(1.0 - 33.0) / 33.0)
+
+    # ...and if EVERY failing finding is undecidable, unmeasured is never a
+    # pass: the constraint refuses rather than reporting a comfortable zero.
+    only_undecidable = _rules_margin([undecidable])
+    assert only_undecidable == INFEASIBLE_G
+
+    # no failures at all is still the satisfied case
+    assert _rules_margin([]) < 0.0
