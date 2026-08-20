@@ -298,3 +298,60 @@ def test_a_diverged_timeout_is_named_a_divergence_not_a_timeout():
     # trigger the collapse verdict -- unmeasured is not measured-bad
     row = _lts_row(timed_out=True, solves=False, min_flow_time_scale=-1.0)
     assert classify(row) == "timeout"
+
+
+def test_a_smoke_refusal_is_never_a_solve_failure():
+    """The screen-refused lesson one stage later: the smoke stage (the first
+    ~200 LTS iterations at ~3 min, navalai.cfd.post.smoke_verdict) refuses a
+    case BEFORE the expensive solve, so its refusal misread as a solve
+    failure poisons the campaign statistics with full-price failures that
+    never happened. The rows below carry the receipts that would otherwise
+    trip the solver buckets — the smoke bucket must outrank all of them.
+    """
+    # h2's shape: crashed receipts present, but the smoke stage owned it
+    row = _lts_row(solves=False, solve_reached=104.0, crashed=True,
+                   smoke_verdict="refused-fatal")
+    assert classify(row) == "smoke-refused-fatal", (
+        "a smoke-stage death classified as a solver crash counts a 3-minute "
+        "refusal as a full-price divergence")
+    # h18's shape: a timeout row with the collapsed tau — the two buckets it
+    # must NOT land in are `timeout` and `solver-lts-time-scale-collapse`
+    row = _lts_row(solves=False, timed_out=True,
+                   min_flow_time_scale=4.356e-18,
+                   smoke_verdict={"verdict": "refused-tau",
+                                  "min_tau": 4.356e-18, "iteration": 104})
+    assert classify(row) == "smoke-refused-tau", (
+        "a refused-tau at the smoke stage must not fall through to the "
+        "expensive-stage collapse/timeout buckets")
+
+
+def test_a_promoted_or_absent_smoke_verdict_decides_nothing():
+    """The other direction: the smoke receipt only names its own refusals.
+    A promoted/unmeasured/absent smoke verdict must leave the full-solve
+    verdict exactly where it was — a promotion is not a pass of the full
+    solve, and an unmeasured smoke is not a failure of anything."""
+    assert classify(_lts_row(smoke_verdict="promoted")) == "ok"
+    assert classify(_lts_row(smoke_verdict={"verdict": "promoted"})) == "ok"
+    assert classify(_lts_row(smoke_verdict=None)) == "ok"
+    assert classify(_lts_row(smoke_verdict="unmeasured")) == "ok"
+    # and a promoted smoke does not rescue a genuinely diverged full solve
+    row = _lts_row(min_flow_time_scale=2.48e-40, solves=False,
+                   solve_reached=410.0, smoke_verdict="promoted")
+    assert classify(row) == "solver-lts-time-scale-collapse"
+
+
+def test_the_row_carries_the_smoke_receipt_from_case_info(tmp_path):
+    """The bridge: run-case.sh's SMOKE_ONLY mode records `smoke_verdict=` in
+    case.info (via _mq_record, rewritten not appended); the campaign row must
+    carry it up or classify() can never see it. An absent or EMPTY receipt is
+    None — deciding nothing — the _case_stl_sha discipline."""
+    case = tmp_path / "c"
+    case.mkdir()
+    assert _mr._case_smoke_verdict(case) is None, "no case.info decides nothing"
+
+    (case / "case.info").write_text("lwl=8.9\nsmoke_verdict=refused-tau\n")
+    assert _mr._case_smoke_verdict(case) == "refused-tau"
+
+    (case / "case.info").write_text("lwl=8.9\nsmoke_verdict=\n")
+    assert _mr._case_smoke_verdict(case) is None, (
+        "an empty verdict must not read as a recorded one")

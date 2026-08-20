@@ -224,6 +224,11 @@ def mesh_one(case: Path, np_procs: int = 1, mesh_only: bool = True,
         # its own row, so the one artifact that gets QUOTED was the one that
         # could not be verified.
         "stl_sha256": _case_stl_sha(case),
+        # The smoke stage's verdict, carried up from case.info so classify()
+        # can bucket a cheap-stage refusal as itself (see classify's smoke
+        # block). None = the stage never ran / never recorded — which decides
+        # nothing, exactly like an absent field.
+        "smoke_verdict": _case_smoke_verdict(case),
     }
 
 
@@ -243,6 +248,26 @@ def _case_stl_sha(case: Path) -> str:
         if line.startswith("stl_sha256="):
             return line.split("=", 1)[1].strip() or "UNRECORDED"
     return "UNRECORDED"
+
+
+def _case_smoke_verdict(case: Path) -> str | None:
+    """The smoke stage's verdict from case.info, or None when the stage never
+    recorded one.
+
+    None — not "" and not a passing default — for the same reason
+    _case_stl_sha refuses an empty hash: an absent receipt must decide
+    nothing, in either direction. `smoke_verdict=` is written by the Mac
+    runner's SMOKE_ONLY mode (run-case.sh, via _mq_record: rewritten, never
+    appended); the authoritative reading of the log itself is
+    navalai.cfd.post.smoke_verdict.
+    """
+    info = case / "case.info"
+    if not info.exists():
+        return None
+    for line in info.read_text().splitlines():
+        if line.startswith("smoke_verdict="):
+            return line.split("=", 1)[1].strip() or None
+    return None
 
 
 def solve_one(case: Path) -> dict:
@@ -328,6 +353,25 @@ def classify(r: dict) -> str:
         return "screen-refused"
     if r.get("error"):
         return "generation"                 # write_resistance_case itself threw
+    # THE SMOKE STAGE (validation-ladder stage 2, navalai.cfd.post.
+    # smoke_verdict): a checkpointed ~200-iteration slice of the REAL solve
+    # at ~3 min price. A case the smoke stage refused NEVER ATTEMPTED the
+    # expensive solve, so it must never land in a solver-*/timeout bucket —
+    # the screen-refused lesson one stage later: a cheap-stage refusal
+    # misread as an expensive-stage failure poisons the campaign statistics
+    # (h18's refused-tau would otherwise read as one more LTS collapse at
+    # full price, and h2's refused-fatal as a solver divergence). The receipt
+    # arrives either as the bare verdict string (case.info's smoke_verdict=,
+    # written by the Mac runner's SMOKE_ONLY mode) or as smoke_verdict()'s
+    # own dict; promoted/unmeasured decide nothing here — the full-solve
+    # fields below carry those rows' verdicts.
+    smoke = r.get("smoke_verdict")
+    if isinstance(smoke, dict):
+        smoke = smoke.get("verdict")
+    if smoke == "refused-tau":
+        return "smoke-refused-tau"
+    if smoke == "refused-fatal":
+        return "smoke-refused-fatal"
     if r.get("timed_out"):
         # A TIMEOUT WITH A COLLAPSED FLOW TIME SCALE IS A DIVERGENCE, not a
         # slow run (MEASURED 2026-08-18: campaign h18 sat at min_flow_time

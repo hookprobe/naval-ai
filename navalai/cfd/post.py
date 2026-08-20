@@ -710,6 +710,162 @@ def settled_estimate(case: str | Path, rel_bar: float = DRIFT_TOL,
     return out
 
 
+# ===========================================================================
+# STAGE 2 OF THE VALIDATION LADDER — the SMOKE SOLVE, classified.
+# The Mac runner produces it (run-case.sh's future SMOKE_ONLY=N mode: the
+# first ~200 LTS iterations of the REAL interFoam solve, checkpoint kept);
+# this is the fortress-side pure-Python reading of what it left behind.
+# ===========================================================================
+
+# THE TAU BAR IS run-case.sh's LIVE-ABORT BAR — one number, two parsers that
+# must never disagree. The shell's guard (run-case.sh, the run_solver
+# early-abort block) is `awk -v v="$_fts" 'BEGIN{exit !(v + 0 < 1e-12)}'`,
+# re-based 2026-08-18 on the Mac's paired dataset: solved floor 7.8e-6 (five
+# hulls), worst divergence 4.356e-18 (h18) — ~5.9 and ~5.6 orders of margin.
+# tests/test_smoke_verdict.py fences this literal against the shell's.
+SMOKE_TAU_FLOOR = 1e-12
+
+# Solver-death markers: solve_one()'s set (scripts/mesh_robustness.py), the
+# one calibrated on campaign hull 2 — whose log carries NO "--> FOAM FATAL"
+# line, only sigFpe::sigHandler and "exited on signal 4". NEVER match the
+# bare substring "Floating point": every interFoam banner prints "trapFpe:
+# Floating point exception trapping enabled", which once read a clean 0.5 s
+# run as a crash.
+_SMOKE_DEATH_MARKERS = ("--> FOAM FATAL", "sigFpe::sigHandler",
+                        "exited on signal", "Illegal instruction")
+
+# The exact line heads the existing parsers key on: run-case.sh's live-abort
+# awk matches "^Flow time scale min\/max = " and takes field 6 (the min, with
+# its trailing comma stripped); solve_one/settled_drag read "^Time = " and
+# the same tau line. Matching the same heads is what keeps this verdict and
+# the shell's from ever disagreeing about one log.
+_SMOKE_TIME_PREFIX = "Time = "
+_SMOKE_TAU_PREFIX = "Flow time scale min/max = "
+
+
+def smoke_verdict(case_dir: str | Path, n_iters: int = 200) -> dict:
+    """Classify a SMOKE SOLVE — the first `n_iters` LTS iterations of the
+    real interFoam solve — from `log.interFoam` (the same log location
+    `settled_drag`'s mixed-history seam and mesh_robustness.solve_one read).
+
+    The two recorded incidents this stage exists to catch at ~3 min price:
+
+      * h2 — a mesh that passed EVERY checkMesh bar (0 zero-volume cells,
+        0 wrongly-oriented faces, skew 6.95) reached LTS iteration 104 and
+        DIED with sigFpe in GAMGSolver::scale, discovered at a 323 s solve
+        price. checkMesh is measured blind to the class; the smoke solve is
+        not, because the death is inside the first ~200 iterations.
+      * h18 — the local flow time scale collapsed to 4.356e-18 s (twelve
+        orders below every solved hull) and the run burned its full 2700 s
+        budget into the timeout column.
+
+    Verdicts — every dict carries the receipts it read (iterations_seen,
+    min_tau/min_tau_iteration if any tau was printed, taus_seen), and every
+    refusal carries the iteration it fired at:
+
+      promoted      — the log reaches n_iters iterations, EVERY printed flow
+                      time scale >= SMOKE_TAU_FLOOR (run-case.sh's bar), the
+                      force history exists and is finite over the window, and
+                      no death marker appears.
+      refused-tau   — some printed tau fell below the bar (min + iteration
+                      recorded). The h18 class, priced at ~3 min not 2700 s.
+      refused-fatal — solver death (FPE/signal/FOAM FATAL) or a non-finite
+                      force line, with the iteration. The h2 class.
+      unmeasured    — the log is absent or shorter than n_iters with no death
+                      marker, or the tau prints / force history could not be
+                      read. NEVER promoted: an unmeasurable case reading as a
+                      pass is this repo's defect class 1 (`${VAR:-0}`).
+
+    Refusals fire in LOG ORDER — the earliest event in the window is the
+    cause, the discipline classify() already applies to stages.
+    """
+    case = Path(case_dir)
+    log = case / "log.interFoam"
+    out: dict = {"case": str(case), "n_iters": n_iters,
+                 "iterations_seen": 0, "taus_seen": 0,
+                 "min_tau": None, "min_tau_iteration": None}
+    if not log.exists():
+        out.update(verdict="unmeasured",
+                   why=f"no log.interFoam under {case} — the smoke stage "
+                       f"never ran here; unmeasured, never promoted")
+        return out
+
+    it = 0
+    for line in log.read_text().splitlines():
+        if line.startswith(_SMOKE_TIME_PREFIX):
+            if it >= n_iters:
+                break                     # the smoke window is fully consumed
+            it += 1
+            out["iterations_seen"] = it
+            continue
+        if line.startswith(_SMOKE_TAU_PREFIX):
+            # the shell's $6-with-comma-stripped, in Python
+            raw = line[len(_SMOKE_TAU_PREFIX):].split(",")[0].strip()
+            try:
+                tau = float(raw)
+            except ValueError:
+                out.update(verdict="unmeasured",
+                           why=f"unparseable tau at iteration {it}: {line!r}"
+                               f" — an unreadable bar is unmeasured, never "
+                               f"assumed healthy")
+                return out
+            out["taus_seen"] += 1
+            if out["min_tau"] is None or tau < out["min_tau"]:
+                out["min_tau"], out["min_tau_iteration"] = tau, it
+            if tau < SMOKE_TAU_FLOOR:
+                out.update(verdict="refused-tau", iteration=it,
+                           why=f"flow time scale {tau:.4g} s fell below the "
+                               f"{SMOKE_TAU_FLOOR:g} s bar at iteration {it} "
+                               f"(run-case.sh's live-abort bar; the h18 "
+                               f"class: 4.356e-18 for 2700 s)")
+                return out
+            continue
+        if any(m in line for m in _SMOKE_DEATH_MARKERS):
+            out.update(verdict="refused-fatal", iteration=it,
+                       why=f"solver death at iteration {it}: "
+                           f"{line.strip()[:120]!r} (the h2 class: died "
+                           f"iteration 104 on a bar-passing mesh)")
+            return out
+
+    # Forces, through THE module's own reader (forces_path/parse_forces) so
+    # a restart-merged history is handled the one recorded way. Under LTS the
+    # time column IS the iteration count, so the window is the first n_iters
+    # rows and a bad row's time value names the iteration.
+    try:
+        t, fx = parse_forces(forces_path(case))
+    except FileNotFoundError:
+        t = fx = None
+    if fx is not None and len(fx):
+        seg_t, seg_f = t[:n_iters], fx[:n_iters]
+        bad = np.flatnonzero(~np.isfinite(seg_f))
+        if bad.size:
+            k = int(bad[0])
+            out.update(verdict="refused-fatal", iteration=float(seg_t[k]),
+                       why=f"non-finite force at iteration {seg_t[k]:g} — a "
+                           f"diverged solve is not a number to be averaged")
+            return out
+
+    if it < n_iters:
+        out.update(verdict="unmeasured",
+                   why=f"log holds {it} of the {n_iters} smoke iterations "
+                       f"and carries no death marker — truncated or still "
+                       f"in flight; unmeasured, never promoted")
+        return out
+    if out["taus_seen"] == 0:
+        out.update(verdict="unmeasured",
+                   why="no 'Flow time scale' print anywhere in the window — "
+                       "this is not an LTS smoke log, so the tau bar was "
+                       "never measured; unmeasured, never promoted")
+        return out
+    if fx is None or not len(fx):
+        out.update(verdict="unmeasured",
+                   why="no readable force history — finite forces are part "
+                       "of the promotion bar and were not measured")
+        return out
+    out["verdict"] = "promoted"
+    return out
+
+
 def family_refinement(coarse: int | None, medium: int | None,
                       fine: int | None) -> dict:
     """The refinement ratio of a triplet, MEASURED from its cell counts.
