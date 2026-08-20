@@ -1,0 +1,710 @@
+......ssssssss.......sss...s............................................ [  4%]
+...............F.....FF................................................. [  9%]
+........................................................................ [ 14%]
+..................................F..................................... [ 19%]
+........................................................................ [ 24%]
+........................................................................ [ 29%]
+........................................................................ [ 34%]
+........s........................F...................................... [ 39%]
+........................................................................ [ 44%]
+........................................................................ [ 49%]
+........................................................................ [ 53%]
+........................................................................ [ 58%]
+............................FF..F............F.......................... [ 63%]
+........................F.F............................................. [ 68%]
+........................................................................ [ 73%]
+........................................................................ [ 78%]
+..........................................s............................. [ 83%]
+....................................................................F... [ 88%]
+..........................F............................................. [ 93%]
+....................................................................ssss [ 98%]
+.............F..............                                             [100%]
+=================================== FAILURES ===================================
+____________ test_the_deviation_table_of_the_shipped_triangulation _____________
+
+hull14 = Hull(params=array([17.96712447,  3.48905731,  1.01669338,  2.49650462,  0.66925759,
+       -0.35027605,  0.58731296,  ...071673, 1.7655157 , 1.55529348,
+       1.33048919, 1.09149066, 0.83864426, 0.57226208, 0.29262761,
+       0.        ]))
+
+    def test_the_deviation_table_of_the_shipped_triangulation(hull14):
+        """The ruler's regression baseline, and a PROBE that says which table.
+    
+        Commit bbf1a47 published hull 14's post-fix row by x/L bin, in mm:
+    
+            0.05  0.15  0.25  0.35  0.45  0.55  0.65  0.75  0.85  0.95
+            0.01  0.11  0.36  0.83  1.36 23.53  1.29  2.62  3.03 102.92
+    
+        THAT TABLE IS VOID ON THIS GENOME AND IS NOT RELAXED TO FIT — it is
+        switched out by `stage_a_table_is_transferable()`, which asks
+        `grammar.N_PARAMS`. Plates P1/P2 took the genome 15 -> 16, so index 14 of
+        the same call is a different boat and there is no arithmetic that carries
+        the row across. Re-tuning the old numbers until they passed would be
+        calibrating against nothing, which is worse than an honest re-measurement.
+    
+        RE-MEASURED 2026-08-13 on the current hull (Lwl 13.705 m, roundness
+        0.3271), same 600x120 triangulation, in mm:
+    
+            bin        0.05  0.15  0.25  0.35  0.45  0.55  0.65  0.75  0.85  0.95
+            Stage A    0.01  0.11  0.36  0.83  1.36 23.53  1.29  2.62  3.03 102.92
+            today      7.09  0.66  1.07  0.79  2.53 33.95  2.04  1.40  2.11   3.04
+    
+        Two of those movements are mechanisms worth stating, because both look
+        like regressions and neither is:
+    
+          * 0.95 falls 102.92 -> 3.04. The old kernel closed the DECK at the stem
+            with a `w**0.15` envelope whose x-derivative is unbounded there; plate
+            P1 deleted it and closes the deck through the flare envelope, which
+            goes to zero with a(x). The stem is simply a much gentler curve now.
+          * 0.05 rises 0.01 -> 7.09, and it is NOT a section-sampling error.
+            MEASURED at x/L 0.0105 the whole topside reads a CONSTANT 7.09 mm, and
+            a constant offset across a straight run is a parallel line, i.e. an
+            error in x. `closed_mesh` interpolates the station arrays LINEARLY
+            between `Hull`'s 41 stations, and bin 0 is where the rocker's
+            quadratic and the SAC's aft branch put the most x-curvature. Holding
+            nx=600/nz=120 fixed and raising `n_stations` 41 -> 321 takes the
+            plain-bin max 7.09 -> 2.04, which is the attribution.
+    
+        The 0.55 bin is the x_mb tangent break and its value depends on whether a
+        probe lands exactly on x_mb, which is why `analytic_probe_points` inserts
+        it; the tolerance below is loose enough for that and nothing else.
+        """
+        stale = stage_a_table_is_transferable()
+        want = STAGE_A_MAX_MM if stale else SHIPPED_MAX_MM
+        src = "Stage A" if stale else "the 2026-08-13 re-measured baseline"
+        nx, nz = shipped_resolution(hull14)
+        V, T = mesh_of_hull(hull14, nx, nz)
+        got = deviation_by_xl(hull14, V, T)["max_mm"]
+        for i, (g, w) in enumerate(zip(got, want)):
+>           assert abs(g - w) <= max(0.05, 0.02 * w), (
+                f"bin {i} ({(i + 0.5) / 10:.2f}): {g:.2f} mm against {src}'s "
+                f"{w:.2f} mm")
+E           AssertionError: bin 0 (0.05): 2.86 mm against the 2026-08-13 re-measured baseline's 7.09 mm
+E           assert 4.234077276158654 <= 0.1418
+E            +  where 4.234077276158654 = abs((2.855922723841345 - 7.09))
+E            +  and   0.1418 = max(0.05, (0.02 * 7.09))
+
+tests/test_blender_hull.py:328: AssertionError
+_________ test_the_voxel_remesh_stays_closed_and_that_is_not_the_point _________
+
+blender_voxel = ({'n_verts': 88416, 'n_tris': 176824, 'n_edges': 265240, 'n_degenerate_dropped': 4, ...}, array([[-1.0058284e-07, -1.3...    ...,
+       [86933, 87096, 87006],
+       [87077, 86933, 86925],
+       [87077, 86925, 87118]], shape=(176824, 3)))
+
+    @requires_blender
+    def test_the_voxel_remesh_stays_closed_and_that_is_not_the_point(
+            blender_voxel):
+        """Watertightness is NOT the discriminator here, and saying so is the test.
+    
+        MEASURED: the voxel remesh IS a closed manifold — `surfaceCheck` reports
+        "Surface is closed" on all three hulls — and it is still the wrong
+        surface. A closure check cannot see a rounded knuckle or a 40 mm
+        deviation, which is the same lesson `navalai/stl_forensics.py` was written
+        around: four hulls with different mesh outcomes were all reported
+        watertight/outward/0 open edges.
+        """
+        rec, _V, _T = blender_voxel
+>       assert rec["n_open_edges"] == 0
+E       assert 8 == 0
+
+tests/test_blender_hull.py:563: AssertionError
+_____________ test_the_knuckle_reference_refuses_a_radiused_bilge ______________
+
+hull14 = Hull(params=array([17.96712447,  3.48905731,  1.01669338,  2.49650462,  0.66925759,
+       -0.35027605,  0.58731296,  ...071673, 1.7655157 , 1.55529348,
+       1.33048919, 1.09149066, 0.83864426, 0.57226208, 0.29262761,
+       0.        ]))
+hull14_hard_chine = Hull(params=array([17.96712447,  3.48905731,  1.01669338,  2.49650462,  0.66925759,
+       -0.35027605,  0.58731296,  ...822802, 1.79028808, 1.57711618,
+       1.34915761, 1.10680563, 0.85041148, 0.58029163, 0.29673354,
+       0.        ]))
+
+    def test_the_knuckle_reference_refuses_a_radiused_bilge(hull14,
+                                                            hull14_hard_chine):
+        """An unmeasurable quantity is a refusal, never a number.
+    
+        `chine_dihedral_analytic` differences the normals of the two STRAIGHT
+        panel legs at the chine control point. Plate P2's fillet replaces that
+        corner with a quadratic Bezier whose control legs are those same two
+        segments, so the formula keeps returning the angle of a corner the
+        surface no longer has.
+    
+        MEASURED 2026-08-13 on hull 14 (roundness 0.327): it returned **84.90
+        deg** while the correct 600x120 triangulation of the same hull reads
+        **0.53 deg** 5 mm off the bilge. That is docs/LESSONS.md defect class 1 —
+        a quantity that cannot be measured on this hull, scored as a measurement —
+        and it would have reported the SHIPPED surface as a destroyed chine.
+    
+        Both directions, because a rule that only refuses is not a rule: the same
+        genome at roundness 0 must still produce the knuckle angle.
+        """
+        assert math.isnan(chine_dihedral_measured(
+            hull14, *mesh_of_hull(hull14, 120, 24))["analytic_median_deg"]), (
+            "the knuckle reference returned a number for a radiused bilge")
+        hc = chine_dihedral_measured(hull14_hard_chine,
+                                     *mesh_of_hull(hull14_hard_chine, 120, 24))
+>       assert hc["analytic_median_deg"] == pytest.approx(84.906, abs=0.01), (
+            "the knuckle reference refused a HARD chine, which it must not")
+E       AssertionError: the knuckle reference refused a HARD chine, which it must not
+E       assert 66.90406030249684 == 84.906 ± 0.01
+E         
+E         comparison failed
+E         Obtained: 66.90406030249684
+E         Expected: 84.906 ± 0.01
+
+tests/test_blender_hull.py:591: AssertionError
+____________ test_lcb_is_constrained_and_the_kernel_now_delivers_it ____________
+
+ref = Evaluation(ok=False, tier='L1', violations=('panel bend radius 0.95 m < 1.44 m (18 mm ply cold-bend limit)',), hydro=H... 'rules': -0.01}, g_names=('freeboard', 'gm', 'bend_radius', 'trim', 'list', 'lcb', 'proportions', 'rules'), policy={})
+
+    def test_lcb_is_constrained_and_the_kernel_now_delivers_it(ref):
+        """B8, AND THE CLAIM IN THIS TEST'S OLD NAME IS NOW FALSE.
+    
+        IT WAS `test_lcb_is_constrained_and_the_reference_hull_fails_it`, and that
+        was the honest record for as long as LCB was an EMERGENT OUTPUT: the
+        hand-picked reference hull floated at -5.36 %LWL against a +-3% band and
+        was INFEASIBLE (-4.19 until 2026-08-12, when the wet-station truncation in
+        `lwl_eff` was corrected — the old figure was the bug and it had been
+        flattering the hull; see `hydrostatics._waterline_ends`).
+    
+        PLATE P1 FIXED THE HULL, NOT THE BAR. `lcb` is now a GENE — a design
+        TARGET the sectional area curve is solved to deliver — bounded by
+        `grammar.PARAMS` to exactly `limits.LCB_BAND_PCT_LWL`, and the reference
+        hull asks for -1.0 %LWL. RE-MEASURED 2026-08-13 it FLOATS at -1.68 %LWL
+        and `g['lcb']` is -1.32, i.e. feasible. That is not a softened check; it is
+        the same check on a hull that can now be aimed.
+    
+        So the assertion that this test exists for has to move to a hull that
+        FAILS, or it stops proving the row can fire — see
+        `test_the_lcb_row_still_refuses_a_hull_that_floats_out_of_band` below,
+        which is fed the verbatim input. What is asserted HERE is the identity that
+        was the gap's actual subject: the row exists, and it is computed from the
+        FLOATED waterline rather than from the gene.
+    
+        The percentage is taken about the midpoint of the FLOATED waterline
+        (`HydroState.lcb_pct_lwl`), not about half the LWL parameter — the transom
+        lifts clear under rocker, so those are different stations. That is why the
+        delivered -1.68 is not the requested -1.00: the gene is delivered at the
+        DESIGN waterline and the row judges the one the boat actually floats at.
+        """
+        assert "lcb" in CONSTRAINT_NAMES
+        hs = ref.hydro
+        # RE-MEASURED 2026-08-14 (R2.1): the ladder now floats the SOLVED trim
+        # equilibrium, and at equilibrium the centre of buoyancy stands under
+        # the centre of gravity — so the floated LCB is the MASS MODEL's LCG
+        # seen through the floated waterline, -0.81 %LWL, no longer the level
+        # float's -1.68. The identity below is the stronger form of the old
+        # pin: lcb == lcg to the solver's own tolerance is the definition of
+        # the attitude the boat actually takes.
+>       assert hs.lcb_pct_lwl == pytest.approx(-0.81, abs=0.05)
+E       assert -0.8663661476995355 == -0.81 ± 0.05
+E         
+E         comparison failed
+E         Obtained: -0.8663661476995355
+E         Expected: -0.81 ± 0.05
+
+tests/test_constraints_honest.py:331: AssertionError
+_______ test_the_batched_section_machinery_is_the_per_station_definition _______
+
+    def test_the_batched_section_machinery_is_the_per_station_definition():
+        """`Hull.section(i)` == `sample_section(...)` at station i, EXACTLY.
+    
+        `_prime_sections` fills the memo for every station in one
+        `geometry._sections_batch` call instead of one `sample_section` call per
+        miss. `sample_section` stays the definition; this is the fence that keeps
+        the batch a transcription of it rather than a second shape function
+        (docs/LESSONS.md defect class 2).
+    
+        241 is not decoration: `resistance.total_resistance` builds the hull it
+        integrates at 241 stations, and 241 of the 282 sections an `evaluate()`
+        call samples are that hull's.
+        """
+        for rho in (0.0, 0.35, 0.65, 1.0):
+            for nst in (41, 241):
+                h = Hull(grammar.vector({**MID, "roundness": rho}), n_stations=nst)
+                rr = h.roundness
+                n = 1 if rr <= 0.0 else geometry.SECTION_FILLET_SAMPLES
+                for i in range(nst):
+                    want = geometry.sample_section(
+                        (0.0, h.z_keel[i]),
+                        (h.y_chine[i], h.z_chine[i]),
+                        (h.y_sheer[i], h.z_sheer[i]),
+                        (h.y_wl[i], 0.0), rr, n, n)
+>                   _exactly(h.section(i), want, "section rho=%s n=%d i=%d"
+                             % (rho, nst, i))
+
+tests/test_geometry_kernel.py:583: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+got = array([[ 0.        , -0.4675    ],
+       [ 0.0032924 , -0.46703728],
+       [ 0.00658481, -0.46657457],
+       [ 0.00... 0.96743099],
+       [ 0.68665255,  0.97828732],
+       [ 0.68856682,  0.98914366],
+       [ 0.69048108,  1.        ]])
+want = array([[ 0.        , -0.4675    ],
+       [ 0.0032924 , -0.46703728],
+       [ 0.00658481, -0.46657457],
+       [ 0.00... 0.96743099],
+       [ 0.68665255,  0.97828732],
+       [ 0.68856682,  0.98914366],
+       [ 0.69048108,  1.        ]])
+what = 'section rho=0.35 n=41 i=0'
+
+    def _exactly(got, want, what: str) -> None:
+        g, w = np.asarray(got, dtype=float), np.asarray(want, dtype=float)
+        assert g.shape == w.shape, (what, g.shape, w.shape)
+        bad = ~((g == w) | (np.isnan(g) & np.isnan(w)))
+        if bad.any():
+>           raise AssertionError(
+                "%s: %d of %d elements differ, worst |diff| %.3e"
+                % (what, int(bad.sum()), g.size,
+                   float(np.max(np.abs(g[bad] - w[bad])))))
+E           AssertionError: section rho=0.35 n=41 i=0: 62 of 514 elements differ, worst |diff| 1.110e-16
+
+tests/test_geometry_kernel.py:553: AssertionError
+____________________ test_scantling_monotonic_and_plausible ____________________
+
+    def test_scantling_monotonic_and_plausible():
+        # heavier boat -> higher pressure; wider span -> thicker panel
+>       assert design_pressure_bottom(8000) > design_pressure_bottom(2000)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: design_pressure_bottom() missing 1 required positional argument: 'lwl_m'
+
+tests/test_phase6.py:108: TypeError
+____________________________ test_scantling_verdict ____________________________
+
+    def test_scantling_verdict():
+        ok = scantling(6000, provided_mm=20.0)   # required computes to ~18.2 mm
+        thin = scantling(6000, provided_mm=6.0)
+>       assert report(ok)["pass"]
+E       assert False
+
+tests/test_phase6.py:120: AssertionError
+___________ test_the_record_cannot_yet_name_the_editions_it_checked ____________
+
+    def test_the_record_cannot_yet_name_the_editions_it_checked():
+        """Gap D8, pinned. Gate 6R is RED in data/gate-ledger.json because of this.
+    
+        Do NOT "fix" this test by asserting is_complete(). The way to make it flip
+        is to write the two dated editions into REVIEW["editions"] — at which point
+        this test is meant to fail, loudly, and be replaced by its opposite along
+        with the ledger entry.
+        """
+        defects = edition_defects()
+>       assert defects, ("editions now look recorded — flip Gate 6R green in "
+                         "navalai/gates.py, delete its data/gate-ledger.json entry, "
+                         "and invert this test")
+E       AssertionError: editions now look recorded — flip Gate 6R green in navalai/gates.py, delete its data/gate-ledger.json entry, and invert this test
+E       assert []
+
+tests/test_phase6r.py:65: AssertionError
+______________ test_the_mission_to_validated_hull_cycle_is_timed _______________
+
+    def test_the_mission_to_validated_hull_cycle_is_timed():
+        """The second half of Gate 7's clause 2: the timed path is the PRODUCT's
+        path — parse a mission in natural language, search, and put the winner
+        through the ladder until it validates. MEASURED at the small fixed budget
+        used here: 0.25 s total (parse 0.3 ms, search 0.20 s over 48 evaluations,
+        validate 53 ms), returning an L1-validated hull.
+    
+        The budget is fixed on purpose. This number is a REGRESSION detector, and
+        two runs at different budgets compare nothing.
+        """
+        from navalai.flywheel import cycle_time
+    
+        c = cycle_time()
+>       assert c["validated"] is True and c["tier"] == "L1"
+E       assert (False is True)
+
+tests/test_phase7.py:276: AssertionError
+_____________________ test_ratchet_no_silent_form_drift[e] _____________________
+
+described = {'a': {'scalars': {'L_over_B': 2.439024390243903, 'B_over_T': 5.124999999999999, 'lwl_m': 5.0, 'bwl_m': 2.05, ...}, 'a...tions': ['rules tier: R-DFH 0.54 vs 0.75 m'], 'role': 'demihull'}, 'grammar_ok': True, 'grammar_violations': []}}, ...}
+key = 'e'
+
+    @pytest.mark.parametrize("key", CASE_KEYS)
+    def test_ratchet_no_silent_form_drift(described, key):
+        base = json.loads(BASELINE_PATH.read_text())[key]
+        current = ratchet_entries(described[key])
+        gone = sorted(set(base) - set(current))
+        new = sorted(set(current) - set(base))
+        assert not gone, (
+            f"case {key}: descriptors {gone} vanished since the baseline. A "
+            f"descriptor that stops being computable is a regression, not a "
+            f"cleanup — restore it or re-baseline with a written justification "
+            f"(scripts/physical_form_report.py --write-baseline).")
+        assert not new, (
+            f"case {key}: new descriptors {new} are not in the baseline — "
+            f"re-baseline (scripts/physical_form_report.py --write-baseline) in "
+            f"the same commit that adds them.")
+        drifted = []
+        for name, b in base.items():
+            v = current[name]["value"]
+            if abs(v - b["value"]) > b["tol"]:
+                drifted.append(f"{name}: {b['value']:.5g} -> {v:.5g} "
+                               f"(tol {b['tol']:.3g})")
+>       assert not drifted, (
+            f"case {key}: the physical form MOVED:\n  " + "\n  ".join(drifted) +
+            "\nThis ratchet exists so architecture changes cannot silently make "
+            "the generated hulls less boat-like while software tests stay green. "
+            "If the movement is intended and MEASURED to be an improvement, "
+            "re-baseline with `python3 scripts/physical_form_report.py "
+            "--write-baseline` and record the justification in the same commit; "
+            "do not widen a tolerance to make this pass.")
+E       AssertionError: case e: the physical form MOVED:
+E           BM_m: 0.48963 -> 0.54831 (tol 0.049)
+E           displacement_floated_kg: 629.07 -> 556.92 (tol 62.9)
+E         This ratchet exists so architecture changes cannot silently make the generated hulls less boat-like while software tests stay green. If the movement is intended and MEASURED to be an improvement, re-baseline with `python3 scripts/physical_form_report.py --write-baseline` and record the justification in the same commit; do not widen a tolerance to make this pass.
+E       assert not ['BM_m: 0.48963 -> 0.54831 (tol 0.049)', 'displacement_floated_kg: 629.07 -> 556.92 (tol 62.9)']
+
+tests/test_physical_form.py:313: AssertionError
+_______________ test_multihull_cases_carry_a_physical_separation _______________
+
+described = {'a': {'scalars': {'L_over_B': 2.439024390243903, 'B_over_T': 5.124999999999999, 'lwl_m': 5.0, 'bwl_m': 2.05, ...}, 'a...tions': ['rules tier: R-DFH 0.54 vs 0.75 m'], 'role': 'demihull'}, 'grammar_ok': True, 'grammar_violations': []}}, ...}
+
+    def test_multihull_cases_carry_a_physical_separation(described):
+        for key in ("c", "d"):
+            s = described[key]["scalars"]
+            assert s["separation_m"] > s["demihull_beam_m"], (
+                f"case {key}: demihulls at {s['separation_m']:.2f} m spacing "
+                f"with {s['demihull_beam_m']:.2f} m beams would intersect")
+            # and the ladder said so too: the evaluation carries the explicit
+            # multihull-stability refusal, never a silent GM pass
+            viols = described[key]["meta"]["evaluation"]["violations"]
+>           assert any("multihull stability" in v for v in viols), (
+                f"case {key}: the multihull stability refusal vanished from the "
+                f"evaluation — a catamaran must never be silently blessed on GM")
+E           AssertionError: case c: the multihull stability refusal vanished from the evaluation — a catamaran must never be silently blessed on GM
+E           assert False
+E            +  where False = any(<generator object test_multihull_cases_carry_a_physical_separation.<locals>.<genexpr> at 0x1505ebb90>)
+
+tests/test_physical_form.py:335: AssertionError
+________ test_the_delivered_bom_is_built_to_the_rule_derived_thickness _________
+
+plm_run = ([DesignRecord(params=array([14.47392965,  2.91319948,  0.63442276,  1.90249059,  0.55891833,
+       -0.92653244,  0.5...rac_depth=None), windage=WindageSpec(lateral_area_m2=None, centroid_above_wl_m=None, wind_pressure_pa=None), notes=''))
+
+    def test_the_delivered_bom_is_built_to_the_rule_derived_thickness(plm_run):
+        """`_engineer` called `assess(Hull(x), ev.wl)` and never passed `mldc_kg`,
+        although `mission` was already a parameter of that coroutine.
+    
+        MEASURED on the reference hull at the default 6 t mission, before the fix:
+    
+            assess(hull, ev.wl)                 bottom 15.0 mm,  40 sheets
+            assess(hull, ev.wl, mldc_kg=6000)   bottom 21.0 mm,  42 sheets
+            the agent-delivered record          bottom 15.0 mm, 140 sheets
+            ev.ply_thickness_m                         21.0 mm
+    
+        So the SAME ladder run derived 21 mm from ISO 12215-5, charged the boat
+        that structural weight, and then shipped a bill of materials for a 15 mm
+        boat. The BOM even said so — "thickness nominal stock sheet (no mLDC given
+        — NOT rule-derived)" — which makes it honest and still a cut list that
+        fails the platform's own scantling rule. Delivered sheets went 140 -> 153.
+        """
+        results, _audit, _m = plm_run
+        for rec in results:
+            want_mm = rec.evaluation.ply_thickness_m * 1e3
+>           assert rec.engineering.bottom_thickness_mm == pytest.approx(want_mm), (
+                f"delivered BOM is built to {rec.engineering.bottom_thickness_mm} mm "
+                f"while the ladder that validated it derived {want_mm} mm")
+E           AssertionError: delivered BOM is built to 18.0 mm while the ladder that validated it derived 15.0 mm
+E           assert 18.0 == 15.0 ± 1.5e-05
+E             
+E             comparison failed
+E             Obtained: 18.0
+E             Expected: 15.0 ± 1.5e-05
+
+tests/test_stageC.py:266: AssertionError
+______________ test_pareto_serves_the_mission_it_was_asked_about _______________
+
+    def test_pareto_serves_the_mission_it_was_asked_about():
+        """`/pareto` WAS THE LAST ENDPOINT ANSWERING THE DEFAULT MISSION'S QUESTION.
+    
+        `get_pareto(mission)` and its per-mission cache landed on 2026-08-11, but
+        the HTTP surface did not: `do_GET` served `/pareto` with no mission and
+        there was no POST route, so no caller could reach a second cache entry. The
+        dashboard drew one boat's trade-off surface beside sliders evaluating
+        another. Gap I9's shape ("it was a SINGLE pool, which is why `/generate`
+        could only ever answer the default mission"), one endpoint later.
+    
+        THE VERBATIM BROKEN CASE IS THE PAGE'S OWN OPENING BRIEF — no exotic input
+        was needed. `MissionSpec()` has `lwl_hint_m=None` while the textarea's
+        "6 tonne ... 10 m ... 5 knots" parses to 10.0 m, so a user who pressed
+        "Apply mission" without editing a character already had sliders on one
+        mission and a front on another.
+    
+        MEASURED 2026-08-11 on this Mac, at HEAD 140f7e4 WITH `navalai/evaluate.py`
+        being edited concurrently by another agent — which is why the counts below
+        are dated and the assertions are not written against them:
+    
+            the panel's opening brief    24 members, Wh/NM  376.6 - 2093.0
+            "3 tonne dayboat ... 9 kn"   13 members, Wh/NM 2175.1 - 4080.7
+    
+        Two runs an hour apart returned 16/12 and then 24/24 members for the same
+        two missions, because the constraint set moved underneath them. A test that
+        asserted the counts would have been measuring the other agent's work; what
+        is asserted is the STRUCTURAL claim — different missions, different fronts,
+        and no cross-serving — which is what the fix is about.
+    
+        Defect class 3: a guard fed the input it must reject. Under the old code the
+        two fronts are the SAME LIST, and `POST /pareto` is a 404.
+        """
+        import ui.server as S
+    
+        panel = json.loads(parse_mission(_panel_default_mission_text()).to_json())
+        other = json.loads(parse_mission(
+            "3 tonne dayboat, 8 m, coastal, cruise 9 knots, 2 crew").to_json())
+        assert panel["lwl_hint_m"] == 10.0 and other["cruise_speed_kn"] == 9.0
+        # the page's own opening brief was never the server's default mission
+        assert S.mission_key(S._mission_from(panel)) != \
+               S.mission_key(MissionSpec())
+    
+        a = S.pareto_payload(panel)
+        b = S.pareto_payload(other)
+>       assert a["points"] != b["points"], (
+            "two different missions returned the same front — the mission is not "
+            "reaching the search")
+E       AssertionError: two different missions returned the same front — the mission is not reaching the search
+E       assert [] != []
+
+tests/test_stageF.py:228: AssertionError
+_______ test_a_multihull_is_REFUSED_a_stability_verdict_not_granted_one ________
+
+    def test_a_multihull_is_REFUSED_a_stability_verdict_not_granted_one():
+        """THE SAFETY HALF, and it points the opposite way from the L/B band.
+    
+        A catamaran's parallel-axis A_wp*d^2 term makes GM enormous, so it clears
+        any GM floor by a wide margin AND CAN STILL CAPSIZE AND STAY INVERTED. The
+        ladder must not report `R-GM PASS` for one: an unmeasured quantity scored
+        as a passing one is this project's defect class 1, and here it would be a
+        green tick on a vessel nobody assessed.
+    
+        Built as a hand-made `Evaluation` rather than through `evaluate()`, so this
+        test owns none of the multihull hydrostatics landing concurrently in
+        `hydrostatics.py` / `evaluate.py`.
+        """
+        from navalai.rules import report
+        from navalai.rules.iso12217 import assess
+    
+        class _Hydro:
+            freeboard_min = 1.0
+            disp_kg = 6000.0
+            lwl_eff = 12.0
+    
+        class _Ev:
+            hydro = _Hydro()
+            gm_m = 9.0            # a catamaran GM: vastly over any monohull floor
+            hull_lwl_m = 12.0
+            vessel: dict = {}
+    
+        mono = _Ev()
+        mono.vessel = {"n_hulls": 1}
+        cat = _Ev()
+        cat.vessel = {"n_hulls": 2, "separation_over_lwl": 0.30}
+    
+        ids_mono = {f.rule_id for f in assess(mono, "C", 2, 2.0)}
+        cat_findings = assess(cat, "C", 2, 4.0)
+        ids_cat = {f.rule_id for f in cat_findings}
+    
+        assert "R-GM" in ids_mono, "the monohull path lost its GM floor"
+        assert "R-GM" not in ids_cat, (
+            "a catamaran was handed an R-GM finding. GM is the MONOHULL criterion "
+            "and a catamaran passes it trivially while remaining capsizable — "
+            "emitting it puts a green tick on the quantity that does not govern")
+        assert "R-MHS" in ids_cat
+        mhs = next(f for f in cat_findings if f.rule_id == "R-MHS")
+>       assert not mhs.passed, "the multihull refusal PASSED, which is a silent pass"
+E       AssertionError: the multihull refusal PASSED, which is a silent pass
+E       assert not True
+E        +  where True = RuleFinding(rule_id='R-MHS', clause='multihull stability — governed by NZ Part 40A App.1 (cl 1.3 / cl 1.4), COMPUTED b...aluation's cl13/cl14 receipt for the measured verdict; a failed criterion is a ladder violation, not a rules-tier bar").passed
+
+tests/test_vessel_bands.py:350: AssertionError
+=============================== warnings summary ===============================
+tests/test_case_wiring.py::test_the_shipped_stl_is_watertight_and_still_floats_the_manifest
+  /Users/robobostes/Documents/naval-ai/tests/test_case_wiring.py:297: UserWarning: wave-resolution screen: 13.0 cells per wavelength at Fn 0.202 and scale 1, against the 20 bar — the wave field is under-resolved and the drag would ride on hull-local refinement instead. The case IS written because the rung exists: scale >= 1.544 clears the bar (fidelity.density_for_wave_resolution). Price it with fidelity.estimate before launching.
+    C.write_resistance_case(hull, 2.0, out, end_time=1.0, np_procs=1,
+
+tests/test_case_wiring.py::test_the_meshed_nx_is_snapped_onto_the_loft_stations
+  /Users/robobostes/Documents/naval-ai/tests/test_case_wiring.py:349: UserWarning: wave-resolution screen: 13.0 cells per wavelength at Fn 0.202 and scale 1, against the 20 bar — the wave field is under-resolved and the drag would ride on hull-local refinement instead. The case IS written because the rung exists: scale >= 1.544 clears the bar (fidelity.density_for_wave_resolution). Price it with fidelity.estimate before launching.
+    C.write_resistance_case(hull, 2.0, out, end_time=1.0, np_procs=1,
+
+tests/test_case_wiring.py::test_the_screened_wave_resolution_is_the_meshs_own
+  /Users/robobostes/Documents/naval-ai/tests/test_case_wiring.py:462: UserWarning: wave-resolution screen: 13.0 cells per wavelength at Fn 0.202 and scale 1, against the 20 bar — the wave field is under-resolved and the drag would ride on hull-local refinement instead. The case IS written because the rung exists: scale >= 1.544 clears the bar (fidelity.density_for_wave_resolution). Price it with fidelity.estimate before launching.
+    info_dict = C.write_resistance_case(hull, 2.0, out, end_time=1.0,
+
+tests/test_case_wiring.py::test_a_laminar_case_is_refused_for_the_reason_that_is_true_of_it
+  /Users/robobostes/Documents/naval-ai/tests/test_case_wiring.py:514: UserWarning: admissibility screen: DANGEROUS on stack_over_min_radius — expect a checkMesh refusal at the derived layer count; run-case.sh's backoff ladder is the measured recovery (~1.9 rungs mean).
+    C.write_resistance_case(hull, 0.05, tmp_path / "laminar",
+
+tests/test_cfd_reference_parity.py::test_forceCoeffs_Aref_is_the_area_the_patch_actually_covers
+  /Users/robobostes/Documents/naval-ai/tests/test_cfd_reference_parity.py:74: UserWarning: wave-resolution screen: 9.8 cells per wavelength at Fn 0.175 and scale 1, against the 20 bar — the wave field is under-resolved and the drag would ride on hull-local refinement instead. The case IS written because the rung exists: scale >= 2.053 clears the bar (fidelity.density_for_wave_resolution). Price it with fidelity.estimate before launching.
+    C.write_resistance_case(hull, 2.0, full, end_time=1.0, np_procs=1,
+
+tests/test_cfd_reference_parity.py::test_forceCoeffs_Aref_is_the_area_the_patch_actually_covers
+  /Users/robobostes/Documents/naval-ai/tests/test_cfd_reference_parity.py:76: UserWarning: wave-resolution screen: 9.8 cells per wavelength at Fn 0.175 and scale 1, against the 20 bar — the wave field is under-resolved and the drag would ride on hull-local refinement instead. The case IS written because the rung exists: scale >= 2.053 clears the bar (fidelity.density_for_wave_resolution). Price it with fidelity.estimate before launching.
+    C.write_resistance_case(hull, 2.0, half, end_time=1.0, np_procs=1,
+
+tests/test_cfd_reference_parity.py::test_a_moving_hull_gets_movingWallVelocity_and_a_fixed_one_does_not
+  /Users/robobostes/Documents/naval-ai/tests/test_cfd_reference_parity.py:103: UserWarning: wave-resolution screen: 9.8 cells per wavelength at Fn 0.175 and scale 1, against the 20 bar — the wave field is under-resolved and the drag would ride on hull-local refinement instead. The case IS written because the rung exists: scale >= 2.053 clears the bar (fidelity.density_for_wave_resolution). Price it with fidelity.estimate before launching.
+    C.write_resistance_case(hull, 2.0, fixed, end_time=1.0, np_procs=1)
+
+tests/test_cfd_reference_parity.py::test_a_moving_hull_gets_movingWallVelocity_and_a_fixed_one_does_not
+  /Users/robobostes/Documents/naval-ai/tests/test_cfd_reference_parity.py:106: UserWarning: wave-resolution screen: 9.8 cells per wavelength at Fn 0.175 and scale 1, against the 20 bar — the wave field is under-resolved and the drag would ride on hull-local refinement instead. The case IS written because the rung exists: scale >= 2.053 clears the bar (fidelity.density_for_wave_resolution). Price it with fidelity.estimate before launching.
+    C.write_resistance_case(hull, 2.0, free, end_time=1.0, np_procs=1,
+
+tests/test_cfd_reference_parity.py::test_surface_tension_is_zero_and_the_fluid_constants_have_one_home
+  /Users/robobostes/Documents/naval-ai/tests/test_cfd_reference_parity.py:123: UserWarning: wave-resolution screen: 9.8 cells per wavelength at Fn 0.175 and scale 1, against the 20 bar — the wave field is under-resolved and the drag would ride on hull-local refinement instead. The case IS written because the rung exists: scale >= 2.053 clears the bar (fidelity.density_for_wave_resolution). Price it with fidelity.estimate before launching.
+    C.write_resistance_case(hull, 2.0, d, end_time=1.0, np_procs=1)
+
+tests/test_cfd_reference_parity.py::test_inlet_eddy_viscosity_is_a_boundary_layer_scale_not_a_ship_scale
+  /Users/robobostes/Documents/naval-ai/tests/test_cfd_reference_parity.py:139: UserWarning: wave-resolution screen: 9.8 cells per wavelength at Fn 0.175 and scale 1, against the 20 bar — the wave field is under-resolved and the drag would ride on hull-local refinement instead. The case IS written because the rung exists: scale >= 2.053 clears the bar (fidelity.density_for_wave_resolution). Price it with fidelity.estimate before launching.
+    C.write_resistance_case(hull, 2.0, d, end_time=1.0, np_procs=1)
+
+tests/test_cfd_reference_parity.py::test_the_manifest_is_the_one_vessel_description_S13_S14
+  /Users/robobostes/Documents/naval-ai/navalai/cfd/case.py:2506: UserWarning: layer stack may not bridge to the background: last layer 2.87 mm is 0.065 of the 44.4 mm hull cell, against OpenFOAM's default proportion of 0.3 (finalLayerThickness). MEASURED on KCS: 0.071 gave ZERO layer coverage, 0.145 gave 89.8%. Raise _TARGET_YPLUS or _MAX_LAYERS, or lower the hull refinement level. run-case.sh will fail on the achieved count if this prediction is right.
+    info = _write_case_dicts(out, stl_sha, lwl, speed,
+
+tests/test_phase2.py::test_waterline_sits_on_a_block_face_for_any_cell_count
+  /Users/robobostes/Documents/naval-ai/tests/test_phase2.py:138: UserWarning: wave-resolution screen: 16.5 cells per wavelength at Fn 0.259 and scale 0.777, against the 20 bar — the wave field is under-resolved and the drag would ride on hull-local refinement instead. The case IS written because the rung exists: scale >= 0.947 clears the bar (fidelity.density_for_wave_resolution). Price it with fidelity.estimate before launching.
+    meta = write_resistance_case(h, 2.57, tmp_path / f"s{i}", scale=s)
+
+tests/test_phase2.py::test_waterline_sits_on_a_block_face_for_any_cell_count
+  /Users/robobostes/Documents/naval-ai/navalai/cfd/case.py:2506: UserWarning: layer stack may not bridge to the background: last layer 7.03 mm is 0.110 of the 63.9 mm hull cell, against OpenFOAM's default proportion of 0.3 (finalLayerThickness). MEASURED on KCS: 0.071 gave ZERO layer coverage, 0.145 gave 89.8%. Raise _TARGET_YPLUS or _MAX_LAYERS, or lower the hull refinement level. run-case.sh will fail on the achieved count if this prediction is right.
+    info = _write_case_dicts(out, stl_sha, lwl, speed,
+
+tests/test_phase2.py::test_tank_deepens_with_speed_instead_of_faking_deep_water
+  /Users/robobostes/Documents/naval-ai/navalai/cfd/case.py:2506: UserWarning: layer stack may not bridge to the background: last layer 3.81 mm is 0.077 of the 49.3 mm hull cell, against OpenFOAM's default proportion of 0.3 (finalLayerThickness). MEASURED on KCS: 0.071 gave ZERO layer coverage, 0.145 gave 89.8%. Raise _TARGET_YPLUS or _MAX_LAYERS, or lower the hull refinement level. run-case.sh will fail on the achieved count if this prediction is right.
+    info = _write_case_dicts(out, stl_sha, lwl, speed,
+
+tests/test_phase2.py::test_tank_deepens_with_speed_instead_of_faking_deep_water
+  /Users/robobostes/Documents/naval-ai/navalai/cfd/case.py:2506: UserWarning: layer stack may not bridge to the background: last layer 2.79 mm is 0.057 of the 49.3 mm hull cell, against OpenFOAM's default proportion of 0.3 (finalLayerThickness). MEASURED on KCS: 0.071 gave ZERO layer coverage, 0.145 gave 89.8%. Raise _TARGET_YPLUS or _MAX_LAYERS, or lower the hull refinement level. run-case.sh will fail on the achieved count if this prediction is right.
+    info = _write_case_dicts(out, stl_sha, lwl, speed,
+
+tests/test_phase2.py::test_background_cell_is_near_isotropic
+tests/test_phase2.py::test_motion_dict_releases_heave_and_pitch_only
+tests/test_phase2.py::test_fixed_case_writes_no_motion_dict
+  /Users/robobostes/Documents/naval-ai/navalai/cfd/case.py:2158: UserWarning: layer stack may not bridge to the background: last layer 7.91 mm is 0.108 of the 73.1 mm hull cell, against OpenFOAM's default proportion of 0.3 (finalLayerThickness). MEASURED on KCS: 0.071 gave ZERO layer coverage, 0.145 gave 89.8%. Raise _TARGET_YPLUS or _MAX_LAYERS, or lower the hull refinement level. run-case.sh will fail on the achieved count if this prediction is right.
+    info = _write_case_dicts(out, stl_sha, lwl, speed, end_time, scale,
+
+tests/test_phase2.py::test_mesh_is_froude_similar_at_any_hull_size
+  /Users/robobostes/Documents/naval-ai/navalai/cfd/case.py:2158: UserWarning: layer stack may not bridge to the background: last layer 4.65 mm is 0.032 of the 143.7 mm hull cell, against OpenFOAM's default proportion of 0.3 (finalLayerThickness). MEASURED on KCS: 0.071 gave ZERO layer coverage, 0.145 gave 89.8%. Raise _TARGET_YPLUS or _MAX_LAYERS, or lower the hull refinement level. run-case.sh will fail on the achieved count if this prediction is right.
+    info = _write_case_dicts(out, stl_sha, lwl, speed, end_time, scale,
+
+tests/test_phase2.py::test_mesh_is_froude_similar_at_any_hull_size
+  /Users/robobostes/Documents/naval-ai/navalai/cfd/case.py:2158: UserWarning: layer stack may not bridge to the background: last layer 2.02 mm is 0.002 of the 1134.9 mm hull cell, against OpenFOAM's default proportion of 0.3 (finalLayerThickness). MEASURED on KCS: 0.071 gave ZERO layer coverage, 0.145 gave 89.8%. Raise _TARGET_YPLUS or _MAX_LAYERS, or lower the hull refinement level. run-case.sh will fail on the achieved count if this prediction is right.
+    info = _write_case_dicts(out, stl_sha, lwl, speed, end_time, scale,
+
+tests/test_phase3.py: 238 warnings
+  /Users/robobostes/Documents/naval-ai/navalai/surrogate.py:554: ARDSaturation: 1 of 1 ARD lengthscales stopped on the search box: input 0 lengthscale 0.01 == lower bound 0.01: the kernel has degenerated to noise on this axis, so predictions along it are the prior mean. The support half of is_ood() is unaffected (_nn_distance is unweighted, deliberately); the sigma half is not.
+    gp_d = GP.fit(X_hi, y_hi - r * m_lo_at_hi,
+
+tests/test_phase3.py::test_ood_escalation_flag
+  /Users/robobostes/Documents/naval-ai/tests/test_phase3.py:415: ARDSaturation: 14 of 16 ARD lengthscales stopped on the search box: input 2 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it; input 3 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it; input 4 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it; input 5 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it; input 6 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it; input 7 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it; input 8 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it; input 9 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it; input 10 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it; input 11 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it; input 12 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it; input 13 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it; input 14 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it; input 15 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it. The support half of is_ood() is unaffected (_nn_distance is unweighted, deliberately); the sigma half is not.
+    gp = GP.fit(X, y)
+
+tests/test_phase3.py::test_ood_rejection_separates_error_it_does_not_merely_flag
+  /Users/robobostes/Documents/naval-ai/tests/test_phase3.py:456: ARDSaturation: 7 of 16 ARD lengthscales stopped on the search box: input 3 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it; input 5 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it; input 6 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it; input 8 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it; input 10 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it; input 14 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it; input 15 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it. The support half of is_ood() is unaffected (_nn_distance is unweighted, deliberately); the sigma half is not.
+    gp = GP.fit(X[inside], np.log(y[inside]), seed=1)
+
+tests/test_phase3.py::test_ood_rejection_separates_error_it_does_not_merely_flag
+  /Users/robobostes/Documents/naval-ai/tests/test_phase3.py:471: ARDSaturation: 4 of 16 ARD lengthscales stopped on the search box: input 3 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it; input 6 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it; input 10 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it; input 15 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it. The support half of is_ood() is unaffected (_nn_distance is unweighted, deliberately); the sigma half is not.
+    gp_full = GP.fit(X, np.log(y), seed=1)
+
+tests/test_phase3.py::test_support_distance_catches_what_sigma_alone_misses
+  /Users/robobostes/Documents/naval-ai/tests/test_phase3.py:686: ARDSaturation: 3 of 16 ARD lengthscales stopped on the search box: input 3 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it; input 5 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it; input 10 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it. The support half of is_ood() is unaffected (_nn_distance is unweighted, deliberately); the sigma half is not.
+    gp = GP.fit(X[inside], np.log(y[inside]), seed=1)
+
+tests/test_phase3.py::test_batched_ei_infill_targets_minimum
+  /Users/robobostes/Documents/naval-ai/tests/test_phase3.py:780: ARDSaturation: 1 of 1 ARD lengthscales stopped on the search box: input 0 lengthscale 0.01 == lower bound 0.01: the kernel has degenerated to noise on this axis, so predictions along it are the prior mean. The support half of is_ood() is unaffected (_nn_distance is unweighted, deliberately); the sigma half is not.
+    gp = GP.fit(X, forrester_hi(X[:, 0]))
+
+tests/test_phase3.py::test_a_useless_low_fidelity_model_is_announced_not_swallowed
+tests/test_phase3.py::test_a_useless_low_fidelity_model_is_announced_not_swallowed
+tests/test_phase3.py::test_a_useless_low_fidelity_model_is_announced_not_swallowed
+tests/test_phase3.py::test_a_useless_low_fidelity_model_is_announced_not_swallowed
+tests/test_phase3.py::test_a_useless_low_fidelity_model_is_announced_not_swallowed
+tests/test_phase3.py::test_a_useless_low_fidelity_model_is_announced_not_swallowed
+tests/test_phase3.py::test_a_useless_low_fidelity_model_is_announced_not_swallowed
+tests/test_phase3.py::test_a_useless_low_fidelity_model_is_announced_not_swallowed
+  /Users/robobostes/Documents/naval-ai/navalai/surrogate.py:520: ARDSaturation: 1 of 1 ARD lengthscales stopped on the search box: input 0 lengthscale 0.01 == lower bound 0.01: the kernel has degenerated to noise on this axis, so predictions along it are the prior mean. The support half of is_ood() is unaffected (_nn_distance is unweighted, deliberately); the sigma half is not.
+    gp_lo = GP.fit(X_lo, y_lo, seed=seed)
+
+tests/test_phase3.py::test_a_useless_low_fidelity_model_is_announced_not_swallowed
+  /Users/robobostes/Documents/naval-ai/navalai/surrogate.py:520: ARDSaturation: 1 of 1 ARD lengthscales stopped on the search box: input 0 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it. The support half of is_ood() is unaffected (_nn_distance is unweighted, deliberately); the sigma half is not.
+    gp_lo = GP.fit(X_lo, y_lo, seed=seed)
+
+tests/test_phase3.py::test_a_useless_low_fidelity_model_is_announced_not_swallowed
+  /Users/robobostes/Documents/naval-ai/navalai/surrogate.py:542: ARDSaturation: 1 of 1 ARD lengthscales stopped on the search box: input 0 lengthscale 0.01 == lower bound 0.01: the kernel has degenerated to noise on this axis, so predictions along it are the prior mean. The support half of is_ood() is unaffected (_nn_distance is unweighted, deliberately); the sigma half is not.
+    gp_d = GP.fit(X_hi, y_hi, seed=seed + 1, restarts=1)
+
+tests/test_phase3.py::test_min_dist_is_a_euclidean_norm_and_does_not_bind_per_axis_in_15d
+  /Users/robobostes/Documents/naval-ai/tests/test_phase3.py:1036: ARDSaturation: 15 of 16 ARD lengthscales stopped on the search box: input 1 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it; input 2 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it; input 3 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it; input 4 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it; input 5 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it; input 6 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it; input 7 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it; input 8 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it; input 9 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it; input 10 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it; input 11 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it; input 12 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it; input 13 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it; input 14 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it; input 15 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it. The support half of is_ood() is unaffected (_nn_distance is unweighted, deliberately); the sigma half is not.
+    gp = GP.fit(Xtr, y, seed=0)
+
+tests/test_phase7.py::test_gm_is_not_log_transformed
+  /Users/robobostes/Documents/naval-ai/navalai/flywheel.py:769: ARDSaturation: 4 of 16 ARD lengthscales stopped on the search box: input 6 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it; input 9 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it; input 10 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it; input 12 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it. The support half of is_ood() is unaffected (_nn_distance is unweighted, deliberately); the sigma half is not.
+    gp = GP.fit(X, tf.fwd(y), seed=1)
+
+tests/test_phase7.py::test_retrain_records_its_wall_clock_and_gates_on_it
+tests/test_phase7.py::test_retrain_from_provenance_and_baseline_written
+tests/test_phase7.py::test_second_retrain_gated_against_first
+tests/test_phase7.py::test_corrupted_model_never_deploys
+  /Users/robobostes/Documents/naval-ai/navalai/flywheel.py:769: ARDSaturation: 3 of 16 ARD lengthscales stopped on the search box: input 4 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it; input 6 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it; input 15 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it. The support half of is_ood() is unaffected (_nn_distance is unweighted, deliberately); the sigma half is not.
+    gp = GP.fit(X, tf.fwd(y), seed=1)
+
+tests/test_phase7.py::test_corrupted_model_never_deploys
+  /Users/robobostes/Documents/naval-ai/tests/test_phase7.py:319: ARDSaturation: 8 of 16 ARD lengthscales stopped on the search box: input 2 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it; input 3 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it; input 5 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it; input 6 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it; input 11 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it; input 12 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it; input 14 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it; input 15 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it. The support half of is_ood() is unaffected (_nn_distance is unweighted, deliberately); the sigma half is not.
+    return real_fit(X, rng.permutation(y), *a, **kw)
+
+tests/test_phase7.py::test_the_committed_baseline_exists_and_can_refuse_a_poisoned_model
+tests/test_surrogate_honesty.py::test_retrain_hands_back_a_guarded_model_and_records_what_it_refuses
+tests/test_surrogate_honesty.py::test_a_mark_measured_on_a_different_benchmark_is_refused
+  /Users/robobostes/Documents/naval-ai/navalai/flywheel.py:769: ARDSaturation: 3 of 16 ARD lengthscales stopped on the search box: input 3 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it; input 6 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it; input 10 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it. The support half of is_ood() is unaffected (_nn_distance is unweighted, deliberately); the sigma half is not.
+    gp = GP.fit(X, tf.fwd(y), seed=1)
+
+tests/test_phase7.py::test_the_committed_baseline_exists_and_can_refuse_a_poisoned_model
+  /Users/robobostes/Documents/naval-ai/tests/test_phase7.py:561: ARDSaturation: 7 of 16 ARD lengthscales stopped on the search box: input 1 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it; input 6 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it; input 8 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it; input 10 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it; input 12 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it; input 14 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it; input 15 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it. The support half of is_ood() is unaffected (_nn_distance is unweighted, deliberately); the sigma half is not.
+    lambda X, y, **k: real_fit(X, rng.permutation(np.asarray(y)), **k))
+
+tests/test_slamming.py::test_the_cut_does_not_move_when_the_caller_changes_lwl
+  /Users/robobostes/Documents/naval-ai/navalai/cfd/case.py:2158: UserWarning: layer stack may not bridge to the background: last layer 11.50 mm is 0.006 of the 1871.1 mm hull cell, against OpenFOAM's default proportion of 0.3 (finalLayerThickness). MEASURED on KCS: 0.071 gave ZERO layer coverage, 0.145 gave 89.8%. Raise _TARGET_YPLUS or _MAX_LAYERS, or lower the hull refinement level. run-case.sh will fail on the achieved count if this prediction is right.
+    info = _write_case_dicts(out, stl_sha, lwl, speed, end_time, scale,
+
+tests/test_stageE.py::test_latent_gp_predicts_from_8d_genome
+  /Users/robobostes/Documents/naval-ai/tests/test_stageE.py:62: ARDSaturation: 4 of 16 ARD lengthscales stopped on the search box: input 3 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it; input 6 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it; input 9 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it; input 15 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it. The support half of is_ood() is unaffected (_nn_distance is unweighted, deliberately); the sigma half is not.
+    gp_full = GP.fit(X, np.log(y), seed=1)
+
+tests/test_stageG.py::test_geometric_scale_buys_no_cpu
+tests/test_stageG.py::test_an_imported_stl_with_flipped_winding_is_REALLY_repaired
+tests/test_stageG.py::test_a_clean_import_is_not_repaired_and_says_so
+  /Users/robobostes/Documents/naval-ai/navalai/cfd/case.py:2158: UserWarning: layer stack may not bridge to the background: last layer 3.18 mm is 0.088 of the 35.9 mm hull cell, against OpenFOAM's default proportion of 0.3 (finalLayerThickness). MEASURED on KCS: 0.071 gave ZERO layer coverage, 0.145 gave 89.8%. Raise _TARGET_YPLUS or _MAX_LAYERS, or lower the hull refinement level. run-case.sh will fail on the achieved count if this prediction is right.
+    info = _write_case_dicts(out, stl_sha, lwl, speed, end_time, scale,
+
+tests/test_stageG.py::test_geometric_scale_buys_no_cpu
+  /Users/robobostes/Documents/naval-ai/navalai/cfd/case.py:2158: UserWarning: layer stack may not bridge to the background: last layer 0.81 mm is 0.001 of the 1134.9 mm hull cell, against OpenFOAM's default proportion of 0.3 (finalLayerThickness). MEASURED on KCS: 0.071 gave ZERO layer coverage, 0.145 gave 89.8%. Raise _TARGET_YPLUS or _MAX_LAYERS, or lower the hull refinement level. run-case.sh will fail on the achieved count if this prediction is right.
+    info = _write_case_dicts(out, stl_sha, lwl, speed, end_time, scale,
+
+tests/test_surrogate_honesty.py::test_an_off_support_query_escalates_to_the_ladder_instead_of_answering
+  /Users/robobostes/Documents/naval-ai/tests/test_surrogate_honesty.py:136: ARDSaturation: 7 of 16 ARD lengthscales stopped on the search box: input 2 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it; input 4 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it; input 6 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it; input 9 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it; input 10 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it; input 13 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it; input 15 lengthscale 10 == upper bound 10: the kernel treats this axis as flat, so the predictive sigma is blind to it. The support half of is_ood() is unaffected (_nn_distance is unweighted, deliberately); the sigma half is not.
+    gp = GP.fit(X[short], tf.fwd(y[short]), seed=1)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_blender_hull.py::test_the_deviation_table_of_the_shipped_triangulation
+FAILED tests/test_blender_hull.py::test_the_voxel_remesh_stays_closed_and_that_is_not_the_point
+FAILED tests/test_blender_hull.py::test_the_knuckle_reference_refuses_a_radiused_bilge
+FAILED tests/test_constraints_honest.py::test_lcb_is_constrained_and_the_kernel_now_delivers_it
+FAILED tests/test_geometry_kernel.py::test_the_batched_section_machinery_is_the_per_station_definition
+FAILED tests/test_phase6.py::test_scantling_monotonic_and_plausible - TypeErr...
+FAILED tests/test_phase6.py::test_scantling_verdict - assert False
+FAILED tests/test_phase6r.py::test_the_record_cannot_yet_name_the_editions_it_checked
+FAILED tests/test_phase7.py::test_the_mission_to_validated_hull_cycle_is_timed
+FAILED tests/test_physical_form.py::test_ratchet_no_silent_form_drift[e] - As...
+FAILED tests/test_physical_form.py::test_multihull_cases_carry_a_physical_separation
+FAILED tests/test_stageC.py::test_the_delivered_bom_is_built_to_the_rule_derived_thickness
+FAILED tests/test_stageF.py::test_pareto_serves_the_mission_it_was_asked_about
+FAILED tests/test_vessel_bands.py::test_a_multihull_is_REFUSED_a_stability_verdict_not_granted_one
+14 failed, 1436 passed, 18 skipped, 291 warnings in 2144.33s (0:35:44)

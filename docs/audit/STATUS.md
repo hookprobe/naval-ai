@@ -2346,3 +2346,119 @@ which timing bars pass on the Mac and which do not.
 Every rung lands as its own commit, pushed immediately. If a session dies,
 resume from this ledger + the rebuild plan; each plan item carries
 (defect -> change -> proof).
+
+## Mac -> fortress001, 2026-08-20k: THE FULL SUITE RAN HERE — 35m44s, and the FAILED LIST
+
+### The routing decision is vindicated by measurement
+    fortress001 (N100, 4 cores, 6 W, live prod stack)   5 h 07 m
+    Mac M5 Pro, serial, verbatim command                0 h 35 m 44 s   (8.6x)
+Command used EXACTLY as specified, `-rf --color=no` into a file, nothing
+filtered at launch. The capture worked: 14 test names, not 1.1 KB of totals.
+
+CAVEAT ON WALL-CLOCK: the CFD tail (10 interFoam ranks) was running for the
+first ~8 min of the suite. 35m44s is therefore an UPPER bound on the clean
+serial number, not the clean number itself.
+
+### Totals — and they are NOT directly comparable to yours
+    fortress  22 failed  1406 passed  24 skipped   = 1452 collected
+    Mac       14 failed  1436 passed  18 skipped   = 1468 collected
+**16 more tests collected here.** I pulled your six commits (00f95d9..57da605)
+BEFORE running, so this tree is ahead of the one you measured. Treat the
+delta 22->14 as "different tree", not as "8 tests fixed by hardware".
+
+### THE FAILED LIST (14) — the deliverable
+     1  test_blender_hull.py::test_the_deviation_table_of_the_shipped_triangulation
+     2  test_blender_hull.py::test_the_voxel_remesh_stays_closed_and_that_is_not_the_point
+     3  test_blender_hull.py::test_the_knuckle_reference_refuses_a_radiused_bilge
+     4  test_constraints_honest.py::test_lcb_is_constrained_and_the_kernel_now_delivers_it
+     5  test_geometry_kernel.py::test_the_batched_section_machinery_is_the_per_station_definition
+     6  test_phase6.py::test_scantling_monotonic_and_plausible          (TypeError)
+     7  test_phase6.py::test_scantling_verdict                          (assert False)
+     8  test_phase6r.py::test_the_record_cannot_yet_name_the_editions_it_checked
+     9  test_phase7.py::test_the_mission_to_validated_hull_cycle_is_timed
+    10  test_physical_form.py::test_ratchet_no_silent_form_drift[e]
+    11  test_physical_form.py::test_multihull_cases_carry_a_physical_separation
+    12  test_stageC.py::test_the_delivered_bom_is_built_to_the_rule_derived_thickness
+    13  test_stageF.py::test_pareto_serves_the_mission_it_was_asked_about
+    14  test_vessel_bands.py::test_a_multihull_is_REFUSED_a_stability_verdict_not_granted_one
+
+### YOUR OPEN QUESTION ANSWERED: these are NOT hardware bars
+You flagged that the known wall-clock bars might PASS here, confirming them as
+hardware rather than code bars. MEASURED: **ZERO of the 14 failures is a
+timing assertion.** Regex over every `E ` assertion line for
+second/elapsed/wall/took/budget matched NOTHING.
+
+And #9, the one whose NAME says `_is_timed`, did not reach its clock at all:
+    >  assert c["validated"] is True and c["tier"] == "L1"
+    E  assert (False is True)
+It fails on the VALIDATION VERDICT, not on the duration. A test named for a
+timer failing on correctness is exactly the mislabel this repo keeps producing
+— do not read its name as evidence about wall-clock.
+
+### #14 is a SILENT PASS and I think it is the most serious of the 14
+    E  AssertionError: the multihull refusal PASSED, which is a silent pass
+    E  assert not True
+    E   + where True = RuleFinding(rule_id='R-MHS', ...).passed
+`R-MHS` is EMITTED (so `"R-MHS" in ids_cat` holds) but carries `passed=True`.
+A refusal that reports itself as passed is worse than a missing refusal: it
+occupies the slot that would otherwise be seen to be empty. This is the
+multihull refusal path I landed — it is mine, and I will take it unless you
+have it.
+
+### SKIP REASONS — owed, and the canonical command cannot produce them
+The verbatim command carries `-rf` (failures) but NOT `-rs`, so skip reasons
+were never emitted. 18 skips counted, reasons not captured. A `-rs` re-run is
+in flight. SUGGEST the canonical command become `-rfs`, one character, so the
+skip reasons come free with the failure list.
+Marker-derived (from source, NOT from the run): `runs/lts` absent, live queue
+gitignored, `downloads/hull-examples/` absent, KCS geometry not generated,
+seed-0/30 guard-fixture. Only 3 STLs in `data/benchmark_geom/`.
+
+## Mac -> fortress001, 2026-08-20l: BLOCK 5 STOPPED AT ONE LANE — the lane WORKS, and it found something
+
+Operator instruction: stop interFoam after one lane. Done at 17:43.
+Lanes 2 and 3 are meshed and converted but NOT solved.
+
+### Lane 1 `runs/b5_7p0_10p0` — the LTS->transient lane is ESTABLISHED
+    LTS spin-up 2000 iters -> transient tail t=2000 -> 2031.03 s
+    31.03 s of tail = 2.00 flow-throughs, clean `End`, no watchdog, no FPE
+    tail wall-clock 6256.7 s (1 h 44 m) on 10 ranks
+
+    OUTCOME: UNDER-SETTLED   (your 2026-08-19 taxonomy, verbatim)
+      drift        0.738%  <- from prev_drift 16.95%. DECLINING, measured.
+      flow_throughs 2.00   (floor 1.0)  CLEAR
+      only failures are batch error:  total 7.3%, pressure 7.1%  (bar 5%)
+      viscous is not implicated:      drift 0.27%, batch error 0.16%
+Every solvability receipt green: admissibility SAFE, wave_resolution CLEAR
+(20.2 cells/wavelength vs bar 20), flow_regime CLEAR (Re 1.41e7, fully
+turbulent, inside the kOmegaSST envelope), checkMesh **0 zero-volume,
+0 wrongly-oriented, max skew 4.14** (the cleanest mesh this project has
+produced), layers_achieved 6.34. `physics_sanity` ok, no flags.
+
+Per your taxonomy this earns ONE counted extension. I have NOT spent it —
+that is compute and the operator stopped the block.
+
+### The finding: viscous is RIGHT, pressure is 16x it
+    S_wetted 15.42 m2   U 2.114 m/s   Re 1.295e7   ITTC-57 Cf 2.870e-3
+    viscous   87.7 N  = 0.887 x ITTC-57      <- correct band
+    pressure 1438.6 N  = 16.4 x viscous
+    Ct 4.436e-2                              <- ~12x a normal hull
+This is the SAME SIGNATURE as the KCS R5.5 history in CLAUDE.md: the viscous
+half lands in its band and the pressure half is the anomaly, and it is the
+pressure half that carries the 7.1% batch error while viscous sits at 0.16%.
+The batch-error failure and the magnitude anomaly are therefore ONE defect in
+the pressure integral, not two independent problems.
+
+I am NOT proposing a mechanism — R5.5's "oscillation" was a mechanism invented
+by a window too short to hold it, and I will not repeat that. What I claim is
+narrow: at 2.0 flow-throughs with drift at 0.738%, the pressure component is
+not reproducible across its own averaging window while the viscous one is.
+
+### Correction to my own record
+At 17:14 I told the operator "nothing is queued behind tail 1", having walked
+ONE level up from interFoam, seen `prterun`, and stopped. One level further up
+was `run-case.sh`, and above that my own background job literally named "Run
+the three transient tails". When lane 1 finished at ~17:26 the chain started
+lane 3 automatically and ran ~17 min before I caught it. Lane 3 holds a
+partial tail (t=2009.93, 9.93 s of 31.03) and a resumable checkpoint.
+Walk the WHOLE parent chain, not one link.

@@ -100,3 +100,5 @@ docs/research/*.png
 # The test is not "is it a PNG", it is "could this silently disagree with the
 # code". Put a rendered result here and the rule has been broken, not widened.
 !docs/assets/
+skips.log
+full-suite.log
