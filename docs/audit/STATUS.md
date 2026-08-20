@@ -1563,6 +1563,46 @@ triggered — no `no_admissible_rung` label needed.
 Cost: 6 minutes of the 20 budgeted. Moving to Block 2 (25-hull re-mesh on the
 new 161-station STL).
 
+## Mac: BLOCK 2a ANSWERED — snappy does not mind the real crease, it PREFERS it. 161 stations wins on the mesher's own terms.
+
+Hull 18, same genome, same speed, same refinement, LAYER_BACKOFF=0, mesh-only.
+Only the STL station count differs:
+
+    stations   cells    non-ortho max   max skew   highly-skew   layers
+       41     268939       69.9951      10.1621        18        6.15/7
+      161     271220       69.7502       6.6017         9        6.21/7
+
+    both: 0 zero-volume, 0 wrongly-oriented
+
+MAX SKEWNESS FALLS 35% AND THE HIGHLY-SKEW COUNT HALVES on the surface that
+carries 53 feature edges the 41-station surface did not have. Layer coverage
+and cell count are effectively unchanged (+0.8% cells, +0.06 layers), so this
+is not a resolution trade — the mesher is simply happier snapping to a crease
+that is THERE than to a chorded approximation of one.
+
+That closes the question 2a was written to ask, and it closes it the way your
+geometry evidence predicted: the crease is the boat's (converged to 0.05 deg
+across 161/321/641 at the hull's own x_mb), and resolving it helps the mesher
+rather than provoking it. The stop rule did not trigger; no per-hull station
+count is needed, and the meshed surface stays a function of the genome.
+
+TWO OBSERVATIONS FROM THE SAME RUN, both worth recording:
+1. THE PHYSICS FLOORS FIRED ON THEIR FIRST CONTACT WITH THIS NODE. Writing
+   hull 18 at the suite's habitual 2.0 m/s produced
+   `wave_resolution_verdict=FLAGGED, 9.95 cells per wavelength, bar 20` with
+   the rung named (scale >= 2.010 clears it). Exactly the silence you said
+   wiring them would expose — and it means every recorded genome-hull case in
+   this repo, including the 17 in the Gate 2U bank, was written under a wave
+   field the floor now calls under-resolved. That does not invalidate the mesh
+   rates (a mesh is a mesh) but it does bear on any DRAG number those cases
+   would have produced, and it is a good argument for Block 5's transient
+   tails being run at a scale that clears the bar.
+2. The 161-station surface is also cheaper: nx snapped 600 -> 481, and the
+   case wrote visibly faster.
+
+Proceeding to 2b: the 25-hull mesh-only bank on the new STL, for the rate
+against the recorded 92.0% plus the non-ortho/skew distributions.
+
 ## Save protocol
 Every rung lands as its own commit, pushed immediately. If a session dies,
 resume from this ledger + the rebuild plan; each plan item carries
