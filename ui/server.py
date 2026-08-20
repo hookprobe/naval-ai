@@ -311,7 +311,43 @@ def pareto_payload(mission_d: dict | None = None) -> dict:
     with _pareto_lock:
         cached = _pareto_cache is not None and key in _pareto_cache
     front = get_pareto(mission)
+    # AN EMPTY FRONT MUST SAY WHY (2026-08-20). MEASURED: the brief "3 tonne
+    # dayboat, 8 m, coastal, cruise 9 knots" is Fn 0.523 — past the thin-ship
+    # limit 0.45 and below the planing onset 0.65, a band where NO resistance
+    # model in this tree is valid — and this endpoint returned
+    # `{"points": []}` with nothing else. A bare empty list is the worst
+    # available answer to "what boats suit this brief": it is
+    # indistinguishable from "we looked and found none", which is a claim
+    # about BOATS when the truth is a gap in OUR LIBRARY.
+    _domain_reasons: tuple[str, ...] = ()
+    try:
+        import math as _math
+
+        from navalai.constants import G_STANDARD
+        from navalai.contract import supported_domain
+        from navalai.resistance import NU_FRESH_15C
+        _L = getattr(mission, "lwl_hint_m", None)
+        _U = mission.cruise_speed_ms()
+        if _L and _U:
+            # G_STANDARD, not a literal: this Fn is handed straight to
+            # `supported_domain`, which derives its own edge with the
+            # same constant. Two gravities would put the mission on one
+            # side of a bound computed on the other.
+            _fn = _U / _math.sqrt(G_STANDARD * float(_L))
+            _in, _why = supported_domain(lwl_m=float(_L), fn=_fn,
+                                         re=_U * float(_L) / NU_FRESH_15C,
+                                         nu_m2_s=NU_FRESH_15C)
+            if not _in:
+                _domain_reasons = _why
+    except Exception:                                        # noqa: BLE001
+        # A receipt that cannot be built must not take the endpoint down; the
+        # front is still the answer. The absence shows as no `refused` key
+        # rather than as a fabricated one.
+        _domain_reasons = ()
+
     return {**front,
+            "refused": bool(_domain_reasons),
+            "refused_reasons": list(_domain_reasons),
             "mission": _mission_receipt(mission),
             "mission_notes": mission.notes,
             "live": not cached,

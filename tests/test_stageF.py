@@ -250,14 +250,34 @@ def test_pareto_serves_the_mission_it_was_asked_about():
     # here — this test is left FAILING on purpose, because a dashboard that
     # draws an empty trade-off surface for its own opening brief is a
     # product defect and softening its guard would hide it.
+    # THE SECOND BRIEF IS OUT OF DOMAIN, AND MUST SAY SO RATHER THAN RETURN
+    # A BLANK CHART. "3 tonne dayboat, 8 m, cruise 9 knots" is Fn 0.523 —
+    # past the thin-ship limit 0.45 and below the planing onset 0.65, a band
+    # where NO resistance model in this tree is valid because Michell has
+    # stopped and no Savitsky-class model exists here. MEASURED 2026-08-20:
+    # `supported_domain` reported that band IN DOMAIN, so every hull came
+    # back L1-INVALID and this endpoint returned `{"points": []}` with
+    # nothing else. An empty list is indistinguishable from "we looked and
+    # found none" — a claim about BOATS, when the truth is a gap in OUR
+    # LIBRARY. Both are fixed: the band is refused by name, and the payload
+    # carries the reason.
+    assert b["refused"], (
+        "the 9-knot brief sits in the no-model band and must be REFUSED by "
+        "name, not answered with an empty front")
+    assert any("thin-ship" in r for r in b["refused_reasons"]), \
+        b["refused_reasons"]
+    assert any("OUR LIBRARY" in r or "library" in r
+               for r in b["refused_reasons"]), (
+        "the refusal must say it is about what we model, not about the "
+        "design: " + str(b["refused_reasons"]))
+    assert not b["points"], "a refused brief must not also return a front"
+
+    # ...and the in-domain brief is answered, which is what makes the
+    # refusal above meaningful rather than a blanket failure
     assert a["points"], (
-        "the PANEL'S OWN DEFAULT MISSION returned an EMPTY Pareto front at "
-        "the server's live budget (pop=24/gens=10, 240 evaluations). The "
-        "mission is feasible — 1200 evaluations finds 48 members — so the "
-        "search is not converging, it is not that no boat exists. A user "
-        "pressing 'Apply mission' without editing a character gets a blank "
-        "trade-off surface.")
-    assert b["points"], "the second mission returned an EMPTY front"
+        "the PANEL'S OWN DEFAULT MISSION returned an EMPTY front at the "
+        "server's live budget")
+    assert not a["refused"]
     assert a["points"] != b["points"], (
         "two different missions returned the same front — the mission is not "
         "reaching the search")

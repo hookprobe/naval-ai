@@ -184,6 +184,29 @@ def supported_domain(lwl_m=None, fn=None, re=None, n_hulls: int = 1,
                     f"their envelopes. This is a REGIME boundary, not a "
                     f"physical impossibility -- the boat is fine, our two "
                     f"cheap models simply do not overlap at that length.")
+    # THE NO-MODEL BAND (2026-08-20). Michell stops at FN_MICHELL_MAX 0.45 and
+    # the planing bound sits at FN_PLANING_ONSET_LOCAL 0.65, so 0.20 of Froude
+    # number in between was reported IN DOMAIN while NO cheap resistance model
+    # is valid there — this tree holds no Savitsky-class model to take over.
+    #
+    # MEASURED on tests/test_stageF.py's second brief ("3 tonne dayboat, 8 m,
+    # coastal, cruise 9 knots"): Fn 0.5226, in_domain True, regime
+    # WAVE_MAKING, and every hull comes back L1-INVALID, so `/pareto` returned
+    # an EMPTY FRONT with nothing naming the cause. An empty list is the worst
+    # possible answer to "what boats suit this brief" — it is indistinguishable
+    # from "we looked and found none", which is a claim about boats rather than
+    # about our library.
+    #
+    # Refused BY NAME instead. This is a statement about what we model, not
+    # about what floats, and the message says so.
+    if fn is not None and FN_MICHELL_MAX < fn <= FN_PLANING_ONSET_LOCAL:
+        out.append(
+            f"Fn {fn:.3f} is past the thin-ship limit {FN_MICHELL_MAX:.2f} "
+            f"and below the planing onset {FN_PLANING_ONSET_LOCAL:.2f}: no "
+            f"resistance model in this tree is valid across that band "
+            f"(Michell has stopped and no Savitsky-class model exists here). "
+            f"This is a gap in OUR LIBRARY, not a verdict on the design — the "
+            f"boat is ordinary, we simply cannot score it honestly.")
     if fn is not None and fn > FN_PLANING_ONSET_LOCAL:
         out.append(
             f"Fn {fn:.3f} is past the planing onset "

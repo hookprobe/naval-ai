@@ -23,18 +23,39 @@ KIT_REFERENCE = [12.24464859, 3.105685017, 0.55, 1.55, 0.6392941018, -1.0,
 
 
 def test_the_four_questions_stay_four_verdicts():
-    """MEASURED on the reference hull: A REFUSED (the 18 mm-ply cold-bend
-    radius), while B (the model) and C (meshability) are both OK. One flag
+    """A REFUSED while B (the model) and C (meshability) are both OK. One flag
     could not carry that: "invalid" would send someone to the physics or the
-    mesher for a MANUFACTURING refusal. That is the whole reason the
-    operator's rule is four verdicts and not one."""
+    mesher for a HULL-side refusal. That is the whole reason the operator's
+    rule is four verdicts and not one.
+
+    THE EXAMPLE MOVED 2026-08-20 AND THE CLAIM DID NOT. This used to assert
+    the reference hull was refused specifically on "the 18 mm-ply cold-bend
+    radius". The operator adopted LAMINATED construction that day
+    (`limits.laminate_plan`): two skins each bend at their own thickness, so
+    an 18 mm bottom needs 0.72 m instead of 1.44 m, and this hull's radius is
+    no longer the binding constraint. MEASURED across 30 draws of the flagship
+    brief, bend-radius refusals fell 17/30 -> 3/30 and feasible designs rose
+    2/30 -> 7/30.
+
+    So the hull is still REFUSED — now on its loading conditions — and the
+    four-verdict separation is what this test exists to pin. Asserting the
+    particular reason was incidental and made the test a hostage to a
+    construction method. What is asserted instead is that the refusal is a
+    HULL-side one and that B and C are untouched by it, which is the actual
+    claim.
+    """
     ev = evaluate_hull(np.array(mid_params()), MissionSpec())
     assert ev.hull_verdict == REFUSED
     assert ev.model_verdict == OK
     assert ev.mesh_verdict == OK
     assert ev.result_verdict == UNMEASURED
-    assert any("bend radius" in r for r in ev.reasons), ev.reasons
+    assert ev.reasons, "a REFUSED hull with no reason is a bare bar"
     assert ev.status == REFUSED
+    # the refusal must be a HULL question, not the model's or the mesher's —
+    # that separation is the point, and a reason mentioning neither would mean
+    # the verdict and its explanation had come apart
+    assert not any("mesh" in r.lower() or "cells per wavelength" in r.lower()
+                   for r in ev.reasons), ev.reasons
 
 
 def test_a_design_that_has_never_been_solved_can_never_read_OK():

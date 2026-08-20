@@ -729,9 +729,22 @@ CHECKS: tuple[Check, ...] = (
                 "than inlined literals fifteen lines above it",
           lambda: has_code("navalai/energy.py",
                       r"VCG_FRACTION\[name\] \* depth for name, m in masses")),
-    Check("C8", "evaluate() calls limits.min_bend_radius_m(t_ply) instead of "
-                "recomputing BEND_RADIUS_RATIO * PLY_THICKNESS_M inline",
-          lambda: has_code("navalai/evaluate.py", r"min_bend_radius_m\(t_ply\)")
+    # C8 asked that evaluate() ROUTE THROUGH the owned helper rather than
+    # recompute BEND_RADIUS_RATIO * PLY_THICKNESS_M inline. The literal call
+    # it matched, `min_bend_radius_m(t_ply)`, was replaced 2026-08-20 when the
+    # operator adopted laminated construction: evaluate() now calls
+    # `limits.laminate_plan(t_ply, r_min)`, which calls `min_bend_radius_m`
+    # itself. The gap's INTENT is satisfied more strongly than before -- the
+    # bend radius is derived one layer further inside limits.py -- but the
+    # predicate matched the old spelling and reported a CLOSED gap as OPEN.
+    # It now checks the property rather than the phrasing: the ratio is not
+    # recomputed here, and the requirement comes from the owned planner.
+    Check("C8", "evaluate() gets its bend requirement from limits "
+                "(laminate_plan -> min_bend_radius_m) instead of recomputing "
+                "BEND_RADIUS_RATIO * PLY_THICKNESS_M inline",
+          lambda: has_code("navalai/evaluate.py", r"laminate_plan\(t_ply")
+                  and has_code("navalai/limits.py",
+                               r"min_bend_radius_m\(governing\)")
                   and lacks_code("navalai/evaluate.py",
                             r"BEND_RADIUS_RATIO \* PLY_THICKNESS_M")),
     Check("C9", "the undocumented x1.6 shell-area factor is replaced by the "

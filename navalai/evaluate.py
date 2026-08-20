@@ -49,7 +49,7 @@ from .hydrostatics import (HydroState, gm, gm_long,
                            vessel_terms)
 from .limits import (FREEBOARD_FLOOR_M, LCB_BAND_PCT_LWL, LIST_LIMIT_DEG,
                      PRISMATIC_TOLERANCE, TRIM_LIMIT_DEG, gm_floor,
-                     min_bend_radius_m)
+                     laminate_plan, min_bend_radius_m)
 from .mission import (EVALUABLE_TOPOLOGIES, Manning, MissionSpec,
                       mission_cp_band, mission_cp_target, mission_lcb_band)
 from .resistance import (FN_MICHELL_MAX, ResistanceResult, bow_wave_rise,
@@ -709,7 +709,23 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
     # and had no callers while this line recomputed the same product inline.
     # It now follows the DERIVED sheet, so a boat that needs thicker ply also
     # gets a larger required bend radius — the coupling limits.py claimed.
-    r_req = min_bend_radius_m(t_ply)
+    # BUILDABILITY IS NOW A CONSTRUCTION CHOICE, NOT A FIXED SHEET
+    # (operator decision, 2026-08-20). MEASURED before this: sizing every
+    # panel as ONE stock sheet made an 18 mm bottom demand a 1.44 m cold-bend
+    # radius, and over 30 draws of the flagship brief the achieved radii ran
+    # min 0.30 / median 0.89 / max 1.40 m — ZERO of 17 hulls reaching the
+    # check cleared it, and only 2 of 30 designs were feasible. That is a
+    # MATERIALS mismatch, not a population of bad hulls.
+    #
+    # `laminate_plan` bends each skin at its own thickness, so the governing
+    # radius follows the THICKER SKIN rather than the total. It laminates ONLY
+    # when a single sheet cannot take the radius this hull actually has and a
+    # laminate can, so a gentle boat is still built the cheap way. Across
+    # 12-21 mm the laminate reaches the same total from stock, so this is
+    # weight-neutral for every SKU in PLM.md — `t_ply` (the WEIGHT) is
+    # deliberately not re-read from the plan here.
+    _ply_plan = laminate_plan(t_ply, r_min)
+    r_req = _ply_plan["min_radius_m"]
 
     u = mission.cruise_speed_ms()
     # ONE STATE, NOT TWO (gap E7). `cb` and `wetted` have always come from the
@@ -938,6 +954,8 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
         "gm": f"GM {gm_m:.2f} m < {gm_min:.2f} m "
               f"(category {mission.design_category} floor, ISO 12217)",
         "bend_radius": f"panel bend radius {r_min:.2f} m < {r_req:.2f} m "
+                       f"[{_ply_plan['method']}: "
+                       f"{'+'.join(f'{s * 1e3:.0f}' for s in _ply_plan['skins'])} mm] "
                        f"({t_ply * 1e3:.0f} mm ply cold-bend limit)",
         "trim": ((f"static trim is UNDEFINED: {trim_refusal}"
                   if trim_refusal is not None else

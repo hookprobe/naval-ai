@@ -563,6 +563,91 @@ def min_bend_radius_m(thickness_m: float = PLY_THICKNESS_M) -> float:
     return BEND_RADIUS_RATIO * thickness_m
 
 
+#: Skins in a laminated panel. TWO, because that is the standard plywood
+#: practice this models (two skins glued wet over a mould) and because a third
+#: skin buys a smaller radius reduction than it costs in glue lines and labour.
+#: Raising it is a PRODUCT decision, not a tuning knob.
+LAMINATE_SKINS = 2
+
+
+def laminate_plan(t_required_m: float, radius_available_m: float | None = None
+                  ) -> dict:
+    """How to build a panel of `t_required_m`, and the bend radius it needs.
+
+    THE PROBLEM THIS SOLVES, MEASURED 2026-08-20. The ladder sized panels as a
+    SINGLE stock sheet, so an 18 mm bottom demanded a 1.44 m cold-bend radius —
+    and over 30 draws of the flagship brief (category C, 6 t, 10 m) the achieved
+    radii ran min 0.30 / median 0.89 / max 1.40 m. ZERO of 17 hulls reaching
+    that check cleared it, and only 2 of 30 designs were feasible at all. The
+    generator drew chines tighter than the material the rules require could be
+    cold-formed around, which is a MATERIALS mismatch rather than a bad hull.
+
+    Laminating is the boatbuilder's answer and each skin bends at ITS OWN
+    thickness, so the governing radius follows the THICKER SKIN, not the total:
+
+        t_req   single sheet    two skins       bend single   bend laminate
+        12 mm      12 mm         6 + 6 = 12       0.96 m         0.48 m
+        15 mm      15 mm         6 + 9 = 15       1.20 m         0.72 m
+        18 mm      18 mm         9 + 9 = 18       1.44 m         0.72 m
+        21 mm      21 mm         9 + 12 = 21      1.68 m         0.96 m
+
+    Across 12-21 mm — the band every SKU in PLM.md sits in — the laminate
+    reaches the SAME TOTAL from stock, so it is WEIGHT-NEUTRAL and simply
+    halves the radius. Outside it (9 mm -> 6+6 = 12, 25 mm -> 9+18 = 27) the
+    pairing costs 2-3 mm, which is why this is a policy and not a default.
+
+    THE POLICY: laminate only when a single sheet CANNOT be bent to the radius
+    the hull actually has and a laminate can. A boat whose panels are gentle
+    enough for one sheet is built from one sheet — the cheaper, simpler method
+    wins unless buildability requires otherwise. With `radius_available_m` None
+    the single-sheet plan is returned unchanged, which is what keeps every
+    existing caller bit-identical.
+
+    STRUCTURAL EQUIVALENCE IS ASSUMED AND STATED. A glued laminate is treated
+    as monolithic in bending, i.e. the ISO thickness requirement is met by the
+    TOTAL — standard practice for epoxy-glued ply, and the reason the total is
+    held to the same bar. What it does NOT model is glue-line shear, so a
+    laminate whose skins could slip is outside this. That assumption belongs to
+    the operator who chose the method; it is recorded here rather than buried.
+    """
+    from itertools import combinations_with_replacement
+
+    t_req = float(t_required_m)
+    single = min((t for t in STOCK_PLY_THICKNESS_M if t >= t_req - 1e-12),
+                 default=None)
+    if single is None:
+        raise ValueError(
+            f"laminate_plan: {t_req * 1e3:.1f} mm exceeds every stock sheet "
+            f"{[round(s * 1e3, 1) for s in STOCK_PLY_THICKNESS_M]}; a thicker "
+            f"panel needs a construction method this tree does not model")
+
+    single_plan = {"method": "single", "skins": (single,),
+                   "total_m": single, "governing_skin_m": single,
+                   "min_radius_m": min_bend_radius_m(single)}
+    if radius_available_m is None:
+        return single_plan
+    if radius_available_m >= single_plan["min_radius_m"]:
+        return single_plan
+
+    best = None
+    for combo in combinations_with_replacement(STOCK_PLY_THICKNESS_M,
+                                               LAMINATE_SKINS):
+        total = sum(combo)
+        if total + 1e-12 < t_req:
+            continue
+        key = (total, max(combo))
+        if best is None or key < best[0]:
+            best = (key, combo)
+    if best is None:
+        return single_plan
+    (total, governing), combo = best
+    lam = {"method": f"laminate x{LAMINATE_SKINS}", "skins": tuple(combo),
+           "total_m": total, "governing_skin_m": governing,
+           "min_radius_m": min_bend_radius_m(governing)}
+    # Only worth it if it actually clears the radius the single sheet failed.
+    return lam if radius_available_m >= lam["min_radius_m"] else single_plan
+
+
 # Static attitude from the ARRANGEMENT alone (no crew movement, no seaway).
 # Not an ISO number: 12217 governs stability, not trim. This is the design
 # bar we hold ourselves to, so that moving mass has a consequence the ladder
