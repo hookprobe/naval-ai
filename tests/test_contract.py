@@ -97,3 +97,66 @@ def test_a_prescription_without_inputs_refuses_by_name():
     p = mesh_prescription(None, None, None)
     assert p.mesh_density is None and p.first_layer_m is None
     assert p.refusals and "unmeasurable" in p.refusals[0]
+
+
+# ---------------------------------------------------------------------------
+# the regime taxonomy and the full prescription (the operator's SS5 and SS8)
+# ---------------------------------------------------------------------------
+
+
+def test_regimes_are_a_tuple_because_they_are_not_exclusive():
+    """A catamaran at Fn 0.46 is wave-making AND multihull, and collapsing
+    that to one label is how a monohull resistance model ends up silently
+    answering a multihull question. Ordered most-constraining first."""
+    from navalai.contract import (REGIME_DISPLACEMENT, REGIME_HIGH_FN,
+                                  REGIME_MULTIHULL, REGIME_TRANSITIONAL,
+                                  REGIME_WAVEMAKING, classify_regime)
+
+    assert classify_regime(12.0, 2.5, 0.23, 2.7e7) == (REGIME_DISPLACEMENT,)
+    # a 1 m hull at 1 m/s: Re 9.2e5 is inside the transition band, so the
+    # friction line is an extrapolation whatever the Froude number says
+    assert classify_regime(1.0, 1.0, 0.32, 9.2e5) == (
+        REGIME_TRANSITIONAL, REGIME_WAVEMAKING)
+    assert classify_regime(12.0, 5.0, 0.46, 5e7, n_hulls=2) == (
+        REGIME_WAVEMAKING, REGIME_MULTIHULL)
+    assert classify_regime(3.0, 6.0, 1.1, 1.6e7) == (REGIME_HIGH_FN,)
+
+
+def test_the_prescription_prices_the_runner_s_own_abort_bar_before_meshing():
+    """`expected_tau_s` is h_min/U — the same geometric flow time scale
+    run-case.sh kills a solve on below 1e-12 s. Prescribing it means the
+    case is priced against that bar BEFORE the mesher runs, instead of the
+    campaign discovering it 45 minutes in (h18 diverged at 4.356e-18)."""
+    p = mesh_prescription(lwl_m=12.0, speed_ms=2.5, fn=0.23)
+    assert p.expected_tau_s is not None and p.expected_tau_s > 1e-12
+    assert p.surface_cell_m == pytest.approx(
+        p.expected_tau_s * 2.5, rel=1e-9)
+    # the sizes are a chain, not four independent numbers
+    assert p.background_cell_m > p.free_surface_cell_m > p.surface_cell_m
+    assert p.first_layer_m < p.surface_cell_m, (
+        "a first layer thicker than its host cell is the stack/hull_cell "
+        "defect the case writer already guards")
+
+
+def test_the_prescription_carries_its_own_cost():
+    """SS17: the receipt must say what the evidence COSTS, or 'is CFD worth
+    it' is a question nobody can answer from it."""
+    p = mesh_prescription(lwl_m=12.0, speed_ms=2.5, fn=0.23)
+    assert p.cells and p.cells > 1000
+    assert p.timestep_s and p.timestep_s > 0.0
+    assert p.wall_s and p.wall_s > 0.0
+    assert p.ram_gb and p.ram_gb > 0.0
+
+
+def test_the_receipt_identifies_which_boat_it_describes():
+    """SS12's identity block: a receipt that cannot say the displacement,
+    Cp or hull count of the boat it grades is not the canonical truth
+    anything can consume."""
+    ev = evaluate_hull(np.array(KIT_REFERENCE), MissionSpec())
+    assert ev.displacement_kg and ev.displacement_kg > 0.0
+    assert ev.cp and 0.4 < ev.cp < 0.9
+    assert ev.beam_wl_m and ev.beam_wl_m > 0.0
+    assert ev.n_hulls == 1 and ev.regimes
+    d = ev.to_dict()
+    assert d["regimes"] == list(ev.regimes)
+    assert d["mesh"]["expected_tau_s"] is not None

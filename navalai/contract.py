@@ -45,9 +45,60 @@ from .certify import certify
 from .geometry import GeometryError, Hull
 from .limits import RE_TRANSITION_BAND
 from .mission import MissionSpec
+from .select_fidelity import FN_PLANING_ONSET as FN_PLANING_ONSET_LOCAL
 from .select_fidelity import (TIER_ANALYTICAL, TIER_EMPIRICAL, TIER_FULL_CFD,
                               TIER_LOW_FIDELITY_CFD, TIER_REFUSE,
                               select_fidelity)
+
+# --------------------------------------------------------------------------
+# The regime taxonomy (the operator's SS8). The NAMES do not matter; what
+# matters is that one function owns the boundaries, so no downstream module
+# re-derives "is this a small boat" from a length it happened to have.
+# Every boundary here is IMPORTED or cited, never re-declared.
+# --------------------------------------------------------------------------
+
+REGIME_ENVIRONMENT = "ENVIRONMENT_DOMINATED"   # A: calm-water refinement moot
+REGIME_TRANSITIONAL = "LOW_RE_TRANSITIONAL"    # B: ITTC-57 out of its regime
+REGIME_DISPLACEMENT = "DISPLACEMENT"           # C: the product's home turf
+REGIME_WAVEMAKING = "WAVE_MAKING"              # D: form matters most
+REGIME_HIGH_FN = "HIGH_FN_NON_DISPLACEMENT"    # E: no valid cheap tier
+REGIME_MULTIHULL = "MULTIHULL_INTERFERENCE"    # M: modifies C/D, not replaces
+
+#: Fn at which wave-making stops being a rounding error. MEASURED across the
+#: size range in docs/research/SMALL-CRAFT-REGIMES.md SS5: the wave share of
+#: total resistance is <= 5-8% at Fn 0.20 for every hull from 0.5 to 12 m,
+#: and reaches 28-46% by Fn 0.35. Below it, hull FORM is not the lever.
+FN_WAVEMAKING = 0.30
+
+
+def classify_regime(lwl_m, speed_ms, fn, re, n_hulls: int = 1,
+                    environment_dominated: bool = False) -> tuple[str, ...]:
+    """Which physical regimes this design is in. A TUPLE, because they are
+    not exclusive: a catamaran at Fn 0.4 is wave-making AND multihull, and
+    collapsing that to one label is how a monohull resistance model ends up
+    silently answering a multihull question (the operator's SS8 example).
+
+    Ordered most-constraining first, so `regime[0]` is the one that decides
+    which models may speak.
+    """
+    out: list[str] = []
+    if environment_dominated:
+        out.append(REGIME_ENVIRONMENT)
+    if re is not None and re < RE_TRANSITION_BAND[1]:
+        # Below the fully-turbulent floor the friction line this tree is
+        # built on is an extrapolation, whatever the length happens to be.
+        out.append(REGIME_TRANSITIONAL)
+    if fn is not None:
+        if fn > FN_PLANING_ONSET_LOCAL:
+            out.append(REGIME_HIGH_FN)
+        elif fn >= FN_WAVEMAKING:
+            out.append(REGIME_WAVEMAKING)
+        else:
+            out.append(REGIME_DISPLACEMENT)
+    if n_hulls and n_hulls > 1:
+        out.append(REGIME_MULTIHULL)
+    return tuple(out) or (UNMEASURED,)
+
 
 #: Verdict vocabulary. UNMEASURED is not a hedge — it is the honest answer
 #: for a question nothing has asked yet (there is no solve, so D has no
@@ -71,6 +122,15 @@ class MeshPrescription:
     cells_per_wavelength: float | None    # what that density buys at this Fn
     first_layer_m: float | None           # from the y+ target and ITTC-57 u_tau
     target_yplus: float | None
+    background_cell_m: float | None = None    # the volume cell
+    surface_cell_m: float | None = None       # after hull refinement
+    free_surface_cell_m: float | None = None  # after free-surface refinement
+    hull_refine_levels: tuple[int, int] | None = None
+    expected_tau_s: float | None = None       # geometric flow time scale
+    timestep_s: float | None = None
+    cells: int | None = None
+    wall_s: float | None = None
+    ram_gb: float | None = None
     basis: dict = field(default_factory=dict)
     refusals: tuple[str, ...] = ()
 
@@ -79,6 +139,15 @@ class MeshPrescription:
                 "cells_per_wavelength": self.cells_per_wavelength,
                 "first_layer_m": self.first_layer_m,
                 "target_yplus": self.target_yplus,
+                "background_cell_m": self.background_cell_m,
+                "surface_cell_m": self.surface_cell_m,
+                "free_surface_cell_m": self.free_surface_cell_m,
+                "hull_refine_levels": (list(self.hull_refine_levels)
+                                       if self.hull_refine_levels else None),
+                "expected_tau_s": self.expected_tau_s,
+                "timestep_s": self.timestep_s,
+                "cells": self.cells, "wall_s": self.wall_s,
+                "ram_gb": self.ram_gb,
                 "basis": dict(self.basis),
                 "refusals": list(self.refusals)}
 
@@ -97,19 +166,29 @@ class HullEvaluation:
     speed_ms: float | None
     fn: float | None
     re: float | None
+    # SS12's identity block: the numbers a reader needs to know WHICH boat
+    # this receipt describes, not merely that it passed.
+    beam_wl_m: float | None = None
+    draft_m: float | None = None
+    displacement_kg: float | None = None
+    cp: float | None = None
+    lcb_pct: float | None = None
+    n_hulls: int = 1
+    regimes: tuple[str, ...] = ()
 
-    hull_verdict: str                     # A
-    model_verdict: str                    # B
-    mesh_verdict: str                     # C
-    result_verdict: str                   # D
+    hull_verdict: str = UNMEASURED        # A
+    model_verdict: str = UNMEASURED       # B
+    mesh_verdict: str = UNMEASURED        # C
+    result_verdict: str = UNMEASURED      # D
 
-    fidelity_tier: str
-    fidelity_why: str
-    resistance_n: float | None
-    sigma_n: float | None
-    tier_of_resistance: str | None
+    fidelity_tier: str = TIER_REFUSE
+    fidelity_why: str = ""
+    resistance_n: float | None = None
+    sigma_n: float | None = None
+    tier_of_resistance: str | None = None
 
-    mesh: MeshPrescription
+    mesh: MeshPrescription = field(
+        default_factory=lambda: MeshPrescription(None, None, None, None))
     reasons: tuple[str, ...] = ()
     warnings: tuple[str, ...] = ()
     detail: dict = field(default_factory=dict)
@@ -138,6 +217,10 @@ class HullEvaluation:
             "genome_sha256": self.genome_sha256,
             "lwl_m": self.lwl_m, "speed_ms": self.speed_ms,
             "fn": self.fn, "re": self.re,
+            "beam_wl_m": self.beam_wl_m, "draft_m": self.draft_m,
+            "displacement_kg": self.displacement_kg,
+            "cp": self.cp, "lcb_pct": self.lcb_pct,
+            "n_hulls": self.n_hulls, "regimes": list(self.regimes),
             "hull_verdict": self.hull_verdict,
             "model_verdict": self.model_verdict,
             "mesh_verdict": self.mesh_verdict,
@@ -189,9 +272,11 @@ def mesh_prescription(lwl_m: float | None, speed_ms: float | None,
     basis: dict = {}
     if lwl_m is None or speed_ms is None or fn is None:
         return MeshPrescription(
-            None, None, None, None, basis,
-            ("cannot prescribe a mesh without lwl, speed and Fn — an "
-             "unmeasurable case gets no numbers, not default ones",))
+            mesh_density=None, cells_per_wavelength=None, first_layer_m=None,
+            target_yplus=None, basis=basis,
+            refusals=("cannot prescribe a mesh without lwl, speed and Fn — "
+                      "an unmeasurable case gets no numbers, not default "
+                      "ones",))
 
     density = cpw = first_layer = None
     try:
@@ -217,8 +302,62 @@ def mesh_prescription(lwl_m: float | None, speed_ms: float | None,
     except Exception as e:                                  # noqa: BLE001
         refusals.append(f"first-layer height unavailable: {e}")
 
-    return MeshPrescription(density, cpw, first_layer, target_yplus, basis,
-                            tuple(refusals))
+    # ---- the cell SIZES, in metres, and the solver numbers they imply ----
+    #
+    # These are not new physics either: the domain is Lwl-similar and the
+    # refinement levels are the case writer's own, so a cell size is the
+    # domain length divided by the cells the density buys, halved once per
+    # refinement level. Stating them HERE is what turns "will this generic
+    # mesh work" into "this hull needs a 52 mm surface cell".
+    bg = surf = fs = tau = dt = None
+    cells = wall = ram = None
+    levels = None
+    try:
+        from .cfd.case import (_DOMAIN_LENGTH_L, _FS_BOX, _HULL_REFINE,
+                               _NX_BASE)
+        levels = tuple(_HULL_REFINE)
+        nx = max(1, int(round(_NX_BASE * (density or 1.0))))
+        bg = float(_DOMAIN_LENGTH_L * lwl_m / nx)
+        surf = bg / (2.0 ** levels[1])
+        # The free surface is refined to its own level; `_FS_BOX`'s z extent
+        # is the slab it applies in. Level 2 is the writer's shipped choice.
+        fs = bg / (2.0 ** 2)
+        basis["cells_m"] = (
+            f"domain {_DOMAIN_LENGTH_L:g}*Lwl / nx {nx} "
+            f"(_NX_BASE {_NX_BASE} x density {density:.3f}); "
+            f"surface halved {levels[1]}x, free surface 2x "
+            f"(cfd.case._HULL_REFINE, _FS_BOX z={_FS_BOX['z']:g})")
+        # THE GEOMETRIC FLOW TIME SCALE, which is where this connects to the
+        # runner's own live abort. tau = V/(A.U) is h/U for a cube, so the
+        # SMALLEST cell sets it — and run-case.sh kills a solve when the
+        # printed tau falls below 1e-12 s. Prescribing tau means the case is
+        # priced against that bar BEFORE the mesher runs, instead of
+        # discovering it 45 minutes in.
+        tau = surf / speed_ms
+        basis["expected_tau_s"] = (
+            "h_min / U for a cubic cell; run-case.sh aborts below 1e-12 s")
+    except Exception as e:                                  # noqa: BLE001
+        refusals.append(f"cell sizes unavailable: {e}")
+
+    try:
+        from .fidelity import Budget, Condition, FidelitySpec, estimate
+        est = estimate(Condition(lwl=lwl_m, speed=speed_ms),
+                       FidelitySpec(mesh_density=density or 1.0))
+        cells = int(est.cells)
+        dt = float(est.dt_s)
+        wall = float(est.wall_s)
+        ram = float(est.ram_gb)
+        basis["cost"] = est.basis if isinstance(est.basis, str) else "fidelity.estimate"
+    except Exception as e:                                  # noqa: BLE001
+        refusals.append(f"cost estimate unavailable: {e}")
+
+    return MeshPrescription(
+        mesh_density=density, cells_per_wavelength=cpw,
+        first_layer_m=first_layer, target_yplus=target_yplus,
+        background_cell_m=bg, surface_cell_m=surf, free_surface_cell_m=fs,
+        hull_refine_levels=levels, expected_tau_s=tau, timestep_s=dt,
+        cells=cells, wall_s=wall, ram_gb=ram,
+        basis=basis, refusals=tuple(refusals))
 
 
 def evaluate_hull(genome, mission: MissionSpec | None = None,
@@ -245,11 +384,11 @@ def evaluate_hull(genome, mission: MissionSpec | None = None,
         detail["grammar_violations"] = list(getattr(g, "violations", ()))
         reasons.extend(str(v) for v in getattr(g, "violations", ()))
         return HullEvaluation(
-            sha, None, None, None, None,
-            REFUSED, UNMEASURED, UNMEASURED, UNMEASURED,
-            TIER_REFUSE, "grammar refused the genome before any physics",
-            None, None, None, mesh_prescription(None, None, None),
-            tuple(reasons), tuple(warnings), detail)
+            genome_sha256=sha, lwl_m=None, speed_ms=None, fn=None, re=None,
+            hull_verdict=REFUSED,
+            fidelity_why="grammar refused the genome before any physics",
+            mesh=mesh_prescription(None, None, None),
+            reasons=tuple(reasons), warnings=tuple(warnings), detail=detail)
 
     try:
         cert = certify(x, mission, with_gz=False)
@@ -258,11 +397,11 @@ def evaluate_hull(genome, mission: MissionSpec | None = None,
         # verdict — not a crash for a caller to interpret.
         reasons.append(f"geometry: {e}")
         return HullEvaluation(
-            sha, None, None, None, None,
-            REFUSED, UNMEASURED, UNMEASURED, UNMEASURED,
-            TIER_REFUSE, "the section solve refused this genome",
-            None, None, None, mesh_prescription(None, None, None),
-            tuple(reasons), tuple(warnings), detail)
+            genome_sha256=sha, lwl_m=None, speed_ms=None, fn=None, re=None,
+            hull_verdict=REFUSED,
+            fidelity_why="the section solve refused this genome",
+            mesh=mesh_prescription(None, None, None),
+            reasons=tuple(reasons), warnings=tuple(warnings), detail=detail)
 
     hull_verdict = {"ACCEPT": OK, "MARGINAL": MARGINAL,
                     "REFUSE": REFUSED}.get(cert.verdict, REFUSED)
@@ -329,8 +468,27 @@ def evaluate_hull(genome, mission: MissionSpec | None = None,
     # never been through CFD.
     result_verdict = UNMEASURED
 
+    # ---- the identity block and the regime -------------------------------
+    sc = (cert.descriptors or {}).get("scalars", {}) or {}
+    n_hulls = int(getattr(getattr(mission, "vessel", None), "n_hulls", 1) or 1)
+    env_dominated = any(
+        g.name == "ENVIRONMENT" and g.outcome == "ROUTE"
+        for g in getattr(detail.get("_decision"), "gates", ())) if \
+        detail.get("_decision") else False
+    regimes = classify_regime(lwl, speed, fn, re, n_hulls=n_hulls,
+                              environment_dominated=env_dominated)
+    detail.pop("_decision", None)
+
     return HullEvaluation(
-        sha, lwl, speed, fn, re,
-        hull_verdict, model_verdict, mesh_verdict, result_verdict,
-        tier, why, resistance_n, sigma_n, tier_of_resistance,
-        presc, tuple(reasons), tuple(warnings), detail)
+        genome_sha256=sha, lwl_m=lwl, speed_ms=speed, fn=fn, re=re,
+        beam_wl_m=sc.get("bwl_m"), draft_m=sc.get("draft_m"),
+        displacement_kg=sc.get("displacement_design_kg"),
+        cp=sc.get("Cp"), lcb_pct=sc.get("lcb_pct_lwl"),
+        n_hulls=n_hulls, regimes=regimes,
+        hull_verdict=hull_verdict, model_verdict=model_verdict,
+        mesh_verdict=mesh_verdict, result_verdict=result_verdict,
+        fidelity_tier=tier, fidelity_why=why,
+        resistance_n=resistance_n, sigma_n=sigma_n,
+        tier_of_resistance=tier_of_resistance,
+        mesh=presc, reasons=tuple(reasons), warnings=tuple(warnings),
+        detail=detail)

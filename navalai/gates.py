@@ -617,6 +617,14 @@ GATES = [
     # thrust could mint an L3 "measured" badge. This row owns the bars that
     # close it — including the reader, where a NaN row did not merely drop
     # but parsed as EXACTLY ZERO.
+    # ONE deterministic path, ONE receipt. The pieces all existed and
+    # nothing composed them, so every caller re-derived Fn, Re, the regime
+    # and the model's validity for itself. This row owns the composition —
+    # above all that the four questions stay FOUR verdicts.
+    Gate("Gate HC", "the hull evaluation contract: four separate verdicts, "
+         "a regime, a derived mesh+solver prescription and its cost, in one "
+         "receipt that never reads OK without evidence",
+         "tests/test_contract.py"),
     Gate("Gate 2N", "physics sanity: a force must have the right sign, a "
          "finite magnitude, and a defensible ratio to the cheap model — and "
          "an unreadable history is never a result",
