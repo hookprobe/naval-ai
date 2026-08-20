@@ -160,6 +160,40 @@ def _station_wires(hull: Hull, n_stations: int | None = None):
         # floored the chine and sheer half-breadths at 2 mm and left the keel
         # apex on the centreline; this is the same rule stated for a polyline
         # of any length.
+        #
+        # BOTH NUMBERS ARE CALIBRATED, NOT DERIVED, AND THE RULE IS LOAD-
+        # BEARING. MEASURED 2026-08-20 on the reference hull and
+        # `sample_valid(4, MissionSpec(), seed=0)`, at the shipped 161 loft
+        # stations:
+        #
+        #   * the trigger fires at EXACTLY ONE station on every hull — the
+        #     stem, x = LWL, where the section's max half-breadth is 0.000e+00
+        #     (identically zero, not merely small);
+        #   * the next-smallest station's max half-breadth is 63.0 / 66.0 /
+        #     62.8 / 79.8 / 116.0 mm, i.e. 12.6x to 23.2x above the 5 mm
+        #     trigger. There is nothing in the band between, so 5e-3 is a
+        #     degeneracy detector with an order of magnitude of clearance on
+        #     both sides rather than a threshold anything is near.
+        #
+        # WITHOUT THE WIDENING THE LOFT REFUSES, verbatim: building the same
+        # wires with the floor removed and handing them to
+        # `cq.Solid.makeLoft(..., ruled=True)` raises `StdFail_NotDone:
+        # BRep_API: command not done` (reference hull, 41 stations, cadquery
+        # 2.8.0/OCCT) — a zero-area closing polygon is not a wire OCCT will
+        # loft. So this is not cosmetic tidying of a thin tip; it is what makes
+        # a STEP/IGES export of a pointed bow exist at all.
+        #
+        # WHAT THE 2 mm FLOOR COSTS, measured against the un-widened polylines
+        # on the reference hull: moulded volume 29.522114 -> 29.522301 m^3,
+        # +1.874e-04 m^3 = +6.35e-04%. That is three orders inside
+        # `EXPORT_DISPLACEMENT_BAR_PCT` (2%) and one order inside the 0.042%
+        # the nz = 64 section sampling already spends. Note the asymmetry it
+        # implies and which is deliberate: `export_receipt` measures the
+        # UN-widened polylines (`_station_sections`), so the receipt describes
+        # the boat and the +6.35e-04% lives only in the solid — recorded here
+        # because a reader comparing `solid_volume_m3` against
+        # `displaced_volume_m3` to seven figures will otherwise find it and
+        # have to rediscover why.
         if float(y.max()) < 5e-3:
             y[1:] = np.maximum(y[1:], 2e-3)
         ring = ([(xv, -float(y[j]), float(z[j])) for j in range(len(y) - 1, 0, -1)]

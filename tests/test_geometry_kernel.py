@@ -167,6 +167,65 @@ def test_an_unreachable_design_target_is_refused_not_approximated():
     assert any(v.startswith("sac.target") for v in rep.violations), rep.violations
 
 
+def test_a_non_finite_gene_is_refused_by_name_not_as_an_unreachable_target():
+    """G7: a NaN/inf genome must be NAMED as non-finite, at the kernel entry.
+
+    A REFUSAL THAT NAMES THE WRONG THING IS A DEFECT (docs/LESSONS.md: the
+    failure must be named correctly), and this kernel had both halves of that
+    defect. MEASURED 2026-08-20 BEFORE `geometry._require_finite`, poisoning
+    the reference genome one gene at a time, 16 genes x {NaN, +inf} through
+    `Hull(params)`:
+
+        11 of 32   BUILT A HULL AND RAISED NOTHING — D, lcb/NaN, beta_bow,
+                   beta_len/NaN, rocker/NaN, forefoot/NaN, sheer_rise: a Hull
+                   of NaN arrays handed on to the ladder;
+        20 of 32   raised `GeometryError` blaming an unreachable DESIGN TARGET
+                   instead, e.g. LWL = NaN -> "sac: no exponent pair reaches
+                   Cp 0.6000" and T = NaN -> "section: flare 10.0 deg consumes
+                   the whole 1.600 m half-beam" — every gene named there is
+                   finite and innocent;
+         1 of 32   escaped as a bare `ValueError: math domain error`
+                   (flare = +inf), which is not a `GeometryError` at all.
+
+    `grammar.check` was already correct one layer up ("finite: NaN/inf in
+    parameter vector"), so the gate told the truth and the kernel did not.
+    This test sweeps ALL SIXTEEN GENES against NaN, +inf and -inf and demands
+    the kernel's own sentence carry both the `finite:` clause and the gene's
+    name — the pin that keeps the two layers from drifting into two names for
+    one condition.
+    """
+    base = grammar.vector(MID)
+    assert Hull(base) is not None                      # the clean genome builds
+    seen = 0
+    for i, name in enumerate(grammar.NAMES):
+        for bad in (float("nan"), float("inf"), float("-inf")):
+            x = base.copy()
+            x[i] = bad
+            with pytest.raises(GeometryError) as e:
+                Hull(x)
+            msg = str(e.value)
+            assert msg.startswith("finite:"), (name, bad, msg)
+            assert name in msg, (name, bad, msg)
+            # and the gate's wording is the kernel's wording, not a second one
+            assert "NaN/inf in parameter vector" in msg, (name, bad, msg)
+            rep = grammar.check(x)
+            assert not rep.ok and rep.violations[0].startswith("finite:"), \
+                (name, bad, rep.violations)
+            seen += 1
+    assert seen == 3 * len(grammar.NAMES) == 48
+
+    # the same clause on `sac_exponents`, which is reachable WITHOUT a
+    # parameter vector and used to answer LWL = NaN with "sac: no exponent
+    # pair reaches Cp 0.6000"
+    for pos, nm in enumerate(("LWL", "x_mb", "r_transom", "Cp", "lcb")):
+        args = [10.0, 0.55, 0.30, 0.60, -1.0]
+        args[pos] = float("nan")
+        with pytest.raises(GeometryError) as e:
+            geometry.sac_exponents(*args)
+        assert str(e.value).startswith("finite:") and nm in str(e.value), \
+            str(e.value)
+
+
 def test_a_section_that_cannot_hold_its_target_area_is_refused():
     """The other half of the same rule, on the SECTION rather than the curve.
 

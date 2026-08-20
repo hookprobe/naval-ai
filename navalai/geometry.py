@@ -120,6 +120,63 @@ class GeometryError(ValueError):
 # --------------------------------------------------------------------------
 
 
+def _require_finite(params) -> np.ndarray:
+    """Refuse a non-finite genome AT THE KERNEL ENTRY, naming the gene.
+
+    A REFUSAL THAT NAMES THE WRONG THING IS A DEFECT, NOT A COSMETIC ISSUE
+    (G7, MEASURED 2026-08-20 on the reference genome, one gene poisoned at a
+    time, 16 genes x {NaN, +inf} = 32 probes through `Hull(params)`):
+
+        11 of 32 BUILT A HULL AND RAISED NOTHING (D, lcb/NaN, beta_bow,
+          beta_len/NaN, rocker/NaN, forefoot/NaN, sheer_rise) — a Hull whose
+          arrays are NaN, handed on to the ladder;
+        20 raised a `GeometryError` whose sentence names an unreachable DESIGN
+          TARGET, e.g. LWL = NaN -> "sac: no exponent pair reaches Cp 0.6000"
+          and T = NaN -> "section: flare 10.0 deg consumes the whole 1.600 m
+          half-beam"  — both blame a gene that is perfectly finite;
+        1 escaped as a bare `ValueError: math domain error` (flare = +inf),
+          which is not a `GeometryError` at all and so is not a refusal this
+          package's callers know how to name.
+
+    `grammar.check` already had the correct sentence one layer up (`finite:
+    NaN/inf in parameter vector`), so a caller that goes through the gate was
+    told the truth and a caller that reaches the kernel directly was not. The
+    wording here MIRRORS that clause deliberately — same prefix, same words,
+    plus the gene and its value — so the two layers cannot drift into two
+    different names for one condition.
+
+    IT IS ON THE HOT PATH, so the check is the PYTHON one and not the numpy
+    one. MEASURED on this box, best of 5 x 300k calls on the reference genome
+    (16 float64s), predicate only:
+
+        np.isfinite(x).all()              7.80 us
+        math.isfinite(float(x.sum()))     5.26 us
+        all(map(math.isfinite, tolist))   0.41 us   <- SHIPPED
+
+    numpy's per-call dispatch dominates at n = 16; sixteen `math.isfinite`
+    calls over a materialised list beat both vectorised forms by an order of
+    magnitude. Whole helper including `asarray` and `ravel`: 2.19 us, i.e.
+    0.50% of `_stations` at 41 stations (0.436 ms) and 0.26% at the
+    1921-station feasibility probe (0.844 ms). The slow path — locating and
+    naming the offending gene — runs only when the refusal is about to be
+    raised, so it is not costed.
+
+    `.ravel()` costs 0.43 us of that 2.19 and is not decoration: without it a
+    2-D input reaches `map(math.isfinite, [[...], ...])` and dies as a
+    `TypeError` about a list, which is this function's own failure mode
+    committed inside the fix for it.
+    """
+    x = np.asarray(params, dtype=float)
+    if not all(map(math.isfinite, x.ravel().tolist())):
+        flat = x.ravel()
+        i = int(np.argmax(~np.isfinite(flat)))
+        name = grammar.NAMES[i] if i < len(grammar.NAMES) else f"param[{i}]"
+        raise GeometryError(
+            f"finite: NaN/inf in parameter vector — {name} is "
+            f"{float(flat[i])}")
+    return x
+
+
 def _shape(s: np.ndarray, p: float) -> np.ndarray:
     """The two-sided fullness shape h(s) on [0, 1]: h(0) = 0, h(1) = 1."""
     if p >= 1.0:
@@ -176,7 +233,20 @@ def sac_exponents(lwl: float, x_mb: float, r_transom: float,
 
     COST, measured on the reference hull: 78 us, memoised per (design curve)
     tuple. `grammar.check` goes 88.8 us -> 186 us against its 1 ms bar.
+
+    THE FINITENESS CLAUSE IS FIRST, and it is the same clause `_require_finite`
+    states for the whole genome, restated over the five scalars this entry
+    point receives (it is reachable without a parameter vector). Without it,
+    LWL = NaN reaches the bracket tests below, every comparison against NaN is
+    False, and the function refuses with `sac: no exponent pair reaches Cp
+    0.6000` — a sentence about a Cp that is not the problem. See G7 in
+    `_require_finite`.
     """
+    for _nm, _v in (("LWL", lwl), ("x_mb", x_mb), ("r_transom", r_transom),
+                    ("Cp", cp), ("lcb", lcb_pct)):
+        if not math.isfinite(float(_v)):
+            raise GeometryError(
+                f"finite: NaN/inf in parameter vector — {_nm} is {float(_v)}")
     L = float(lwl)
     xm = float(x_mb) * L
     R = float(r_transom)
@@ -333,8 +403,15 @@ def _stations(params: np.ndarray, x: np.ndarray) -> dict:
     cannot be met. It bites only where a(x) -> 0, i.e. inside the last station
     interval at the stem. MEASURED on the reference hull: the floor raises the
     displacement by 0.0087% and moves Cp by 6e-5, against a +-0.01 bar.
+
+    THE FINITENESS CHECK IS THE FIRST STATEMENT because this is the funnel:
+    `Hull.__post_init__`, `station_geometry`, `design_waterline`,
+    `sectional_area`, `form_coefficients`, `fairness` and `section_probe` all
+    arrive here, so one check names a poisoned gene for all of them. See
+    `_require_finite` for the 32-probe measurement of what the kernel said
+    before it existed.
     """
-    p = grammar.named(params)
+    p = grammar.named(_require_finite(params))
     L, B, T, D = p["LWL"], p["BWL"], p["T"], p["D"]
     x = np.asarray(x, dtype=float)
     c1, c2 = _fillet_coeffs(p["roundness"])
@@ -660,12 +737,56 @@ def _resample(poly: np.ndarray, n: int) -> np.ndarray:
                      np.interp(t, cum, poly[:, 1])], axis=1)
 
 
+# THE LADDER'S STATION COUNT. CALIBRATED, NOT DERIVED — no convergence
+# criterion picks 41; a cost bar and an alignment rule do, and both are
+# written down here so the next reader does not have to guess which.
+#
+# THE COST HALF. `export.py` (see `_LOFT_STATIONS`, lines 110-115) records the
+# measurement that DECLINED 81: it takes `evaluate()` from 22.14 ms to
+# 33.38 ms (+51%) against Gate 1's 50 ms bar, on every NSGA-II generation and
+# every surrogate harvest, and it buys the LADDER wetted +0.014% and displaced
+# volume +0.006%. RE-MEASURED on this box 2026-08-20 (reference hull, best of
+# 7 `evaluate()` calls; the box is ~10x slower than the one above, so read the
+# ratios, not the milliseconds):
+#
+#   n_stations   evaluate()       volume [m^3]  wetted [m^2]  twist [deg/m]
+#           41    215.3 ms            8.285449     25.639213        11.2245
+#           81    354.3 ms   +65%     8.286316     25.642969        11.4490
+#          161    622.6 ms  +189%     8.286536     25.643922        11.7857
+#
+# i.e. 41 -> 161 costs 2.9x the ladder's wall clock and moves displaced volume
+# by +0.013% and wetted surface by +0.018% — the volume figure is 154x inside
+# `export.EXPORT_DISPLACEMENT_BAR_PCT` (2%) and 3x inside the 0.042% the
+# exporter's own nz = 64 section sampling already spends.
+#
+# THE ALIGNMENT HALF, and it is the reason the number is 41 rather than 40 or
+# 51: n - 1 = 40, and every denser grid in this tree is built to CONTAIN these
+# stations exactly rather than merely be finer — `FEASIBILITY_PROBE_STATIONS`
+# 1921 = 48 x 40 + 1, `export._LOFT_STATIONS` 161 = 4 x 40 + 1, the Michell
+# production/converged grids 241 and 481. Both of those constants carry their
+# own measurement of what an UNALIGNED count costs; moving 41 invalidates all
+# of them at once.
+#
+# WHAT 41 DOES NOT BUY, named rather than left to be discovered:
+#   * `panel_twist_rate` reads 95.5% of its converged value here (11.224
+#     against 11.758 deg/m) — the LENIENT direction, stated at that method;
+#   * `hydrostatics._waterline_ends` measured `lwl_eff` at 41 stations short by
+#     0.969 of ONE station, inflating cb and cp by 2.4%, which is why that
+#     function interpolates the waterline ends instead of snapping to a
+#     station;
+#   * `form_coefficients` refuses to trust these 41 at all: it resamples the
+#     closed form at n = 401 with x_mb inserted, because a(x) touches 1 only at
+#     x_mb and 41 linspace stations miss it by up to half a spacing (Cp 1.7%
+#     high, the whole of plate P1's +-0.01 bar spent on a sampling artefact).
+_LADDER_STATIONS = 41
+
+
 @dataclass
 class Hull:
     """Evaluated hull geometry at n stations."""
 
     params: np.ndarray
-    n_stations: int = 41
+    n_stations: int = _LADDER_STATIONS
 
     x: np.ndarray = field(init=False)          # station positions [m], 0=transom
     z_keel: np.ndarray = field(init=False)     # keel z per station
@@ -680,7 +801,13 @@ class Hull:
     _sections: dict = field(init=False, repr=False, default_factory=dict)
 
     def __post_init__(self) -> None:
-        x = np.linspace(0.0, grammar.named(self.params)["LWL"], self.n_stations)
+        # `_require_finite` BEFORE the linspace, not only inside `_stations`:
+        # `np.linspace(0, nan, 41)` runs first otherwise and emits a numpy
+        # RuntimeWarning on the way to a refusal that was going to happen
+        # anyway — a warning that names an arithmetic operation instead of the
+        # gene is exactly the misattribution this check exists to end.
+        p0 = grammar.named(_require_finite(self.params))
+        x = np.linspace(0.0, p0["LWL"], self.n_stations)
         s = _stations(self.params, x)
         self.x = x
         self.z_keel, self.y_chine, self.z_chine = (s["z_keel"], s["y_chine"],
@@ -1032,6 +1159,45 @@ class Hull:
         SINCE PLATE P2 the rows come from `sample_section`, so a filleted
         bilge is resolved by the same grid rather than chorded: at roundness 0
         the sampler is the old two-segment linear interpolation, bit for bit.
+
+        WHAT THIS ACTUALLY EMITS AT THE PRODUCTION 600x120, MEASURED
+        2026-08-20 on the reference hull (`navalai.reference`) — the counts
+        matter because `cfd/case.py`'s `_STL_NX_CAP` comment and CLAUDE.md
+        both describe the cap as "600x120 ~ 144k triangles", which is HALF the
+        truth and off by exactly the mirror:
+
+            quads offered      144,599   (2 x (nx-1) x nz shell + deck strip
+                                          + transom cap + stem cap)
+            triangles offered  289,198   two per quad
+            triangles emitted  288,862   336 dropped by the area bar below
+            vertices STORED    866,586   = 3 x emitted
+            vertices UNIQUE    144,433   6.00x duplication
+
+        THE 6x DUPLICATION IS THE HONEST FACT ABOUT THIS MESH, and it is
+        recorded rather than fixed: `vid()` below appends a fresh vertex per
+        triangle corner, so there is NO indexed sharing anywhere in the
+        output. Every interior vertex is stored once per incident triangle
+        (6 of them on a quad grid, hence the ratio landing on 6.00 to three
+        figures). The mesh is watertight by COORDINATE COINCIDENCE, not by
+        connectivity: the duplicates are bit-identical (unique-at-full-
+        precision and unique-after-rounding-to-6-decimals are the SAME 144,433
+        vertices), because both copies come from the same element of the same
+        `S`/`P` array, not from two independent evaluations.
+
+        THAT IS WHY THE 1e-6 ROUNDING IN `cfd.case.stl_watertight_report` HAS
+        NEVER FIRED A FALSE MERGE, and why it is nonetheless a coupling worth
+        naming: that report keys edges on `round(coord, 6)` and the ASCII
+        writer emits `%.6e`, so the tolerance of the watertightness VERDICT is
+        pinned to the precision of the FILE FORMAT — two constants in another
+        module that must move together. MEASURED here at 600x120 on the
+        reference hull: `%.6e` formatting collapses 0 of the 144,433 unique
+        vertices (144,433 distinct strings), so today the verdict is about the
+        mesh and not about the format — a measurement, not a guarantee, and
+        the one to repeat if either constant moves or the mesh gets finer.
+        An indexed/welded emit would make the watertightness
+        structural instead of coincidental; that refactor is DEFERRED, and
+        this paragraph is what the next reader needs to decide whether to do
+        it.
         """
         xs = np.linspace(float(self.x[0]), float(self.x[-1]), nx)
         jc = self.chine_row(nz)
@@ -1048,6 +1214,38 @@ class Hull:
             verts.append(p)
             return len(verts) - 1
 
+        # THE SLIVER BAR IS A DEGENERACY BAR, NOT A QUALITY BAR, and the
+        # measurement says so: at the production 600x120 EVERY triangle it
+        # drops has area EXACTLY 0.0, and the smallest SURVIVING triangle is
+        # four to five orders above the bar. Where the zeros are, MEASURED per
+        # emitting site: 240 in the stem cap (all of it — the stem section is a
+        # point, so every quad there is degenerate by construction), 1 in the
+        # deck strip, 1 in the transom cap, and on the reference hull a further
+        # 94 in the shell, ALL of them in the single last station interval
+        # (i = 598, x = 9.9833 m of 10.0), where the hard-chine section
+        # collapses onto the centreline. The round-bilge hulls below have no
+        # shell zeros at all.
+        # MEASURED 2026-08-20, reference hull plus `sample_valid(4,
+        # MissionSpec(), seed=0)`, 289,198 triangles offered per hull:
+        #
+        #     hull        dropped   all of area 0.0?   smallest kept [m^2]
+        #     reference       336         yes               3.209e-06
+        #     sv0 rho .995    242         yes               7.764e-05
+        #     sv1 rho .127    242         yes               5.590e-06
+        #     sv2 rho .085    242         yes               7.514e-06
+        #     sv3 rho .310    242         yes               1.886e-05
+        #
+        # So the count is IDENTICAL at 1e-6, 1e-8, 1e-10, 1e-12, 1e-14 and at
+        # a strict `> 0.0`: nothing lives in the gap. In min-edge terms 1e-10
+        # m^2 is an equilateral triangle of 0.0152 mm edge (1e-8 -> 0.152 mm,
+        # 1e-12 -> 0.0015 mm) against a smallest kept min-edge of 0.378 mm on
+        # the reference hull — 25x clear of the 1e-10 bar's own edge scale.
+        # The value is therefore CALIBRATED, not derived: it is any number
+        # inside the measured empty band (0, 5.6e-6] m^2, and it is left where
+        # it is because nothing measured moves it. What WOULD move it is a
+        # bar that starts deleting real triangles — a hole in a mesh whose
+        # watertightness is coincidental (see the docstring) is not a smaller
+        # mesh, it is an open shell that lets the mesher flood the interior.
         def quad(a, b, c, d) -> None:
             # split into two triangles; drop degenerate slivers
             for tri in ((a, b, c), (a, c, d)):

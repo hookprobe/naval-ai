@@ -15,7 +15,13 @@ answer, the certification says UNKNOWN or REFUSED by name; it never
 fabricates (a criterion that is not sourced returns REFUSE, not a pass).
 
 NO CFD. Nothing in this module launches or needs a solver; the
-`cfd_candidate` block *selects* what would deserve one.
+`cfd_candidate` block *selects* what would deserve one — and since
+2026-08-20 that selection is the FIDELITY GOVERNOR's (`select_fidelity`,
+directive §21 / BUILD-PLAN §11.8), not this module's own opinion. The
+certification carries the governor's five-gate receipt in `.fidelity`, and
+`cfd_candidate["eligible"]` now means "select_fidelity says CFD is
+admissible AND decision-worthy" instead of the old implicit "anything the
+ladder can evaluate deserves a solver".
 """
 
 from __future__ import annotations
@@ -33,8 +39,10 @@ from .energy import energy_report
 from .evaluate import evaluate
 from .geometry import Hull
 from .hydrostatics import GZCurve, gz_curve, multihull_gz_assessment
+from .limits import WH_PER_NM_SIGMA_PRODUCT
 from .mission import Manning, MissionSpec
 from .resistance import FN_MICHELL_MAX, total_resistance
+from .select_fidelity import FN_PLANING_ONSET, select_fidelity
 
 
 @dataclass(frozen=True)
@@ -93,7 +101,10 @@ _SUPPORTED_REGIMES = {
 # Fn bands: displacement practice below FN_MICHELL_MAX; the 0.65 planing
 # onset is the conventional practice figure and is used ONLY to name which
 # unsupported regime a mission asked for — it gates nothing else.
-_FN_PLANING_ONSET = 0.65
+# ONE HOME (2026-08-20): the same number is gate 3's top band in
+# `select_fidelity`, so it is IMPORTED from there rather than declared twice;
+# the local name is kept because this module's regime router reads it.
+_FN_PLANING_ONSET = FN_PLANING_ONSET
 
 
 def mission_regime(mission: MissionSpec,
@@ -299,6 +310,15 @@ class DesignCertification:
     violations: tuple[str, ...]
     assumptions: tuple[str, ...]
     evaluation_ok: bool
+    # THE FIDELITY GOVERNOR'S RECEIPT (`select_fidelity`, 2026-08-20), added
+    # last and defaulted so nothing that constructs this object positionally
+    # can break. Before it, every valid design ran the SAME L1 model and was
+    # BADGED (the speed curve's validity bands) but never ROUTED, and
+    # `cfd_candidate["eligible"]` meant "anything valid is CFD-worthy". This
+    # block carries the five-gate decision — tier, the gate that decided it
+    # with its measured value, every gate's receipt, and the warnings — and
+    # `cfd_candidate` now consumes it.
+    fidelity: dict = field(default_factory=dict)
 
 
 # MARGINAL band: a satisfied constraint within this relative margin of its
@@ -330,6 +350,13 @@ def certify(params, mission: MissionSpec,
         reasons.append(f"regime {regime}: {why}")
 
     if ev.hydro is None:
+        # The governor still answers — on the mission's own declared length
+        # hint and speed, with every gate it cannot decide NAMED. A hull that
+        # never floated has no LWL of its own, and the receipt says which
+        # inputs were missing instead of leaving the block empty.
+        unfloated = select_fidelity(
+            lwl_m=mission.lwl_hint_m, speed_ms=mission.cruise_speed_ms(),
+            mission=mission)
         return DesignCertification(
             verdict="REFUSE",
             genome_sha256=hashlib.sha256(x.tobytes()).hexdigest(),
@@ -339,9 +366,12 @@ def certify(params, mission: MissionSpec,
             descriptors={}, targets=dict(ev.targets), speed_curve=(),
             loading={}, stability={}, buildability={}, cfd_candidate={
                 "score": 0.0, "eligible": False,
-                "why": "never floated — nothing to simulate"},
+                "why": "never floated — nothing to simulate",
+                "fidelity_tier": unfloated.tier,
+                "fidelity_why": unfloated.why,
+                "decision_worthy": unfloated.cfd_decision_worthy},
             violations=tuple(ev.violations), assumptions=(),
-            evaluation_ok=False)
+            evaluation_ok=False, fidelity=unfloated.to_dict())
 
     hull = Hull(x)
     hs = ev.hydro
@@ -377,6 +407,25 @@ def certify(params, mission: MissionSpec,
     assumptions.append("speed curve holds the mission-equilibrium flotation "
                        "(no squat/sinkage with speed)")
     loading = loading_matrix(x, mission)
+
+    # --- the fidelity governor (select_fidelity, §21/§11.8) ---------------
+    # WHICH MODEL MAY ANSWER, decided rather than badged. The speed curve
+    # above BANDS each point against the two L1 envelopes; the governor is the
+    # layer the audit found missing — the one that ROUTES, and that refuses
+    # CFD on a design where no calm-water correction could move a verdict.
+    # Its `expected_correction_frac` is the L1 model's OWN relative sigma:
+    # the honest magnitude of what a higher tier could correct on this hull.
+    # The verdict-flip distance is deliberately NOT passed — nothing here
+    # measures how far this design sits from a solar-day/range flip, and
+    # §16's escalation clause must not fire on an input nobody supplied.
+    rel_sigma = ev.resistance.uncertainty / max(ev.resistance.total, 1e-9)
+    fid = select_fidelity(
+        lwl_m=float(hs.lwl_eff), speed_ms=mission.cruise_speed_ms(),
+        lb_ratio=lb, displacement_kg=float(hs.disp_kg), mission=mission,
+        hull_resistance_n=float(ev.resistance.total),
+        expected_correction_frac=float(rel_sigma))
+    assumptions.append(
+        f"fidelity governor: {fid.tier} — {fid.why}")
 
     # --- stability: GZ where affordable, refusal where the criterion is ---
     stability: dict = {"gm_m": float(ev.gm_m)}
@@ -519,8 +568,6 @@ def certify(params, mission: MissionSpec,
                        ("VALID" if ev.resistance.valid else "UNSUPPORTED"))
         if cruise_band in ("TRANSITION", "EXTRAPOLATED"):
             marginal.append(f"resistance at cruise is {cruise_band}")
-        rel_sigma = (ev.resistance.uncertainty
-                     / max(ev.resistance.total, 1e-9))
         if rel_sigma > 0.35:
             marginal.append(f"resistance sigma {rel_sigma:.0%} — the model "
                             f"partly disowns this hull")
@@ -559,8 +606,19 @@ def certify(params, mission: MissionSpec,
     # round-bilge target class structurally CFD-ineligible. Eligibility is
     # physics + validity; when the buildable metric is missing, the score
     # is the mean of the parts that exist and the omission is named.
+    #
+    # THE GOVERNOR IS NOW THE ELIGIBILITY TEST (2026-08-20). "CFD-eligible"
+    # used to mean "the ladder could evaluate this hull", which made every
+    # valid design CFD-worthy — a funnel with no filter. It now means
+    # `select_fidelity` says CFD is BOTH admissible (no gate bars it: the
+    # environment does not dominate, a wave system exists, the friction line
+    # is not being read outside its regime) AND decision-worthy (the expected
+    # correction clears `limits.WH_PER_NM_SIGMA_PRODUCT`). The validity
+    # conjuncts stay: they answer a different question (can the ladder produce
+    # the handoff state at all).
     eligible = (ev.ok and supported
-                and all(p.validity != "UNSUPPORTED" for p in curve[:1]))
+                and all(p.validity != "UNSUPPORTED" for p in curve[:1])
+                and fid.cfd_allowed and fid.cfd_decision_worthy)
     score = 0.0
     parts: dict[str, float] = {}
     if eligible:
@@ -574,11 +632,21 @@ def certify(params, mission: MissionSpec,
         score = sum(parts.values()) / len(parts)
     cfd_candidate = {
         "score": round(score, 3), "eligible": eligible, "parts": parts,
+        "fidelity_tier": fid.tier,
+        "fidelity_why": fid.why,
+        "cfd_allowed": fid.cfd_allowed,
+        "decision_worthy": fid.cfd_decision_worthy,
+        "expected_correction_frac": fid.expected_correction_frac,
+        "worthiness_bar": WH_PER_NM_SIGMA_PRODUCT,
         "note": ("buildable part omitted: developability analyser "
                  "inapplicable to this hull; " if "refused" in
                  buildability else "")
                 + "single-design factors only; Pareto/novelty rank requires "
-                "the population layer (dataset generator)",
+                "the population layer (dataset generator); eligibility is "
+                "the fidelity governor's (select_fidelity), not 'valid "
+                "therefore worthy'"
+                + ("" if fid.cfd_decision_worthy else
+                   f" — REFUSED HERE: {fid.gate('DECISION_WORTHINESS').why}"),
     }
 
     return DesignCertification(
@@ -591,4 +659,5 @@ def certify(params, mission: MissionSpec,
         targets=dict(ev.targets), speed_curve=curve, loading=loading,
         stability=stability, buildability=buildability,
         cfd_candidate=cfd_candidate, violations=tuple(ev.violations),
-        assumptions=tuple(assumptions), evaluation_ok=bool(ev.ok))
+        assumptions=tuple(assumptions), evaluation_ok=bool(ev.ok),
+        fidelity=fid.to_dict())

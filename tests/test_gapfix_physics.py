@@ -822,6 +822,18 @@ def test_multihull_clauses_a_b_are_measured_and_the_verdict_stays_open():
     assert isinstance(a.clause_b_satisfied, bool)
     assert a.passes is None
     joined = " ".join(a.unassessable)
-    assert "projected lateral area" in joined and "NOT READ" in joined
+    # RE-PINNED 2026-08-20 — the REASON changed, and the pin has to follow it
+    # or it pins a fiction. This line asserted "NOT READ", which recorded that
+    # cl 1.4(d)'s TEXT was unavailable past the paywall. R2.2 (commit "the
+    # cl 1.4 class verdicts too", 2026-08-19) READ (d) and computed it, so
+    # (d) now says "(READ 2026-08-19)" and the only thing still blocking
+    # (c)/(d) is a MISSING DECLARED INPUT, not a missing document. The
+    # assertion is therefore strengthened rather than relaxed: both clauses
+    # must appear by number, (c) must still name the quantity it needs
+    # (the projected lateral area), and the refusal must name the DECLARABLE
+    # that unlocks it — which is what makes the refusal actionable.
+    assert "(c)" in joined and "(d)" in joined
+    assert "projected lateral area" in joined
+    assert "not declared" in joined and "mission.windage" in joined
     with pytest.raises(ValueError, match="n_hulls > 1"):
         H.multihull_gz_assessment(h, 2800.0, 0.9)     # monohull refused
