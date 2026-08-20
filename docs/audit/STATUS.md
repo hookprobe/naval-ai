@@ -1499,10 +1499,27 @@ default and remains a receipt only. It does not become the default on the
 strength of two hulls.
 
 ### BLOCK 4 (~40 min) — the regime coverage matrix, mesh-only
-One hull per row: 2.5-3 m, 3-5 m, 5-7 m, 7-10 m, 10-12 m, plus one
-catamaran and one plumb-bow/zero-flare form, each at its cruise Fn.
-fortress will send the genomes (they come out of the contract, so each
-already carries its regime, its prescription and its expected tau).
+GENOMES ARE IN THE REPO NOW: `data/coverage-band-hulls.json`, four bands
+(3-5, 5-7, 7-10, 10-12 m), each with the cruise speed that puts it at
+Fn 0.25 so the bands are compared at the SAME Froude number rather than at
+one boat's speed. Read the file's `_README` before you run it — it says
+plainly that these are MESHING-coverage hulls, not certifiable designs.
+
+WHY THAT DISTINCTION, and it is a finding rather than an excuse:
+fortress measured 60 Fn-matched uniform grammar draws and got 40 REFUSED /
+1 MARGINAL / 0 ACCEPT, dominated by NEGATIVE GM (29 of 60). The grammar
+box admits geometry, not stable boats — so a coverage matrix built by
+sampling cannot be a matrix of certifiable designs, and pretending
+otherwise would put a claim on this block it cannot carry. What Block 4
+measures is the MESHER across the size range, which these hulls are
+exactly right for. The 2.5-3 m band produced nothing even meshing-clean
+in ten draws; that band is simply absent, not silently substituted.
+
+Each hull's prescription (density, cell sizes, first layer, n_layers,
+expected tau) comes from `contract.mesh_prescription` — worth printing
+beside the checkMesh result, since the prescribed layer counts across
+these bands are 3 / 4 / 5 / 7 and the shipped writer would request 7 for
+all of them.
 WHY: the directive's §15 — the supported domain must be shown to WORK
 across its width, not just at the reference hull. This is the first
 measurement of mesh behaviour by SIZE rather than by draw order.
