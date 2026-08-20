@@ -3,46 +3,69 @@
 WHY THIS FILE EXISTS. `grammar.check()` decides "valid hull" from closed-form
 naval-architecture constraints plus one developability metric, and
 `evaluate()` adds "L1 physics returns a finite number". Neither asks the
-question the Gate 2U campaign is failing on: can the STL ->
+question the Gate 2U campaign was failing on: can the STL ->
 snappyHexMesh -> prism-layer pipeline represent this shape at the cell size
-the pipeline picks? MEASURED on the seed-0 batch (`--n 25`, scale 1.0, speed
-2.57, LTS, np=10, `data/gate2u-campaign-baseline.json`): of the first 18 hulls
-recorded, **6 meshed and 12 did not** — a 33% mesh rate against a >=95% bar,
-with the failures spread over `checkmesh-wrong-oriented` (7),
-`checkmesh-zero-volume` (3), `checkmesh-skewness` (1) and
-`mesh-build-failed` (1). Every one of those 18 hulls passes `grammar.check()`.
+the pipeline picks? The motivating measurement was a seed-0 batch in which
+**6 of 18 hulls meshed** against a >=95% bar, every one of them
+`grammar.check()`-valid. That batch is HISTORY and is named as such below.
 
-WHAT THIS FILE DOES NOT CLAIM. It is a SCREEN, not a predictor. Two bars below
-are derived from the pipeline's own constants and validated against the
-labelled campaign; between them they refuse 6 of 12 observed mesh failures
-with 0 false alarms on 6 successes — **TP 6, FP 0, FN 6, TN 6; precision
-1.000, recall 0.500; Fisher exact one-sided p = 0.0498**, which is evidence
-and is not proof. The other half of the failures are NOT predicted by
-anything measured here, and the metrics an external review expected to predict
-them — the stem cusp and the x_mb tangent break — MEASURED AUC 0.500 and 0.500
-respectively on that set, i.e. exactly chance. They are kept as DIAGNOSTIC
-readings, reported and forbidden to vote, precisely so a later session cannot
-mistake "we compute it" for "it predicts".
+EVERY NUMBER IN THIS MODULE IS NOW ABOUT ONE NAMED POPULATION, AND THAT IS
+THE 2026-08-20 CHANGE. `navalai.population` made a population quotable:
+identity is `(arity, seed)`, not seed alone, because `sample_valid` draws
+from `default_rng(seed)` and ADDING A GENE CHANGES THE DRAW SEQUENCE.
+MEASURED there: the 15-gene and 16-gene banks both record `seed = 0` and
+share **ZERO** hulls. So the two calibration eras are:
 
-WHAT "DANGEROUS" ACTUALLY MEANS HERE, AND IT IS NARROWER THAN THE NAME.
-MEASURED 2026-08-11 on the back-off campaign
-(`data/gate2u-campaign-backoff-mesh.json`, same seed and hulls, mesh-only,
-`--layer-backoff 3`): **every hull this screen refuses meshes cleanly once the
-prism-layer ladder is allowed to step down** — hulls 0, 1, 5, 6 and 11 at 8, 7,
-8, 8 and 7 layers, 0 zero-volume and 0 wrongly-oriented faces, skew 4.5/3.3/
-4.5/4.7/5.1. Over hulls 0-11 the rate goes **3 of 12 at rung 0 to 11 of 12**
-with the ladder. So a DANGEROUS verdict here predicts *"this hull will be
-refused at the DERIVED layer count"*, not *"this hull cannot be meshed"*, and
-the one hull that still fails with the ladder (hull 4) this screen calls SAFE.
-Naming it otherwise would be the same defect as a gate that reports the
+    HISTORY   `a15/s0/n74` and its prefixes — `gate2u-campaign-baseline.json`
+              (18 labelled hulls, 6 meshed), `gate2u-campaign-backoff-mesh.json`
+              (the ladder-rescue evidence), `gate2u-cap*-mesh.json`. This tree
+              CANNOT regenerate them (`navalai.population` prints HISTORY for
+              every one), so no rate from them is quotable as current. The
+              15-gene confusion table — TP 6, FP 0, FN 6, TN 6; precision
+              1.000, recall 0.500; Fisher exact one-sided p = 0.0498 — is
+              recorded here as what it was and is NOT this module's result.
+    CURRENT   `a16/s0/n25`, the DEVELOPMENT population (`population.DEV_SEED`),
+              pinned in `data/populations/a16-s0-n25@*.json` and labelled by
+              `CALIBRATION_BANK` below. `calibration_is_current()` compares the
+              bank's `genome_sha256` against that manifest's, so a label can
+              no longer be transferred to hulls it was not measured on — which
+              is exactly how the 15-gene table came to be quoted against
+              16-gene hulls in the first place.
+
+WHAT THIS FILE DOES NOT CLAIM, MEASURED ON THE CURRENT POPULATION. It is a
+SCREEN, and on `a16/s0/n25` at scale 1.0 it is not even that: it returns **no
+DANGEROUS verdict at all**, and the one hull that is refused at rung 0 by the
+metal it calls SAFE. The confusion table is pinned by
+`test_the_screen_predicts_neither_rung_0_refusal_on_the_16_gene_population`
+and the recall is pinned at ZERO on purpose — a later edit that quietly claims
+more must fail a test rather than be believed. The metrics an external review
+expected to predict mesh failure — the stem cusp and the x_mb tangent break —
+measured AUC 0.500 and 0.500 on the 15-gene set, i.e. exactly chance, and are
+kept as DIAGNOSTIC readings, reported and forbidden to vote, precisely so a
+later session cannot mistake "we compute it" for "it predicts".
+
+WHAT "DANGEROUS" ACTUALLY MEANS HERE, AND IT IS NARROWER THAN THE NAME. A
+DANGEROUS verdict predicts *"this hull will be refused at the DERIVED layer
+count"*, not *"this hull cannot be meshed"*. The original evidence was the
+2026-08-11 back-off campaign (`data/gate2u-campaign-backoff-mesh.json`: hulls
+0, 1, 5, 6 and 11 all meshed once the prism-layer ladder stepped down, 3 of 12
+at rung 0 becoming 11 of 12 with the ladder) — HISTORY, 15-gene.
+
+RE-MEASURED 2026-08-20 ON THIS TREE, because the 15-gene evidence was
+label-void and the ledger's 16-gene corroboration predates the 161-station STL
+rebuild. `data/gate2u-a16-s0-n25-backoff-mesh.json`, the same hulls as the
+calibration bank's first twelve, `--layer-backoff 3`: **12 of 12 mesh**
+against 11 of 12 at rung 0. The single rung-0 refusal, h011, goes derived
+n=7 FATAL (26 wrongly-oriented faces, skew 11.30) -> rung 1, n=6 -> CLEAN (0
+wrongly-oriented, 0 zero-volume, skew 2.980, 71.0% layer coverage) in TWO
+attempts, on a BYTE-IDENTICAL STL (`stl_sha256` 973d90d8.. in both banks). So
+the mesh outcome moved with the layer count and nothing else. Naming a rung-0
+prediction "unmeshable" would be the same defect as a gate that reports the
 requested spec under the label of the achieved result.
 
-WHAT IT MEASURES ABOUT THE MANIFOLD. Over 200 grammar-valid hulls (seed 1234,
-speed 2.57, scale 1): **68 DANGEROUS / 79 MARGINAL / 53 SAFE**. 19.5% put the
-keel inside the free-surface refinement band and 17.0% carry a sheer the
-geometry kernel silently clipped to zero. So a third of what `grammar.check()`
-blesses is fragile at the derived layer count — the review's structural claim,
-quantified and then bounded by the paragraph above.
+WHAT IT MEASURES ABOUT THE MANIFOLD. The distribution over a 200-hull draw is
+measured by `test_the_manifold_the_grammar_emits_is_screened_and_mostly_
+admissible`, which owns the numbers; they are not restated here.
 
 The bars are per-metric and typed, and there is no single opaque score: a
 single score is what lets a system tune the design space until the number goes
@@ -108,7 +131,9 @@ calibration status in docs/MESHABILITY_MATH.md). Three changes, each measured:
 from __future__ import annotations
 
 import enum
+import json as _json
 import math
+import pathlib as _pathlib
 from dataclasses import dataclass
 
 import numpy as np
@@ -130,40 +155,132 @@ from .geometry import Hull, _stations, station_geometry
 #: the parameter COUNT, because that is what makes a stored campaign vector
 #: replayable or not.
 #:
-#: Every numeric bar below was set by looking at a LABELLED OpenFOAM campaign:
-#: `data/gate2u-campaign-baseline.json`, 18 hulls at seed 0, speed 2.57, LTS,
-#: np=10, each with a measured checkMesh outcome. The bars are the thresholds
-#: that separated the hulls that meshed from the ones that did not.
+#: 15 -> 16 ON 2026-08-20, AND THE HISTORY MATTERS MORE THAN THE VALUE. Every
+#: numeric bar below was originally set against `gate2u-campaign-baseline.json`
+#: — 18 hulls of `a15/s0/n74`, speed 2.57, LTS, np=10, each with a measured
+#: checkMesh outcome. The geometry-kernel rebuild took the genome to 16
+#: parameters (`p_bow` and `p_stern` dropped, `Cp`, `lcb` and `roundness`
+#: added), which VOIDED that calibration outright: a stored 15-gene vector
+#: does not describe a hull the current `Hull` can build, and "hull 12" in
+#: that file is not `sample_valid(..., seed=0)[12]` today. The LABELS were
+#: what was lost.
 #:
-#: THE GEOMETRY KERNEL REBUILD VOIDED THAT CALIBRATION, and it cannot be
-#: repaired by re-tuning. The genome went 15 -> 16 parameters (`p_bow` and
-#: `p_stern` dropped, `Cp`, `lcb` and `roundness` added), so a stored campaign
-#: vector does not describe a hull the current `Hull` can build, and "hull 12"
-#: in that file is not the hull `sample_valid(..., seed=0)[12]` produces now.
-#: The LABELS are what is lost, not the numbers: re-tuning bars against hulls
-#: whose mesh outcome nobody has measured would be calibrating against nothing,
-#: which is worse than an honest gap.
-#:
-#: MEASURED after the rebuild, on the same test: the screen went from catching
-#: 6 of 12 observed failures with 0 false refusals to (5, 3) — but BOTH of
-#: those numbers are computed against labels that no longer belong to these
-#: hulls, so neither is a result.
-#:
-#: The tests that depend on those labels skip on this constant rather than
-#: being deleted or re-tuned, and they UN-SKIP AUTOMATICALLY the moment a
-#: campaign is run on the current genome. Gate 2A's ledger row carries the
-#: debt with an owner and a review-by date.
-CALIBRATION_GENOME_N_PARAMS = 15
+#: What closed the gap is not a re-tune, it is a RE-MEASUREMENT: the bars were
+#: re-based on 2026-08-19 against the first 16-gene confusion table, and this
+#: constant now names a campaign run on the CURRENT genome and the CURRENT
+#: geometry kernel (`CALIBRATION_BANK`). Nothing was softened to make a test
+#: pass — the one bar the 16-gene table refuted, `draft_over_hull_cell`, was
+#: DEMOTED to a non-voting receipt rather than moved.
+CALIBRATION_GENOME_N_PARAMS = 16
+
+#: The DEVELOPMENT population the bars are calibrated on, by name. `seed = 0`
+#: is development permanently (`population.DEV_SEED`): it is where the rules
+#: were discovered and the bars were moved, and contamination is a one-way
+#: door. Calibrating against `population.VAL_SEED` or `HOLDOUT_SEED` would
+#: destroy the only two populations this project has that were never tuned on.
+CALIBRATION_POPULATION_ID = "a16/s0/n25"
+
+#: The LABELLED campaign: one `scripts/mesh_robustness.py` row per hull of
+#: `CALIBRATION_POPULATION_ID`, with a measured checkMesh outcome. RUNG 0 —
+#: `LAYER_BACKOFF=0`, the pipeline as it ships — which is the configuration a
+#: DANGEROUS verdict is a prediction about.
+CALIBRATION_BANK = (_pathlib.Path(__file__).resolve().parents[1] / "data"
+                    / "gate2u-a16-s0-n25-mesh.json")
+
+#: The SAME hulls with the layer-backoff ladder enabled. It is what bounds
+#: the word "DANGEROUS" (module docstring), and it is a SEPARATE file rather
+#: than a column because mixing two configurations into one bank is how a
+#: rate stops meaning anything.
+CALIBRATION_BACKOFF_BANK = (_pathlib.Path(__file__).resolve().parents[1]
+                            / "data"
+                            / "gate2u-a16-s0-n25-backoff-mesh.json")
+
+
+def calibration_bank() -> dict | None:
+    """The labelled campaign the bars are calibrated against, or None.
+
+    None is returned for a missing or unparseable file and NEVER an empty
+    dict: "I could not read the labels" must not be able to look like "the
+    labels say nothing is wrong" (docs/LESSONS.md defect class 1).
+    """
+    try:
+        return _json.loads(CALIBRATION_BANK.read_text())
+    except (OSError, ValueError):
+        return None
 
 
 def calibration_is_current() -> bool:
-    """Do the labelled campaign's vectors still describe buildable hulls?
+    """Do the labelled campaign's labels belong to THIS tree's hulls?
 
-    A probe, not a belief — the same discipline as `gates.Requirement`. It is
-    deliberately keyed on `grammar.N_PARAMS` rather than a hand-maintained
-    flag, so nobody can declare the calibration current by editing a string.
+    A probe, not a belief — the same discipline as `gates.Requirement`.
+
+    STRENGTHENED 2026-08-20. It used to be `grammar.N_PARAMS == 15`, i.e. an
+    ARITY comparison, and an arity comparison cannot see the defect it was
+    written for: two populations of the same arity drawn either side of a box
+    edge moving are different hulls carrying the same name. So the probe is
+    now the GENOME HASH — the bank's `genome_sha256` against the pinned
+    manifest's — which is the only statement that cannot be satisfied by two
+    populations agreeing about their arity and disagreeing about their hulls.
+    The arity check is kept as a necessary condition so the failure reads in
+    the right order.
+
+    Every clause is a REFUSAL on missing evidence: an unreadable bank, an
+    absent manifest and a null hash all return False, because a screen whose
+    labels cannot be located is not a calibrated screen.
     """
-    return grammar.N_PARAMS == CALIBRATION_GENOME_N_PARAMS
+    if grammar.N_PARAMS != CALIBRATION_GENOME_N_PARAMS:
+        return False
+    bank = calibration_bank()
+    if bank is None:
+        return False
+    if bank.get("genome_arity") != CALIBRATION_GENOME_N_PARAMS:
+        return False
+    banked = bank.get("genome_sha256")
+    if not banked:
+        return False
+    from . import population as _population
+    doc = None
+    for _path, cand in _population.manifests():
+        if cand.get("population_id") == CALIBRATION_POPULATION_ID:
+            doc = cand
+            break
+    if doc is None or doc.get("genome_sha256") != banked:
+        return False
+    # A PARTIAL BANK IS NOT A CALIBRATION. `mesh_robustness.py` writes its
+    # JSON after every hull so a thermal sleep cannot lose a campaign, so a
+    # bank in hand may be seven rows of a twenty-five-hull population — and
+    # its `population_id` then reads `a16/s0/n7`, a name for a set that was
+    # never drawn as such. The labels are only this population's labels when
+    # every hull of it carries one.
+    want = int(str(CALIBRATION_POPULATION_ID).rsplit("/n", 1)[-1])
+    hulls = {int(r["hull"]) for r in (bank.get("rows") or []) if "hull" in r}
+    return hulls == set(range(want))
+
+
+def calibration_labels() -> tuple[dict, tuple[int, ...], tuple[int, ...]]:
+    """(bank, meshed hull ids, failed hull ids) for the calibration campaign.
+
+    THE LABELS ARE READ, NEVER TRANSCRIBED. Until 2026-08-20 this file
+    transcribed `MESHED = (2, 7, 9, 13, 15, 17)` into the test module, on the
+    stated grounds that the campaign JSON was an untracked, still-growing
+    artefact. It is now a committed, complete bank with a genome hash — and a
+    transcription is a number declared twice (defect class 2) whose second
+    copy cannot notice that the population under it moved. That is precisely
+    what happened: the transcribed labels outlived the hulls they described by
+    six days.
+
+    Raises rather than returning stale labels if the bank is not this tree's.
+    """
+    if not calibration_is_current():
+        raise RuntimeError(
+            f"{CALIBRATION_BANK.name} does not label {CALIBRATION_POPULATION_ID}"
+            f" as this tree draws it — refusing to hand back labels that would"
+            f" be attached to hulls nobody measured.")
+    bank = calibration_bank() or {}
+    rows = bank.get("rows") or []
+    meshed = tuple(int(r["hull"]) for r in rows if r.get("meshed"))
+    failed = tuple(int(r["hull"]) for r in rows if not r.get("meshed"))
+    return bank, meshed, failed
 
 
 class Verdict(enum.Enum):
@@ -448,11 +565,16 @@ def screen(hull: Hull | np.ndarray, speed: float = 2.57,
     (docs/LESSONS.md defect class 6).
 
     THE CONFIGURATION THIS VERDICT IS ABOUT is the pipeline at **rung 0** — the
-    layer count `n_layers_to_bridge` derives, no back-off. Measured, every hull
-    it refuses meshes with the ladder enabled (module docstring). Read a
-    DANGEROUS as "expect a checkMesh refusal at the derived layer count", which
-    is worth ~80 s of snappy per hull to know in 7.6 ms, and not as "this hull
-    is unmeshable".
+    layer count `n_layers_to_bridge` derives, no back-off. Read a DANGEROUS as
+    "expect a checkMesh refusal at the derived layer count", which is worth
+    ~80 s of snappy per hull to know in ~50 ms, and NOT as "this hull is
+    unmeshable": every rung-0 refusal measured on either genome meshed clean
+    once the ladder stepped down (module docstring).
+
+    AND READ A `SAFE` AS EVEN LESS THAN THAT. On the current calibration
+    population this screen returns no DANGEROUS verdict at all and misses the
+    one rung-0 refusal the metal found, so `SAFE` here means "no bar in this
+    module fired", not "this hull will mesh".
     """
     h = hull if isinstance(hull, Hull) else Hull(np.asarray(hull, dtype=float))
     x = h.params
@@ -728,8 +850,10 @@ def screen(hull: Hull | np.ndarray, speed: float = 2.57,
                   "sheer half-breadth one hull cell aft of the stem. The "
                   "w**0.15 taper gives an unbounded plan-form tangent there, "
                   "so this is how many cells wide the bow already is at the "
-                  "first cell. AUC vs mesh failure on the labelled batch: "
-                  "0.500 (chance). Reported, does not vote."))
+                  "first cell. AUC vs mesh failure on the 15-gene labelled "
+                  "batch (`a15/s0/n74`, HISTORY): 0.500, chance. Not "
+                  "re-measurable on `a16/s0/n25` — one labelled failure "
+                  "cannot carry an AUC. Reported, does not vote."))
     xm = p["x_mb"] * lwl
     eps = 1e-5 * lwl
 
@@ -742,8 +866,9 @@ def screen(hull: Hull | np.ndarray, speed: float = 2.57,
               for i in (1, 3)]
     add(Metric.of("xmb_tangent_break_deg", max(breaks), "deg", Basis.DIAGNOSTIC,
                   "plan-form tangent discontinuity at x_mb, max over chine and "
-                  "sheer. AUC vs mesh failure on the labelled batch: 0.500 "
-                  "(chance). Reported, does not vote."))
+                  "sheer. AUC vs mesh failure on the 15-gene labelled batch "
+                  "(`a15/s0/n74`, HISTORY): 0.500, chance. Reported, does "
+                  "not vote."))
 
     S = surface_grid(h, sc["nx"], sc["nz"])
     N, ok = _quad_normals(S)
@@ -753,21 +878,26 @@ def screen(hull: Hull | np.ndarray, speed: float = 2.57,
                   Basis.DIAGNOSTIC,
                   "largest normal change between longitudinally adjacent STL "
                   "quads. Dominated by the 41-station crease pattern, not by "
-                  "the hull's shape: labelled failures span 24.7..40.9 deg and "
-                  "successes 24.9..42.2 deg, AUC 0.673. Does not vote."))
+                  "the hull's shape: on the 15-gene labelled batch "
+                  "(`a15/s0/n74`, HISTORY) failures spanned 24.7..40.9 deg "
+                  "and successes 24.9..42.2, AUC 0.673. Does not vote."))
     add(Metric.of("stack_over_hull_cell", sc["stack"] / cell, "-",
                   Basis.DIAGNOSTIC,
                   "prism-stack height in hull cells. docs/LESSONS.md records a "
                   "build-time cap on this ratio being DRAFTED AND KILLED by "
                   "its own data (Wigley solves at 1.084, KCS dies at 0.952). "
-                  "Labelled AUC 0.621. Does not vote, for that reason."))
+                  "AUC 0.621 on the 15-gene labelled batch (`a15/s0/n74`, "
+                  "HISTORY). Does not vote, for that reason."))
     add(Metric.of("derived_n_layers", float(sc["n_layers"]), "layers",
                   Basis.DIAGNOSTIC,
                   "prism-layer count `n_layers_to_bridge` derives for this "
                   "hull. It is 8-10 for essentially every hull the grammar "
                   "emits, so it cannot separate them — but it is the lever the "
-                  "back-off campaign moved: on hulls 0-4, rung 0 meshed 1 of 5 "
-                  "and the back-off ladder meshed 4 of 5. Does not vote."))
+                  "back-off campaign moved: on 15-gene hulls 0-4 "
+                  "(`a15/s0/n74`, HISTORY) rung 0 meshed 1 of 5 and the "
+                  "ladder meshed 4 of 5, and on 16-gene hulls h011/h012 the "
+                  "ladder's FIRST rung cleared both (Gate 2U ledger, BLOCK "
+                  "1, 2026-08-20). Does not vote."))
     # The INTENDED minimum cell flow time scale of this case: the smallest
     # cell dimension the derivation asks for (the layer minThickness snappy
     # may squeeze to, or the post-refine free-surface cell height, whichever
@@ -856,6 +986,29 @@ def main(argv=None) -> int:                       # pragma: no cover - CLI
         rec = json.loads(Path(args.campaign).read_text())
         X, _ = sample_valid(max(r["hull"] for r in rec["rows"]) + 1,
                             MissionSpec(), seed=rec["seed"])
+        # RE-DRAWING FROM `seed` ALONE IS THE DEFECT THIS TOOL EXISTS TO
+        # REPORT ON (`navalai.population`, 2026-08-20): the 15-gene and
+        # 16-gene banks both record `seed = 0` and share ZERO hulls, so
+        # scoring a bank by re-sampling its seed silently attaches its labels
+        # to whatever the current box draws. If the bank carries a content
+        # hash, it is CHECKED; if it does not, that is said out loud rather
+        # than assumed benign.
+        from . import population as _population
+        banked = rec.get("genome_sha256")
+        if banked:
+            got = _population.genome_sha256(X[:rec.get("n", len(X))])
+            if got != banked:
+                print(f"REFUSING {args.campaign}: it records genome_sha256 "
+                      f"{banked} and this tree draws {got} from seed "
+                      f"{rec['seed']}. These are not the same hulls; the "
+                      f"labels cannot be transferred.")
+                return 2
+        else:
+            print(f"WARNING: {args.campaign} carries no genome_sha256 (it "
+                  f"predates navalai.population). Its rows are being scored "
+                  f"against a re-draw from seed {rec['seed']}, which is only "
+                  f"the same population if the grammar box has not moved "
+                  f"since. UNVERIFIED.")
         screened = [(r["hull"], screen(X[r["hull"]], rec["speed"], rec["scale"]))
                     for r in rec["rows"]]
         cm = _confusion(screened, rec["rows"])
