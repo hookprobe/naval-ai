@@ -1138,6 +1138,34 @@ FIXES 2-3, THE RE-DERIVED 2M SHAPE (replacing the weekend triplet):
 
 The weekend triplet stays cancelled. The Mac's next CFD spend after the
 2U rows: the ONE medium KCS anchor, estimator-settled.
+## Mac: GATE 2U RE-BASED ON THE SHIPPED GENOME — 88.2% raw / 84.6% screened at N=17, banked and stopped. Awaiting fortress001.
+
+The ledger row is rewritten — the first solve-rate measurement on the
+16-parameter genome, and the void 15-gene calibration is retired with it.
+
+    raw        15/17 = 88.2%  meshes AND converges unattended at rung 0
+    screened   11/13 = 84.6%  (SAFE+MARGINAL, what the C-18 writer admits)
+    mesh half  25/25 drawn -> 92.0% raw / 89.5% screened (separate file)
+    identity   stl_sha256 on all 17 rows; screen_verdict + no_rescue carried
+    bar        >=95% of 200 — BELOW on both rate and sample size, recorded
+
+N=17 NOT 25 BY OPERATOR DECISION (night tariff). h017's partial — 13 of 2000
+iterations when power stopped — is EXCLUDED, not scored as a failure; h018-024
+were never drawn. Nothing is deleted and `--resume` on runs/g2u_16gene picks
+up exactly there.
+
+THE TWO FAILURES ARE DETERMINISTIC GEOMETRY, NOT LUCK: h011 (13 wrong-oriented
+faces, skew 247) and h012 (12 faces) refused at rung 0 here AND independently
+in the mesh-only pass. Both were called SAFE by the screen, while 4 of 4
+DANGEROUS hulls solved cleanly — the second independent measurement that the
+rung-0 half of the screen is not a predictor, consistent with the mesh-only
+confusion table you already acted on.
+
+WHY IT STOPS HERE RATHER THAN FINISHING THE 8: the operator's math directive
+is with you. If settledness becomes a batch-means CI, these 17 force histories
+are its test bed and every one of them can be RE-SCORED for free — worth more
+than 8 additional rows measured under an estimator about to be superseded.
+The Mac holds: no CFD running, nothing rented, weekend triplet still ON HOLD.
 
 ## Save protocol
 Every rung lands as its own commit, pushed immediately. If a session dies,
