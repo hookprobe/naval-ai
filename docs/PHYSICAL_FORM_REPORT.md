@@ -31,8 +31,8 @@ L/B 2.44, B/T 5.13 — a beamy plywood dinghy-class hull; Fn 0.29 at 4 kn, Cp ge
 **Mission**: displacement target 800 kg · cruise 4 kn (design Fn 0.294) · category D · crew 2 · topology monohull · manning crewed
 
 **Ladder**: tier L1, ok=False. Violations (verbatim, the honest record):
-> - panel bend radius 0.35 m < 1.20 m (15 mm ply cold-bend limit)
-> - rules tier: R-SCP 5.00 vs 6.00 m; R-TBM 15.00 vs 15.02 mm
+> - panel bend radius 0.35 m < 0.72 m (9 mm ply cold-bend limit)
+> - rules tier: R-SCP 5.00 vs 6.00 m
 
 | descriptor | value | verdict vs sourced range |
 |---|---|---|
@@ -41,8 +41,8 @@ L/B 2.44, B/T 5.13 — a beamy plywood dinghy-class hull; Fn 0.29 at 4 kn, Cp ge
 | draft_design_m | 0.4 m | PASS [0.4, 1.5] — formlib.DRAWN_DIMENSION_RANGES['small monohull']['draft_m'] [0.4, 1.5] (drawing) — 000 dimension table |
 | L_over_B | 2.439  | PASS [2.2, 8.5] — grammar.PROPORTION_BANDS[monohull] — this project's own L0 band for a single hull; practice, no anchor in this tree |
 | B_over_T | 5.125  | PASS [1.8, 12] — grammar.PROPORTION_BANDS[monohull] — this project's own L0 band for a single hull; practice, no anchor in this tree |
-| L_over_B_floated | 2.4789  | PASS [2.2, 8.5] — grammar.PROPORTION_BANDS[monohull] — this project's own L0 band for a single hull; practice, no anchor in this tree |
-| B_over_T_floated | 9.5407  | PASS [1.8, 12] — grammar.PROPORTION_BANDS[monohull] — this project's own L0 band for a single hull; practice, no anchor in this tree |
+| L_over_B_floated | 2.4811  | PASS [2.2, 8.5] — grammar.PROPORTION_BANDS[monohull] — this project's own L0 band for a single hull; practice, no anchor in this tree |
+| B_over_T_floated | 10.0212  | PASS [1.8, 12] — grammar.PROPORTION_BANDS[monohull] — this project's own L0 band for a single hull; practice, no anchor in this tree |
 | Cp | 0.573  | PASS [0.562445, 0.582445] — limits.prismatic_target(Fn=0.294) = 0.5724 +- limits.PRISMATIC_TOLERANCE (practice curve, basis 'approx') |
 | Cb | 0.4658  | UNKNOWN — no sourced range in tree (family hard_chine_displacement carries no cb band) |
 | Cm | 0.8129  | UNKNOWN — no sourced range in tree |
@@ -61,14 +61,14 @@ L/B 2.44, B/T 5.13 — a beamy plywood dinghy-class hull; Fn 0.29 at 4 kn, Cp ge
 | A_max_m2 | 0.6665 m^2 | UNKNOWN — no sourced range in tree |
 | volume_design_m3 | 1.9096 m^3 | UNKNOWN — no sourced range in tree |
 | displacement_design_kg | 1909.639 kg | UNKNOWN — no sourced range in tree |
-| displacement_floated_kg | 856.7206 kg | UNKNOWN — no sourced range in tree |
-| draft_floated_m | 0.2114 m | UNKNOWN — no sourced range in tree |
+| displacement_floated_kg | 799.9568 kg | UNKNOWN — no sourced range in tree |
+| draft_floated_m | 0.2011 m | UNKNOWN — no sourced range in tree |
 | wetted_design_m2_per_hull | 8.5394 m^2 | UNKNOWN — no sourced range in tree |
 | ws_over_vol23 | 5.5479  | UNKNOWN — no sourced range in tree |
-| KB_m | 0.1297 m | UNKNOWN — no sourced range in tree |
-| BM_m | 1.0947 m | UNKNOWN — no sourced range in tree |
-| KG_m | 0.4342 m | UNKNOWN — no sourced range in tree |
-| GM_m | 0.7902 m | PASS [0.35, +inf] — limits.gm_floor('D') — CATEGORY_TABLE, basis 'approx' (an L1 feasibility floor, not ISO text) |
+| KB_m | 0.1243 m | UNKNOWN — no sourced range in tree |
+| BM_m | 1.1686 m | UNKNOWN — no sourced range in tree |
+| KG_m | 0.4389 m | UNKNOWN — no sourced range in tree |
+| GM_m | 0.854 m | PASS [0.35, +inf] — limits.gm_floor('D') — CATEGORY_TABLE, basis 'approx' (an L1 feasibility floor, not ISO text) |
 | Fn | 0.2939  | PASS [0.1, 0.4] — formlib.FAMILIES[hard_chine_displacement].fn [0.1, 0.4] (approx) — practice |
 | Re | 9.025e+06  | PASS [5e+06, +inf] — limits.RE_TRANSITION_BAND — ITTC-57 valid only above the laminar-turbulent transition ceiling (5e6); see limits.friction_line_validity |
 | separation_over_lwl | ABSENT | monohull — no second hull to be separated from |
@@ -120,7 +120,7 @@ C_sect : 0.890 0.900 0.894 0.878 0.856 0.828 0.826 0.858 0.869 0.884   nan
    transom                                               stem
 ```
 
-**STL** (watertight, `Hull.closed_mesh` via `cfd.case.hull_to_stl`): `runs/formcheck/case_a.stl` — sha256 `a25942cc6e958005…`
+**STL** (watertight, `Hull.closed_mesh` via `cfd.case.hull_to_stl`): `runs/formcheck/case_a.stl` — sha256 `fd3e4c2be30de30b…`
 
 ## Case b — 15 m recreational monohull (round-bilge cruiser)
 
@@ -157,8 +157,8 @@ L/B 3.95, B/T 4.47, half-round bilge; Fn 0.30 at 7 kn; inside the NPL round-bilg
 | draft_design_m | 0.85 m | PASS [0.8, 2] — formlib.DRAWN_DIMENSION_RANGES['large monohull']['draft_m'] [0.8, 2] (drawing) — 000 dimension table |
 | L_over_B | 3.9474  | PASS [2.2, 8.5] — grammar.PROPORTION_BANDS[monohull] — this project's own L0 band for a single hull; practice, no anchor in this tree |
 | B_over_T | 4.4706  | PASS [1.8, 12] — grammar.PROPORTION_BANDS[monohull] — this project's own L0 band for a single hull; practice, no anchor in this tree |
-| L_over_B_floated | 3.9962  | PASS [2.2, 8.5] — grammar.PROPORTION_BANDS[monohull] — this project's own L0 band for a single hull; practice, no anchor in this tree |
-| B_over_T_floated | 6.4196  | PASS [1.8, 12] — grammar.PROPORTION_BANDS[monohull] — this project's own L0 band for a single hull; practice, no anchor in this tree |
+| L_over_B_floated | 3.9964  | PASS [2.2, 8.5] — grammar.PROPORTION_BANDS[monohull] — this project's own L0 band for a single hull; practice, no anchor in this tree |
+| B_over_T_floated | 6.4165  | PASS [1.8, 12] — grammar.PROPORTION_BANDS[monohull] — this project's own L0 band for a single hull; practice, no anchor in this tree |
 | Cp | 0.573  | PASS [0.563714, 0.583714] — limits.prismatic_target(Fn=0.297) = 0.5737 +- limits.PRISMATIC_TOLERANCE (practice curve, basis 'approx') |
 | Cb | 0.4617  | UNKNOWN — no sourced range in tree (family round_bilge_displacement carries no cb band) |
 | Cm | 0.8058  | UNKNOWN — no sourced range in tree |
@@ -177,14 +177,14 @@ L/B 3.95, B/T 4.47, half-round bilge; Fn 0.30 at 7 kn; inside the NPL round-bilg
 | A_max_m2 | 2.6027 m^2 | UNKNOWN — no sourced range in tree |
 | volume_design_m3 | 22.3706 m^3 | UNKNOWN — no sourced range in tree |
 | displacement_design_kg | 22370.5882 kg | UNKNOWN — no sourced range in tree |
-| displacement_floated_kg | 13998.5495 kg | UNKNOWN — no sourced range in tree |
-| draft_floated_m | 0.5847 m | UNKNOWN — no sourced range in tree |
+| displacement_floated_kg | 13994.5257 kg | UNKNOWN — no sourced range in tree |
+| draft_floated_m | 0.585 m | UNKNOWN — no sourced range in tree |
 | wetted_design_m2_per_hull | 47.5738 m^2 | UNKNOWN — no sourced range in tree |
 | ws_over_vol23 | 5.9922  | UNKNOWN — no sourced range in tree |
-| KB_m | 0.3471 m | UNKNOWN — no sourced range in tree |
-| BM_m | 1.3334 m | UNKNOWN — no sourced range in tree |
+| KB_m | 0.347 m | UNKNOWN — no sourced range in tree |
+| BM_m | 1.3338 m | UNKNOWN — no sourced range in tree |
 | KG_m | 0.9179 m | UNKNOWN — no sourced range in tree |
-| GM_m | 0.7626 m | PASS [0.45, +inf] — limits.gm_floor('C') — CATEGORY_TABLE, basis 'approx' (an L1 feasibility floor, not ISO text) |
+| GM_m | 0.7629 m | PASS [0.45, +inf] — limits.gm_floor('C') — CATEGORY_TABLE, basis 'approx' (an L1 feasibility floor, not ISO text) |
 | Fn | 0.2969  | PASS [0.1, 0.4] — formlib.FAMILIES[round_bilge_displacement].fn [0.1, 0.4] (approx) — practice; the NPL series covers Fn 0.30-1.20 of this range |
 | Re | 4.738e+07  | PASS [5e+06, +inf] — limits.RE_TRANSITION_BAND — ITTC-57 valid only above the laminar-turbulent transition ceiling (5e6); see limits.friction_line_validity |
 | separation_over_lwl | ABSENT | monohull — no second hull to be separated from |
@@ -236,7 +236,7 @@ C_sect : 0.853 0.866 0.864 0.854 0.838 0.817 0.816 0.840 0.849 0.861   nan
    transom                                               stem
 ```
 
-**STL** (watertight, `Hull.closed_mesh` via `cfd.case.hull_to_stl`): `runs/formcheck/case_b.stl` — sha256 `c83b9d8b59a1ae47…`
+**STL** (watertight, `Hull.closed_mesh` via `cfd.case.hull_to_stl`): `runs/formcheck/case_b.stl` — sha256 `8a760119ddc8f9d6…`
 
 ## Case c — 10 m solar catamaran (slender demihull, 8-12 m class)
 
@@ -264,10 +264,7 @@ demihull L/B 12.2 (inside the drawn 12-18 band and the Southampton envelope), B/
 ```
 **Mission**: displacement target 3400 kg · cruise 5 kn (design Fn 0.260) · category D · crew 2 · topology catamaran · manning crewed · s/L 0.32
 
-**Ladder**: tier L1, ok=False. Violations (verbatim, the honest record):
-> - multihull stability: NO CRITERION IS IMPLEMENTED, and GM 6.69 m does NOT establish that this vessel is safe. The parallel-axis A_wp d^2 term makes a 2-hull vessel at 3.20 m spacing clear every metacentric floor in this repository by one to two orders of magnitude, and that is not the question. A monohull self-rights below its angle of vanishing stability; a catamaran's righting moment PEAKS when the windward hull lifts, collapses past that peak, and the vessel is then STABLE INVERTED and cannot self-right — which is why ISO 12217 addresses inversion and escape for habitable multihulls instead of resting on a metacentric floor.
-> - multihull stability: the criterion that governs is NZ Maritime Rules Part 40A App. 1 cl. 1.4 (a)-(d), cross-attested by AMSA NSCV C6A ch. 5B Table 11 cl. 5B.2/5B.4 — see docs/research/standards/NATIONAL-CODES.md §8.4 and §4.5: (a) GZ-curve area, (b) maximum GZ at a heel of not less than 10 deg, (c) steady-wind heel not over 16 deg on the lever h_w = P.A.Z/(9800.disp_t), (d) a residual-area condition. NONE of them is computed here: (a) and (b) need a righting-arm curve at large heel and `hydrostatics` solves UPRIGHT metacentres only, and (c) needs the projected lateral area above the waterline, which on a solar catamaran is the roof and the bridge-deck house — neither is in the genome, and deriving A from the bare hull profile would understate the heeling moment, which is the flattering direction.
-> - multihull stability: the offset-load bar this ladder applied is ISO 12217-1's LENGTH formula for a monohull. NZ Part 40A App. 1 cl. 1.1 caps a MULTIHULL at 8 deg against 15 for a monohull, so R-OLH's verdict on this hull is a monohull verdict and must not be read as a multihull one.
+**Ladder**: tier L1, ok=True. No violations.
 
 | descriptor | value | verdict vs sourced range |
 |---|---|---|
@@ -276,8 +273,8 @@ demihull L/B 12.2 (inside the drawn 12-18 band and the Southampton envelope), B/
 | draft_design_m | 0.52 m | PASS [0.4, 1.5] — formlib.DRAWN_DIMENSION_RANGES['catamaran']['draft_m'] [0.4, 1.5] (drawing) — 000 dimension table |
 | L_over_B | 12.1951  | PASS [2.2, 15.1] — grammar.PROPORTION_BANDS[demihull] — union of the monohull band and Southampton catamaran series (Molland, Wellicome & Couser, Ship Science Report 71, 1994) DEMIHULL envelope, as tabulated in Petersson (2020) UPTEC F 20024 Table 3 — SECONDARY, the report itself refused every fetch; see HULL-FORM-RULES.md §7.4 and §7.10 |
 | B_over_T | 1.5769  | PASS [1.5, 12] — grammar.PROPORTION_BANDS[demihull] — union of the monohull band and Southampton catamaran series (Molland, Wellicome & Couser, Ship Science Report 71, 1994) DEMIHULL envelope, as tabulated in Petersson (2020) UPTEC F 20024 Table 3 — SECONDARY, the report itself refused every fetch; see HULL-FORM-RULES.md §7.4 and §7.10 |
-| L_over_B_floated | 12.3302  | PASS [2.2, 15.1] — grammar.PROPORTION_BANDS[demihull] — union of the monohull band and Southampton catamaran series (Molland, Wellicome & Couser, Ship Science Report 71, 1994) DEMIHULL envelope, as tabulated in Petersson (2020) UPTEC F 20024 Table 3 — SECONDARY, the report itself refused every fetch; see HULL-FORM-RULES.md §7.4 and §7.10 |
-| B_over_T_floated | 1.7305  | PASS [1.5, 12] — grammar.PROPORTION_BANDS[demihull] — union of the monohull band and Southampton catamaran series (Molland, Wellicome & Couser, Ship Science Report 71, 1994) DEMIHULL envelope, as tabulated in Petersson (2020) UPTEC F 20024 Table 3 — SECONDARY, the report itself refused every fetch; see HULL-FORM-RULES.md §7.4 and §7.10 |
+| L_over_B_floated | 12.3437  | PASS [2.2, 15.1] — grammar.PROPORTION_BANDS[demihull] — union of the monohull band and Southampton catamaran series (Molland, Wellicome & Couser, Ship Science Report 71, 1994) DEMIHULL envelope, as tabulated in Petersson (2020) UPTEC F 20024 Table 3 — SECONDARY, the report itself refused every fetch; see HULL-FORM-RULES.md §7.4 and §7.10 |
+| B_over_T_floated | 1.7253  | PASS [1.5, 12] — grammar.PROPORTION_BANDS[demihull] — union of the monohull band and Southampton catamaran series (Molland, Wellicome & Couser, Ship Science Report 71, 1994) DEMIHULL envelope, as tabulated in Petersson (2020) UPTEC F 20024 Table 3 — SECONDARY, the report itself refused every fetch; see HULL-FORM-RULES.md §7.4 and §7.10 |
 | Cp | 0.558  | PASS [0.548227, 0.568227] — limits.prismatic_target(Fn=0.260) = 0.5582 +- limits.PRISMATIC_TOLERANCE (practice curve, basis 'approx') |
 | Cb | 0.4547  | PASS [0.35, 0.5] — formlib.FAMILIES[slender_symmetric_cat_demihull].cb [0.35, 0.5] (approx) — practice; no anchor |
 | Cm | 0.8148  | UNKNOWN — no sourced range in tree |
@@ -296,20 +293,20 @@ demihull L/B 12.2 (inside the drawn 12-18 band and the Southampton envelope), B/
 | A_max_m2 | 0.3474 m^2 | UNKNOWN — no sourced range in tree |
 | volume_design_m3 | 1.9387 m^3 | UNKNOWN — no sourced range in tree |
 | displacement_design_kg | 3877.3716 kg | UNKNOWN — no sourced range in tree |
-| displacement_floated_kg | 3401.1064 kg | UNKNOWN — no sourced range in tree |
-| draft_floated_m | 0.4686 m | UNKNOWN — no sourced range in tree |
+| displacement_floated_kg | 3400.0003 kg | UNKNOWN — no sourced range in tree |
+| draft_floated_m | 0.4696 m | UNKNOWN — no sourced range in tree |
 | wetted_design_m2_per_hull | 12.2452 m^2 | UNKNOWN — no sourced range in tree |
 | ws_over_vol23 | 9.9229  | UNKNOWN — no sourced range in tree |
-| KB_m | 0.2683 m | UNKNOWN — no sourced range in tree |
-| BM_m | 6.9994 m | UNKNOWN — no sourced range in tree |
-| KG_m | 0.5752 m | UNKNOWN — no sourced range in tree |
-| GM_m | 6.6925 m | REFUSED — multihull stability has NO implemented criterion; GM does not establish safety (hydrostatics.multihull_stability_refusal, limits.MULTIHULL_RIGHTING_CRITERIA) |
+| KB_m | 0.2688 m | UNKNOWN — no sourced range in tree |
+| BM_m | 7.0197 m | UNKNOWN — no sourced range in tree |
+| KG_m | 0.5812 m | UNKNOWN — no sourced range in tree |
+| GM_m | 6.7074 m | REFUSED — multihull stability has NO implemented criterion; GM does not establish safety (hydrostatics.multihull_stability_refusal, limits.MULTIHULL_RIGHTING_CRITERIA) |
 | Fn | 0.2597  | PASS [0.15, 0.4] — formlib.FAMILIES[slender_symmetric_cat_demihull].fn [0.15, 0.4] (drawing) — 004/005/008/009 print 'Fn 0.2 - 0.35'; widened at both ends to cover the mission's 0.20-0.30 with margin. The '7-12 knots' on the same title blocks is NOT used (see _SPEED_LABEL_CONFLICT) |
 | Re | 2.256e+07  | PASS [5e+06, +inf] — limits.RE_TRANSITION_BAND — ITTC-57 valid only above the laminar-turbulent transition ceiling (5e6); see limits.friction_line_validity |
 | separation_over_lwl | 0.32  | PASS [0.05, 2] — mission.SEPARATION_OVER_LWL_BAND (a CONTRACT bound, not an optimum; the measured Wigley Fn 0.30 interference optimum is s/L 0.4450, formlib._S_OVER_L_BEST_FN030) |
 | separation_m | 3.2 m | UNKNOWN — no sourced range in tree |
 | demihull_beam_m | 0.82 m | UNKNOWN — no sourced range in tree |
-| demihull_beam_floated_m | 0.811 m | UNKNOWN — no sourced range in tree |
+| demihull_beam_floated_m | 0.8101 m | UNKNOWN — no sourced range in tree |
 
 **SAC distribution** — A(x)/A_max at the 11 lines-plan stations (station 0 = transom):
 
@@ -358,7 +355,7 @@ C_sect : 0.717 0.761 0.788 0.803 0.811 0.814 0.817 0.823 0.828 0.838   nan
    transom                                               stem
 ```
 
-**STL** (watertight, `Hull.closed_mesh` via `cfd.case.hull_to_stl`): `runs/formcheck/case_c.stl` — sha256 `99d4cd229fa1fa39…` — ONE demihull; the genome carries one moulded surface and the separation is vessel configuration
+**STL** (watertight, `Hull.closed_mesh` via `cfd.case.hull_to_stl`): `runs/formcheck/case_c.stl` — sha256 `36ee425d177a184f…` — ONE demihull; the genome carries one moulded surface and the separation is vessel configuration
 
 ## Case d — 12 m solar catamaran — the project's 12 x 0.8 m demihull class
 
@@ -387,10 +384,7 @@ THE target class: L/B 15.0 (inside Southampton's [7.00, 15.10]). T = 0.52 m so d
 **Mission**: displacement target 4300 kg · cruise 5.5 kn (design Fn 0.261) · category C · crew 2 · topology catamaran · manning crewed · s/L 0.3
 
 **Ladder**: tier L1, ok=False. Violations (verbatim, the honest record):
-> - rules tier: R-DFH 0.58 vs 0.75 m
-> - multihull stability: NO CRITERION IS IMPLEMENTED, and GM 7.93 m does NOT establish that this vessel is safe. The parallel-axis A_wp d^2 term makes a 2-hull vessel at 3.60 m spacing clear every metacentric floor in this repository by one to two orders of magnitude, and that is not the question. A monohull self-rights below its angle of vanishing stability; a catamaran's righting moment PEAKS when the windward hull lifts, collapses past that peak, and the vessel is then STABLE INVERTED and cannot self-right — which is why ISO 12217 addresses inversion and escape for habitable multihulls instead of resting on a metacentric floor.
-> - multihull stability: the criterion that governs is NZ Maritime Rules Part 40A App. 1 cl. 1.4 (a)-(d), cross-attested by AMSA NSCV C6A ch. 5B Table 11 cl. 5B.2/5B.4 — see docs/research/standards/NATIONAL-CODES.md §8.4 and §4.5: (a) GZ-curve area, (b) maximum GZ at a heel of not less than 10 deg, (c) steady-wind heel not over 16 deg on the lever h_w = P.A.Z/(9800.disp_t), (d) a residual-area condition. NONE of them is computed here: (a) and (b) need a righting-arm curve at large heel and `hydrostatics` solves UPRIGHT metacentres only, and (c) needs the projected lateral area above the waterline, which on a solar catamaran is the roof and the bridge-deck house — neither is in the genome, and deriving A from the bare hull profile would understate the heeling moment, which is the flattering direction.
-> - multihull stability: the offset-load bar this ladder applied is ISO 12217-1's LENGTH formula for a monohull. NZ Part 40A App. 1 cl. 1.1 caps a MULTIHULL at 8 deg against 15 for a monohull, so R-OLH's verdict on this hull is a monohull verdict and must not be read as a multihull one.
+> - rules tier: R-DFH 0.54 vs 0.75 m
 
 | descriptor | value | verdict vs sourced range |
 |---|---|---|
@@ -399,8 +393,8 @@ THE target class: L/B 15.0 (inside Southampton's [7.00, 15.10]). T = 0.52 m so d
 | draft_design_m | 0.52 m | PASS [0.4, 1.5] — formlib.DRAWN_DIMENSION_RANGES['catamaran']['draft_m'] [0.4, 1.5] (drawing) — 000 dimension table |
 | L_over_B | 15  | PASS [2.2, 15.1] — grammar.PROPORTION_BANDS[demihull] — union of the monohull band and Southampton catamaran series (Molland, Wellicome & Couser, Ship Science Report 71, 1994) DEMIHULL envelope, as tabulated in Petersson (2020) UPTEC F 20024 Table 3 — SECONDARY, the report itself refused every fetch; see HULL-FORM-RULES.md §7.4 and §7.10 |
 | B_over_T | 1.5385  | PASS [1.5, 12] — grammar.PROPORTION_BANDS[demihull] — union of the monohull band and Southampton catamaran series (Molland, Wellicome & Couser, Ship Science Report 71, 1994) DEMIHULL envelope, as tabulated in Petersson (2020) UPTEC F 20024 Table 3 — SECONDARY, the report itself refused every fetch; see HULL-FORM-RULES.md §7.4 and §7.10 |
-| L_over_B_floated | 15.0749  | PASS [2.2, 15.1] — grammar.PROPORTION_BANDS[demihull] — union of the monohull band and Southampton catamaran series (Molland, Wellicome & Couser, Ship Science Report 71, 1994) DEMIHULL envelope, as tabulated in Petersson (2020) UPTEC F 20024 Table 3 — SECONDARY, the report itself refused every fetch; see HULL-FORM-RULES.md §7.4 and §7.10 |
-| B_over_T_floated | 1.6008  | PASS [1.5, 12] — grammar.PROPORTION_BANDS[demihull] — union of the monohull band and Southampton catamaran series (Molland, Wellicome & Couser, Ship Science Report 71, 1994) DEMIHULL envelope, as tabulated in Petersson (2020) UPTEC F 20024 Table 3 — SECONDARY, the report itself refused every fetch; see HULL-FORM-RULES.md §7.4 and §7.10 |
+| L_over_B_floated | 15.0903  | PASS [2.2, 15.1] — grammar.PROPORTION_BANDS[demihull] — union of the monohull band and Southampton catamaran series (Molland, Wellicome & Couser, Ship Science Report 71, 1994) DEMIHULL envelope, as tabulated in Petersson (2020) UPTEC F 20024 Table 3 — SECONDARY, the report itself refused every fetch; see HULL-FORM-RULES.md §7.4 and §7.10 |
+| B_over_T_floated | 1.5959  | PASS [1.5, 12] — grammar.PROPORTION_BANDS[demihull] — union of the monohull band and Southampton catamaran series (Molland, Wellicome & Couser, Ship Science Report 71, 1994) DEMIHULL envelope, as tabulated in Petersson (2020) UPTEC F 20024 Table 3 — SECONDARY, the report itself refused every fetch; see HULL-FORM-RULES.md §7.4 and §7.10 |
 | Cp | 0.559  | PASS [0.548677, 0.568677] — limits.prismatic_target(Fn=0.261) = 0.5587 +- limits.PRISMATIC_TOLERANCE (practice curve, basis 'approx') |
 | Cb | 0.4555  | PASS [0.35, 0.5] — formlib.FAMILIES[slender_symmetric_cat_demihull].cb [0.35, 0.5] (approx) — practice; no anchor |
 | Cm | 0.8148  | UNKNOWN — no sourced range in tree |
@@ -419,20 +413,20 @@ THE target class: L/B 15.0 (inside Southampton's [7.00, 15.10]). T = 0.52 m so d
 | A_max_m2 | 0.3389 m^2 | UNKNOWN — no sourced range in tree |
 | volume_design_m3 | 2.2737 m^3 | UNKNOWN — no sourced range in tree |
 | displacement_design_kg | 4547.3382 kg | UNKNOWN — no sourced range in tree |
-| displacement_floated_kg | 4298.7205 kg | UNKNOWN — no sourced range in tree |
-| draft_floated_m | 0.4973 m | UNKNOWN — no sourced range in tree |
+| displacement_floated_kg | 4300.0001 kg | UNKNOWN — no sourced range in tree |
+| draft_floated_m | 0.4983 m | UNKNOWN — no sourced range in tree |
 | wetted_design_m2_per_hull | 14.6109 m^2 | UNKNOWN — no sourced range in tree |
 | ws_over_vol23 | 10.6464  | UNKNOWN — no sourced range in tree |
-| KB_m | 0.2837 m | UNKNOWN — no sourced range in tree |
-| BM_m | 8.2754 m | UNKNOWN — no sourced range in tree |
-| KG_m | 0.6268 m | UNKNOWN — no sourced range in tree |
-| GM_m | 7.9323 m | REFUSED — multihull stability has NO implemented criterion; GM does not establish safety (hydrostatics.multihull_stability_refusal, limits.MULTIHULL_RIGHTING_CRITERIA) |
+| KB_m | 0.2843 m | UNKNOWN — no sourced range in tree |
+| BM_m | 8.2938 m | UNKNOWN — no sourced range in tree |
+| KG_m | 0.6342 m | UNKNOWN — no sourced range in tree |
+| GM_m | 7.9439 m | REFUSED — multihull stability has NO implemented criterion; GM does not establish safety (hydrostatics.multihull_stability_refusal, limits.MULTIHULL_RIGHTING_CRITERIA) |
 | Fn | 0.2608  | PASS [0.15, 0.4] — formlib.FAMILIES[slender_symmetric_cat_demihull].fn [0.15, 0.4] (drawing) — 004/005/008/009 print 'Fn 0.2 - 0.35'; widened at both ends to cover the mission's 0.20-0.30 with margin. The '7-12 knots' on the same title blocks is NOT used (see _SPEED_LABEL_CONFLICT) |
 | Re | 2.978e+07  | PASS [5e+06, +inf] — limits.RE_TRANSITION_BAND — ITTC-57 valid only above the laminar-turbulent transition ceiling (5e6); see limits.friction_line_validity |
 | separation_over_lwl | 0.3  | PASS [0.05, 2] — mission.SEPARATION_OVER_LWL_BAND (a CONTRACT bound, not an optimum; the measured Wigley Fn 0.30 interference optimum is s/L 0.4450, formlib._S_OVER_L_BEST_FN030) |
 | separation_m | 3.6 m | UNKNOWN — no sourced range in tree |
 | demihull_beam_m | 0.8 m | UNKNOWN — no sourced range in tree |
-| demihull_beam_floated_m | 0.796 m | UNKNOWN — no sourced range in tree |
+| demihull_beam_floated_m | 0.7952 m | UNKNOWN — no sourced range in tree |
 
 **SAC distribution** — A(x)/A_max at the 11 lines-plan stations (station 0 = transom):
 
@@ -481,7 +475,7 @@ C_sect : 0.713 0.759 0.786 0.802 0.811 0.814 0.817 0.823 0.828 0.837   nan
    transom                                               stem
 ```
 
-**STL** (watertight, `Hull.closed_mesh` via `cfd.case.hull_to_stl`): `runs/formcheck/case_d.stl` — sha256 `7e1b694bd3bb9114…` — ONE demihull; the genome carries one moulded surface and the separation is vessel configuration
+**STL** (watertight, `Hull.closed_mesh` via `cfd.case.hull_to_stl`): `runs/formcheck/case_d.stl` — sha256 `9314d8d6fb39a87b…` — ONE demihull; the genome carries one moulded surface and the separation is vessel configuration
 
 ## Case e — 5 m autonomous survey drone (UNCREWED)
 
@@ -510,8 +504,8 @@ L/B 3.57 monohull, Manning.UNCREWED — exercises the drone rule-routing (ISO 12
 **Mission**: displacement target 500 kg · cruise 4 kn (design Fn 0.294) · category D · crew 1 · topology monohull · manning uncrewed
 
 **Ladder**: tier L1, ok=False. Violations (verbatim, the honest record):
-> - GM 0.23 m < 0.35 m (category D floor, ISO 12217)
-> - panel bend radius 0.54 m < 1.20 m (15 mm ply cold-bend limit)
+> - GM 0.27 m < 0.35 m (category D floor, ISO 12217)
+> - panel bend radius 0.54 m < 0.72 m (9 mm ply cold-bend limit)
 > - manning=uncrewed: ISO 12217-1 was NOT ASSESSED and NOTHING was assessed in its place. The RCD does not govern uncrewed craft, so a harmonised standard under it cannot answer for this vehicle, and this repository implements no stability rule set that can. `mission.crew` = 1 was IGNORED: crew mass and the offset-load crowding fraction are crewed-only concepts. This hull therefore has NO stability assessment of any kind — which is a refusal, not a pass.
 
 | descriptor | value | verdict vs sourced range |
@@ -521,8 +515,8 @@ L/B 3.57 monohull, Manning.UNCREWED — exercises the drone rule-routing (ISO 12
 | draft_design_m | 0.33 m | UNKNOWN — no sourced range in tree (DRAWN_DIMENSION_RANGES depicts recreational craft; no drone row exists) |
 | L_over_B | 3.5714  | PASS [2.2, 8.5] — grammar.PROPORTION_BANDS[monohull] — this project's own L0 band for a single hull; practice, no anchor in this tree |
 | B_over_T | 4.2424  | PASS [1.8, 12] — grammar.PROPORTION_BANDS[monohull] — this project's own L0 band for a single hull; practice, no anchor in this tree |
-| L_over_B_floated | 3.6281  | PASS [2.2, 8.5] — grammar.PROPORTION_BANDS[monohull] — this project's own L0 band for a single hull; practice, no anchor in this tree |
-| B_over_T_floated | 6.7205  | PASS [1.8, 12] — grammar.PROPORTION_BANDS[monohull] — this project's own L0 band for a single hull; practice, no anchor in this tree |
+| L_over_B_floated | 3.6369  | PASS [2.2, 8.5] — grammar.PROPORTION_BANDS[monohull] — this project's own L0 band for a single hull; practice, no anchor in this tree |
+| B_over_T_floated | 7.3826  | PASS [1.8, 12] — grammar.PROPORTION_BANDS[monohull] — this project's own L0 band for a single hull; practice, no anchor in this tree |
 | Cp | 0.573  | PASS [0.562445, 0.582445] — limits.prismatic_target(Fn=0.294) = 0.5724 +- limits.PRISMATIC_TOLERANCE (practice curve, basis 'approx') |
 | Cb | 0.4817  | UNKNOWN — no sourced range in tree (family hard_chine_displacement carries no cb band) |
 | Cm | 0.8407  | UNKNOWN — no sourced range in tree |
@@ -541,14 +535,14 @@ L/B 3.57 monohull, Manning.UNCREWED — exercises the drone rule-routing (ISO 12
 | A_max_m2 | 0.3884 m^2 | UNKNOWN — no sourced range in tree |
 | volume_design_m3 | 1.1127 m^3 | UNKNOWN — no sourced range in tree |
 | displacement_design_kg | 1112.7153 kg | UNKNOWN — no sourced range in tree |
-| displacement_floated_kg | 629.0657 kg | UNKNOWN — no sourced range in tree |
-| draft_floated_m | 0.2051 m | UNKNOWN — no sourced range in tree |
+| displacement_floated_kg | 556.9184 kg | UNKNOWN — no sourced range in tree |
+| draft_floated_m | 0.1862 m | UNKNOWN — no sourced range in tree |
 | wetted_design_m2_per_hull | 6.3966 m^2 | UNKNOWN — no sourced range in tree |
 | ws_over_vol23 | 5.957  | UNKNOWN — no sourced range in tree |
-| KB_m | 0.1204 m | UNKNOWN — no sourced range in tree |
-| BM_m | 0.4896 m | UNKNOWN — no sourced range in tree |
-| KG_m | 0.3819 m | UNKNOWN — no sourced range in tree |
-| GM_m | 0.2282 m | UNKNOWN — no stability rule set exists for uncrewed craft in this tree (RCD/ISO 12217-1 do not govern them; evaluate refuses by name) |
+| KB_m | 0.1107 m | UNKNOWN — no sourced range in tree |
+| BM_m | 0.5483 m | UNKNOWN — no sourced range in tree |
+| KG_m | 0.3851 m | UNKNOWN — no sourced range in tree |
+| GM_m | 0.2739 m | UNKNOWN — no stability rule set exists for uncrewed craft in this tree (RCD/ISO 12217-1 do not govern them; evaluate refuses by name) |
 | Fn | 0.2939  | PASS [0.1, 0.4] — formlib.FAMILIES[hard_chine_displacement].fn [0.1, 0.4] (approx) — practice |
 | Re | 9.025e+06  | PASS [5e+06, +inf] — limits.RE_TRANSITION_BAND — ITTC-57 valid only above the laminar-turbulent transition ceiling (5e6); see limits.friction_line_validity |
 | separation_over_lwl | ABSENT | monohull — no second hull to be separated from |
@@ -600,7 +594,7 @@ C_sect : 0.882 0.899 0.898 0.889 0.873 0.852 0.851 0.876 0.885 0.898   nan
    transom                                               stem
 ```
 
-**STL** (watertight, `Hull.closed_mesh` via `cfd.case.hull_to_stl`): `runs/formcheck/case_e.stl` — sha256 `1780e5258caaf360…`
+**STL** (watertight, `Hull.closed_mesh` via `cfd.case.hull_to_stl`): `runs/formcheck/case_e.stl` — sha256 `a419d43e2e97a31c…`
 
 ## Case f — 7 m fishing/research drone (UNCREWED)
 
@@ -629,7 +623,7 @@ L/B 3.50, B/T 4.44, category C — a working-payload uncrewed hull; same UNCREWE
 **Mission**: displacement target 1400 kg · cruise 4.5 kn (design Fn 0.279) · category C · crew 1 · topology monohull · manning uncrewed
 
 **Ladder**: tier L1, ok=False. Violations (verbatim, the honest record):
-> - panel bend radius 0.71 m < 1.44 m (18 mm ply cold-bend limit)
+> - panel bend radius 0.71 m < 0.96 m (12 mm ply cold-bend limit)
 > - manning=uncrewed: ISO 12217-1 was NOT ASSESSED and NOTHING was assessed in its place. The RCD does not govern uncrewed craft, so a harmonised standard under it cannot answer for this vehicle, and this repository implements no stability rule set that can. `mission.crew` = 1 was IGNORED: crew mass and the offset-load crowding fraction are crewed-only concepts. This hull therefore has NO stability assessment of any kind — which is a refusal, not a pass.
 
 | descriptor | value | verdict vs sourced range |
@@ -640,7 +634,7 @@ L/B 3.50, B/T 4.44, category C — a working-payload uncrewed hull; same UNCREWE
 | L_over_B | 3.5  | PASS [2.2, 8.5] — grammar.PROPORTION_BANDS[monohull] — this project's own L0 band for a single hull; practice, no anchor in this tree |
 | B_over_T | 4.4444  | PASS [1.8, 12] — grammar.PROPORTION_BANDS[monohull] — this project's own L0 band for a single hull; practice, no anchor in this tree |
 | L_over_B_floated | 3.5649  | PASS [2.2, 8.5] — grammar.PROPORTION_BANDS[monohull] — this project's own L0 band for a single hull; practice, no anchor in this tree |
-| B_over_T_floated | 8.1164  | PASS [1.8, 12] — grammar.PROPORTION_BANDS[monohull] — this project's own L0 band for a single hull; practice, no anchor in this tree |
+| B_over_T_floated | 8.1063  | PASS [1.8, 12] — grammar.PROPORTION_BANDS[monohull] — this project's own L0 band for a single hull; practice, no anchor in this tree |
 | Cp | 0.568  | PASS [0.556421, 0.576421] — limits.prismatic_target(Fn=0.279) = 0.5664 +- limits.PRISMATIC_TOLERANCE (practice curve, basis 'approx') |
 | Cb | 0.4739  | UNKNOWN — no sourced range in tree (family hard_chine_displacement carries no cb band) |
 | Cm | 0.8344  | UNKNOWN — no sourced range in tree |
@@ -659,14 +653,14 @@ L/B 3.50, B/T 4.44, category C — a working-payload uncrewed hull; same UNCREWE
 | A_max_m2 | 0.751 m^2 | UNKNOWN — no sourced range in tree |
 | volume_design_m3 | 2.9859 m^3 | UNKNOWN — no sourced range in tree |
 | displacement_design_kg | 2985.8787 kg | UNKNOWN — no sourced range in tree |
-| displacement_floated_kg | 1398.7308 kg | UNKNOWN — no sourced range in tree |
-| draft_floated_m | 0.2419 m | UNKNOWN — no sourced range in tree |
+| displacement_floated_kg | 1400 kg | UNKNOWN — no sourced range in tree |
+| draft_floated_m | 0.2422 m | UNKNOWN — no sourced range in tree |
 | wetted_design_m2_per_hull | 12.4361 m^2 | UNKNOWN — no sourced range in tree |
 | ws_over_vol23 | 5.9975  | UNKNOWN — no sourced range in tree |
-| KB_m | 0.1454 m | UNKNOWN — no sourced range in tree |
-| BM_m | 0.8674 m | UNKNOWN — no sourced range in tree |
-| KG_m | 0.4658 m | UNKNOWN — no sourced range in tree |
-| GM_m | 0.547 m | UNKNOWN — no stability rule set exists for uncrewed craft in this tree (RCD/ISO 12217-1 do not govern them; evaluate refuses by name) |
+| KB_m | 0.1455 m | UNKNOWN — no sourced range in tree |
+| BM_m | 0.8667 m | UNKNOWN — no sourced range in tree |
+| KG_m | 0.4699 m | UNKNOWN — no sourced range in tree |
+| GM_m | 0.5422 m | UNKNOWN — no stability rule set exists for uncrewed craft in this tree (RCD/ISO 12217-1 do not govern them; evaluate refuses by name) |
 | Fn | 0.2794  | PASS [0.1, 0.4] — formlib.FAMILIES[hard_chine_displacement].fn [0.1, 0.4] (approx) — practice |
 | Re | 1.421e+07  | PASS [5e+06, +inf] — limits.RE_TRANSITION_BAND — ITTC-57 valid only above the laminar-turbulent transition ceiling (5e6); see limits.friction_line_validity |
 | separation_over_lwl | ABSENT | monohull — no second hull to be separated from |
@@ -718,7 +712,7 @@ C_sect : 0.884 0.899 0.898 0.887 0.870 0.847 0.846 0.873 0.883 0.897   nan
    transom                                               stem
 ```
 
-**STL** (watertight, `Hull.closed_mesh` via `cfd.case.hull_to_stl`): `runs/formcheck/case_f.stl` — sha256 `79369b0fc5e377f7…`
+**STL** (watertight, `Hull.closed_mesh` via `cfd.case.hull_to_stl`): `runs/formcheck/case_f.stl` — sha256 `f4ff7f912e7107d7…`
 
 ## Findings today (non-boat-like traits the layer surfaced)
 
