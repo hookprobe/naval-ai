@@ -208,12 +208,33 @@ class FidelitySpec:
     DERIVED from it against a given Condition, because the mesh is generated
     from `mesh_density` and deriving the other way would put the same number in
     two places.
+
+    `target_yplus` WAS A FIELD HERE AND IS RETIRED (2026-08-20). It defaulted
+    to 30.0, and it was read by NOTHING: not by `background_cells`, not by
+    `cells`, not by `free_surface_dz`, not by `estimate`, not by `admit`, not
+    by any caller in the tree (`grep -rn target_yplus` found this line and the
+    `first_layer_thickness` PARAMETER in `cfd/case.py`, which takes its value
+    from `case._TARGET_YPLUS` and never from here). So it was a second, dead
+    declaration of a number the case writer already owns — and it declared the
+    WRONG one: `case._TARGET_YPLUS` is 100.0, and the docstring beside it
+    records why 30 was retired there. MEASURED at y+ 30 with 3 layers at
+    expansion 1.3: snappy extruded 44.98% of hull faces on iteration 0 and
+    DECAYED TO ZERO over 35 iterations, i.e. no prism cells at all, while the
+    summary table went on printing the requested spec. A cost model that
+    reported the retired target beside a case built to the shipped one is the
+    same class of receipt.
+
+    It was RETIRED rather than re-pointed at `case._TARGET_YPLUS` because
+    importing it would have kept a field nothing reads, and a value nothing
+    reads cannot be wrong loudly. The wall model has ONE home,
+    `cfd.case._TARGET_YPLUS`, and `tests/test_case_wiring.py` fences this
+    module against declaring a second: a y+ target reappearing here would fail
+    that test rather than silently disagree by 3.3x again.
     """
 
     mesh_density: float = 1.0
     symmetric: bool = True
     flow_throughs: float = 5.0        # domain lengths of flow; 75 s on KCS
-    target_yplus: float = 30.0
     free_motion: bool = False
     tier: str = "L3"
     refine_factor: float = REFINE_FACTOR

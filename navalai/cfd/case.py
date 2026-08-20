@@ -1338,10 +1338,77 @@ def stl_resolution(lwl: float, target_edge: float) -> tuple[int, int]:
     resolution NOT AT ALL (10.133 cells per station spacing, independent of
     nx). `case.info` records the request beside the shipped value so the clamp
     is visible from the case directory.
+
+    THAT LAST PARAGRAPH IS NO LONGER TRUE OF THE SHIPPED STL, AND THIS
+    FUNCTION IS DELIBERATELY UNCHANGED ANYWAY. `hull_to_stl` now REBUILDS the
+    hull at `_stl_loft_stations()` before triangulating (G1), so the kinks the
+    x-grid has to land on are that many, not 41; the CFD writer therefore asks
+    `stl_resolution_station_aligned` for its nx. This function keeps returning
+    the raw clamped pair because `admissibility.surface_grid` samples on it and
+    ITS bars were calibrated through this 600x120 grid
+    (`tests/test_admissibility.py::test_the_batch_section_sampler_is_the_loop`
+    says so in as many words). Moving the number here would silently
+    re-calibrate a screen, which is a different change from the one measured.
     """
     nx = int(min(max(stl_resolution_request(lwl, target_edge),
                      _STL_NX_FLOOR), _STL_NX_CAP))
     return nx, int(min(max(round(nx * 0.2), 16), 120))
+
+
+def stl_resolution_station_aligned(lwl: float, target_edge: float,
+                                   n_stations: int) -> tuple[int, int]:
+    """(nx, nz) for the STL that is actually MESHED: `stl_resolution`'s pair
+    with nx snapped DOWN onto `k * (n_stations - 1) + 1`.
+
+    THE SNAP IS THE WHOLE CHANGE (G2), and it is measured. After G1 the
+    triangulated surface kinks at `_stl_loft_stations()` stations; an nx that
+    does not land on them chords across the kinks as well as between them, and
+    `hull_to_stl`'s own docstring has recorded since 2026-08-12 that
+    `nx = 2*(n-1)+1 = 81` beat `nx = 320` on a 41-station hull for a sixteenth
+    of the triangles. That measurement was made and deliberately not shipped
+    because the nx default is read by callers this file does not own; the CFD
+    writer is a caller this file DOES own.
+
+    MEASURED 2026-08-20, max deviation of the sampled section from the
+    ANALYTIC section (`geometry._stations` evaluated at the same x, i.e. the
+    surface with no station lerp at all), at `_stl_loft_stations() = 161`:
+
+        hull                    nx=600/nz=120     nx=481/nz=120
+        reference (mid_params)     0.8029 mm        0.7790 mm
+        round-bilge (rho 0.9)      0.7624 mm        0.7397 mm
+        kit reference genome       2.5354 mm        2.6292 mm
+
+    and the SHIPPED triangle count goes 288,862 -> 231,504 on the reference
+    and the kit genome (288,956 -> 231,598 round-bilge; the spread is stem
+    quads that degenerate to zero area, which is why the RATIO and not the
+    integer is the thing a test may assert). -19.9%, for -3.0% of deviation on
+    the two smooth hulls and +3.7% on the kit genome, whose deviation is not a
+    station-lerp term at all (see `hull_to_stl`). The ascii STL drops
+    68.79 -> 55.13 MB and the write 69.3 -> 45.2 s on this machine, and every
+    snap iteration and `surfaceFeatureExtract` pass downstream pays less.
+
+    nz IS TAKEN FROM THE UNSNAPPED nx, NOT RE-DERIVED FROM THE SNAPPED ONE,
+    and that is a refusal to pay for the snap in girth. The 1:5 ratio would
+    take nz 120 -> 96 at nx 481, and MEASURED on the round-bilge hull that
+    costs 0.7078 mm -> 1.0804 mm of girth chordal error (+53%) — the snap is
+    an alignment decision about the x direction and has no business coarsening
+    the girth to pay for itself.
+
+    The floor/cap discipline is unchanged: the snap searches within
+    [`_STL_NX_FLOOR`, the clamped nx], and when no aligned value survives that
+    window (a very short station grid, or a floor above the first multiple) the
+    clamped nx is returned unchanged rather than dropped below the floor.
+    """
+    nx, nz = stl_resolution(lwl, target_edge)
+    span = max(int(n_stations) - 1, 1)
+    k = nx // span                       # largest k with k*span + 1 <= nx + 1
+    aligned = k * span + 1
+    while aligned > nx and k > 1:
+        k -= 1
+        aligned = k * span + 1
+    if aligned < _STL_NX_FLOOR or aligned > nx:
+        return nx, nz
+    return aligned, nz
 
 
 # The GIRTH resolution a watertight STL needs, and it is a function of the
@@ -1417,6 +1484,123 @@ def stl_resolution(lwl: float, target_edge: float) -> tuple[int, int]:
 _STL_NZ_HARD_CHINE = 16
 _STL_NZ_FILLETED = 96
 
+# THE LONGITUDINAL REBUILD (G1), and it is the term the two constants above
+# cannot touch. `closed_mesh` LERPS the section control points between the
+# hull's own stations, so its longitudinal fidelity is set by `Hull.n_stations`
+# (41) and NOT by nx: 55x the triangles buys none of it. The loft term is
+# already named as the residual the girth constants converge onto — "a LOFT
+# term that does not converge with nz OR nx at all" — and this is where it is
+# paid instead of described.
+#
+# MEASURED 2026-08-20 at nx=600/nz=120 (the grid the CFD writer ships), max
+# deviation of the sampled section from the ANALYTIC section — `_stations`
+# evaluated at the same x, i.e. the same surface with no station lerp at all,
+# which is the exact quantity the rebuild removes:
+#
+#   stations                     41       81      161      321      641
+#   reference (mid_params)  11.8414   3.0977   0.8029   0.3000   0.1157  mm
+#   round-bilge (rho 0.9)    7.4961   2.0085   0.7624   0.2847   0.1098  mm
+#   kit reference genome     4.1587   3.3374   2.5354   2.0243   1.0509  mm
+#
+# 161 is 14.7x / 9.8x better than the shipped 41 on the two smooth hulls, and
+# only 1.64x on the kit genome — WHOSE RESIDUAL IS NOT A STATION-LERP TERM.
+# Its max sits within one STL x-step of the max-area station (x_mb * LWL =
+# 5.8286 m) at EVERY station count, where the SAC's two branches meet and a(x)
+# has a slope discontinuity; the lerp chords across the kink whenever a station
+# interval straddles it, so the error falls in jumps (2.5354 -> 2.0243 ->
+# 1.0509 -> 0.0182 mm at 161/321/641/2561) rather than with a clean order.
+# Station count is the wrong lever for that term and is not claimed as one.
+#
+# 161 IS NOT A SECOND OPINION: `export._LOFT_STATIONS` is the same integer,
+# derived independently on the STEP loft's volume receipt (161 within 0.004% of
+# 641 and station-ALIGNED, 161 = 4*40 + 1, so the validated hull's own 41
+# stations are a subset). Two paths lerp between the same stations for the same
+# reason, so this file imports that decision rather than restating it, and
+# `tests/test_case_wiring.py` fences the two against drift.
+#
+# THE COST IS PAID PER STL, NOT ON THE LADDER'S HOT PATH — the same reason the
+# export constant gives for not raising `Hull.n_stations` itself (that was
+# measured at +51% on `evaluate()` against Gate 1's 50 ms bar and declined).
+#
+# ---------------------------------------------------------------------------
+# THE SNAPPY-FACING CHALLENGE TO THIS CONSTANT, MEASURED AND ANSWERED
+#
+# The chordal error above and the SURFACE FEATURE EDGE COUNT are different
+# quantities, and a geometric win does not transfer to a meshing win by
+# assertion. So the second quantity was measured too: an edge whose two
+# adjacent triangles' normals differ by more than 30 deg is exactly what
+# `SURFACE_FEATURES`' `includedAngle 150` extracts, and it is what drives
+# snappy's feature refinement. MEASURED 2026-08-20 over the WHOLE seed-0
+# population `sample_valid(25, MissionSpec(), seed=0)` — the population gate2u
+# meshed — counting shell edges only (cap junctions are ~90 deg on every
+# configuration and are excluded from all four rows equally):
+#
+#   configuration            total   longitudinal   girth   diagonal
+#   41 st / 600x120  BEFORE   2961          0        2570      391
+#  161 st / 600x120           3020         53        2566      401
+#  161 st / 481x120  AFTER    2641         72        2157      412
+#  321 st / 600x120           3026         54        2571      401
+#
+# Three things fall out and the first is the one that decides it.
+#
+# 1. THE 53 LONGITUDINAL EDGES ARE ONE HULL, AND THEY ARE CONVERGED. Every one
+#    of them is on hull 18, and every one sits at x/L = 0.6561 against that
+#    hull's own x_mb = 0.65624 — the max-area station, where the SAC's two
+#    branches meet with different slopes and the flare envelope switches. The
+#    count and the angle stop moving immediately: 0 edges / 20.27 deg at 41
+#    stations, then 53 / 34.43 at 161, 54 / 34.48 at 321, 54 / 34.48 at 641.
+#    A crease that 161, 321 and 641 agree on to 0.05 deg is the HULL's, not the
+#    mesh's. The 41-station surface did not lack the crease; its 0.326 m
+#    station spacing straddled the kink and chorded it away. This is the same
+#    mechanism, at the same x_mb, as the kit genome's slow-converging deviation
+#    recorded above — one finding, not two.
+#
+# 2. THE OLD SURFACE INVENTED CREASES TOO, just elsewhere. Hull 14 reads a
+#    28.37 deg maximum longitudinal dihedral at 41 stations and 13.13 / 13.21
+#    at 161 / 321 — a 28 deg crease that is not on the hull. Across the 25, the
+#    rebuild LOWERS the max longitudinal dihedral on 12 hulls and raises it on
+#    13. There is no direction in which 41 stations is the smoother surface;
+#    there is only a direction in which it is the less faithful one.
+#
+# 3. THE FAMILY THAT DOMINATES IS UNTOUCHED. 87% of the population's feature
+#    edges are GIRTH edges — the bilge knuckle, which `chine_row` puts ON a
+#    grid row on purpose — and that family moves 2570 -> 2566 (-0.2%) with the
+#    station count. The shipped configuration's TOTAL falls 2961 -> 2641
+#    (-10.8%), but that is the nx snap discretising the same creases into fewer
+#    edges rather than a smoother surface, and it is reported as such: per
+#    x-column the girth count goes 4.29 -> 4.49.
+#
+# WHAT THIS IS NOT: a checkMesh outcome. `docs/BUILD-PLAN.md` §11.8 measured
+# the pre-mesh screen's ability to predict checkMesh AT CHANCE, so a feature-
+# edge count is a proxy and is named as one. The cheap, decisive experiment is
+# one mesh-only run of hull 18 at 41 vs 161 stations (ladder stage 1, ~80 s to
+# 5 min); it is OWED, and it is the only thing that could overturn this.
+#
+# WHAT IS DELIBERATELY NOT DONE: choosing the station count PER HULL. It would
+# make the meshed surface a function of a mesher heuristic instead of of the
+# genome, and two cases of the same hull would stop being comparable. If hull
+# 18 does fail checkMesh at 161, the lever is snappy's feature refinement
+# around a crease the boat actually has, not a coarser boat.
+#
+# TRIANGLE QUALITY, since it is the other thing snappy sees: worst aspect ratio
+# 808.0 -> 1045.9 and worst min-angle 0.0720 -> 0.0560 deg across the shipped
+# change. Both are stem-tip slivers, both configurations are far past any
+# usable bar already, and the 321 st / 600x120 row (872.2, 0.0672) shows the
+# movement tracks nx 600 -> 481, not the station count.
+# ---------------------------------------------------------------------------
+
+
+def _stl_loft_stations() -> int:
+    """`export._LOFT_STATIONS` — ONE home, imported at call time.
+
+    Deferred rather than module-level only because `navalai.export`'s import
+    graph is the manufacturing side of the tree; the value is a plain int and
+    the import is cheap. `export` imports nothing from `cfd`, so there is no
+    cycle either way.
+    """
+    from ..export import _LOFT_STATIONS
+    return int(_LOFT_STATIONS)
+
 
 def stl_girth_resolution(hull: Hull) -> int:
     """nz for a hull whose STL must enclose the displacement the ladder floated.
@@ -1443,16 +1627,32 @@ def hull_to_stl(hull: Hull, path: Path, nx: int = 80,
     a radiused bilge needs six times the girth points a chine does, and the
     old fixed 16 under-enclosed a filleted hull by 0.71% against a 0.35% bar.
 
-    `nx` DOES NOT DEFAULT TO A STATION-ALIGNED VALUE and 80 is not one. The
-    surface `closed_mesh` samples kinks at `Hull.n_stations` stations, so an nx
-    off those kinks chords across them: MEASURED over twelve validated designs,
-    worst submerged-volume error 0.3581% at nx=80 against 0.3366% at nx=81 and
-    0.3372% at nx=320 — 81 beats 320 for a sixteenth of the triangles. Pass
-    `nx = k * (hull.n_stations - 1) + 1` when the volume matters.
+    THE HULL IS REBUILT LONGITUDINALLY BEFORE IT IS TRIANGULATED (G1): the
+    mesh comes off `export.loft_hull(hull, _stl_loft_stations())`, not off the
+    caller's `hull`. `closed_mesh` lerps section control points between the
+    stations it is handed, so 41 stations put a ~11.8 mm floor under the
+    surface no nx or nz can lift; 161 puts it at 0.80 mm. The measured table
+    and the one hull it does NOT help are recorded at `_stl_loft_stations`.
+    `loft_hull` returns the hull unchanged when the counts already agree, so a
+    caller that hands in a dense hull pays nothing, and the rebuild is a pure
+    function of `hull.params` — same genome, same LWL, same waterline.
+
+    `nx` DOES NOT DEFAULT TO A STATION-ALIGNED VALUE and 80 is not one, and
+    after the rebuild the stations to align to are `_stl_loft_stations()`, not
+    `hull.n_stations`. The surface `closed_mesh` samples kinks at those
+    stations, so an nx off them chords across the kinks as well: MEASURED over
+    twelve validated designs (on the pre-G1 41-station surface), worst
+    submerged-volume error 0.3581% at nx=80 against 0.3366% at nx=81 and
+    0.3372% at nx=320 — 81 beats 320 for a sixteenth of the triangles. The CFD
+    writer gets its aligned nx from `stl_resolution_station_aligned`; an
+    ad-hoc caller that cares about volume passes
+    `nx = k * (_stl_loft_stations() - 1) + 1`.
     """
     if nz is None:
         nz = stl_girth_resolution(hull)
-    verts, tris = hull.closed_mesh(nx=nx, nz=nz)
+    from ..export import loft_hull
+    verts, tris = loft_hull(hull, _stl_loft_stations()).closed_mesh(nx=nx,
+                                                                   nz=nz)
     if wl or trim_deg:
         # C-06 (forensics B5): mesh the case in the FLOATED frame — rotate
         # about the y-axis through (midships, wl) by the solved trim
@@ -1896,6 +2096,18 @@ def write_resistance_case_from_stl(stl_path: str | Path, lwl: float,
 
     The STL must be watertight, in metres, with the free surface at z=0 and
     the hull spanning x in [0, lwl] (translate/scale upstream if needed).
+
+    THIS WRITER DOES NOT RUN `wave_resolution_screen` OR
+    `reynolds_regime_screen`, AND THE ASYMMETRY IS DECLARED RATHER THAN LEFT
+    TO BE DISCOVERED. Both screens were wired into `write_resistance_case`
+    (2026-08-20) and not here, because the only geometry that reaches this
+    entry point is a calibration benchmark: KCS at 2.196 m/s over Lpp 7.2786
+    is Fn 0.2599 / Re 1.47e7, i.e. CLEAR on both bars, so wiring them here
+    today would change no verdict and could only be validated against cases
+    nobody runs. It is owed the moment a benchmark outside those envelopes is
+    added — a second writer with a weaker screen is how a gate gets walked
+    around. The screens are module-level functions precisely so this is one
+    call each, not a re-derivation.
     """
     out = Path(out_dir)
     (out / "constant" / "triSurface").mkdir(parents=True, exist_ok=True)
@@ -1956,6 +2168,217 @@ def write_resistance_case_from_stl(stl_path: str | Path, lwl: float,
     return info
 
 
+# ---------------------------------------------------------------------------
+# THE TWO PRE-MESH SCREENS THAT EXISTED IN THE TREE AND WERE NEVER WIRED HERE
+#
+# Both return the same shape as each other and follow the SAME discipline the
+# admissibility screen in `write_resistance_case` already follows, because
+# inventing a second policy for a third screen is how a pipeline ends up with
+# three opinions about what "refused" means:
+#
+#   REFUSED  — nothing this generator can be asked for rescues it: the quantity
+#              is unmeasurable, or the physics the case would solve is the
+#              wrong physics at any mesh density.
+#   FLAGGED  — a knob exists (mesh density; a transition-modelled turbulence
+#              closure), so the case is WRITTEN, the operator is warned, and
+#              the receipt names the deficit and the knob.
+#   CLEAR    — checked, inside its envelope; the receipt still goes in.
+#
+# `verdict` is a plain string and the dict is the receipt, so `case.info`
+# renders it rather than re-deriving it.
+# ---------------------------------------------------------------------------
+
+
+def wave_resolution_screen(lwl: float, speed: float,
+                           scale: float) -> dict:
+    """Is the wave field resolved at this Froude number and mesh density?
+
+    THE BAR AND THE ARITHMETIC BOTH ALREADY EXISTED AND NEITHER WAS ON THIS
+    PATH (defect class 3, a guard never made to fire). `fidelity`'s
+    `MIN_CELLS_PER_WAVELENGTH = 20`, `cells_per_wavelength` and
+    `density_for_wave_resolution` were reachable from the planner and from a
+    demo script; `write_resistance_case` consulted none of them. MEASURED
+    2026-08-20: an Fn 0.20 case at scale 1.0 writes at 12.7 cells per
+    wavelength against the 20 bar and said nothing — the number was even
+    RECORDED in `case.info` as `cells_per_wavelength=12.7`, next to no bar.
+    (Fn 0.26, the KCS calibration point, reads 21.5 and clears it. The
+    dependence is on Fn SQUARED, so the LOW-Froude cases are the expensive
+    ones, which is the counter-intuitive half.)
+
+    `fidelity.cells_per_wavelength` is the closed form and `_write_case_dicts`
+    computes `wavelength / dx` from the domain it actually writes; they are the
+    same number by construction (the Lwl cancels) and
+    `tests/test_case_wiring.py` fences them against each other on a written
+    case, so this screen cannot drift from the mesh it screens.
+
+    NOT REFUSED, because a knob exists and it is the one argument this
+    function is handed: `density_for_wave_resolution(fn)` inverts the relation
+    and returns the `scale` that clears the bar, so the receipt names it. The
+    admissibility screen's rule is "a class with no rung is refused, a class
+    with a measured rung is warned"; mesh density is the rung here.
+
+    WHAT IS REFUSED is the unmeasurable case — a non-positive or non-finite
+    speed or length, where no Froude number exists and therefore no
+    cells-per-wavelength does either. Scoring an unmeasurable value as a
+    passing one is this repository's defect class 1, and `fidelity.admit`
+    would have quietly compared `nan < 20.0` as False, i.e. ADMITTED it.
+
+    WHAT THIS SCREEN DOES NOT DO is call `fidelity.admit`. `admit` also refuses
+    on predicted wall clock and on RAM — the RAM bar rides on `BYTES_PER_CELL`,
+    which `fidelity`'s own docstring records as ASSUMED and never measured —
+    and on tank resonance. Those are questions about a MACHINE and a run
+    length, not properties of the case being written, and a writer that
+    refused on an assumed constant would be refusing on a number that does not
+    exist yet. The planner owns that call; this is the physics floor only.
+    """
+    from ..fidelity import (MIN_CELLS_PER_WAVELENGTH,  # deferred: `fidelity`
+                            cells_per_wavelength,      # imports this module at
+                            density_for_wave_resolution)  # module level
+    ok = all(isinstance(v, (int, float)) and math.isfinite(v) and v > 0.0
+             for v in (lwl, speed, scale))
+    if not ok:
+        return {"verdict": "REFUSED", "fn": float("nan"),
+                "cells_per_wavelength": float("nan"),
+                "bar": MIN_CELLS_PER_WAVELENGTH, "scale_needed": float("nan"),
+                "reason": (
+                    f"wave-resolution screen: lwl={lwl!r}, speed={speed!r}, "
+                    f"scale={scale!r} — no Froude number exists, so cells per "
+                    f"wavelength is not a quantity here. An unmeasurable value "
+                    f"is refused, never scored as a passing one.")}
+    fn = speed / math.sqrt(_G * lwl)
+    cpw = cells_per_wavelength(fn, scale)
+    needed = density_for_wave_resolution(fn)
+    if cpw >= MIN_CELLS_PER_WAVELENGTH:
+        return {"verdict": "CLEAR", "fn": fn, "cells_per_wavelength": cpw,
+                "bar": MIN_CELLS_PER_WAVELENGTH, "scale_needed": needed,
+                "reason": (f"{cpw:.1f} cells per wavelength at Fn {fn:.3f}, "
+                           f"bar {MIN_CELLS_PER_WAVELENGTH:.0f}: clear")}
+    return {"verdict": "FLAGGED", "fn": fn, "cells_per_wavelength": cpw,
+            "bar": MIN_CELLS_PER_WAVELENGTH, "scale_needed": needed,
+            "reason": (
+                f"wave-resolution screen: {cpw:.1f} cells per wavelength at "
+                f"Fn {fn:.3f} and scale {scale:g}, against the "
+                f"{MIN_CELLS_PER_WAVELENGTH:.0f} bar — the wave field is under-"
+                f"resolved and the drag would ride on hull-local refinement "
+                f"instead. The case IS written because the rung exists: "
+                f"scale >= {needed:.3f} clears the bar "
+                f"(fidelity.density_for_wave_resolution). Price it with "
+                f"fidelity.estimate before launching.")}
+
+
+def reynolds_regime_screen(lwl: float, speed: float) -> dict:
+    """Which boundary-layer regime is this case in, and may RANS answer there?
+
+    BUILD-PLAN §11.8 gate 2, and `docs/research/SMALL-CRAFT-REGIMES.md` §12:
+
+      Re < 5e5      LAMINAR. Refused. The case this generator writes is
+                    fully-turbulent kOmegaSST with wall functions
+                    (`_TARGET_YPLUS = 100`, nutkWallFunction); it forces a
+                    turbulent boundary layer over the whole hull, and below
+                    transition onset that is not a worse answer, it is a
+                    different flow. The regimes doc measures the size of the
+                    lie on the empirical line it inherits: at Re 2.3e5,
+                    ITTC-57 gives C_F 6.64e-3 against Blasius 2.77e-3, 2.4x
+                    apart, on a component that is ~92% of total resistance
+                    there. RANS with a fully-turbulent closure reproduces that
+                    bias at a hundred times the cost — "correlated error
+                    masquerading as validation".
+
+      5e5..5e6      TRANSITION BAND. WRITTEN, with a flagged receipt. The knob
+                    that rescues it is a transition-modelled closure
+                    (gamma-Re_theta / LCTM), which this generator does not
+                    write and which the regimes doc records as unvalidated for
+                    free-surface hulls at these Re in this tree — so the
+                    honest artefact is a case that carries its own caveat, not
+                    a silent pass and not a refusal of every 2.5-3 m hull.
+
+      >= 5e6        Fully turbulent; the closure is inside its envelope.
+
+    THE BAND HAS ONE HOME, `limits.RE_TRANSITION_BAND`, and this is the third
+    consumer of it (`limits.friction_line_validity` is the strict designer
+    question, `resistance.flow_regime` the wired L1 evaluation policy). The
+    CFD policy is `flow_regime`'s shape exactly — refuse below onset, report
+    with a receipt inside the band — because a tier that refuses what the tier
+    below it reports would make the ladder non-monotone.
+
+    REYNOLDS IS COMPUTED FROM THE CASE'S OWN VISCOSITY, `_NU_WATER`, and not
+    from `resistance.nu_water`. `constant/transportProperties` ships
+    `constants.NU_FRESH_20C` while `resistance` answers at 15 C
+    (`constants.NU_FRESH_15C`); a receipt that classified the regime with a
+    fluid the solver is not going to use would be describing a different
+    case. (The values are named rather than quoted here because the
+    single-home fence reads LITERALS, in prose as well as in code — and it
+    is right to: a number repeated in a docstring drifts exactly as
+    silently as one repeated in an assignment.) The two differ by 4.5%, so
+    the verdicts differ only for a case sitting within 4.5% of a band edge —
+    and there the case's own fluid is the right one.
+
+    MEASURED CONTEXT, i.e. what this changes today (2026-08-20, reference
+    genome scaled to length, `admissibility.screen` at scale 1.0):
+
+      2.5 m hull, Fn 0.26 (1.288 m/s, Re 2.95e6) — screen SAFE, wave field
+        CLEAR at 21.5 cells/wavelength, and the case was written fully
+        turbulent with NO flag of any kind. It is still written; it now
+        carries the receipt.
+      1.0 m hull, 0.4 m/s (Re 3.67e5, LAMINAR) — screen DANGEROUS on
+        `stack_over_min_radius` with `refused_no_rescue` EMPTY, i.e. WARNED
+        and written. So the laminar case was not even refused for the wrong
+        reason; the only thing standing near it was a layer-stack-vs-hull-cell
+        MESH-FIT check that says nothing about physics and evaporates the
+        moment the mesh is made finer. That case is now refused, and for the
+        reason that is actually true of it.
+      1.0 m hull, Fn 0.26 (0.814 m/s, Re 7.5e5) — transition band: written,
+        flagged, which is the band's whole point.
+    """
+    from ..limits import RE_TRANSITION_BAND, friction_line_validity
+    lo, hi = RE_TRANSITION_BAND
+    ok = all(isinstance(v, (int, float)) and math.isfinite(v) and v > 0.0
+             for v in (lwl, speed))
+    if not ok:
+        return {"verdict": "REFUSED", "re": float("nan"), "regime": "unknown",
+                "band": RE_TRANSITION_BAND,
+                "reason": (
+                    f"Reynolds-regime screen: lwl={lwl!r}, speed={speed!r} — "
+                    f"no Reynolds number exists, so no turbulence closure can "
+                    f"be said to apply. An unmeasurable value is refused, "
+                    f"never scored as a passing one.")}
+    re = speed * lwl / _NU_WATER
+    valid, why = friction_line_validity(re)
+    if re < lo:
+        return {"verdict": "REFUSED", "re": re, "regime": "laminar",
+                "band": RE_TRANSITION_BAND,
+                "reason": (
+                    f"Reynolds-regime screen: Re {re:.3g} < {lo:.0e} — the "
+                    f"boundary layer is LAMINAR and this generator writes a "
+                    f"fully-turbulent kOmegaSST case with wall functions, "
+                    f"which is not a coarse answer to this flow but the wrong "
+                    f"flow. {why}. No mesh density and no layer count rescue "
+                    f"it: the closure would have to change. See "
+                    f"docs/research/SMALL-CRAFT-REGIMES.md §12 and "
+                    f"docs/BUILD-PLAN.md §11.8 gate 2. Lengthen the hull or "
+                    f"raise the speed past L*V = {lo * _NU_WATER:.3f} m^2/s.")}
+    if re < hi:
+        return {"verdict": "FLAGGED", "re": re, "regime": "transitional",
+                "band": RE_TRANSITION_BAND,
+                "reason": (
+                    f"Reynolds-regime screen: Re {re:.3g} is inside the "
+                    f"laminar-turbulent transition band [{lo:.0e}, {hi:.0e}). "
+                    f"The case IS written, and it carries this receipt rather "
+                    f"than a silent pass: a fully-turbulent closure here "
+                    f"reproduces ITTC-57's OWN bias at RANS cost, so a result "
+                    f"that agrees with the L1 tier in this band is correlated "
+                    f"error, not validation. A transition-modelled closure "
+                    f"(gamma-Re_theta / LCTM) is the rung, and this generator "
+                    f"does not write one. Do not quote this case as "
+                    f"independent confirmation of the empirical tier.")}
+    return {"verdict": "CLEAR", "re": re, "regime": "fully_turbulent",
+            "band": RE_TRANSITION_BAND,
+            "reason": (f"Re {re:.3g} >= {hi:.0e}: fully turbulent, the "
+                       f"kOmegaSST wall-function closure is inside its "
+                       f"envelope"
+                       + ("" if valid else f" — but {why}"))}
+
+
 def write_resistance_case(hull: Hull, speed: float, out_dir: str | Path,
                           end_time: float = 40.0, scale: float = 1.0,
                           np_procs: int = 8, symmetric: bool = False,
@@ -1981,7 +2404,9 @@ def write_resistance_case(hull: Hull, speed: float, out_dir: str | Path,
     # or snappy snaps to facets and the layer stack sits on a faceted wall.
     bg_dx = _DOMAIN_LENGTH_L * lwl / max(int(round(_NX_BASE * scale)), 20)
     target_edge = 0.5 * bg_dx / 2 ** _HULL_REFINE[1]
-    nx, nz = stl_resolution(lwl, target_edge)
+    nx_clamped, nz = stl_resolution(lwl, target_edge)
+    nx, nz = stl_resolution_station_aligned(lwl, target_edge,
+                                            _stl_loft_stations())
     nx_req = stl_resolution_request(lwl, target_edge)
     # C-18 (forensics: 'the screen and the case-writer were two
     # disconnected halves of one pipeline'): the admissibility screen
@@ -2024,6 +2449,21 @@ def write_resistance_case(hull: Hull, speed: float, out_dir: str | Path,
             f"{','.join(_adm.refused_by)} — expect a checkMesh refusal at "
             f"the derived layer count; run-case.sh's backoff ladder is the "
             f"measured recovery (~1.9 rungs mean).", stacklevel=2)
+    # THE OTHER TWO SCREENS THAT EXISTED AND WERE NEVER CONSULTED HERE, wired
+    # at the same seam and under the same discipline as the admissibility one
+    # above: refuse only what no knob rescues, warn and proceed otherwise, and
+    # write the receipt into case.info EITHER WAY so "checked and clear" is
+    # distinguishable from "never checked".
+    _wave = wave_resolution_screen(lwl, speed, scale)
+    _regime = reynolds_regime_screen(lwl, speed)
+    if _wave["verdict"] == "REFUSED":
+        raise ValueError(_wave["reason"])
+    if _regime["verdict"] == "REFUSED":
+        raise ValueError(_regime["reason"])
+    import warnings as _warnings
+    for _s in (_wave, _regime):
+        if _s["verdict"] == "FLAGGED":
+            _warnings.warn(_s["reason"], stacklevel=2)
     stl_path = out / "constant" / "triSurface" / "hull.stl"
     # C-06: with a manifest, the case is written IN THE FLOATED FRAME the
     # manifest certifies (waterline + solved trim onto the tank's z = 0);
@@ -2067,23 +2507,54 @@ def write_resistance_case(hull: Hull, speed: float, out_dir: str | Path,
     # than the generator asked for. Nothing in the case directory said so.
     # `stations` is the number that actually bounds longitudinal resolution:
     # `Hull.closed_mesh` interpolates linearly between them, so nx buys
-    # triangles, not geometry.
+    # triangles, not geometry — WHICH IS WHY `stl_stations` IS NO LONGER THE
+    # CALLER'S `len(hull.x)`. G1 rebuilds the hull at `_stl_loft_stations()`
+    # inside `hull_to_stl`, so the stations the shipped surface is lofted
+    # between are that many; recording the caller's 41 here would describe a
+    # surface that is not in the directory.
+    _stations = _stl_loft_stations()
     with (out / "case.info").open("a") as fh:
         fh.write(f"admissibility_verdict={_adm.verdict.name}\n")
         fh.write("admissibility_refused_by="
                  f"{','.join(_adm.refused_by) or 'none'}\n")
         fh.write("admissibility_no_rescue="
                  f"{','.join(_adm.refused_no_rescue) or 'none'}\n")
-        fh.write(f"stl_nx_requested={nx_req}\nstl_nx_shipped={nx}\n"
+        fh.write(f"wave_resolution_verdict={_wave['verdict']}\n"
+                 f"wave_resolution_cells_per_wavelength="
+                 f"{_wave['cells_per_wavelength']:.2f}\n"
+                 f"wave_resolution_bar={_wave['bar']:.0f}\n"
+                 f"wave_resolution_scale_needed={_wave['scale_needed']:.4f}\n"
+                 f"wave_resolution_reason={_wave['reason']}\n"
+                 "  # bar: fidelity.MIN_CELLS_PER_WAVELENGTH. FLAGGED means the\n"
+                 "  # wave field is under-resolved and the rung is mesh density\n"
+                 "  # (scale_needed), not a defect in the hull.\n")
+        fh.write(f"flow_regime={_regime['regime']}\n"
+                 f"flow_regime_verdict={_regime['verdict']}\n"
+                 f"flow_regime_re={_regime['re']:.4g}\n"
+                 f"flow_regime_band={_regime['band'][0]:.0e},"
+                 f"{_regime['band'][1]:.0e}\n"
+                 f"flow_regime_reason={_regime['reason']}\n"
+                 "  # band: limits.RE_TRANSITION_BAND, Re from the case's own\n"
+                 "  # transportProperties viscosity. FLAGGED = written inside\n"
+                 "  # the transition band, where a fully-turbulent closure\n"
+                 "  # reproduces ITTC-57's own bias; not independent evidence.\n")
+        fh.write(f"stl_nx_requested={nx_req}\n"
+                 f"stl_nx_clamped={nx_clamped}\nstl_nx_shipped={nx}\n"
                  f"stl_nz_shipped={nz}\n"
                  f"stl_target_edge_m={target_edge:.6f}\n"
                  f"stl_edge_x_m={lwl / nx:.6f}\n"
                  f"stl_resolution_shortfall={nx_req / nx:.4f}\n"
-                 f"stl_stations={len(hull.x)}\n"
-                 f"stl_station_spacing_m={lwl / max(len(hull.x) - 1, 1):.6f}\n"
+                 f"stl_stations={_stations}\n"
+                 f"stl_station_spacing_m={lwl / max(_stations - 1, 1):.6f}\n"
+                 f"stl_hull_stations={len(hull.x)}\n"
+                 f"stl_nx_per_station={(nx - 1) / max(_stations - 1, 1):.4f}\n"
                  "  # shortfall > 1 means the [80, 600] clamp bound. It binds\n"
-                 "  # on every hull in the seed-0 batch, so stl_nx_shipped is\n"
-                 "  # INDEPENDENT of lwl; see stl_resolution's docstring.\n")
+                 "  # on every hull in the seed-0 batch, so stl_nx_clamped is\n"
+                 "  # INDEPENDENT of lwl; see stl_resolution's docstring.\n"
+                 "  # nx_shipped is nx_clamped snapped DOWN onto the loft\n"
+                 "  # stations (nx_per_station is an exact integer when the\n"
+                 "  # snap took); stl_hull_stations is what the CALLER handed\n"
+                 "  # in, kept so a rebuild that did not happen is visible.\n")
     if manifest is not None:
         # §14: case.info RENDERS the manifest — and the writer must be
         # describing the same vessel the manifest does, or the render would
