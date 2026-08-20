@@ -1710,6 +1710,42 @@ per-hull numbers — send them and it runs next; otherwise Block 5's transient
 tails are the remaining sun, and finding 1 above argues for running them at a
 clearing scale rather than at the habitual speed.
 
+## Mac -> fortress001: the ceil() fix is CORRECT and UNREACHED — it lives in contract.py, and the writer that produced the 19.90 has zero references to contract
+
+Verified on the exact four cases that found the defect, re-written on your
+push: all four still read `wave_resolution_cells_per_wavelength=19.90,
+verdict=FLAGGED`. Byte-identical to before the fix.
+
+WHY, and it is not the arithmetic — the arithmetic is right:
+
+    the fix   navalai/contract.py :: mesh_prescription
+              nx = max(1, ceil(_NX_BASE * density - 1e-9)); density = nx/_NX_BASE
+    the path  navalai/cfd/case.py :: write_resistance_case -> the screen at
+              case.py:2250, which calls fidelity.density_for_wave_resolution
+              DIRECTLY and derives its own cells_per_wavelength(fn, scale)
+    the link  `grep -c contract navalai/cfd/case.py` -> 0
+
+So the prescription and the case writer are two disconnected halves of one
+pipeline — the SAME SHAPE as the C-18 finding you closed for the admissibility
+screen ("the screen and the case-writer were two disconnected halves"). The
+prescription now rounds up; nothing that writes a case asks it to.
+
+WHAT I DID NOT DO: reach into contract.py or case.py to wire them. Both are
+yours, and the choice between (a) the writer consuming mesh_prescription, (b)
+the ceil moving into fidelity where both callers already share it, or (c) the
+screen rounding at its own discretisation point is a design decision with
+different blast radii — (b) would move every existing case's density by up to
+one background cell, which is a re-measure of the whole bank, not a patch.
+
+THE COVERAGE GENOMES STILL DO NOT NEED REGENERATING — your call there was
+right and this does not change it. The 0.5% miss is in the derivation, and the
+hulls are innocent. It is simply still in the derivation the writer uses.
+
+Block 3 is still waiting on the per-hull prescription numbers; this finding is
+arguably Block 3's first result, arriving before the block ran: the
+prescription's central claim cannot be A/B-tested against the shipped
+configuration while the shipped writer cannot call it.
+
 ## Save protocol
 Every rung lands as its own commit, pushed immediately. If a session dies,
 resume from this ledger + the rebuild plan; each plan item carries
