@@ -101,6 +101,72 @@ def classify_regime(lwl_m, speed_ms, fn, re, n_hulls: int = 1,
     return tuple(out) or (UNMEASURED,)
 
 
+# --------------------------------------------------------------------------
+# THE SUPPORTED DOMAIN (the operator's §14), enforced in ONE place
+#
+# "Do not claim Naval-AI solves every boat. Define the SUPPORTED DOMAIN, then
+# make the code refuse designs outside it. This is much better than
+# pretending universal coverage."
+#
+# It was declared in docs/audit/INTEGRATION-GAP-MATRIX.md §II.2 and enforced
+# PIECEMEAL — the grammar box clipped length, `select_fidelity` gated Fn and
+# Re, `mission.EVALUABLE_TOPOLOGIES` refused a trimaran by name — with no
+# single place that could answer "is this design even in scope?". That is the
+# same shape as every other defect this campaign found: a bar that exists and
+# nothing consults as a whole.
+#
+# IN-DOMAIN IS NOT A VERDICT ON THE BOAT. It is the question that PRECEDES
+# the four: a design outside the domain is not bad, it is unaddressed, and
+# the honest answer is to say so by name rather than to run it through
+# machinery calibrated for something else and report the number.
+# --------------------------------------------------------------------------
+
+
+def supported_domain(lwl_m=None, fn=None, re=None, n_hulls: int = 1,
+                     topology=None) -> tuple[bool, tuple[str, ...]]:
+    """(in_domain, reasons). Every bound is IMPORTED from its owner.
+
+    Length is the RCD scope (`limits.RCD_HULL_LENGTH_SCOPE_M`), which is
+    also where the rules tier stops having anything to say — below it there
+    is additionally no honest friction line (the small-craft study's three
+    walls). Froude stops at the planing onset, where this tree holds no
+    model at all. Reynolds refuses below the laminar floor. Topology is
+    `mission.EVALUABLE_TOPOLOGIES`: a trimaran is declarable and not
+    evaluable, and saying that plainly is the point.
+    """
+    from .limits import RCD_HULL_LENGTH_SCOPE_M
+    from .mission import EVALUABLE_TOPOLOGIES
+
+    out: list[str] = []
+    lo, hi = RCD_HULL_LENGTH_SCOPE_M
+    if lwl_m is not None:
+        if lwl_m < lo:
+            out.append(
+                f"LWL {lwl_m:.2f} m is below the supported {lo:.1f} m: the "
+                f"rules tier has no clauses there AND no honest friction "
+                f"line exists (the turbulent-Re + displacement-Fn window is "
+                f"empty below ~2.6 m). This is the drone line, and it is "
+                f"descoped, not broken.")
+        elif lwl_m > hi:
+            out.append(f"LWL {lwl_m:.2f} m is above the supported {hi:.1f} m "
+                       f"(RCD scope)")
+    if fn is not None and fn > FN_PLANING_ONSET_LOCAL:
+        out.append(
+            f"Fn {fn:.3f} is past the planing onset "
+            f"{FN_PLANING_ONSET_LOCAL:.2f}: no Savitsky-class model exists "
+            f"in this tree, so there is nothing here that may answer")
+    if re is not None and re < RE_TRANSITION_BAND[0]:
+        out.append(
+            f"Re {re:.3g} is below {RE_TRANSITION_BAND[0]:.0e}: the flow is "
+            f"laminar and every friction model here is a turbulent "
+            f"correlation")
+    if topology is not None and topology not in EVALUABLE_TOPOLOGIES:
+        out.append(f"topology {getattr(topology, 'value', topology)!r} is "
+                   f"declarable but not evaluable: only "
+                   f"{[t.value for t in EVALUABLE_TOPOLOGIES]} are built")
+    return (not out), tuple(out)
+
+
 #: Verdict vocabulary. UNMEASURED is not a hedge — it is the honest answer
 #: for a question nothing has asked yet (there is no solve, so D has no
 #: evidence), and it must never read as a pass.
@@ -179,6 +245,10 @@ class HullEvaluation:
     lcb_pct: float | None = None
     n_hulls: int = 1
     regimes: tuple[str, ...] = ()
+    #: §14: is this design even in scope? Asked BEFORE the four verdicts,
+    #: because out-of-domain is not a judgement on the boat.
+    in_domain: bool = True
+    domain_reasons: tuple[str, ...] = ()
 
     hull_verdict: str = UNMEASURED        # A
     model_verdict: str = UNMEASURED       # B
@@ -225,6 +295,8 @@ class HullEvaluation:
             "displacement_kg": self.displacement_kg,
             "cp": self.cp, "lcb_pct": self.lcb_pct,
             "n_hulls": self.n_hulls, "regimes": list(self.regimes),
+            "in_domain": self.in_domain,
+            "domain_reasons": list(self.domain_reasons),
             "hull_verdict": self.hull_verdict,
             "model_verdict": self.model_verdict,
             "mesh_verdict": self.mesh_verdict,
@@ -523,6 +595,11 @@ def evaluate_hull(genome, mission: MissionSpec | None = None,
         detail.get("_decision") else False
     regimes = classify_regime(lwl, speed, fn, re, n_hulls=n_hulls,
                               environment_dominated=env_dominated)
+    topo = getattr(getattr(mission, "vessel", None), "topology", None)
+    in_domain, domain_reasons = supported_domain(
+        lwl_m=lwl, fn=fn, re=re, n_hulls=n_hulls, topology=topo)
+    if not in_domain:
+        warnings.extend(f"out of supported domain: {r}" for r in domain_reasons)
     detail.pop("_decision", None)
 
     return HullEvaluation(
@@ -531,6 +608,7 @@ def evaluate_hull(genome, mission: MissionSpec | None = None,
         displacement_kg=sc.get("displacement_design_kg"),
         cp=sc.get("Cp"), lcb_pct=sc.get("lcb_pct_lwl"),
         n_hulls=n_hulls, regimes=regimes,
+        in_domain=in_domain, domain_reasons=domain_reasons,
         hull_verdict=hull_verdict, model_verdict=model_verdict,
         mesh_verdict=mesh_verdict, result_verdict=result_verdict,
         fidelity_tier=tier, fidelity_why=why,

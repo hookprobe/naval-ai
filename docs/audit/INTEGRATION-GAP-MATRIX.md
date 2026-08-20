@@ -222,11 +222,16 @@ them.
 
 ## III.2 · Open, fortress-side, in order
 
-1. **§14 enforce the supported domain in ONE place.** It is declared in
-   II.2 and enforced piecemeal (grammar box, governor gates). The contract
-   should carry a single `supported_domain()` check whose refusal names the
-   axis and the bound. SMALL — and it makes "we do not claim to solve every
-   boat" a code fact rather than a sentence.
+1. ~~**§14 enforce the supported domain in ONE place.**~~ **DONE
+   2026-08-20**: `contract.supported_domain()` refuses by AXIS and by NAME,
+   with every bound imported from its owner (RCD_HULL_LENGTH_SCOPE_M,
+   FN_PLANING_ONSET, RE_TRANSITION_BAND, EVALUABLE_TOPOLOGIES) so the
+   domain cannot drift from the modules that enforce its parts. It is a
+   FIFTH receipt field, asked BEFORE the four verdicts, because
+   out-of-domain is not a judgement on the boat: a design outside the
+   domain is unaddressed, not bad — and the point of saying so is that
+   nobody runs it through machinery calibrated for something else and
+   reports the number.
 2. **§15 the coverage matrix as fixtures.** One certifiable genome per size
    band (2.5-3, 3-5, 5-7, 7-10, 10-12 m) plus a catamaran and a plumb-bow
    form, each pinned through the contract with its regime and prescription.

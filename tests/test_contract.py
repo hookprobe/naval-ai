@@ -271,3 +271,49 @@ def test_the_rung_the_screen_names_is_one_the_writer_can_stand_on():
         assert cells_per_wavelength(fn, rep["scale_needed"]) >= \
             MIN_CELLS_PER_WAVELENGTH, (
                 f"L={lwl} Fn={fn}: the screen names a rung that still misses")
+
+
+# ---------------------------------------------------------------------------
+# §14: the supported domain, enforced in ONE place
+# ---------------------------------------------------------------------------
+
+
+def test_the_supported_domain_refuses_by_axis_and_by_name():
+    """The operator's §14: "do not claim Naval-AI solves every boat; define
+    the supported domain, then make the code refuse designs outside it."
+
+    It was DECLARED in the gap matrix and enforced PIECEMEAL — the grammar
+    box clipped length, select_fidelity gated Fn and Re, EVALUABLE_TOPOLOGIES
+    refused a trimaran — with nowhere that could answer "is this even in
+    scope?". Every bound here is IMPORTED from its owner, so the domain
+    cannot drift from the modules that enforce its parts.
+    """
+    from navalai.contract import supported_domain
+    from navalai.mission import Topology
+
+    ok, why = supported_domain(lwl_m=12.0, fn=0.25, re=2.7e7,
+                               topology=Topology.MONOHULL)
+    assert ok and why == ()
+
+    for kwargs, expect in (
+            (dict(lwl_m=1.0, fn=0.32, re=9.2e5), "below the supported 2.5"),
+            (dict(lwl_m=30.0, fn=0.20, re=5e7), "above the supported 24.0"),
+            (dict(lwl_m=3.0, fn=1.10, re=1.6e7), "past the planing onset"),
+            (dict(lwl_m=10.0, fn=0.25, re=3.0e5), "below 5e+05"),
+            (dict(lwl_m=10.0, fn=0.25, re=3.0e7,
+                  topology=Topology.TRIMARAN), "not evaluable"),
+    ):
+        ok, why = supported_domain(**kwargs)
+        assert not ok, kwargs
+        assert any(expect in r for r in why), (expect, why)
+
+
+def test_out_of_domain_is_not_a_verdict_on_the_boat():
+    """A design outside the domain is UNADDRESSED, not bad. The receipt says
+    so on its own axis, so nobody reads "we do not model this" as "this hull
+    is wrong" — and, just as important, nobody runs it through machinery
+    calibrated for something else and reports the number."""
+    ev = evaluate_hull(np.array(KIT_REFERENCE), MissionSpec())
+    assert ev.in_domain and ev.domain_reasons == ()
+    d = ev.to_dict()
+    assert d["in_domain"] is True and d["domain_reasons"] == []
