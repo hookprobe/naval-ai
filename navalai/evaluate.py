@@ -1038,6 +1038,36 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
                     f"at the outboard deck edge), bar 8 deg on both. "
                     f"CONSERVATIVE placement: a fail here is marginal "
                     f"evidence — see CrowdingHeelTest.basis.")
+        elif not mission.windage.declared:
+            # THE SILENT PASS, MEASURED 2026-08-20. The two branches here
+            # cover < 15 m (cl 1.3) and >= 15 m WITH a declared windage
+            # (cl 1.4), and a multihull that is neither fell through BOTH
+            # and out of the function with no assessment and no violation.
+            # Measured on an 18 m catamaran with windage undeclared:
+            # cl13 None, cl14 None, stability_criterion None, and not one
+            # stability violation.
+            #
+            # It is silent because the surrounding design is otherwise
+            # right: R-GM is deliberately NOT emitted for a multihull (GM
+            # is the monohull criterion and a catamaran passes it trivially
+            # while remaining capsizable), and R-MHS is emitted as a
+            # RECEIPT pointing at "the evaluation's cl13/cl14 receipt for
+            # the measured verdict". With no cl13 and no cl14 that receipt
+            # does not exist, so the pointer resolved to nothing and the
+            # vessel came back clean.
+            #
+            # Same defect class as the rest of this campaign: a bar that
+            # exists and is not consulted. An UNASSESSED multihull must
+            # read as unassessed, never as passed.
+            viol.append(
+                f"multihull stability: UNASSESSED — this vessel is "
+                f"{_loa:.1f} m with {_persons} persons, so NZ Part 40A "
+                f"App.1 cl 1.3 (< 15 m and <= 50 persons) does not apply, "
+                f"and cl 1.4 needs a DECLARED windage (mission.windage) "
+                f"that was not given. No stability criterion in this tree "
+                f"has judged it. This is a REFUSAL to answer, not a "
+                f"finding against the design: declare the windage and cl "
+                f"1.4 will assess it.")
         elif mission.windage.declared:
             # The >= 15 m / > 50 passenger class WITH a declared windage:
             # the full four-clause cl 1.4 verdict (2026-08-19 — (c)/(d)

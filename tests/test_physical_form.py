@@ -332,7 +332,29 @@ def test_multihull_cases_carry_a_physical_separation(described):
         # and the ladder said so too: the evaluation carries the explicit
         # multihull-stability refusal, never a silent GM pass
         viols = described[key]["meta"]["evaluation"]["violations"]
-        assert any("multihull stability" in v for v in viols), (
+        # THE INVARIANT IS "ASSESSED OR REFUSED, NEVER SILENTLY BLESSED",
+        # and it is not the same thing as "always refused". This test used
+        # to require a multihull-stability VIOLATION on every multihull,
+        # which was right for the pre-2026-08-19 design where a multihull
+        # was blanket-REFUSED by the rules tier. It is wrong for the design
+        # that replaced it: NZ Part 40A App.1 cl 1.3 is now COMPUTED, and a
+        # catamaran that passes it has correctly earned no violation
+        # (MEASURED on case c: cl13 heel 0.77 deg, trim 0.93 deg, bar 8,
+        # passes). Demanding a violation there would demand a false one.
+        #
+        # What must never happen is the THIRD state, and MEASURED
+        # 2026-08-20 it could: an 18 m catamaran with no declared windage
+        # fell through cl 1.3 (< 15 m only) AND cl 1.4 (needs declared
+        # windage) and came back with cl13 None, cl14 None and not one
+        # stability violation -- while R-GM is deliberately not emitted for
+        # a multihull and R-MHS passes as a receipt pointing at the cl13
+        # receipt that does not exist. That is the silent blessing this
+        # test's name is about, and it is what is fenced now.
+        ev_meta = described[key]["meta"]["evaluation"]
+        vessel = ev_meta.get("vessel") or {}
+        assessed = bool(vessel.get("cl13") or vessel.get("cl14"))
+        refused = any("multihull stability" in v for v in viols)
+        assert assessed or refused, (
             f"case {key}: the multihull stability refusal vanished from the "
             f"evaluation — a catamaran must never be silently blessed on GM")
 

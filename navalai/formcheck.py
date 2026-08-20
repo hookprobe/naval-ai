@@ -377,6 +377,19 @@ def form_descriptors(params: np.ndarray, mission: MissionSpec | None = None
         meta["evaluation"] = {
             "tier": ev.tier, "ok": ev.ok,
             "violations": list(ev.violations),
+            # THE STABILITY RECEIPT MUST SURVIVE THE SUMMARY (2026-08-20).
+            # This dict carried ok/role/tier/violations only, and a reader
+            # therefore could not tell an ASSESSED multihull from a
+            # silently-blessed one: both show an empty violation list. The
+            # distinction is whether a criterion actually ran, so the
+            # cl13/cl14 receipt is carried through rather than dropped.
+            "vessel": ({"cl13": (ev.vessel or {}).get("cl13"),
+                        "cl14": (ev.vessel or {}).get("cl14"),
+                        "n_hulls": (ev.vessel or {}).get("n_hulls"),
+                        "stability_criterion":
+                            (ev.vessel or {}).get("stability_criterion")}
+                       if isinstance(getattr(ev, "vessel", None), dict)
+                       else None),
         }
         if ev.hydro is None:
             reason = ("the ladder refused the float: "

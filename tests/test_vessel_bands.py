@@ -347,13 +347,52 @@ def test_a_multihull_is_REFUSED_a_stability_verdict_not_granted_one():
         "emitting it puts a green tick on the quantity that does not govern")
     assert "R-MHS" in ids_cat
     mhs = next(f for f in cat_findings if f.rule_id == "R-MHS")
-    assert not mhs.passed, "the multihull refusal PASSED, which is a silent pass"
     assert mhs.basis == "approx"
-    assert "RCD 2013/53/EU" in mhs.clause and "6.6" in mhs.clause
-    assert MULTIHULL_STABILITY_UNASSESSED in mhs.note
-    # and the whole rules report must fail, so `evaluate.g['rules']` is > 0
-    assert not report(cat_findings)["pass"]
-    assert abs(mhs.measured - mhs.required) / abs(mhs.required) == 1.0
+
+    # WHICH R-MHS THIS IS DEPENDS ON MANNING, and that is the 2026-08-19
+    # design rather than a loophole. ISO 12217-1 cl 6.6 binds HABITABLE
+    # multihulls, so a liveaboard still gets the refusal; a crewed or
+    # uncrewed multihull's stability verdict is COMPUTED by the ladder (NZ
+    # Part 40A App.1 cl 1.3 under 15 m, cl 1.4 on declared windage above
+    # it) and R-MHS is a RECEIPT pointing at it. This fixture declares no
+    # manning, so it takes the receipt path.
+    #
+    # The test used to assert `not mhs.passed` unconditionally, which was
+    # correct for the blanket-refusal design it was written against and
+    # would now demand a false refusal on a vessel the ladder has actually
+    # judged (MEASURED on the 10 m catamaran of test_physical_form case c:
+    # cl 1.3 heel 0.77 deg, trim 0.93 deg against an 8 deg bar, passes).
+    #
+    # WHAT IS FENCED INSTEAD is that a receipt must NAME where the verdict
+    # lives. A receipt that passes while pointing nowhere is the silent
+    # pass, and MEASURED 2026-08-20 that state was reachable: an 18 m
+    # catamaran with no declared windage fell through both clauses and came
+    # back with cl13 None, cl14 None and no violation. That hole is closed
+    # in navalai/evaluate.py and fenced in test_physical_form.
+    if mhs.passed:
+        assert "cl13" in mhs.note or "cl14" in mhs.note, (
+            "R-MHS passed as a receipt without naming the criterion that "
+            "carries the verdict — a pointer to nowhere is a silent pass: "
+            + mhs.note)
+        assert "not a" in mhs.note or "ladder" in mhs.note
+    else:
+        assert "RCD 2013/53/EU" in mhs.clause and "6.6" in mhs.clause
+        assert MULTIHULL_STABILITY_UNASSESSED in mhs.note
+        assert not report(cat_findings)["pass"]
+        assert abs(mhs.measured - mhs.required) / abs(mhs.required) == 1.0
+
+    # AND THE HABITABLE PATH MUST STILL REFUSE — the clause that has not
+    # been replaced by a computed criterion.
+    live = _Ev()
+    live.vessel = {"n_hulls": 2, "separation_over_lwl": 0.30,
+                   "manning": "liveaboard"}
+    live_findings = assess(live, "C", 2, 4.0)
+    live_mhs = next(f for f in live_findings if f.rule_id == "R-MHS")
+    assert not live_mhs.passed, (
+        "a LIVEABOARD multihull is exactly what ISO 12217-1 cl 6.6 binds, "
+        "and this tree does not hold cl 6.6.1's governing text — it must "
+        "still refuse rather than issue a receipt")
+    assert MULTIHULL_STABILITY_UNASSESSED in live_mhs.note
 
 
 def test_the_multihull_refusal_names_its_missing_evidence_rather_than_gesturing():
@@ -490,3 +529,72 @@ def test_the_ittc_envelope_has_one_home_C31():
 
     assert resistance.RE_TRANSITION_ONSET == RE_TRANSITION_BAND[0]
     assert resistance.RE_FULLY_TURBULENT == RE_TRANSITION_BAND[1]
+
+
+def test_a_multihull_that_reaches_NEITHER_clause_is_UNASSESSED_not_blessed():
+    """THE SILENT PASS, MEASURED 2026-08-20 and closed in evaluate.py.
+
+    `evaluate` computed NZ Part 40A App.1 cl 1.3 for a multihull under 15 m
+    with <= 50 persons, and cl 1.4 for the bigger class WITH a declared
+    windage. A multihull that was neither -- >= 15 m and windage NOT
+    declared -- fell through both branches and left the function with
+
+        cl13 None, cl14 None, stability_criterion None, and NO violation
+
+    which reads as a clean bill of health. It is silent precisely because
+    everything around it is right: R-GM is deliberately withheld from a
+    multihull (GM is the monohull criterion and a catamaran passes it
+    trivially while remaining capsizable), and R-MHS is issued as a RECEIPT
+    whose note points at "the evaluation's cl13/cl14 receipt". With neither
+    computed, that pointer resolved to nothing.
+
+    Same class as the rest of this campaign: a bar that exists and is not
+    consulted. The rule is ASSESSED OR REFUSED, NEVER SILENTLY BLESSED.
+    """
+    import copy
+    import sys
+
+    sys.path.insert(0, "tests")
+    import test_physical_form as _T
+
+    from navalai import grammar
+    from navalai.evaluate import evaluate
+
+    case = _T._case("c")                      # a real catamaran fixture
+    idx = {n: i for i, n in enumerate(grammar.NAMES)}
+
+    # scale the WHOLE hull past 15 m so the vector stays self-consistent;
+    # moving LWL alone produces a refused genome and proves nothing
+    params = case.params.copy()
+    k = 18.0 / float(params[idx["LWL"]])
+    for name in ("LWL", "BWL", "T", "D"):
+        params[idx[name]] *= k
+
+    mission = copy.deepcopy(case.mission)
+    assert not mission.windage.declared, "fixture must have NO declared windage"
+
+    ev = evaluate(params, mission)
+    vessel = ev.vessel or {}
+    assert vessel.get("cl13") is None, "cl 1.3 must not apply at 18 m"
+    assert vessel.get("cl14") is None, "cl 1.4 needs a declared windage"
+
+    unassessed = [v for v in ev.violations
+                  if "multihull stability" in v and "UNASSESSED" in v]
+    assert unassessed, (
+        "an 18 m multihull with no declared windage reached NEITHER clause "
+        "and was returned without a stability violation — silently blessed. "
+        f"violations were: {list(ev.violations)}")
+
+    # and it must read as a REFUSAL TO ANSWER, not as a finding against the
+    # design -- those are different claims and conflating them is how "we
+    # did not check" becomes "this boat is unsafe"
+    note = unassessed[0]
+    assert "REFUSAL to answer" in note, note
+    assert "declare the windage" in note, (
+        "a refusal must say what would make it answerable: " + note)
+
+    # the baseline fixture, unscaled, is genuinely ASSESSED and must not
+    # acquire a spurious violation from this guard
+    base = evaluate(case.params, copy.deepcopy(case.mission))
+    assert (base.vessel or {}).get("cl13") is not None
+    assert not [v for v in base.violations if "UNASSESSED" in v]
