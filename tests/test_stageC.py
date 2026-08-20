@@ -259,6 +259,30 @@ def test_the_delivered_bom_is_built_to_the_rule_derived_thickness(plm_run):
     boat. The BOM even said so — "thickness nominal stock sheet (no mLDC given
     — NOT rule-derived)" — which makes it honest and still a cut list that
     fails the platform's own scantling rule. Delivered sheets went 140 -> 153.
+
+    IT CAME BACK, MEASURED 2026-08-20, and passing `mldc_kg` is exactly why.
+    On the module's own 6 t Danube mission this test read
+
+        delivered BOM is built to 18.0 mm while the ladder that
+        validated it derived 15.0 mm
+
+    with `mldc_kg=mission.displacement_target_kg` being passed the whole time.
+    The formula never differed — both sides call `select_stock_thickness_m`.
+    ONE ARGUMENT differed: `evaluate()` passes `mission.design_category`, and
+    `translate()` reads the Danube mission as category **D**, while
+    `engineer.assess` hard-coded "category C default". kDC is 0.4 for D and
+    0.6 for C (ISO 12215-5:2008(E) §7.2), so the same hull selects
+
+        select_stock_thickness_m(6000, lwl 15.905, span 400, cat 'D')  15.0 mm
+        select_stock_thickness_m(6000, lwl 15.905, span 400, cat 'C')  18.0 mm
+
+    18 > 15 is the conservative direction and not unsafe, but the cut list and
+    the ladder that validated the boat still described two different boats.
+    Handing the delivery path the RULE'S ARGUMENTS is a second source of the
+    number no matter how many of them are forwarded; it now consumes the
+    ANSWER, `Evaluation.ply_thickness_m`. See
+    `test_the_engineer_consumes_the_ladder_thickness_and_never_re_derives_it`
+    for the cheap arm that holds the mechanism directly.
     """
     results, _audit, _m = plm_run
     for rec in results:
@@ -272,6 +296,61 @@ def test_the_delivered_bom_is_built_to_the_rule_derived_thickness(plm_run):
         for line in bottom:
             assert line.thickness_mm == pytest.approx(want_mm)
             assert "NOT rule-derived" not in line.note
+
+
+def test_the_engineer_consumes_the_ladder_thickness_and_never_re_derives_it():
+    """THE MECHANISM OF THE 18.0/15.0 DEFECT, held without running the network.
+
+    The test above needs a ~45 s `run_plm` to see the disagreement at all,
+    which is part of why forwarding `mldc_kg` looked like the whole fix. The
+    disagreement is cheap to hold directly: on the reference hull at 6 t the
+    ISO 12215-5:2008(E) design category alone moves the selected stock sheet
+
+        A 21.0 mm   B 18.0 mm   C 18.0 mm   D 15.0 mm
+
+    so an engineer that assumes a category is choosing a boat's plating from
+    an input the mission already declares. Three arms, because no one of them
+    catches it alone.
+    """
+    from navalai import engineer as E
+    from navalai.rules.iso12215 import (bottom_panel_dims_mm,
+                                        select_stock_thickness_m)
+
+    h = Hull(mid_params())
+    lwl = float(h.x[-1])
+    b_mm, l_mm = bottom_panel_dims_mm(h)
+
+    # ARM 1: the mechanism is LIVE. If the category ever stops moving the
+    # sheet, arms 2 and 3 are testing nothing and this says so out loud.
+    t_c = select_stock_thickness_m(6000.0, lwl, design_category="C",
+                                   span_mm=b_mm, l_mm=l_mm)
+    t_d = select_stock_thickness_m(6000.0, lwl, design_category="D",
+                                   span_mm=b_mm, l_mm=l_mm)
+    assert t_c == pytest.approx(0.018) and t_d == pytest.approx(0.015), (
+        f"category C/D select {t_c * 1e3:.1f}/{t_d * 1e3:.1f} mm — the "
+        f"measurement this regression rests on has moved; RE-MEASURE and "
+        f"record before editing the numbers")
+
+    # ARM 2: given the ladder's answer, the engineer BUILDS to it — including
+    # the category-D sheet its own default would never have picked — and the
+    # BOM lines carry the same number, not a note about a nominal sheet.
+    rep = E.assess(h, 0.0, bottom_thickness_m=t_d)
+    assert rep.bottom_thickness_mm == pytest.approx(15.0), (
+        f"the engineer re-derived {rep.bottom_thickness_mm} mm over the "
+        f"15.0 mm the ladder handed it — this is the 18.0/15.0 defect")
+    bottom = [ln for ln in rep.bom if ln.source_panel.startswith("bottom")]
+    assert bottom, "no bottom panel in the BOM"
+    for ln in bottom:
+        assert ln.thickness_mm == pytest.approx(15.0), ln
+        assert "NOT rule-derived" not in ln.note, ln
+
+    # ARM 3: there is exactly ONE source. Accepting the answer AND the rule's
+    # arguments is how the two drifted apart, so it is refused; and a
+    # thickness that is not a sold sheet is refused rather than nested.
+    with pytest.raises(ValueError, match="never both"):
+        E.assess(h, 0.0, mldc_kg=6000.0, bottom_thickness_m=t_d)
+    with pytest.raises(ValueError, match="not a stock sheet"):
+        E.assess(h, 0.0, bottom_thickness_m=0.0163)
 
 
 # ---------------------------------------------------------------------------

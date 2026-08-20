@@ -104,18 +104,82 @@ def test_unfloatable_hull_fails_closed():
 
 
 def test_scantling_monotonic_and_plausible():
-    # heavier boat -> higher pressure; wider span -> thicker panel
-    assert design_pressure_bottom(8000) > design_pressure_bottom(2000)
-    t1 = required_thickness_mm(6000, span_mm=300)
-    t2 = required_thickness_mm(6000, span_mm=500)
+    """THIS TEST WAS STALE, AND ONE OF ITS CALLS PASSED A 400 m BOAT.
+
+    Both scantling entry points take LWL as their SECOND positional argument
+    since the Gate 6R re-shape (2026-08-19) rebuilt this module against the
+    ISO 12215-5:2008(E) clause text. It is not a widened signature: Eq (8)
+    gives the bottom-pressure MINIMUM as
+
+        P_BM_MIN = (0.45*mLDC^0.33 + 0.9*LWL) * kDC     [kN/m^2]
+
+    which is length-dependent, and it REPLACED a flat `max(10, P_BASE)` floor
+    that was neither length- nor category-dependent and is recorded as known
+    wrong. So `lwl_m` is load-bearing physics and the missing-argument
+    TypeError was the correct answer to the old call.
+
+    The old test read
+
+        design_pressure_bottom(8000) > design_pressure_bottom(2000)
+        required_thickness_mm(6000, span_mm=300)
+        required_thickness_mm(6000, 400)          <-- LWL = 400 metres
+
+    The first two raise TypeError; the third would NOT have — it binds 400 to
+    `lwl_m` and asks for the plating of a 400 m ship on the default 400 mm
+    frame spacing, which Eq (8) answers with 220.8 kN/m^2 and **43.0 mm** of
+    plywood, sailing straight past the `8 < t < 22` band this test believed it
+    was checking. A stale positional call is not always a crash.
+
+    Monotonicity in mLDC is now asserted at a FIXED length, monotonicity in
+    span at a fixed length and mass, and the length dependence that made the
+    argument mandatory is asserted in its own right.
+    """
+    lwl = 10.0
+    # heavier boat -> higher pressure, at ONE length
+    assert (design_pressure_bottom(8000, lwl)
+            > design_pressure_bottom(2000, lwl))
+    assert design_pressure_bottom(8000, lwl) == pytest.approx(27.941, abs=1e-2)
+    assert design_pressure_bottom(2000, lwl) == pytest.approx(16.866, abs=1e-2)
+
+    # wider span -> thicker panel, same boat, same length
+    t1 = required_thickness_mm(6000, lwl, span_mm=300)
+    t2 = required_thickness_mm(6000, lwl, span_mm=500)
     assert t2 > t1
-    # 6 t boat, 400 mm frames: required ply in a believable band (10-20 mm)
-    t = required_thickness_mm(6000, 400)
+
+    # Eq (8)'s floor is why lwl_m cannot be defaulted: below ~25 m Eq (7)
+    # governs and length does nothing, above it the minimum takes over. A
+    # signature that let LWL be omitted could not express either half.
+    assert (design_pressure_bottom(2000, 25.0)
+            == pytest.approx(design_pressure_bottom(2000, 5.0)))
+    assert design_pressure_bottom(2000, 30.0) > design_pressure_bottom(2000, 25.0)
+
+    # 6 t boat, 10 m, 400 mm frames: required ply in a believable band
+    t = required_thickness_mm(6000, lwl, span_mm=400)
     assert 8.0 < t < 22.0, t
+    # and the 400 m boat the stale call actually asked for is NOT in it
+    assert required_thickness_mm(6000, 400.0, span_mm=400) > 22.0
 
 
 def test_scantling_verdict():
-    ok = scantling(6000, provided_mm=20.0)   # required computes to ~18.2 mm
-    thin = scantling(6000, provided_mm=6.0)
+    """STALE FOR THE SAME REASON, and it failed CLOSED rather than wrong.
+
+    `scantling(6000, provided_mm=20.0)` leaves `lwl_m=None`, and `assess`
+    REFUSES that: it returns a single R-PBM finding with `passed=False` and
+    measured/required NaN, noting that Eq (8)'s minimum is length-dependent
+    and the assessment will not be run on the base pressure alone. So the
+    `assert report(ok)["pass"]` failure was the refusal working, not a broken
+    verdict — the right behaviour for a rule module that must never invent an
+    input. The refusal is asserted here rather than merely repaired away.
+    """
+    lwl = 10.0
+    refused = report(scantling(6000, provided_mm=20.0))
+    assert not refused["pass"] and refused["total"] == 1
+    assert "refused" in refused["findings"][0]["note"]
+
+    ok = scantling(6000, provided_mm=20.0, lwl_m=lwl)   # required ~15.8 mm
+    thin = scantling(6000, provided_mm=6.0, lwl_m=lwl)  # required ~14.5 mm
     assert report(ok)["pass"]
     assert not report(thin)["pass"]
+    by_ok = {f.rule_id: f for f in ok}
+    assert by_ok["R-TBM"].required == pytest.approx(15.768, abs=1e-2)
+    assert {f.rule_id for f in ok} == {"R-PBM", "R-TBM"}

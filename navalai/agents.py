@@ -170,7 +170,9 @@ async def _engineer(inbox: asyncio.Queue, out: asyncio.Queue, audit: Audit,
         if msg.kind == "stop":
             return
         x, ev, typ = msg.payload
-        # `mldc_kg` IS NOT OPTIONAL HERE. `assess(Hull(x), ev.wl)` bills the
+        # THE BOTTOM-PANEL THICKNESS IS NOT THIS STAGE'S TO CHOOSE, in
+        # either of the two ways it has been got wrong here.
+        # FIRST WAY: `assess(Hull(x), ev.wl)` bills the
         # NOMINAL stock sheet while the SAME ladder run already derived the
         # bottom-panel thickness from ISO 12215-5 and charged the boat that
         # structural weight. MEASURED on a 6 t mission: the delivered BOM read
@@ -178,9 +180,19 @@ async def _engineer(inbox: asyncio.Queue, out: asyncio.Queue, audit: Audit,
         # and the BOM lines even carried the note "thickness nominal stock
         # sheet (no mLDC given — NOT rule-derived)". Honest, and still a bill
         # of materials for a boat that fails the platform's own scantling rule.
-        # `evaluate()` derives its thickness from
-        # `select_stock_thickness_m(mission.displacement_target_kg)`, so this is
-        # the same argument the ladder used — one number, one source.
+        # PASSING `mldc_kg` WAS NOT ENOUGH, AND THAT IS THE 2026-08-20
+        # INCIDENT. `assess(..., mldc_kg=...)` re-derived the sheet from ONE
+        # ladder argument and hard-coded the rest, so the delivered BOM came
+        # out at **18.0 mm** against `ev.ply_thickness_m` = **15.0 mm** on the
+        # 6 t Danube mission: the ladder passes `mission.design_category` (D,
+        # kDC 0.4) and the engineer assumed "category C default" (kDC 0.6).
+        # Same formula, same mLDC, different boat. Handing over the ARGUMENTS
+        # and re-running the rule is still two sources for one number, so the
+        # delivery path now consumes the ANSWER — the exact thickness the
+        # ladder derived and charged as structural weight.
+        # `evaluate()` selects it with `select_stock_thickness_m` at the
+        # mission's category and its thickness-mass fixed point; there is
+        # nothing left here to keep in step with.
         # A DESIGN THE ENGINEER CANNOT BUILD IS A REJECTION, NOT THE END OF THE
         # STAGE. MEASURED 2026-08-13: `assess` raises for a hull the unroller
         # refuses (`roundness > 0` — a radiused bilge is not a two-panel
@@ -192,7 +204,8 @@ async def _engineer(inbox: asyncio.Queue, out: asyncio.Queue, audit: Audit,
         # delivered ZERO records with nothing in the audit trail saying why.
         # A stage that stops is indistinguishable from a stage with no input.
         try:
-            eng = assess(Hull(x), ev.wl, mldc_kg=mission.displacement_target_kg)
+            eng = assess(Hull(x), ev.wl,
+                         bottom_thickness_m=ev.ply_thickness_m)
         except ValueError as exc:
             audit.log(Message("engineer", "orchestrator", "rejected",
                               {"fitness": float("inf"), "why": (str(exc),),

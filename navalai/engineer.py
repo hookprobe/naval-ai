@@ -43,7 +43,8 @@ import numpy as np
 
 from .energy import shell_area_m2
 from .geometry import Hull
-from .limits import FRAME_SPACING_M, PLY_THICKNESS_M
+from .limits import (FRAME_SPACING_M, PLY_THICKNESS_M,
+                     STOCK_PLY_THICKNESS_M)
 from .unroll import SHEET_L_M, SHEET_M2, SHEET_W_M, Part  # noqa: F401
 from .unroll import (hull_panels, min_strakes, nest, rect_parts,
                      split_panel)
@@ -123,14 +124,56 @@ def _shell_parts(hull: Hull, t_bottom: float, t_other: float,
 
 
 def assess(hull: Hull, wl: float = 0.0,
-           mldc_kg: float | None = None) -> EngineerReport:
+           mldc_kg: float | None = None,
+           bottom_thickness_m: float | None = None) -> EngineerReport:
     """Materials, layout and BOM.
 
     `mldc_kg` lets the bottom-panel thickness come from ISO 12215-5 rather than
     the nominal stock sheet — the same DERIVED-not-declared discipline
     `limits.PLY_THICKNESS_M` documents. Omitting it uses the nominal sheet and
     the BOM says so.
+
+    `bottom_thickness_m` CONSUMES the thickness an L1 ladder run already
+    derived instead of re-deriving it here, and it is what the agent network
+    passes. THE INCIDENT, MEASURED 2026-08-20 on `run_plm` at the 6 t Danube
+    mission: the delivered BOM was cut to **18.0 mm** while
+    `Evaluation.ply_thickness_m` — the number the SAME ladder run derived from
+    ISO 12215-5 and charged the boat as structural weight — was **15.0 mm**.
+    Nothing was wrong with the formula; both sides called
+    `select_stock_thickness_m`. They disagreed on ONE ARGUMENT: the ladder
+    passes `mission.design_category`, which `translate()` reads as **D** for a
+    river boat, and this function hard-coded "category C default". kDC is
+    0.6 for C against 0.4 for D (ISO 12215-5:2008(E) §7.2), so the BOM was
+    priced for a pressure regime the mission does not declare. Verified as the
+    sole cause — same hull, same mLDC, same panel dims:
+
+        select_stock_thickness_m(6000, 15.905, cat='D')   15.0 mm
+        select_stock_thickness_m(6000, 15.905, cat='C')   18.0 mm
+        ladder ev.ply_thickness_m                         15.0 mm
+
+    18 > 15 is conservative and NOT unsafe, but a cut list and the ladder that
+    validated it must be the same boat. A number lives in exactly one place —
+    so the delivery path no longer re-derives it, it consumes it. The
+    `mldc_kg` path stays for standalone analysis (`buildability.
+    nesting_complexity`) where there is no ladder result to consume; the two
+    are mutually exclusive, because accepting both is how the arguments drift
+    apart again.
     """
+    if bottom_thickness_m is not None:
+        if mldc_kg is not None:
+            raise ValueError(
+                "engineer.assess: pass EITHER bottom_thickness_m (consume the "
+                "ladder's derived scantling) OR mldc_kg (derive one here), "
+                "never both — two sources for one number is the defect this "
+                "parameter exists to close.")
+        t_ok = any(abs(bottom_thickness_m - t) <= 1e-9
+                   for t in STOCK_PLY_THICKNESS_M)
+        if not t_ok:
+            raise ValueError(
+                f"engineer.assess: bottom_thickness_m "
+                f"{bottom_thickness_m * 1e3:.3f} mm is not a stock sheet "
+                f"{[round(t * 1e3, 1) for t in STOCK_PLY_THICKNESS_M]} — a "
+                f"BOM cannot be cut from a sheet that is not sold.")
     # Gap C9: the shell area is INTEGRATED to the sheer, once, in
     # `energy.shell_area_m2` — the weight path used to reach the same quantity
     # through a bare `wetted_surface(0.0) * 1.6`, so the boat this module planked
@@ -151,14 +194,21 @@ def assess(hull: Hull, wl: float = 0.0,
     frames = max(0, stations - bulkheads)
 
     t_other = PLY_THICKNESS_M
-    if mldc_kg is not None:
+    if bottom_thickness_m is not None:
+        # CONSUMED, not re-derived — see the docstring's 18.0/15.0 incident.
+        t_bottom = float(bottom_thickness_m)
+        t_note = ("ISO 12215-5:2008(E) as DERIVED BY THE L1 LADDER that "
+                  "validated this hull and charged it the structural weight "
+                  "(Evaluation.ply_thickness_m) — not re-derived here")
+    elif mldc_kg is not None:
         from .rules.iso12215 import (bottom_panel_dims_mm,
                                       select_stock_thickness_m)
         _b, _l = bottom_panel_dims_mm(hull)
         t_bottom = select_stock_thickness_m(mldc_kg, lwl,
                                             span_mm=_b, l_mm=_l)
         t_note = (f"ISO 12215-5:2008(E) derived at mLDC {mldc_kg:.0f} kg, "
-                  f"LWL {lwl:.1f} m, category C default")
+                  f"LWL {lwl:.1f} m, category C default (NO ladder result "
+                  f"given — a mission's declared category is not applied)")
     else:
         t_bottom = PLY_THICKNESS_M
         t_note = "nominal stock sheet (no mLDC given — NOT rule-derived)"
