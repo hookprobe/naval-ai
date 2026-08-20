@@ -396,9 +396,20 @@ def test_a_low_froude_case_is_flagged_against_the_wave_resolution_bar(tmp_path):
     """MEASURED: at Fn 0.20 and scale 1.0 the generated mesh carries 12.73
     cells per wavelength against `fidelity.MIN_CELLS_PER_WAVELENGTH` = 20, and
     the writer said nothing — the number was even RECORDED in case.info, next
-    to no bar. `fidelity.density_for_wave_resolution(0.20)` = 1.5706 is the
-    rung, so this is a FLAG and not a refusal: the case is written, the
+    to no bar. So this is a FLAG and not a refusal: the case is written, the
     operator is warned, and the receipt names the scale that would clear it.
+
+    RE-PINNED 2026-08-20, 1.5706 -> 1.5789, and the reason is the point of
+    the change. `density_for_wave_resolution(0.20)` = 1.5706 inverts the bar
+    EXACTLY, as a continuous quantity — and the writer then turns a density
+    into an INTEGER background cell count, so acting on 1.5706 lands back
+    UNDER the bar. The Mac measured that on all four Fn-matched coverage
+    bands: flagged at 19.90 against a bar of 20, and told to use a scale
+    that would have reproduced it. The screen now names
+    `fidelity.density_that_clears_wave_resolution` = 90/57 = 1.5789 — one
+    background cell in x more, and a rung the writer can actually stand on.
+    The property is asserted below the number, because the number is only
+    the witness.
 
     Fn 0.26, the KCS calibration point, reads 21.52 and is CLEAR — the bar is
     not one no shipped case can meet.
@@ -410,7 +421,14 @@ def test_a_low_froude_case_is_flagged_against_the_wave_resolution_bar(tmp_path):
     scr = C.wave_resolution_screen(lwl, slow, 1.0)
     assert scr["verdict"] == "FLAGGED"
     assert scr["cells_per_wavelength"] == pytest.approx(12.73, abs=0.02)
-    assert scr["scale_needed"] == pytest.approx(1.5706, abs=1e-3)
+    assert scr["scale_needed"] == pytest.approx(1.5789, abs=1e-3)
+    # THE PROPERTY, not the number: the rung the screen names, fed back in,
+    # must CLEAR. Pinning only the value let a continuous inverse that
+    # misses by 0.5% sit here looking correct.
+    from navalai.fidelity import (MIN_CELLS_PER_WAVELENGTH,
+                                  cells_per_wavelength)
+    assert cells_per_wavelength(0.20, scr["scale_needed"]) >= \
+        MIN_CELLS_PER_WAVELENGTH
 
     out = tmp_path / "slow"
     with pytest.warns(UserWarning, match="cells per wavelength"):
@@ -419,8 +437,8 @@ def test_a_low_froude_case_is_flagged_against_the_wave_resolution_bar(tmp_path):
     info = _info(out)
     assert info["wave_resolution_verdict"] == "FLAGGED"
     assert float(info["wave_resolution_bar"]) == 20.0
-    assert float(info["wave_resolution_scale_needed"]) == pytest.approx(1.5706,
-                                                                       abs=1e-3)
+    assert float(info["wave_resolution_scale_needed"]) == pytest.approx(
+        1.5789, abs=1e-3)
 
     fast = 0.26 * math.sqrt(C._G * lwl)
     clear = C.wave_resolution_screen(lwl, fast, 1.0)
