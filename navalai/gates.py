@@ -602,6 +602,14 @@ GATES = [
     Gate("Gate 2C", "the campaign classifier names the mechanism that actually "
          "failed, and refuses one it cannot measure",
          "tests/test_campaign_classifier.py"),
+    # The ladder's stage-2 fortress half (BUILD-PLAN 11.8). The smoke parser
+    # and run-case.sh's live-abort awk read the SAME log line against the
+    # SAME bar, and the fence test quotes the shell source so the two can
+    # never drift apart — a cheap-stage verdict that disagrees with the
+    # runner's own abort would poison every campaign row it touches.
+    Gate("Gate 2K", "the smoke verdict is the runner's own bar, an absent or "
+         "truncated log is never promoted, and a smoke refusal can never "
+         "read as a solve failure", "tests/test_smoke_verdict.py"),
     # The repair literature's whole taxonomy, implemented on the IMPORT
     # boundary only. MEASURED 2026-08-12: our own surfaces are already clean by
     # every classical metric (0 degenerate, 0 slivers, 0 zero-length edges,
@@ -743,11 +751,12 @@ GATES = [
     Gate("Gate 6D", "developable-panel refold: EXPORTED panels back onto the "
          "hull vs the 5 mm bar (BuildPlan 12.3)",
          status=Verdict.RED,
-         detail="mould-class reference hull 124/44 mm vs the 5 mm bar; the "
-                "low-twist KIT CORNER passes at 4.6-5.0 mm and the kit "
-                "admission (buildability.kit_buildability) routes builds — "
-                "re-framing decision owed to the operator "
-                "(docs/GATE-6D-DESIGN.md + the ledger row)"),
+         detail="the kit admission (buildability.kit_buildability) routes "
+                "every design sheet-kit or mould with this gate's own meter; "
+                "the low-twist kit corner and the kit reference hull PASS "
+                "while the mould-class reference hull stays RED — watermarks "
+                "and the re-framing decision live in the ledger row and "
+                "docs/GATE-6D-DESIGN.md"),
 ]
 
 # Summary line only. pytest writes it two ways depending on flags —
