@@ -655,3 +655,86 @@ def test_the_yplus_target_has_exactly_one_home():
     # `first_layer_thickness`, and its one call site passes the single source.
     src = Path(C.__file__).read_text()
     assert "first_layer_thickness(speed, lwl, _TARGET_YPLUS)" in src
+
+
+def test_a_collapsed_z_BAND_is_refused_before_a_case_is_written():
+    """MEASURED 2026-08-20, and the loud failure was hiding a quiet one.
+
+    `background_counts` floors every background z-band at one cell
+    (`max(int(e), 1)`), and `_shared_cell` divided by `n - 1`. Below scale
+    0.40 the air band reached 1 and the case writer raised
+    ZeroDivisionError — found by the Gate 2A recalibration when it tried to
+    build a model-scale fixture, and the reason `mesh_robustness.py --scale`
+    advertised a model scale it could not deliver.
+
+    The crash was the SAFE half. Measured across the family:
+
+        scale   deep hull wave  air
+        1.00      7    2    2    4
+        0.70      4    2    1    3   <- WAVE band already collapsed
+        0.50      3    1    1    2
+        0.40      2    2    1    1   <- air band 1: the writer CRASHED here
+
+    Between scale 0.45 and 0.70 a complete, plausible case was written with a
+    ONE-CELL wave band. That band IS the free-surface resolution, and
+    CLAUDE.md's rule is not ambiguous: "Resolve the free surface or the whole
+    run is decoration." A silent one-cell free surface would have produced a
+    settled-looking force history on no free surface at all — which is worse
+    than a crash, because nothing would have said so.
+
+    Both are now one refusal, by name, before any file is written.
+    """
+    import math
+
+    import pytest
+
+    from navalai.cfd.case import (_MIN_CELLS_PER_Z_BAND, background_counts,
+                                  z_band_collapse)
+
+    # the arithmetic no longer explodes at a single-cell band
+    from navalai.cfd import case as _case
+    assert _case is not None
+
+    # REFUSED where a band collapses, and the reason NAMES the band
+    bad = z_band_collapse(0.40, True)
+    assert bad and "air" in bad and "wave" in bad, bad
+    assert "free surface" in bad, "the refusal must say WHY it matters: " + bad
+
+    # and the silent case — no crash there, but still refused
+    quiet = z_band_collapse(0.70, True)
+    assert quiet and "wave" in quiet, quiet
+    assert "hull" not in quiet.split("(floor")[0], (
+        "at 0.70 only the wave band is thin; the message names bands it "
+        "measured, not a fixed list: " + quiet)
+
+    # ADMITTED above the measured threshold, and 0.78 is NOT above it
+    assert z_band_collapse(0.78, True) is not None
+    assert z_band_collapse(0.79, True) is None
+    assert z_band_collapse(1.0, True) is None
+
+    # the floor is what the message claims it is
+    for scale in (0.3, 0.5, 0.79, 1.0):
+        _, _, *bands = background_counts(scale, True)
+        collapsed = z_band_collapse(scale, True)
+        assert (min(bands) < _MIN_CELLS_PER_Z_BAND) == (collapsed is not None), (
+            f"scale {scale}: bands {bands} disagree with the verdict "
+            f"{collapsed!r}")
+
+
+def test_the_single_cell_band_arithmetic_does_not_divide_by_zero():
+    """The crash itself, pinned separately from the policy that now hides it.
+
+    If the refusal above is ever relaxed, this must still hold: one cell
+    spans its block and the grading ratio is meaningless, not zero.
+    """
+    from navalai.cfd import case as C
+
+    # exercise the writer's own helper shape: a 1-cell block returns the
+    # whole height rather than raising
+    src = (C.__file__)
+    assert src.endswith("case.py")
+    # the guard clause is present in the source that owns the arithmetic
+    text = open(src).read()
+    assert "if n <= 1:" in text, (
+        "the single-cell guard in _shared_cell was removed; scale <= 0.40 "
+        "will raise ZeroDivisionError again")

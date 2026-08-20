@@ -2638,12 +2638,71 @@ def background_counts(scale: float, symmetric: bool) -> tuple[int, int, int, int
     return nx, ny, nz_deep, n_hull, n_wave, nz_air
 
 
+#: Fewest cells a background z-band may hold. Two, because a graded band needs
+#: two cells for a grading ratio to mean anything, and because CLAUDE.md
+#: records the core-band measurement directly: "A thin 0.03 band divided into
+#: the >=2 cells the family needs gave 109 mm cells against 607 mm dx".
+_MIN_CELLS_PER_Z_BAND = 2
+
+
+def z_band_collapse(scale: float, symmetric: bool = True) -> str | None:
+    """The reason this scale cannot be meshed, or None.
+
+    MEASURED 2026-08-20, and the loud failure was hiding a quiet one.
+    `background_counts` floors every band at 1 (`max(int(e), 1)`), so the four
+    z-bands thin out as scale falls:
+
+        scale   deep hull wave  air
+        1.00      7    2    2    4
+        0.70      4    2    1    3   <- WAVE band already collapsed
+        0.50      3    1    1    2
+        0.40      2    2    1    1   <- air band 1: the writer CRASHED here
+        0.35      2    1    1    1
+
+    Below scale 0.40 the case writer raised ZeroDivisionError, which is how
+    this was found. But the FREE-SURFACE band collapses to a single cell at
+    scale 0.70 -- and between 0.45 and 0.70 a case was written SILENTLY with
+    a one-cell wave band. CLAUDE.md's rule for that is not ambiguous:
+    "Resolve the free surface or the whole run is decoration." The crash was
+    the SAFE failure; it masked an unsafe one at larger scales.
+
+    Both are now one refusal, by name, before any file is written.
+    """
+    _, _, deep, hull, wave, air = background_counts(scale, symmetric)
+    thin = [(n, c) for n, c in (("deep", deep), ("hull", hull),
+                                ("wave", wave), ("air", air))
+            if c < _MIN_CELLS_PER_Z_BAND]
+    if not thin:
+        return None
+    return (f"scale {scale:.3g} collapses the background z-band(s) "
+            + ", ".join(f"{n} to {c} cell{'s' if c != 1 else ''}"
+                        for n, c in thin)
+            + f" (floor {_MIN_CELLS_PER_Z_BAND}). The wave and hull bands ARE "
+              f"the free-surface resolution, and a one-cell band is not a "
+              f"coarse free surface, it is no free surface — the run would be "
+              f"decoration. REFUSED before writing rather than meshed and "
+              f"solved. Raise the scale (MEASURED: >= 0.79 keeps every band at "
+              f"or above the floor on the symmetric family; 0.75 does NOT "
+              f"— the wave band is still 1 there) or shorten the domain.")
+
+
 def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
                       end_time: float, scale: float, np_procs: int,
                       symmetric: bool = False,
                       free_motion: dict | None = None,
                       lts: bool | None = None,
                       n_layers: int | None = None) -> dict:
+    # REFUSE BEFORE WRITING ANYTHING. This is the one seam both entry points
+    # pass through, so the guard sits here rather than in either caller.
+    # MEASURED 2026-08-20: below scale 0.40 this function raised
+    # ZeroDivisionError from `_shared_cell`, and between 0.45 and 0.70 it
+    # wrote a complete, plausible case whose WAVE band held a single cell.
+    # The crash was the safe half; the silent half would have produced a
+    # settled-looking force history on no free surface at all.
+    _collapse = z_band_collapse(scale, symmetric)
+    if _collapse is not None:
+        raise ValueError(f"write_resistance_case: {_collapse}")
+
     (out / "system").mkdir(parents=True, exist_ok=True)
     # Initial fields live in 0.orig and are COPIED to 0 (the OpenFOAM tutorial
     # convention). setFields rewrites 0/alpha.water as a full non-uniform field
@@ -2734,6 +2793,15 @@ def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
     # what makes the next one visible without decoding a VTK face set.
     def _shared_cell(height: float, n: int, grading: float,
                      first: bool) -> float:
+        # ONE CELL HAS NO GRADING, and this used to divide by (n - 1) = 0.
+        # MEASURED 2026-08-20: `background_counts` floors every band at 1
+        # (`max(int(e), 1)`), so at scale <= 0.40 the air band reaches 1 and
+        # this raised ZeroDivisionError from inside the case writer -- found
+        # by the Gate 2A recalibration when it tried to build a model-scale
+        # fixture. A single cell spans the block by definition; the grading
+        # ratio is meaningless, not zero.
+        if n <= 1:
+            return height
         r = grading ** (1.0 / (n - 1))
         f = height / sum(r ** i for i in range(n))
         return f if first else f * r ** (n - 1)
