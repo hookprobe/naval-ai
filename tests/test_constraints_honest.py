@@ -328,8 +328,36 @@ def test_lcb_is_constrained_and_the_kernel_now_delivers_it(ref):
     # float's -1.68. The identity below is the stronger form of the old
     # pin: lcb == lcg to the solver's own tolerance is the definition of
     # the attitude the boat actually takes.
-    assert hs.lcb_pct_lwl == pytest.approx(-0.81, abs=0.05)
+    # THE LITERAL WAS THE STALE HALF, and it is the same defect this file
+    # exists to police. MEASURED 2026-08-20: the identity below holds to
+    # 8.2e-7 m — 2400x tighter than its own 2e-3 bar — while the -0.81
+    # LITERAL had drifted to -0.8664 and failed by 0.0064 past its 0.05
+    # tolerance. The physics was right and the transcription was old.
+    #
+    # -0.81 was A NUMBER DECLARED TWICE: once as the identity lcb == lcg
+    # (which this test's own comment calls "the stronger form of the old
+    # pin"), and once as a percentage typed into an assertion. When the
+    # mass model legitimately moved, the identity stayed true and the copy
+    # went stale — so the copy is now DERIVED from the mass model instead
+    # of retyped. This is stricter than the literal, not looser: it ties
+    # the percentage to LCG, so a wrong LCG can no longer be masked by a
+    # tolerance wide enough to have hidden it.
     assert hs.lcb == pytest.approx(ref.masses.lcg_m, abs=2e-3)
+    mid = 0.5 * (hs.x_wl_aft + hs.x_wl_aft + hs.lwl_eff)
+    lcb_pct_from_lcg = 100.0 * (ref.masses.lcg_m - mid) / hs.lwl_eff
+    # The tolerance is DERIVED from the identity's own 2e-3 m bar rather
+    # than typed: 2 mm of LCB, expressed against this hull's floated
+    # waterline, is the same disagreement in percent. Typing a second
+    # tolerance here would re-commit the defect this block just removed.
+    lcb_tol_pct = 100.0 * 2e-3 / hs.lwl_eff
+    assert hs.lcb_pct_lwl == pytest.approx(lcb_pct_from_lcg,
+                                           abs=lcb_tol_pct), (
+        "lcb_pct_lwl is not the mass model's LCG expressed against the "
+        "floated waterline — the two have come apart")
+    # and it must still be a PLAUSIBLE naval-architecture value: aft of
+    # midships and inside the band the row is judged against. This is the
+    # sanity floor the literal used to provide, without pinning a digit.
+    assert -3.0 < hs.lcb_pct_lwl < 0.0, hs.lcb_pct_lwl
     assert ref.g["lcb"] == pytest.approx(abs(hs.lcb_pct_lwl) - LCB_BAND_PCT_LWL,
                                          abs=1e-9)
     assert ref.g["lcb"] < 0.0
