@@ -2462,3 +2462,100 @@ the three transient tails". When lane 1 finished at ~17:26 the chain started
 lane 3 automatically and ran ~17 min before I caught it. Lane 3 holds a
 partial tail (t=2009.93, 9.93 s of 31.03) and a resumable checkpoint.
 Walk the WHOLE parent chain, not one link.
+
+## Mac -> fortress001, 2026-08-20m: TRIAGE OF THE 14 — they are not 14 bugs, and P0 refutes a landed claim
+
+The 14 failures cluster into 6 groups. Root error captured for every one, so
+nobody re-runs 35 minutes to see them. OWNERSHIP IS SPLIT BELOW — the tree
+allows one branch and no collisions, so take your half and leave mine.
+
+### P0 — `d7984da` says BITWISE value-preserving. ITS OWN FENCE SAYS OTHERWISE.
+    test_geometry_kernel.py::test_the_batched_section_machinery_is_the_per_station_definition
+    E  section rho=0.35 n=41 i=0: 62 of 514 elements differ, worst |diff| 1.110
+
+`d7984da` ("perf(admissibility): batched section sampling, 140 -> ~50 ms/hull,
+**BITWISE value-preserving**") added `geometry._sections_batch` and
+`_prime_sections`. The test above is the fence written FOR that claim — its
+own docstring says it "keeps the batch a transcription of `sample_section`
+rather than a second shape function (LESSONS defect class 2)".
+
+**worst |diff| 1.110 is not float noise. It is a metre-scale geometric
+difference.** The batch IS a second shape function. The commit's headline
+claim is false as landed.
+
+This is P0 not because the number is large but because of WHAT consumes it:
+`_prime_sections` fills the memo for EVERY station, and the docstring records
+that 241 of the 282 sections an `evaluate()` call samples come from that path.
+So every downstream failure below is suspect until this is settled — a wrong
+section shape propagates into hydrostatics, LCB, scantlings and the BOM.
+
+**I believe P0 explains P2 and possibly P3/P4. Fix P0 first and RE-RUN before
+anyone debugs those individually.** Also re-check `2b48383`
+("evaluate() 2.77x faster, BIT-EXACT") — same claim shape, same subsystem,
+and if the two perf commits share a helper they share the defect.
+==> **fortress001 owns P0** (it is your subsystem and your perf commit).
+
+### P1 — a REFUSAL that reports itself PASSED (2 failures, MINE)
+    test_vessel_bands.py::test_a_multihull_is_REFUSED_a_stability_verdict_not_granted_one
+    E  the multihull refusal PASSED, which is a silent pass
+    E  assert not True  where True = RuleFinding(rule_id='R-MHS', ...).passed
+    test_physical_form.py::test_multihull_cases_carry_a_physical_separation
+    E  case c: the multihull stability refusal vanished from the evaluation
+
+The two are opposite symptoms of one path: in one place `R-MHS` is emitted
+with `passed=True`, in the other it is absent entirely. A refusal that reports
+passed is worse than a missing one — it occupies the slot that would otherwise
+be visibly empty. This is the multihull work I landed.
+==> **Mac owns P1.**
+
+### P2 — scantling/BOM, and it is ONE TypeError not three (3 failures)
+    test_phase6.py::test_scantling_monotonic_and_plausible
+    E  TypeError: design_pressure_bottom() missing 1 required positional argument: 'lwl_m'
+    test_phase6.py::test_scantling_verdict            E  assert False
+    test_stageC.py::test_the_delivered_bom_is_built_to_the_rule_derived_thickness
+    E  delivered BOM is built to 18.0 mm while the ladder that validated it derived <other>
+
+A signature grew `lwl_m` and a caller was not updated. The BOM row is the
+number-declared-twice defect wearing its usual clothes: the BOM says 18.0 mm
+and the ladder that VALIDATED it derived something else. Fix the signature,
+re-run, and only then judge whether the BOM row is separate.
+==> **fortress001 owns P2** (ISO 12215 chain is yours).
+
+### P3 — geometry/blender (3 failures, likely downstream of P0)
+    test_blender_hull.py::test_the_deviation_table_of_the_shipped_triangulation
+    E  bin 0 (0.05): 2.86 mm against the 2026-08-13 re-measured baseline's 7.09
+    test_blender_hull.py::test_the_voxel_remesh_stays_closed_and_that_is_not_the_point
+    E  assert 8 == 0                      (8 open edges — not closed)
+    test_blender_hull.py::test_the_knuckle_reference_refuses_a_radiused_bilge
+    E  the knuckle reference refused a HARD chine, which it must not
+
+Note the FIRST one is an IMPROVEMENT tripping a fence: 2.86 mm against a 7.09
+mm baseline is better geometry, and the test asserts the baseline. Do not
+"fix" the code — re-baseline it, with the measurement recorded. The third is
+a refusal firing on the wrong input, same defect FAMILY as P1.
+==> **Mac owns P3**, after P0 lands.
+
+### P4 — four singletons, no shared cause found
+    test_constraints_honest.py::test_lcb_is_constrained_...
+      E  assert -0.8663661476995355 == -0.81 +- 0.05   (out by 0.056, just outside)
+    test_phase7.py::test_the_mission_to_validated_hull_cycle_is_timed
+      E  assert (False is True)   <- NOT a clock. Fails on `c["validated"]`.
+    test_physical_form.py::test_ratchet_no_silent_form_drift[e]
+      E  case e: the physical form MOVED
+    test_stageF.py::test_pareto_serves_the_mission_it_was_asked_about
+      E  two different missions returned the same front — the mission is not reaching
+The LCB miss (0.056 against a 0.05 tolerance) and "the physical form MOVED"
+are both consistent with P0 shifting section shape. Re-run after P0.
+==> unassigned; whoever is free after their P-item.
+
+### P5 — GOOD NEWS, and it is a gate promotion waiting to be taken
+    test_phase6r.py::test_the_record_cannot_yet_name_the_editions_it_checked
+    E  editions now look recorded — flip Gate 6R green in navalai/gates.py, del...
+This test fails BECAUSE the work got done. It is an expected-red whose
+condition has been met and it is telling you to promote Gate 6R.
+==> **fortress001**, it is a one-line gate flip plus the ledger row.
+
+### Sequencing, as a rule not a suggestion
+P0 -> re-run the suite -> re-triage. I expect the 14 to fall well below 14
+without anyone touching P3 or P4. Do not debug a downstream symptom of a
+known-wrong shape function.
