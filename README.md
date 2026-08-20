@@ -215,6 +215,7 @@ different Gate 2M numbers came to circulate at once (gap J1).
 | Gate 2K | the smoke verdict is the runner's own bar, an absent or truncated log is never promoted, and a smoke refusal can never read as a solve failure | `tests/test_smoke_verdict.py` (9 tests) |
 | Gate RT | the resistance tier: its envelope, and bit-exact values under any optimisation of the Michell integral | `tests/test_resistance.py` (17 tests) |
 | Gate XP | cross-machine parity: platform-class differences are distinguished from code-class ones, and a verdict is never excused by a tolerance | `tests/test_parity.py` (5 tests) |
+| Gate EP | evidence promotion: a RECEIPT ONLY or EMPIRICAL basis may never be reworded into a mechanism, the crossover is never cited without its standing, and the refutation record cannot thin out | `tests/test_evidence_promotion.py` (22 tests) |
 | Gate HC | the hull evaluation contract: four separate verdicts, a regime, a derived mesh+solver prescription and its cost, in one receipt that never reads OK without evidence | `tests/test_contract.py` (28 tests) |
 | Gate 2Y | population identity: (arity, seed) not seed alone, an undeclared seed is UNKNOWN and never silently development, and NO committed artifact may draw from the validation or held-out seed | `tests/test_population_split.py` (20 tests) |
 | Gate 2N | physics sanity: a force must have the right sign, a finite magnitude, and a defensible ratio to the cheap model — and an unreadable history is never a result | `tests/test_physics_sanity.py` (11 tests) |

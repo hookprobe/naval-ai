@@ -112,3 +112,100 @@ explicit failure analysis. Concretely, a new mechanism for the crossover must:
 
 Anything short of that is recorded here as UNDECIDABLE and stays out of the
 prescription.
+
+## 6. THE EXECUTABLE HALF — `tests/test_evidence_promotion.py`
+
+Sections 1-5 are a record, and a record is a thing a session can read past.
+`635eb07` moved these refutations out of commit messages and `docs/audit/
+STATUS.md` because **a refutation kept only in a rolling log gets re-proposed
+by the next session that reads the prediction and not the test** — but moving
+it to a durable file only changes WHERE it can be read past.
+
+`tests/test_evidence_promotion.py` (Gate EP) is the half that cannot be read
+past. It carries three fences, each proved in BOTH directions on a crafted
+tree in `tmp_path` — docs/LESSONS.md defect class 3, *"a test showing a guard
+accepts a good case proves nothing about rejection"*.
+
+**Fence 1 — a receipt may not grow a mechanism.** `navalai/contract.py` labels
+every prescribed number `DERIVED` / `EMPIRICAL` / `RECEIPT ONLY` / `INPUT`, and
+`tests/test_contract.py` enforces that the label is present and spelled right.
+Nothing enforced what the sentence AFTER the label says, and that is the cheap
+edit: `"RECEIPT ONLY: measured on 4 points"` becomes `"RECEIPT ONLY: scale
+helps BECAUSE the background cell ..."` with the label intact and every
+existing check still green. The fence parses every string literal that OPENS
+with a basis label (via AST, resolving the `f"{BASIS_RECEIPT}: ..."` form that
+all of them actually use) and refuses causal vocabulary — *because, mechanism,
+caused by, physical law, explains, explained by, the cause of, proves that, is
+why* — inside an `EMPIRICAL` or `RECEIPT ONLY` one. `DERIVED` and `INPUT` are
+exempt for opposite reasons: a derivation is SUPPOSED to name its equation,
+and an input names a caller default.
+
+MEASURED 2026-08-20 across `navalai/` and `scripts/`: **17 basis strings, one
+hit.** The hit is `basis["n_layers"]`, which says the derived layer count "IS
+the mesh-success mechanism ON THOSE HULLS". It is PINNED rather than exempted,
+because it meets two of §5's clauses that the crossover mechanisms did not:
+it was **pre-declared** (`docs/audit/H011-H012-ROOT-CAUSE.md` §7 wrote the
+test before the data — *"if h011 and h012 mesh at n = 6 or 5 with 0
+wrongly-oriented faces, the mechanism is the derived layer count"* — and the
+measurement came back that way, mesh at n=6, fail at n=7 with 13/12
+wrong-oriented faces), and it is **scoped to two hulls in the sentence
+itself**, beside that document's own limit: *"No admissible-region boundary is
+derivable from N=2."* A separate test asserts the scope tokens survive, so the
+claim cannot be widened into a universal rule without failing — and any other
+rewording fails too, by design, because a new hit has to be justified in front
+of a reader.
+
+The receipt is checked at RUNTIME as well as in source: a real
+`mesh_prescription()` call's `basis` dict is scanned by the same rule, because
+a static scan of source is a summary of what a caller receives and this
+project's standing rule since 2026-08-20 is **check the artefact, not the
+summary of it**.
+
+**Fence 2 — cite the crossover with its standing, or do not cite it.** The
+failure mode is not somebody writing *"the mechanism is X"*; it is somebody
+quoting the 4.6-5.8 band in a new document with the caveat left behind, after
+which the next reader has a rule with no standing attached. Every paragraph in
+the live tree that mentions a crossover AND carries this crossover's own
+coordinates (`4.6`, `5.8`, `4.592`, `5.803`, `baseline skew`, `baseline mesh
+health` — the markers that separate it from the four unrelated "crossover"s in
+this tree) must also carry one of *refuted, predictor, predictive, hypothesis,
+receipt only, not a mechanism, unexplained, empirical*.
+
+MEASURED, and the number moved while this section was being written, which
+is itself the point. **Before the fence existed: 5 live citations, all 5
+marked** — `navalai/contract.py`, `tests/test_contract.py`,
+`docs/audit/MATH-CONSOLIDATION.md`, this file, and the fence's own comment
+block, which FAILED on its first run and was fixed rather than exempted.
+**After: 11, all 11 marked**, because the fence file, its gate row in
+`navalai/gates.py` and this section are scanned like everything else. There is
+no exemption for the scanner. Three further unmarked citations exist
+in `docs/audit/STATUS.md` and **all three predate `57da605`**; `STATUS.md` and
+`docs/GAP-REGISTER.md` are excluded as rolling/immutable historical channels,
+named in the test with that reason. A fence that forced those to be edited
+would be deleting a historical finding to make a test green — the very defect
+this file exists to prevent, committed by the file itself. What makes the
+history safe to read is that THIS document exists, which is why fence 3 is not
+optional.
+
+**Fence 3 — this record may not thin out.** The test asserts that §1-§5 still
+carry: both refutation headings, both mechanisms by name (`tightest feature`,
+`panel_twist_deg_per_m`), the wave-piercing counterexample, the family-wise
+`0.700` and the `1.40` mean separators that make it legible, the standing
+(`EMPIRICAL PREDICTOR ONLY`, `PREDICTIVE != CAUSAL`), **and the observation
+itself** — the four deltas, their four baselines, the `6/6` and `d92d548`. The
+mirror error is as bad as the original: a document that keeps the refutations
+and loses the result would retract a predictor that earned 6/6 out of sample,
+and a document that keeps the 6/6 and loses the refutations reads as an
+endorsement. §5's five clauses are asserted individually, because without them
+"REFUTED" is an opinion and the next plausible story reopens it cheaply.
+
+The binding runs both ways: this section names the test, and the test asserts
+this section names it — the same two-way binding `navalai/gates.py` keeps
+between a gate row and its suite.
+
+**What this fence does NOT do**, stated so nobody reads more into a green
+gate: it is a vocabulary check over strings, not a proof that the code's
+reasoning is sound. It cannot detect a causal claim made in numbers, in a
+variable name, or in a comment that is not a basis string, and it does not
+adjudicate whether a mechanism is TRUE — only whether an underivable receipt
+is claiming to be one. §5 remains the bar for that, and it is a human's job.

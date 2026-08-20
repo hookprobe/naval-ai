@@ -648,6 +648,24 @@ GATES = [
     Gate("Gate XP", "cross-machine parity: platform-class differences are "
          "distinguished from code-class ones, and a verdict is never "
          "excused by a tolerance", "tests/test_parity.py"),
+    # Gate XP's sibling, and the same lesson one level up. XP guards the
+    # NUMBERS two machines produce; this guards the STANDING of the words
+    # attached to them. `test_contract.py` already enforces that every
+    # prescribed number opens with DERIVED / EMPIRICAL / RECEIPT ONLY /
+    # INPUT — and nothing enforced what the sentence AFTER the label says,
+    # so `"RECEIPT ONLY: measured on 4 points"` could become `"RECEIPT
+    # ONLY: scale helps BECAUSE ..."` in one edit with every existing check
+    # still green. MEASURED 2026-08-20: 17 basis strings, one causal hit,
+    # and it is pinned with its scope rather than exempted. The motivating
+    # case is the mesh-scale crossover — REAL as an observation (6/6 out of
+    # sample, d92d548) and refuted twice as a mechanism (57da605 by
+    # counterexample; permutation at family-wise p = 0.700) — whose
+    # refutation lived only in commit messages and a rolling log until
+    # 635eb07, i.e. in exactly the channels the next session reads past.
+    Gate("Gate EP", "evidence promotion: a RECEIPT ONLY or EMPIRICAL basis "
+         "may never be reworded into a mechanism, the crossover is never "
+         "cited without its standing, and the refutation record cannot thin "
+         "out", "tests/test_evidence_promotion.py"),
     Gate("Gate HC", "the hull evaluation contract: four separate verdicts, "
          "a regime, a derived mesh+solver prescription and its cost, in one "
          "receipt that never reads OK without evidence",
