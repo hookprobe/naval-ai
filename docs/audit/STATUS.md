@@ -2412,6 +2412,72 @@ And your house rule stands, correctly applied: a measurement beats a
 document. It also beats a transcription of a measurement — which is why I
 checked the log bytes rather than the commit message.
 
+## fortress001 -> Mac, 2026-08-20l: END-TO-END HANDOVER (operator-directed)
+
+The operator has asked that the work move to the Mac so it can run
+end-to-end. All fortress agents are finished, the box is idle, and the
+tree is in sync. Here is what you own, what stays, and the queue.
+
+### WHY THE SPLIT MOVED
+fortress001 is an Intel N100 — 4 cores, 6 W, appliance-class — running the
+operator's live production stack. You measured the full suite at 35m44s
+against 5h07m here: 8.6x. MACBOOK.md's routing table has been corrected;
+its old "either (both green)" was a statement about ANSWERS that got read
+as permission about COST.
+
+### WHAT YOU NOW OWN END-TO-END
+1. **The full test suite.** Yours by rule. Use
+   `-rfs --color=no` into a file (note `-rfs`, not `-rf` — your own
+   correction: `-rf` counts skips without reasons, and I asked for
+   reasons). Nothing filtered at launch.
+2. **The CFD ladder, whole**: screen -> mesh -> smoke -> solve -> settle.
+   Both halves of the smoke stage are landed here
+   (`post.smoke_verdict`, the classify buckets); the runner half
+   (`SMOKE_ONLY=N`) is yours to add when convenient.
+3. **Block 5 and the calibration lane.** One tail is banked. The floor for
+   the CoKriging fusion to beat single-fidelity kriging is ~8 anchors,
+   measured; you have 1. The earned extension on the under-settled lane
+   is unspent and is yours to decide.
+4. **The failure queue.** Three of your 14 reproduce here and are the
+   honest head of it: test_stageC BOM thickness,
+   test_phase6::test_scantling_verdict,
+   test_constraints_honest::test_lcb_is_constrained. One (the batched
+   section fence) was the platform finding and is fixed. The rest are
+   yours to triage on their own evidence — and please note the P0
+   sequencing rule is withdrawn, see the previous entry.
+
+### WHAT STAYS HERE
+Writing code, and the fast tiers that answer in seconds: the contract
+(`navalai/contract.py`), the fidelity governor, the physics-sanity layer,
+the rules tier, the geometry kernel. Targeted test files during the
+edit-test loop. This is where the code is authored; it is not where
+5-hour jobs belong.
+
+### THE PRESSURE-INTEGRAL DEFECT IS THE MOST IMPORTANT OPEN ITEM
+Your Block 5 lane found it and it outranks everything else in this file:
+viscous 0.887x ITTC-57 with a 0.16% batch error against pressure at 16.4x
+viscous with 7.1%, driving Ct to 4.436e-2 — about 12x a normal hull, and
+the KCS R5.5 signature. You correctly declined to propose a mechanism.
+
+Two things fortress can now say about it:
+- `post.physics_sanity` REFUSES that number by construction. Its
+  IMPOSSIBLE bar is 10x the L1 prior and this is ~12x, so the guard built
+  three days ago catches the defect your lane found independently. That
+  is the first time this project's honesty machinery has caught a real
+  anomaly rather than a synthetic one.
+- Because it refuses, no L3 badge can be minted from that case, and
+  `l3_case_evidence` will name the ratio. The evidence chain is intact
+  even though the number is wrong.
+
+### AND A STANDING RULE, from today's two mistakes
+Both machines made the same class of error within hours: I ran a 5-hour
+job on a 6-watt box without checking `nproc`; the P0 triage quoted a
+measurement with its exponent dropped. Neither was a reasoning failure —
+both were a failure to look at the raw thing before acting on a
+description of it. The rule that catches both: **check the artefact, not
+the summary of it** — `nproc` before a long job, the log bytes before a
+P0.
+
 ## Save protocol
 Every rung lands as its own commit, pushed immediately. If a session dies,
 resume from this ledger + the rebuild plan; each plan item carries
