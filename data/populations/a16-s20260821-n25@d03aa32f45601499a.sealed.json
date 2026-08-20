@@ -1,0 +1,29 @@
+{
+  "kind": "population-manifest",
+  "population_id": "a16/s20260821/n25",
+  "qualified_id": "a16/s20260821/n25@d03aa32f45601499a",
+  "split": "held-out",
+  "sealed": true,
+  "spec": {
+    "seed": 20260821,
+    "size": 25,
+    "genome_schema_version": 16,
+    "domain_version": "d03aa32f45601499a",
+    "generator": "navalai.evaluate.sample_valid",
+    "generator_version": "sample_valid/1",
+    "mission": "navalai.mission.MissionSpec()"
+  },
+  "spec_sha256": "277b4d499537010a1d8ae113e1890bb7c973772e1a2462988ddd662de4a28a0a",
+  "genome_sha256": "3e2539340d22def51aead0524443f92ddb5e38700304261230809ff76f32294f",
+  "regenerable_by_this_tree": true,
+  "environment": {
+    "python": "3.12.13",
+    "numpy": "2.4.6",
+    "platform": "Darwin",
+    "machine": "arm64",
+    "rng": "numpy.random.default_rng (PCG64)"
+  },
+  "generated_utc": "2026-08-20T16:06:27Z",
+  "note": "The held-out population, SEALED. The genomes are deliberately absent: a hash reveals nothing about a hull, so sealing cannot contaminate, while committing the hulls would let any session screen them and tune -- which is the failure SS13 names, and which is invisible in the result. The seal still does a commitment's job: it fixes this population BEFORE the Gate 2U claim, so the draw cannot be re-rolled into a friendlier one. Write-once. Re-sealing SPENDS the seed.",
+  "genomes": null
+}

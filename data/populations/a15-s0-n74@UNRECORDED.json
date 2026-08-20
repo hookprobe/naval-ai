@@ -1,0 +1,31 @@
+{
+  "kind": "population-manifest",
+  "population_id": "a15/s0/n74",
+  "qualified_id": "a15/s0/n74@UNRECORDED",
+  "split": "dev",
+  "sealed": false,
+  "spec": {
+    "seed": 0,
+    "size": 74,
+    "genome_schema_version": 15,
+    "domain_version": "UNRECORDED",
+    "generator": "navalai.evaluate.sample_valid",
+    "generator_version": "sample_valid/1",
+    "mission": "navalai.mission.MissionSpec()"
+  },
+  "spec_sha256": "2395d60c2abe739031f8b81cd50d3964a8a5efc67eddb0532b6c9615afd91d71",
+  "genome_sha256": null,
+  "regenerable_by_this_tree": false,
+  "unreproducible": true,
+  "evidence": "Two independent lines. (1) MEASURED: sample_valid(80, MissionSpec(), seed=0) in this 16-gene tree matches 0 of 74 recorded lwl values in position; one value collides as a SET at the three decimals the bank rounds to, which cannot be a shared hull because the two streams have different genome lengths. (2) git log: the bank was committed 2026-08-12 and grammar.PARAMS went 15 -> 16 on 2026-08-14 (f18fcba, b2bbbd4).",
+  "environment": {
+    "python": "3.12.13",
+    "numpy": "2.4.6",
+    "platform": "Darwin",
+    "machine": "arm64",
+    "rng": "numpy.random.default_rng (PCG64)"
+  },
+  "generated_utc": "2026-08-20T16:06:27Z",
+  "note": "data/gate2u-n74-mesh.json -- the LARGEST evidence base in this repository, and unreproducible. domain_version is UNRECORDED because no fingerprint existed when it was drawn; it is not a hash of anything and must not be compared to one. Read the bank as HISTORY: its 100.0% is a percentage of a set today's code cannot rebuild.",
+  "genomes": null
+}

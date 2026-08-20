@@ -33,6 +33,14 @@ to a directory.
 It is also exactly what six of the suite's eighteen skips have been saying:
 "the screen's bars were calibrated on a 15-parameter genome and this tree
 has 16; the campaign labels cannot be transferred."
+
+NAMING WAS HALF THE JOB. The other half -- EXACT REGENERATION -- is the
+second half of this module (see the header block below `may_tune_on`):
+`PopulationSpec` is the immutable specification, `regenerate(spec)` produces
+the hulls again bit for bit or refuses, and `data/populations/*.json`
+persists what must not depend on a mutable default. `python -m
+navalai.population` verifies every persisted population against this tree
+and prints REGENERATED / MISMATCH / HISTORY per row.
 """
 from __future__ import annotations
 
@@ -106,3 +114,504 @@ def may_tune_on(seed) -> bool:
     enforces the other direction: no artifact under `data/` may carry the
     validation or held-out seed."""
     return split_of_seed(seed) == SPLIT_DEV
+
+
+# ==========================================================================
+# EXACT REGENERATION (operator P0, 2026-08-20)
+#
+# Naming a population was half the job. The other half is being able to
+# PRODUCE it again, hull for hull, bit for bit -- because a population that
+# can only be named is still a denominator nobody can rebuild, and this
+# repository has already shipped that defect twice at a different scale (a
+# ledger watermark citing a deleted run directory, gap N6; prose citing five
+# purged `runs/` directories, LESSONS defect class 5).
+#
+# MEASURED 2026-08-20, by regenerating `sample_valid(80, MissionSpec(),
+# seed=0)` in this tree and comparing the per-hull `lwl` recorded in every
+# committed Gate 2U bank, position by position:
+#
+#     bank                              n   prefix match   verdict
+#     gate2u-16gene-mesh.json          25       25/25      REGENERATED
+#     gate2u-16gene-mesh-161stl.json   25       25/25      REGENERATED
+#     gate2u-16gene-solve.json         18       18/18      REGENERATED
+#     gate2u-16gene.json                1         1/1      REGENERATED
+#     gate2u-n74-mesh.json             74        0/74      HISTORY
+#     gate2u-cap7-mesh.json            25        0/25      HISTORY
+#     gate2u-postfix-backoff-mesh.json 25        0/25      HISTORY
+#     gate2u-campaign-baseline.json    20        0/20      HISTORY
+#     gate2u-campaign-backoff-mesh.json 16       0/16      HISTORY
+#     gate2u-cap5-mesh.json             8        0/8       HISTORY
+#     gate2u-cap3-mesh.json             7        0/7       HISTORY
+#
+# It is a CLEAN split, not a gradient: four banks match every hull and seven
+# match none. (`gate2u-n74-mesh.json` has ONE lwl value in common with the
+# 16-gene draw as a SET and zero in position -- a collision at the three
+# decimals the bank rounds to. It cannot be a shared hull: the two streams
+# have different genome LENGTHS.) Corroborated from the other side by
+# `git log`: the 15-gene banks were committed 2026-08-11..12 and the grammar
+# went 15 -> 16 parameters on 2026-08-14 (f18fcba / b2bbbd4).
+#
+# WHAT A FINGERPRINT CAN AND CANNOT COVER -- read this before trusting one.
+# `domain_version()` digests the DECLARED sampling domain: the parameter
+# names, the box edges as exact doubles, and every field of the mission. It
+# does NOT and cannot digest the ACCEPTANCE PREDICATE, which is
+# `grammar.check()` plus a full `evaluate()` call per draw; a change there
+# moves the population while every declared number stays put. So the domain
+# fingerprint is a cheap early warning and the GENOME HASH is the evidence.
+# Nothing here reports a population as reproduced on a fingerprint match.
+# ==========================================================================
+
+import dataclasses as _dc
+import hashlib as _hashlib
+import json as _json
+import pathlib as _pathlib
+import platform as _platform
+import sys as _sys
+from datetime import datetime as _datetime, timezone as _timezone
+from enum import Enum as _Enum
+
+#: The one generator. A population drawn by anything else is a different
+#: kind of object and `regenerate` refuses it by name rather than guessing.
+GENERATOR = "navalai.evaluate.sample_valid"
+
+#: Bumped ONLY when the draw semantics change -- the rng construction, the
+#: order of draws, or the accept/reject loop's shape. Not for a comment.
+GENERATOR_VERSION = "sample_valid/1"
+
+#: The only mission this tree can regenerate against without being handed
+#: the object. Its CONTENTS are digested into `domain_version`, so changing
+#: a default changes the fingerprint instead of silently changing the draw.
+DEFAULT_MISSION = "navalai.mission.MissionSpec()"
+
+MANIFEST_KIND = "population-manifest"
+MANIFEST_DIR = _pathlib.Path(__file__).resolve().parents[1] / "data" / "populations"
+
+#: Keys that make a document a MEASUREMENT rather than a population. A
+#: manifest carrying any of them would be a campaign artifact, and the fence
+#: in tests/test_population_split.py holds manifests to their absence --
+#: which is the whole reason a manifest may be committed at a protected seed
+#: when a bank may not.
+OUTCOME_KEYS = ("rows", "success_pct", "screened_success_pct", "solve_pct",
+                "taxonomy", "meshed", "solves", "verdict", "bar_pct",
+                "screen_verdict", "watermark")
+
+
+class UnregenerablePopulation(RuntimeError):
+    """This tree cannot produce the requested population AT ALL.
+
+    Raised rather than returning something plausible: a 16-gene draw handed
+    back for a 15-gene spec is exactly the substitution that let one seed
+    name two disjoint populations in the first place.
+    """
+
+
+def _canonical(obj):
+    """A deterministic, exactly-round-tripping view of a value.
+
+    Floats become `float.hex()` -- not `repr` and not a rounded string --
+    because a fingerprint that cannot distinguish two doubles cannot detect
+    the box edge moving in the last ulp, and this project has already been
+    bitten by a one-ulp difference between two machines (Gate XP).
+    """
+    if _dc.is_dataclass(obj) and not isinstance(obj, type):
+        return {f.name: _canonical(getattr(obj, f.name))
+                for f in _dc.fields(obj)}
+    if isinstance(obj, _Enum):
+        return _canonical(obj.value)
+    if obj is None or isinstance(obj, (bool, str, int)):
+        return obj
+    if isinstance(obj, float):
+        return float(obj).hex()
+    if isinstance(obj, (list, tuple)):
+        return [_canonical(v) for v in obj]
+    if isinstance(obj, dict):
+        return {str(k): _canonical(obj[k]) for k in sorted(obj, key=str)}
+    if hasattr(obj, "tolist"):                      # numpy array / scalar
+        return _canonical(obj.tolist())
+    # NOT silently dropped: an un-modelled field still changes the digest,
+    # so an unexpected type is recorded rather than ignored.
+    return {"__repr__": repr(obj)}
+
+
+def _sha256_of(payload) -> str:
+    return _hashlib.sha256(_json.dumps(
+        _canonical(payload), sort_keys=True,
+        separators=(",", ":")).encode("utf-8")).hexdigest()
+
+
+def genome_sha256(genomes) -> str:
+    """The content hash of a population, over EXACT doubles.
+
+    This is the evidence. Two populations with this hash equal are the same
+    hulls; a manifest whose hash does not reproduce is not 'close', it is a
+    different population and must be read as such.
+    """
+    rows = [[float(v).hex() for v in row] for row in genomes]
+    return _hashlib.sha256(_json.dumps(
+        rows, separators=(",", ":")).encode("utf-8")).hexdigest()
+
+
+def domain_version(mission=None) -> str:
+    """Fingerprint of the DECLARED sampling domain (see the header note).
+
+    Covers: parameter names, both box edges as exact doubles, and every
+    field of the mission. Does NOT cover `grammar.check()` or `evaluate()`.
+    """
+    from . import grammar
+    from .mission import MissionSpec
+    m = MissionSpec() if mission is None else mission
+    return "d" + _sha256_of({
+        "arity": int(len(grammar.LOW)),
+        "names": list(grammar.NAMES),
+        "low": [float(v) for v in grammar.LOW],
+        "high": [float(v) for v in grammar.HIGH],
+        "mission": m,
+    })[:16]
+
+
+@_dc.dataclass(frozen=True)
+class PopulationSpec:
+    """THE IMMUTABLE SPECIFICATION OF A POPULATION. Frozen on purpose.
+
+    `population_id` (arity, seed, size) stays THE NAME -- it is what the
+    banks record and it is not replaced here. `digest` answers a DIFFERENT
+    question: under what conditions is that name reproducible. The two are
+    not competing identities, and `qualified_id` writes them together for
+    the one case where the distinction bites -- the same name drawn after
+    the domain moved, which is the 15-gene/16-gene defect one level up.
+    """
+    seed: int
+    size: int
+    genome_schema_version: int          # the grammar arity
+    domain_version: str
+    generator: str = GENERATOR
+    generator_version: str = GENERATOR_VERSION
+    mission: str = DEFAULT_MISSION
+
+    @property
+    def population_id(self) -> str:
+        return population_id(self.genome_schema_version, self.seed, self.size)
+
+    @property
+    def qualified_id(self) -> str:
+        return f"{self.population_id}@{self.domain_version}"
+
+    @property
+    def split(self) -> str:
+        return split_of_seed(self.seed)
+
+    @property
+    def digest(self) -> str:
+        """Hash of every field above. ENVIRONMENT IS DELIBERATELY OUT of it:
+        the machine is provenance to diagnose a mismatch with, not part of
+        what a population IS -- and folding it in would make every manifest
+        un-verifiable on the other machine by construction."""
+        return _sha256_of(self.to_dict())
+
+    def to_dict(self) -> dict:
+        return _dc.asdict(self)
+
+    @staticmethod
+    def from_dict(d: dict) -> "PopulationSpec":
+        return PopulationSpec(
+            seed=int(d["seed"]), size=int(d["size"]),
+            genome_schema_version=int(d["genome_schema_version"]),
+            domain_version=str(d["domain_version"]),
+            generator=str(d.get("generator", GENERATOR)),
+            generator_version=str(d.get("generator_version",
+                                        GENERATOR_VERSION)),
+            mission=str(d.get("mission", DEFAULT_MISSION)))
+
+    def regenerable_by_this_tree(self) -> tuple[bool, str]:
+        """(can we, why not). Never a bare bool: 'no' has three different
+        causes and they need different responses."""
+        if self.generator != GENERATOR:
+            return False, (f"generator {self.generator!r} is not this tree's "
+                           f"{GENERATOR!r}")
+        if self.generator_version != GENERATOR_VERSION:
+            return False, (f"generator version {self.generator_version!r} != "
+                           f"{GENERATOR_VERSION!r}: the draw semantics moved")
+        if self.mission != DEFAULT_MISSION:
+            return False, (f"mission {self.mission!r} is not the default "
+                           f"mission this tree can reconstruct")
+        if not is_regenerable(self.genome_schema_version):
+            return False, (f"{self.genome_schema_version}-gene population and "
+                           f"this grammar has {current_arity()} genes: the "
+                           f"draw sequence is different at every index")
+        return True, ""
+
+
+def current_spec(seed, size: int, mission=None) -> PopulationSpec:
+    """The spec THIS tree would draw right now."""
+    return PopulationSpec(seed=int(seed), size=int(size),
+                          genome_schema_version=current_arity(),
+                          domain_version=domain_version(mission))
+
+
+def regenerate(spec):
+    """Produce the population the spec names. Exactly, or not at all.
+
+    Returns an (size, arity) float64 array. Raises `UnregenerablePopulation`
+    when this tree cannot make the draw -- it does NOT fall back to a draw
+    of the right shape, because a plausible substitute is how the 74-hull
+    bank came to be quoted as a current rate in the first place.
+
+    A domain_version that does not match the current tree is NOT refused
+    here: the fingerprint cannot see the acceptance predicate either way, so
+    the honest test is to make the draw and compare the GENOME HASH. That is
+    what `verify_manifest` does, and it reports the fingerprint drift beside
+    the result.
+    """
+    import numpy as np
+    from .evaluate import sample_valid
+    from .mission import MissionSpec
+    ok, why = spec.regenerable_by_this_tree()
+    if not ok:
+        raise UnregenerablePopulation(
+            f"{spec.population_id}: {why}. It is HISTORY -- readable as a "
+            f"record, not quotable as a rate this tree can reproduce.")
+    X, _y = sample_valid(int(spec.size), MissionSpec(), seed=int(spec.seed))
+    X = np.asarray(X, dtype=float)
+    if X.shape != (int(spec.size), int(spec.genome_schema_version)):
+        raise UnregenerablePopulation(
+            f"{spec.population_id}: the draw returned {X.shape}, not "
+            f"({spec.size}, {spec.genome_schema_version})")
+    return X
+
+
+# ------------------------------------------------------------------------
+# WHAT MAY BE COMMITTED, AND WHY IT DIFFERS BY SPLIT
+#
+# A manifest is not a campaign artifact: it carries GENOMES and no outcome
+# (no mesh verdict, no rate, no taxonomy), and the fence asserts that rather
+# than trusting it. That is what makes the next two lines consistent with
+# the rule that no committed artifact may draw from a protected seed.
+#
+#   VALIDATION -- genomes ARE committed. The task is explicit and it is the
+#   whole point: a validation population must never depend on a mutable
+#   default. If the box edge moves, a validation set defined only by
+#   `(seed, size)` silently becomes different hulls and every comparison
+#   across that change is meaningless while looking fine. Pinning the
+#   genomes costs the fact that they are visible -- which is inherent to a
+#   set you intend to RE-measure against, and is not what makes it a
+#   validation set. What makes it one is that no outcome measured on it is
+#   ever fed back into a threshold.
+#
+#   HELD-OUT -- genomes are NOT committed. SEALED: the manifest carries the
+#   spec and the genome hash and `"genomes": null`. A hash reveals nothing
+#   about a hull, so sealing cannot contaminate; but committing the hulls
+#   themselves would let any session screen them, discover which ones the
+#   pipeline hates, and tune -- and SS13's point is precisely that repeated
+#   tuning against the same cases is invisible in the result. The seal still
+#   does the job a commitment has to do: it proves the population was fixed
+#   BEFORE the claim, so the draw cannot be re-rolled later into a friendlier
+#   one. It is write-once; re-sealing is SPENDING the seed, not fixing it.
+# ------------------------------------------------------------------------
+
+def may_commit_genomes(seed) -> bool:
+    """Development and validation genomes may be committed; a held-out
+    population's may not, and an UNKNOWN seed may not either -- a population
+    nobody declared is not one anybody can promise anything about."""
+    return split_of_seed(seed) in (SPLIT_DEV, SPLIT_VAL)
+
+
+def manifest_path(spec: PopulationSpec, directory=None) -> _pathlib.Path:
+    """One file per (name, domain). A domain change writes a NEW file beside
+    the old one; it never overwrites it. The old population still existed
+    and the artifacts measured on it are still real."""
+    stem = spec.qualified_id.replace("/", "-")
+    if spec.split == SPLIT_HOLDOUT:
+        stem += ".sealed"
+    return (_pathlib.Path(directory) if directory else MANIFEST_DIR) / f"{stem}.json"
+
+
+def environment() -> dict:
+    """Provenance, NOT identity (see `PopulationSpec.digest`). Recorded so a
+    hash that fails to reproduce can be diagnosed as platform-class or
+    code-class instead of argued about -- the distinction Gate XP exists for.
+    """
+    import numpy as np
+    return {"python": _sys.version.split()[0], "numpy": np.__version__,
+            "platform": _platform.system(), "machine": _platform.machine(),
+            "rng": "numpy.random.default_rng (PCG64)"}
+
+
+def build_manifest(spec: PopulationSpec, genomes, note: str = "") -> dict:
+    """The persisted record. `genomes` is REQUIRED even for a sealed split --
+    the hash has to be of something real -- and is then dropped from the
+    document if the split may not carry them."""
+    keep = may_commit_genomes(spec.seed)
+    return {
+        "kind": MANIFEST_KIND,
+        "population_id": spec.population_id,
+        "qualified_id": spec.qualified_id,
+        "split": spec.split,
+        "sealed": not keep,
+        "spec": spec.to_dict(),
+        "spec_sha256": spec.digest,
+        "genome_sha256": genome_sha256(genomes),
+        "regenerable_by_this_tree": spec.regenerable_by_this_tree()[0],
+        "environment": environment(),
+        "generated_utc": _datetime.now(_timezone.utc).strftime(
+            "%Y-%m-%dT%H:%M:%SZ"),
+        "note": note,
+        "genomes": ([[float(v) for v in row] for row in genomes]
+                    if keep else None),
+    }
+
+
+def build_history_manifest(spec: PopulationSpec, evidence: str,
+                           note: str = "") -> dict:
+    """A population this tree CANNOT draw, recorded as what it is.
+
+    There is no genome hash here and there is no substitute for one:
+    `genome_sha256` is null, which reads as "not measured" and refuses to
+    pass any comparison, rather than 0 or a hash of a look-alike draw. That
+    is the `${_MQ_SKEW:-0}` lesson (LESSONS defect class 1) applied to a
+    population -- the whole failure mode being avoided is a plausible number
+    standing in for one nobody can produce.
+
+    `evidence` says HOW the population was identified, since a spec that
+    cannot be re-run cannot be checked by re-running it.
+    """
+    return {
+        "kind": MANIFEST_KIND,
+        "population_id": spec.population_id,
+        "qualified_id": spec.qualified_id,
+        "split": spec.split,
+        "sealed": False,
+        "spec": spec.to_dict(),
+        "spec_sha256": spec.digest,
+        "genome_sha256": None,
+        "regenerable_by_this_tree": False,
+        "unreproducible": True,
+        "evidence": evidence,
+        "environment": environment(),
+        "generated_utc": _datetime.now(_timezone.utc).strftime(
+            "%Y-%m-%dT%H:%M:%SZ"),
+        "note": note,
+        "genomes": None,
+    }
+
+
+def write_manifest(doc: dict, path: _pathlib.Path, overwrite: bool = False):
+    """Write it. A SEALED manifest is write-once, enforced here.
+
+    Overwriting a seal is not a correction, it is a re-draw of a set whose
+    whole value is that it was fixed in advance -- so the refusal is in the
+    writer rather than in a convention somebody has to remember.
+    """
+    path = _pathlib.Path(path)
+    if path.exists() and doc.get("sealed") and not overwrite:
+        raise RuntimeError(
+            f"{path} is a SEALED manifest and already exists. Re-sealing "
+            f"SPENDS the held-out seed; draw a new one and record the old "
+            f"as spent instead of overwriting this.")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(_json.dumps(doc, indent=2) + "\n")
+    return path
+
+
+def load_manifest(path) -> dict:
+    return _json.loads(_pathlib.Path(path).read_text())
+
+
+def verify_manifest(doc: dict) -> dict:
+    """Regenerate the population the manifest names and compare hashes.
+
+    Returns a report; raises nothing for a mismatch, because 'this tree can
+    no longer produce it' is a RESULT that the caller has to be able to
+    print. `status` is one of:
+
+        REGENERATED   the draw reproduces the recorded genome hash exactly
+        MISMATCH      the draw ran and produced DIFFERENT hulls
+        HISTORY       this tree cannot make the draw at all
+    """
+    spec = PopulationSpec.from_dict(doc["spec"])
+    report = {"population_id": spec.population_id,
+              "qualified_id": spec.qualified_id,
+              "split": spec.split,
+              "sealed": bool(doc.get("sealed")),
+              "domain_drift": spec.domain_version != domain_version(),
+              "spec_sha256_ok": doc.get("spec_sha256") == spec.digest}
+    try:
+        X = regenerate(spec)
+    except UnregenerablePopulation as exc:
+        report.update(status="HISTORY", detail=str(exc))
+        return report
+    got = genome_sha256(X)
+    report["genome_sha256"] = got
+    if got != doc.get("genome_sha256"):
+        report.update(status="MISMATCH",
+                      detail=(f"recorded {doc.get('genome_sha256')!r}, this "
+                              f"tree draws {got!r}"))
+        return report
+    if doc.get("genomes") is not None:
+        import numpy as np
+        stored = np.asarray(doc["genomes"], dtype=float)
+        # The hash already settled it; this catches a hash computed over
+        # something other than what was written -- the receipt-of-a-different
+        # measurement defect (the layer table that printed the REQUESTED spec).
+        if stored.shape != X.shape or not np.array_equal(stored, X):
+            report.update(status="MISMATCH",
+                          detail="genome hash matches but the stored array "
+                                 "does not compare equal elementwise")
+            return report
+    report.update(status="REGENERATED", detail="")
+    return report
+
+
+def manifests(directory=None):
+    d = _pathlib.Path(directory) if directory else MANIFEST_DIR
+    if not d.exists():
+        return []
+    out = []
+    for p in sorted(d.glob("*.json")):
+        try:
+            doc = _json.loads(p.read_text())
+        except (ValueError, UnicodeDecodeError):
+            continue
+        if isinstance(doc, dict) and doc.get("kind") == MANIFEST_KIND:
+            out.append((p, doc))
+    return out
+
+
+def _main(argv=None) -> int:
+    import argparse
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("--write", type=int, metavar="SEED",
+                    help="draw and persist the population for SEED")
+    ap.add_argument("--size", type=int, default=25)
+    ap.add_argument("--note", default="")
+    ap.add_argument("--dir", default=None)
+    args = ap.parse_args(argv)
+    if args.write is not None:
+        spec = current_spec(args.write, args.size)
+        X = regenerate(spec)
+        doc = build_manifest(spec, X, note=args.note)
+        path = write_manifest(doc, manifest_path(spec, args.dir))
+        print(f"wrote {path}")
+        print(f"  {spec.qualified_id}  split={spec.split}  "
+              f"genomes={'SEALED (not written)' if doc['sealed'] else len(X)}")
+        print(f"  genome_sha256 {doc['genome_sha256']}")
+        return 0
+    found = manifests(args.dir)
+    if not found:
+        print("no population manifests found")
+        return 1
+    rc = 0
+    for path, doc in found:
+        r = verify_manifest(doc)
+        print(f"{r['status']:12s} {r['qualified_id']:34s} split={r['split']:10s}"
+              f" {'SEALED ' if r['sealed'] else ''}{path.name}")
+        if r.get("detail"):
+            print(f"             {r['detail']}")
+        if r["domain_drift"]:
+            print("             domain fingerprint DRIFTED from this tree")
+        if r["status"] == "MISMATCH":
+            rc = 1
+    return rc
+
+
+if __name__ == "__main__":
+    raise SystemExit(_main())

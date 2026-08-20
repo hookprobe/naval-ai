@@ -564,12 +564,92 @@ def _trim(case: Path) -> None:
             shutil.rmtree(d, ignore_errors=True)
 
 
+def load_population(ref: str, n: int):
+    """Draw from a PERSISTED population instead of from a mutable default.
+
+    THE DEFECT THIS CLOSES (operator P0, 2026-08-20). Every campaign in this
+    repository sampled `sample_valid(n, MissionSpec(), seed=args.seed)` at
+    run time, so the population was whatever the grammar box and the mission
+    defaults happened to be THAT DAY. MEASURED: the 15-gene banks and the
+    16-gene banks both record `seed = 0` and share ZERO hulls, because the
+    box gained a parameter on 2026-08-14 and nothing in the artifact said so.
+    A validation set defined that way is not a set.
+
+    `ref` is a manifest path, a `population_id` (`a16/s20260820/n25`) or a
+    `qualified_id`. The genomes are verified against the recorded hash before
+    a single case is written — a manifest that does not hash to what it
+    claims is REFUSED, not used with a warning, because every number the
+    campaign goes on to print would be about an unnamed population.
+    """
+    import numpy as np
+    doc = None
+    path = Path(ref)
+    if path.exists():
+        doc = _POP.load_manifest(path)
+    else:
+        for cand_path, cand in _POP.manifests():
+            if ref in (cand.get("population_id"), cand.get("qualified_id"),
+                       cand_path.name, cand_path.stem):
+                path, doc = cand_path, cand
+                break
+    if doc is None or doc.get("kind") != _POP.MANIFEST_KIND:
+        raise SystemExit(f"no population manifest matches {ref!r} "
+                         f"(looked in {_POP.MANIFEST_DIR})")
+    spec = _POP.PopulationSpec.from_dict(doc["spec"])
+    if doc.get("genomes") is not None:
+        X = np.asarray(doc["genomes"], dtype=float)
+        source = "persisted genomes"
+    else:
+        # A SEALED population (held-out): the hulls are deliberately not on
+        # disk. Regenerating them here is how the seal is opened, and the
+        # hash is what proves it was opened rather than replaced.
+        X = _POP.regenerate(spec)
+        source = "SEALED manifest, regenerated from the spec"
+    got = _POP.genome_sha256(X)
+    if got != doc.get("genome_sha256"):
+        raise SystemExit(
+            f"REFUSING {path.name}: genome_sha256 {doc.get('genome_sha256')!r}"
+            f" but the population in hand hashes to {got!r}. This is not the "
+            f"population the manifest names.")
+    if n > len(X):
+        raise SystemExit(
+            f"REFUSING: --n {n} exceeds the pinned population {spec.population_id}"
+            f" ({len(X)} hulls). A pinned population cannot be EXTENDED — the "
+            f"extra hulls would be drawn from today's box and carry the "
+            f"manifest's name, which is the defect this flag exists to close. "
+            f"Draw a new population instead.")
+    if n < len(X):
+        # Legitimate only because the draw is prefix-stable, which
+        # tests/test_population_split.py asserts.
+        print(f"NOTE: using the first {n} of {spec.population_id}'s {len(X)} "
+              f"hulls (the draw is prefix-stable); the bank records n={n}")
+        X = X[:n]
+    print(f"population {spec.qualified_id} from {path.name} ({source})")
+    print(f"  split={spec.split}  genome_sha256={got}")
+    if spec.split == _POP.SPLIT_HOLDOUT:
+        print("  !! THIS IS THE HELD-OUT POPULATION. It is opened ONCE, with "
+              "the rules frozen before it. If this is not the final Gate 2U "
+              "claim, stop now — a held-out set used twice is a validation "
+              "set, and no later care undoes it.")
+    return path, doc, spec, X
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--n", type=int, default=10)
     ap.add_argument("--scale", type=float, default=1.0)
     ap.add_argument("--speed", type=float, default=2.57)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--population", default=None,
+                    help="draw from a PERSISTED population manifest "
+                         "(data/populations/) instead of re-sampling: a path, "
+                         "a population_id such as a16/s20260820/n25, or a "
+                         "qualified_id. Overrides --seed, verifies the genome "
+                         "hash before writing a case, and records the "
+                         "manifest in the bank. Without it the population is "
+                         "whatever today's grammar box and mission defaults "
+                         "produce — which is how one seed came to name two "
+                         "disjoint populations.")
     ap.add_argument("--out", default=None, help="where cases go (temp if unset)")
     ap.add_argument("--keep", action="store_true",
                     help="keep the meshes too (default keeps logs + case.info "
@@ -647,7 +727,21 @@ def main() -> int:
     root.mkdir(parents=True, exist_ok=True)
 
     mission = MissionSpec()
-    X, _ = sample_valid(args.n, mission, seed=args.seed)
+    pop_doc = pop_spec = None
+    if args.population:
+        _path, pop_doc, pop_spec, X = load_population(args.population, args.n)
+        # The seed comes from the MANIFEST, never from --seed: two sources for
+        # one identity is the defect, not the fix.
+        args.seed = pop_spec.seed
+    else:
+        X, _ = sample_valid(args.n, mission, seed=args.seed)
+    args.population_doc = pop_doc
+    args.population_spec = pop_spec
+    # The CONTENT HASH of the hulls this campaign actually ran, recorded in
+    # the bank. Without it a bank names a population by (arity, seed, n) and
+    # nothing can check that claim afterwards; with it, a later session can
+    # redraw and compare instead of arguing from commit dates.
+    args.genome_sha256 = _POP.genome_sha256(X)
     regime = "transient" if args.transient else "LTS (pseudo-steady)"
     print(f"meshing {len(X)} valid hulls at scale {args.scale} "
           f"(plan bar: >=95% of 200)")
@@ -942,6 +1036,22 @@ def _write_json(args, rows) -> None:
          "population_id": _POP.population_id(
              _POP.current_arity(), args.seed, len(rows)),
          "split": _POP.split_of_seed(args.seed),
+         # EXACT REGENERATION (operator P0, 2026-08-20). `population_id`
+         # names the draw; these say under what conditions that name is
+         # reproducible, and what it hashed to on the day. `domain_version`
+         # digests the declared box and the mission -- it CANNOT see
+         # grammar.check() or evaluate(), so the genome hash is the evidence
+         # and the fingerprint is the early warning.
+         "domain_version": _POP.domain_version(),
+         # OVER THE HULLS DRAWN (`population_n_drawn`), which is NOT
+         # necessarily the number of rows recorded: a resumed or interrupted
+         # campaign records fewer. Both are written so the two can never be
+         # read as one number -- `population_id` counts ROWS.
+         "population_n_drawn": getattr(args, "n", None),
+         "genome_sha256": getattr(args, "genome_sha256", None),
+         "population_manifest": (
+             getattr(args, "population_spec", None).qualified_id
+             if getattr(args, "population_spec", None) else None),
          "regime": "transient" if args.transient else "LTS",
          "solve_requested": args.solve,
          "success_pct": 100.0 * ok / max(len(rows), 1),
