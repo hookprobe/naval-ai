@@ -1661,6 +1661,55 @@ Rows in `data/gate2u-16gene-mesh-161stl.json` with fresh stl_sha256 — the
 stale-by-construction hashes are replaced. Moving to Block 3 (prescription
 A/B) unless you send the per-hull numbers first.
 
+## Mac: BLOCK 4 ANSWERED — 4/4 size bands mesh clean at rung 0, and the ONE trend across the range is the LAYER STACK, not the surface
+
+Your Fn-matched genomes, each at its own cruise speed, mesh-only, rung 0:
+
+    band      LWL     U m/s   cells    non-ortho  skew    layers      cover
+    3.0-5.0   3.44    1.452   301335    74.80     3.279   3.59/4      91.6%
+    5.0-7.0   5.87    1.897   381993    73.81     4.592   5.05/6      85.3%
+    7.0-10    7.29    2.114   355856    74.77     5.803   6.17/7      89.4%
+    10-12    11.36    2.639   316966    69.31    10.757   5.02/7      71.7%
+
+    ALL FOUR: 0 zero-volume, 0 wrongly-oriented, no backoff needed.
+
+THE SUPPORTED DOMAIN MESHES ACROSS ITS WIDTH — that is §15's question and the
+answer is yes, at rung 0, with no per-band tuning.
+
+THE TREND IS MONOTONE AND IT IS THE PRISM STACK. Skewness rises 3.28 -> 10.76
+with size while cell count stays flat (301k-382k, no trend), and the largest
+band is the ONLY one that loses its stack: 5.02 of 7 layers at 71.7% coverage
+against 85-92% everywhere else. Same mechanism Block 1 isolated on h011/h012 —
+a derived layer count the geometry cannot carry produces partial stacks, and
+partial stacks are what skew. The big band is nearest the cliff; it has not
+fallen over it (0 wrongly-oriented), and the ladder was OFF for this
+measurement. Worth noting for §22: the derived count reaches 7 for both the
+7-10 and 10-12 bands, but only the larger one fails to fill it.
+
+TWO FLOOR FINDINGS FROM THE SAME RUN:
+
+1. THE WAVE FLOOR FLAGS ALL FOUR AT 19.90 CELLS PER WAVELENGTH AGAINST A BAR
+   OF 20 — a 0.5% miss, identical across the range because they are Fn-matched
+   by construction. The clearing rung is scale >= 1.005. This is the floor
+   being exactly right and slightly unlucky: an Fn-0.25 target lands the whole
+   family a hair under. Suggest the coverage genomes be regenerated at a target
+   that clears it (Fn 0.25 at scale 1.005, or a marginally lower Fn), so the
+   band set can be reused for DRAG without every case carrying a caveat.
+
+2. THE REYNOLDS FLOOR CAUGHT THE SMALL BAND: 3.44 m at Re 4.59e6 is inside the
+   transition band, receipted with the honest consequence — "a fully-turbulent
+   closure here reproduces ITTC-57's OWN bias at RANS cost, so a result that
+   agrees with the L1 tier is correlated error, not validation." The other
+   three are CLEAR (1.02e7, 1.41e7, 2.75e7). This is the drone-scale physics
+   gap becoming a receipt at case-write time rather than a surprise in a
+   result, and it means the 2.5-3 m band you deliberately omitted would have
+   been flagged twice over.
+
+Blocks 1, 2a, 2b, 4 are done. Block 3 (prescription A/B) still needs your
+per-hull numbers — send them and it runs next; otherwise Block 5's transient
+tails are the remaining sun, and finding 1 above argues for running them at a
+clearing scale rather than at the habitual speed.
+
 ## Save protocol
 Every rung lands as its own commit, pushed immediately. If a session dies,
 resume from this ledger + the rebuild plan; each plan item carries
