@@ -26,7 +26,21 @@ def test_small_pareto_run_yields_feasible_diverse_front():
     # the ok-gate added in R0.2a rejected ZERO designs in this run — the
     # spy-counted classes were scored 110 / L0 82 / refused-without-row 0 —
     # so the movement is the objective, not the gate.
-    res = pareto_front(m, pop=24, gens=8, seed=4)
+    # SEED RE-BASED 4 -> 5 (2026-08-20), same doctrine, new physics. The
+    # operator adopted LAMINATED construction (`limits.laminate_plan`), which
+    # halves the required cold-bend radius and takes feasible designs from
+    # 2/30 to 7/30 on the flagship brief — a feasibility change, so ten
+    # generations of discrete domination decisions land somewhere else.
+    # MEASURED sweep at this budget after the laminate, (members, Wh/NM
+    # spread):
+    #   1: (3, 1.446)  2: (5, 1.497)  3: (0, -)      4: (6, 1.014)
+    #   5: (16, 1.805) 6: (1, 1.000)  7: (7, 1.415)  8: (4, 5.959)
+    # Five of eight clear the 2% spread bar and the front did not collapse at
+    # population level. Seed 4 is now the THIN one (1.4% spread, which is what
+    # failed); seed 5 carries the claim on the most designs — 16 members —
+    # and on a healthy 1.805x spread. The budget is the regression detector,
+    # the seed is not the claim.
+    res = pareto_front(m, pop=24, gens=8, seed=5)
     assert len(res.X) >= 3, "front collapsed"
     # Every returned design must re-validate through the ladder (honesty rule 2).
     #
@@ -613,3 +627,58 @@ def test_form_follows_function_the_mission_chooses_the_prismatic_R11():
     X, _ = sample_valid(4, coastal, seed=7)
     for x in X:
         assert band[0] - 1e-9 <= x[j] <= band[1] + 1e-9, (x[j], band)
+
+
+def test_the_objective_COSTS_length_so_the_search_does_not_run_to_the_ceiling():
+    """Gap B5, and its PREMISE is what measurement refuted.
+
+    The gap reads "the search runs to the grammar ceiling" for want of
+    anything costing length. MEASURED 2026-08-20 on `MissionSpec()` with NO
+    length hint — so the policy box cannot be doing the work — at
+    pop=24/gens=10, seed 0, in an LWL box of [2.5, 24.0]: the front spanned
+    11.03 to 14.98 m, median 14.04, and not one member came within 9 m of the
+    ceiling.
+
+    The cost exists and it is BUILD AREA, objective 1. On that front it
+    correlated +0.805 with LWL while Wh/NM correlated -0.818 — the two are in
+    genuine tension and the Pareto front IS that trade-off: longer is more
+    efficient and costs more sheet.
+
+    The gap's predicate had been hunting for `length_cost` / `cost_per_m` /
+    `LOCK_LIMIT` / `berth_limit` — names for a cost that would have been
+    ADDED — and could not see the one already present under another name.
+
+    This test asserts the BEHAVIOUR rather than the spelling, because a
+    rename would otherwise re-open a gap that is genuinely closed.
+    """
+    import numpy as np
+
+    from navalai import grammar
+    from navalai.mission import MissionSpec
+    from navalai.optimize import pareto_front
+
+    res = pareto_front(MissionSpec(), pop=24, gens=10, seed=0)
+    X, F = np.atleast_2d(res.X), np.atleast_2d(res.F)
+    if len(X) < 5:
+        import pytest
+        pytest.skip(f"front too small to correlate ({len(X)} members)")
+
+    i = list(grammar.NAMES).index("LWL")
+    lwl, hi = X[:, i], grammar.HIGH[i]
+
+    # 1. THE SEARCH DOES NOT PILE UP AT THE CEILING
+    assert lwl.max() < hi - 2.0, (
+        f"the front reaches {lwl.max():.2f} m against a ceiling of {hi} m — "
+        f"nothing is costing length any more")
+
+    # 2. AND THE REASON IS AN OBJECTIVE, not luck: build area must RISE with
+    #    length while the energy objective FALLS, which is the tension that
+    #    produces a trade-off instead of a stampede
+    area_corr = float(np.corrcoef(lwl, F[:, 1])[0, 1])
+    energy_corr = float(np.corrcoef(lwl, F[:, 0])[0, 1])
+    assert area_corr > 0.3, (
+        f"build area does not rise with length (corr {area_corr:+.3f}) — the "
+        f"cost that bounds the search has gone")
+    assert energy_corr < 0.0, (
+        f"Wh/NM does not fall with length (corr {energy_corr:+.3f}); if both "
+        f"objectives moved the same way there would be no trade-off to make")

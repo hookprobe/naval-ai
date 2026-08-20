@@ -176,7 +176,7 @@ different Gate 2M numbers came to circulate at once (gap J1).
 | Gate 1H | Holtrop-Mennen vs the 1982 worked example | `tests/test_holtrop.py` (57 tests) |
 | Gate 1C | the constraint vector: complete, ordered, finite, and no undefined state reported as ideal | `tests/test_constraints_honest.py` (19 tests) |
 | Gate 1P | the L1 physics core says what it actually computed | `tests/test_gapfix_physics.py` (26 tests) |
-| Gate 1b | NSGA-II Pareto front | `tests/test_optimize.py` (11 tests) |
+| Gate 1b | NSGA-II Pareto front | `tests/test_optimize.py` (12 tests) |
 | Gate 2 | Capytaine BEM (Hulme anchor) | `tests/test_phase2.py` (18 tests) |
 | Gate 2R | CFD reference parity + GCI honesty | `tests/test_cfd_reference_parity.py` (100 tests) |
 | Gate 2P | slamming pressure is measurable: a bow patch that partitions the hull, a function object that refuses to point at nothing, and a Wagner C_p guarded at both limits | `tests/test_slamming.py` (14 tests) |

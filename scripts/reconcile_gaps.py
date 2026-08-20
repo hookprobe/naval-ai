@@ -659,11 +659,31 @@ CHECKS: tuple[Check, ...] = (
                   and has_code("navalai/mission.py", r"STORES_AND_WATER_KG")
                   and has_code("navalai/mission.py",
                                r"float\(self\.crew\) \* _CM")),
-    Check("B5", "something in the objective COSTS length (build cost, "
-                "structural scaling, a mooring or lock limit) rather than the "
-                "search running to the grammar ceiling",
-          lambda: has_code("navalai/optimize.py",
-                      r"length_cost|cost_per_m|LOCK_LIMIT|berth_limit")),
+    # B5's PREMISE IS REFUTED BY MEASUREMENT (2026-08-20). The gap says the
+    # search "runs to the grammar ceiling" for want of anything costing
+    # length. MEASURED on MissionSpec() with NO length hint, so the policy box
+    # cannot be doing the work: pop=24/gens=10, seed 0, LWL box [2.5, 24.0] --
+    # the front spans 11.03 to 14.98 m, median 14.04, and NOT ONE member comes
+    # within 9 m of the ceiling.
+    #
+    # The cost exists and it is BUILD AREA, objective 1
+    # (`n_hulls * (shell_area_m2(hull) + hull.deck_area())`). On that same
+    # front it correlates +0.805 with LWL while Wh/NM correlates -0.818: the
+    # two objectives are in genuine tension and the Pareto front IS that
+    # trade-off. Longer is more efficient and costs more sheet, which is the
+    # real economics and exactly what the gap asked for.
+    #
+    # The predicate was searching for `length_cost|cost_per_m|LOCK_LIMIT|
+    # berth_limit` -- names for a cost that would have been ADDED, and it
+    # could not see the one already there under a different name. It now
+    # checks the property: an area objective that grows with the hull.
+    Check("B5", "something in the objective COSTS length: build AREA is "
+                "objective 1 and rises with LWL (measured corr +0.805) while "
+                "Wh/NM falls (-0.818), so the front is a trade-off rather "
+                "than a run to the grammar ceiling",
+          lambda: imports("navalai/optimize.py", ".energy", "shell_area_m2")
+                  and has_code("navalai/optimize.py",
+                               r"shell_area_m2\(hull\) \+ hull\.deck_area\(\)")),
     Check("B6", "optimize.py aims GM at a BAND (limits.GM_OVER_BEAM_MAX) "
                 "instead of maximising -GM",
           lambda: imports("navalai/optimize.py", ".limits", "GM_OVER_BEAM_MAX")
