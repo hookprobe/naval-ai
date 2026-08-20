@@ -36,6 +36,7 @@ says so rather than reporting a hull as finished.
 from __future__ import annotations
 
 import hashlib
+import math
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -320,7 +321,21 @@ def mesh_prescription(lwl_m: float | None, speed_ms: float | None,
         from .cfd.case import (_DOMAIN_LENGTH_L, _FS_BOX, _HULL_REFINE,
                                _NX_BASE)
         levels = tuple(_HULL_REFINE)
-        nx = max(1, int(round(_NX_BASE * (density or 1.0))))
+        # ROUND UP, NOT TO NEAREST, AND THE MEASUREMENT IS THE MAC'S.
+        # `density_for_wave_resolution` inverts the floor EXACTLY, so the
+        # ideal density buys precisely MIN_CELLS_PER_WAVELENGTH — and then
+        # the writer discretises it into an integer cell count. Rounding to
+        # NEAREST lands below the bar whenever the fraction is under a half,
+        # which is most of the time: MEASURED on the Fn-matched coverage set
+        # (Block 4, 2026-08-20), ALL FOUR size bands wrote at 19.90 cells per
+        # wavelength against a bar of 20 — the same 0.5% miss in every band,
+        # because they are Fn-matched by construction and therefore share the
+        # rounding. A floor that the prescription's own discretisation steps
+        # under is not a floor. ceil() costs at most one background cell in x
+        # and makes the delivered mesh clear the bar it was derived from.
+        nx = max(1, int(math.ceil(_NX_BASE * (density or 1.0) - 1e-9)))
+        density = nx / float(_NX_BASE)      # the density actually delivered
+        cpw = float(cells_per_wavelength(fn, density))
         bg = float(_DOMAIN_LENGTH_L * lwl_m / nx)
         surf = bg / (2.0 ** levels[1])
         # The free surface is refined to its own level; `_FS_BOX`'s z extent

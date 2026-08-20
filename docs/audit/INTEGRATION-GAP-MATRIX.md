@@ -350,3 +350,52 @@ the binding constraints on the optimised front are GM and the rules tier —
 the same two that dominate the sampled refusals — so the design space is
 tight against STABILITY and STANDARDS, not against geometry or meshability
 (mesh verdict was OK on every front member examined).
+
+
+---
+
+# Part VI — the two campaigns converge on ONE variable (2026-08-20)
+
+Block 1 and Block 4 were aimed at different questions and landed on the
+same mechanism, which is the strongest kind of evidence this project gets.
+
+**Block 1 (h011/h012, the two Gate 2U failures):** both mesh CLEAN at n=6
+and fail at n=7 — 13 and 12 wrongly-oriented faces, skew 247 and 9.9,
+falling to 0 and 3.5 / 4.5. Layer COVERAGE barely moved (73.5 -> 73.6%)
+while skewness fell 71x.
+
+**Block 4 (the four Fn-matched size bands, none of them related to those
+hulls):** all four mesh clean at rung 0 with no per-band tuning — §15's
+question answered YES — and the ONLY monotone trend across the range is
+the prism stack. Skewness rises 3.28 -> 4.59 -> 5.80 -> 10.76 with size
+while cell count shows NO trend (301k-382k), and the largest band is the
+one that loses its stack: 5.02 of 7 layers at 71.7% coverage against
+85-92% elsewhere.
+
+**THE MECHANISM, stated once:** a derived layer count the local geometry
+cannot carry produces PARTIAL stacks, and partial stacks are what skew.
+Not the surface, not the cell count, not the station count. The largest
+band sits nearest the cliff without going over it — with the ladder
+deliberately disabled — which is why the shipped pipeline (ladder ON)
+recovers hulls the campaign recorded as failures.
+
+That makes the prescribed layer count the single most valuable number in
+`mesh_prescription`, and it is why the Block 3 A/B is worth running: the
+prescription and the shipped writer disagree about exactly this quantity
+on 24 of 25 hulls.
+
+**A defect of this module's own, found by Block 4 and fixed:** all four
+bands wrote at 19.90 cells per wavelength against a bar of 20 — the same
+0.5% miss in every band, because Fn-matched cases share their rounding.
+`density_for_wave_resolution` inverts the floor EXACTLY, and the writer
+then rounded the background cell count to NEAREST, stepping under it. A
+floor that the prescription's own discretisation steps under is not a
+floor; it now rounds up, at a cost of at most one background cell in x.
+
+**And the Reynolds floor earned its keep on the small band:** 3.44 m at
+Re 4.59e6 sits inside the transition band, receipted with the consequence
+spelled out — a fully-turbulent closure there reproduces ITTC-57's own
+bias at RANS cost, so agreement with the L1 tier would be CORRELATED
+ERROR rather than validation. That is precisely the trap
+docs/research/SMALL-CRAFT-REGIMES.md predicted, caught by the gate that
+research produced, on the first population it was pointed at.

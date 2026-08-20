@@ -6,6 +6,8 @@ each caller re-derived Fn, Re, the regime and the model's validity for
 itself. This suite pins the composition — above all that the four questions
 stay FOUR VERDICTS and are never collapsed into one flag.
 """
+import math
+
 import numpy as np
 import pytest
 
@@ -214,3 +216,29 @@ def test_the_prescription_and_the_shipped_writer_disagree_about_the_stack():
         f"only {disagree} of {len(rows)} disagree — if this has fallen, the "
         f"two derivations have converged and the A/B may be moot; re-measure "
         f"before assuming so")
+
+
+def test_the_prescribed_density_clears_the_bar_AFTER_the_writer_rounds_it():
+    """MEASURED BY THE MAC, Block 4, 2026-08-20: all four Fn-matched size
+    bands wrote at 19.90 cells per wavelength against a bar of 20 — the same
+    0.5% miss in every band, because they are Fn-matched by construction and
+    therefore share the rounding.
+
+    The mechanism is this module's, not the writer's:
+    `density_for_wave_resolution` inverts the floor EXACTLY, so the ideal
+    density buys precisely MIN_CELLS_PER_WAVELENGTH — and then the writer
+    discretises it into an integer background cell count. Rounding to
+    NEAREST steps under the bar whenever the fraction is below a half, which
+    is most of the time. A floor that the prescription's own discretisation
+    steps under is not a floor.
+    """
+    from navalai.fidelity import MIN_CELLS_PER_WAVELENGTH
+
+    for lwl, fn in ((3.44, 0.25), (5.87, 0.25), (7.29, 0.25), (11.36, 0.25),
+                    (12.0, 0.23), (8.0, 0.31), (20.0, 0.18)):
+        p = mesh_prescription(lwl, fn * math.sqrt(9.81 * lwl), fn)
+        assert p.cells_per_wavelength >= MIN_CELLS_PER_WAVELENGTH, (
+            f"L={lwl} Fn={fn}: {p.cells_per_wavelength:.3f} < bar")
+        # ...and it does not overshoot into paying for cells nobody asked
+        # for: at most one background cell in x above the ideal.
+        assert p.cells_per_wavelength < MIN_CELLS_PER_WAVELENGTH * 1.10

@@ -1,5 +1,5 @@
 {
- "_README": "Size-band MESHING-COVERAGE hulls for the Mac work order Block 4 (directive \u00a715). Each is grammar-valid, geometrically real, mesh-screen OK, and carries a mission whose cruise speed puts it at Fn 0.25 so the size bands are compared at the SAME Froude number rather than at one boat's speed. THEY ARE NOT CERTIFIABLE DESIGNS and are not presented as any: measured 2026-08-20 over 60 Fn-matched uniform grammar draws, 40 REFUSE and 1 is MARGINAL, dominated by NEGATIVE GM (29/60) \u2014 the grammar box admits geometry, not stable boats. Their purpose is to exercise the MESHER across the size range, which is what Block 4 measures.",
+ "_README": "Size-band MESHING-COVERAGE hulls for the Mac work order Block 4 (directive \u00a715). Each is grammar-valid, geometrically real, mesh-screen OK, and carries a mission whose cruise speed puts it at Fn 0.25 so the size bands are compared at the SAME Froude number rather than at one boat's speed. THEY ARE NOT CERTIFIABLE DESIGNS and are not presented as any: measured 2026-08-20 over 60 Fn-matched uniform grammar draws, 40 REFUSE and 1 is MARGINAL, dominated by NEGATIVE GM (29/60) \u2014 the grammar box admits geometry, not stable boats. Their purpose is to exercise the MESHER across the size range, which is what Block 4 measures. ROUNDING FIX 2026-08-20: the Mac's Block 4 measured all four bands writing at 19.90 cells per wavelength against a bar of 20 \u2014 the prescription inverted the floor exactly and the writer then rounded the background cell count to NEAREST, stepping under it. contract.mesh_prescription now rounds UP (one background cell in x at most), so these genomes clear the bar on a re-run without changing the genomes themselves: the miss was in the DENSITY DERIVATION, not in the hulls, so the set is still valid and does not need regenerating.",
  "target_fn": 0.25,
  "bands": {
   "3.0-5.0": {
@@ -86,5 +86,6 @@
    ],
    "cruise_speed_kn": 5.130598549445272
   }
- }
+ },
+ "wave_floor_note": "cleared after the ceil fix: 20.246 cells per wavelength at Fn 0.25, against the bar of 20"
 }
