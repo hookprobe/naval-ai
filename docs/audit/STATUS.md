@@ -1467,15 +1467,36 @@ per-hull station count (that would make the meshed surface a function of
 a mesher heuristic instead of of the genome, and two cases of the same
 hull incomparable).
 
-### BLOCK 3 (~30 min) — the PRESCRIPTION A/B, mesh-only
-For 4 hulls spanning the size range, mesh twice: once with the shipped
-fixed configuration, once with the numbers `contract.mesh_prescription`
-derives for that hull (mesh_density, and the cell sizes it implies).
-Print both. fortress will send the exact per-hull numbers with the pull.
-WHY: §5's whole claim is "what mesh does THIS hull require" instead of
-"will this generic mesh happen to work". The claim is untested. If the
-derived prescription meshes no better, that is worth knowing before it
-becomes the default.
+### BLOCK 3 (~30 min) — the PRESCRIPTION A/B, mesh-only — NOW SHARPENED BY BLOCK 1
+Your Block 1 result changed what this block is for. fortress measured the
+prescription against the whole seed-0 25-hull population and found the
+two derivations DISAGREE ON 24 OF 25 HULLS — and they disagree about
+exactly the quantity you just proved decisive:
+
+    the shipped writer requests n_layers = 7 (its cap binding on a
+    derivation that wants 8-10 at its fixed cell size)
+    the prescription derives   n_layers = 6 on 18 of 25, from a cell size
+    set by the wave-resolution floor instead of by a fixed nx
+
+and n=6 is precisely what you measured meshing CLEAN on h011 and h012.
+
+READ THAT CAREFULLY, BECAUSE IT IS NOT A VICTORY CLAIM: the prescription
+says 6 for 22 hulls that meshed perfectly well at 7, so it does NOT
+discriminate failures from passers and is not a predictor. It is a
+DIFFERENT DEFAULT that happens to sit inside the safe region for the two
+hulls the campaign lost. Whether it is a BETTER default is what this
+block measures.
+
+SO: mesh 4 hulls twice, mesh-only — once as shipped, once with the
+prescription's numbers (fortress will send them per hull). Report mesh
+success AND layer coverage AND skew for both. Coverage matters here
+because your own h011 measurement showed coverage barely moved (73.5 ->
+73.6%) while skew fell 71x: if the prescription's n=6 buys mesh quality
+at a real coverage cost on hulls that were fine at 7, that trade has to
+be visible before anything becomes a default.
+STOP RULE: if the prescription is not clearly better, it stays OFF by
+default and remains a receipt only. It does not become the default on the
+strength of two hulls.
 
 ### BLOCK 4 (~40 min) — the regime coverage matrix, mesh-only
 One hull per row: 2.5-3 m, 3-5 m, 5-7 m, 7-10 m, 10-12 m, plus one

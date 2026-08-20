@@ -160,3 +160,57 @@ def test_the_receipt_identifies_which_boat_it_describes():
     d = ev.to_dict()
     assert d["regimes"] == list(ev.regimes)
     assert d["mesh"]["expected_tau_s"] is not None
+
+
+def test_the_prescription_and_the_shipped_writer_disagree_about_the_stack():
+    """MEASURED across the whole seed-0 25-hull campaign population: the
+    prescription's derived layer count differs from the shipped writer's on
+    24 of 25 hulls (prescription 6, writer 7, on 18 of them).
+
+    WHY THAT IS NOT A VICTORY CLAIM. The Mac measured on 2026-08-20 that
+    n=6 meshes CLEAN for h011 and h012 where n=7 produces 13 and 12
+    wrong-oriented faces — so the prescription's count is inside the safe
+    region for exactly the two hulls the campaign lost. But it prescribes 6
+    for 22 hulls that meshed perfectly well at 7, so it does NOT
+    discriminate failures from passers and must not be sold as a predictor.
+    What it is: a DIFFERENT default, derived from a physics-set cell size
+    rather than from a cap (_MAX_LAYERS = 7) that was calibrated on the old
+    anisotropic background.
+
+    The disagreement is the reason the prescription A/B has to be measured
+    before it becomes the default, and this test exists so that the day
+    someone flips that switch, the size of what they are changing is
+    already written down.
+    """
+    import json
+    import math
+    from pathlib import Path
+
+    from navalai.cfd.case import (_DOMAIN_LENGTH_L, _HULL_REFINE,
+                                  _LAYER_EXPANSION, _MAX_LAYERS, _NX_BASE,
+                                  _TARGET_YPLUS, first_layer_thickness,
+                                  n_layers_to_bridge)
+
+    data = json.loads((Path(__file__).resolve().parents[1] / "data"
+                       / "gate2u-16gene-mesh.json").read_text())
+    rows = data.get("rows") or data.get("hulls")
+    u, scale = data["speed"], data["scale"]
+
+    disagree = 0
+    for r in rows:
+        lwl = r.get("lwl")
+        if lwl is None:
+            continue
+        nx_w = max(1, int(round(_NX_BASE * scale)))
+        cell_w = _DOMAIN_LENGTH_L * lwl / nx_w / (2.0 ** _HULL_REFINE[1])
+        t1 = first_layer_thickness(u, lwl, _TARGET_YPLUS)
+        n_writer = min(n_layers_to_bridge(t1, cell_w, _LAYER_EXPANSION),
+                       _MAX_LAYERS)
+        p = mesh_prescription(lwl, u, u / math.sqrt(9.81 * lwl))
+        assert p.n_layers is not None
+        if p.n_layers != n_writer:
+            disagree += 1
+    assert disagree >= 20, (
+        f"only {disagree} of {len(rows)} disagree — if this has fallen, the "
+        f"two derivations have converged and the A/B may be moot; re-measure "
+        f"before assuming so")

@@ -126,6 +126,8 @@ class MeshPrescription:
     surface_cell_m: float | None = None       # after hull refinement
     free_surface_cell_m: float | None = None  # after free-surface refinement
     hull_refine_levels: tuple[int, int] | None = None
+    n_layers: int | None = None               # the prism stack, DERIVED
+    n_layers_cap: int | None = None           # what the writer would request
     expected_tau_s: float | None = None       # geometric flow time scale
     timestep_s: float | None = None
     cells: int | None = None
@@ -144,6 +146,7 @@ class MeshPrescription:
                 "free_surface_cell_m": self.free_surface_cell_m,
                 "hull_refine_levels": (list(self.hull_refine_levels)
                                        if self.hull_refine_levels else None),
+                "n_layers": self.n_layers, "n_layers_cap": self.n_layers_cap,
                 "expected_tau_s": self.expected_tau_s,
                 "timestep_s": self.timestep_s,
                 "cells": self.cells, "wall_s": self.wall_s,
@@ -312,6 +315,7 @@ def mesh_prescription(lwl_m: float | None, speed_ms: float | None,
     bg = surf = fs = tau = dt = None
     cells = wall = ram = None
     levels = None
+    n_layers = n_cap = None
     try:
         from .cfd.case import (_DOMAIN_LENGTH_L, _FS_BOX, _HULL_REFINE,
                                _NX_BASE)
@@ -336,6 +340,32 @@ def mesh_prescription(lwl_m: float | None, speed_ms: float | None,
         tau = surf / speed_ms
         basis["expected_tau_s"] = (
             "h_min / U for a cubic cell; run-case.sh aborts below 1e-12 s")
+
+        # THE PRISM STACK, AND IT IS NOT A DETAIL — it is the quantity the
+        # Mac measured on 2026-08-20 to be the whole mechanism behind Gate
+        # 2U's two failures. h011 and h012 mesh at n=6 and FAIL at n=7:
+        #   h011  n=7: 13 wrong-oriented, skew 247.2  ->  n=6: 0, skew 3.5
+        #   h012  n=7: 12 wrong-oriented, skew   9.9  ->  n=6: 0, skew 4.5
+        # while layer COVERAGE barely moved (73.5 -> 73.6% on h011) and
+        # skewness fell by a factor of 71. Coverage was never the signal.
+        # `n_layers_to_bridge` is what the writer derives; the cap is what it
+        # will actually request. Prescribing BOTH means a reader can see the
+        # rung the ladder would have to walk before a mesher ever runs.
+        if first_layer is not None:
+            from .cfd.case import (_LAYER_EXPANSION, _MAX_LAYERS,
+                                   n_layers_to_bridge)
+            n_bridge = int(n_layers_to_bridge(first_layer, surf,
+                                              _LAYER_EXPANSION))
+            n_layers = int(min(n_bridge, _MAX_LAYERS))
+            n_cap = int(_MAX_LAYERS)
+            basis["n_layers"] = (
+                f"n_layers_to_bridge(first_layer {first_layer * 1000:.2f} mm, "
+                f"surface cell {surf * 1000:.1f} mm, expansion "
+                f"{_LAYER_EXPANSION:g}) = {n_bridge}, capped at {n_cap}. "
+                f"MEASURED (Mac, 2026-08-20): h011/h012 mesh at n=6 and fail "
+                f"at n=7 with 13/12 wrong-oriented faces — the derived count "
+                f"IS the mesh-success mechanism on those hulls, and the "
+                f"ladder's first backoff rung is what recovers them.")
     except Exception as e:                                  # noqa: BLE001
         refusals.append(f"cell sizes unavailable: {e}")
 
@@ -355,7 +385,8 @@ def mesh_prescription(lwl_m: float | None, speed_ms: float | None,
         mesh_density=density, cells_per_wavelength=cpw,
         first_layer_m=first_layer, target_yplus=target_yplus,
         background_cell_m=bg, surface_cell_m=surf, free_surface_cell_m=fs,
-        hull_refine_levels=levels, expected_tau_s=tau, timestep_s=dt,
+        hull_refine_levels=levels, n_layers=n_layers, n_layers_cap=n_cap,
+        expected_tau_s=tau, timestep_s=dt,
         cells=cells, wall_s=wall, ram_gb=ram,
         basis=basis, refusals=tuple(refusals))
 
