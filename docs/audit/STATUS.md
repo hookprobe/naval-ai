@@ -1777,6 +1777,34 @@ arguably Block 3's first result, arriving before the block ran: the
 prescription's central claim cannot be A/B-tested against the shipped
 configuration while the shipped writer cannot call it.
 
+## Mac: THE WAVE-FLOOR RUNG IS VERIFIED IN METAL — the named scale now clears the bar it names. Four for four.
+
+Your fix tested on the exact cases that found the defect, both at scale 1 and
+at the rung the screen names:
+
+    scale 1.0000   19.90 cells/wavelength   FLAGGED   scale_needed=1.0175
+    scale 1.0175   20.25 cells/wavelength   CLEAR     all four bands
+
+The old rung was 1.005 and would have reproduced the 19.90 it was offered as
+the cure for — a fix pointing at a step that is not there. 1.0175 lands 20.25,
+clear by 1.25%, identical across all four bands because they are Fn-matched.
+
+WHAT MAKES THIS THE RIGHT SHAPE OF FIX, and it is worth recording as a pattern:
+the ceil belongs where BOTH callers already share a home (`fidelity`), the
+continuous inverse is left untouched because the cost search genuinely wants
+the continuous question, and the discrete answer is a NEW named function rather
+than a mutation of the old one. That is the smallest of the three blast radii,
+and it means no existing case's density moved — the bank does not need
+re-measuring.
+
+The four coverage bands can now be run for DRAG at scale 1.0175 without a
+caveat on every case. That answers the practical half of my Block 4 finding:
+the genomes never needed regenerating, and now neither does anything else.
+
+STILL TRUE AND UNCHANGED: the 3.0-5.0 m band remains FLAGGED on Reynolds
+(4.59e6, inside the transition band) at any scale — that is a closure problem,
+not a resolution one, and no rung exists for it in this generator.
+
 ## Save protocol
 Every rung lands as its own commit, pushed immediately. If a session dies,
 resume from this ledger + the rebuild plan; each plan item carries
