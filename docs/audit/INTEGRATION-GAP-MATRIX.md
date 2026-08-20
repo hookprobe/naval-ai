@@ -502,7 +502,18 @@ so shrinking a hull costs Reynolds number as L^1.5 against a FIXED Froude
 ceiling. Setting them equal gives the shortest hull whose window is not
 empty:
 
-    L = (Re * nu / (Fn * sqrt(g)))^(2/3) = **2.61 m**
+    L = (Re * nu / (Fn * sqrt(g)))^(2/3) = **2.54 m fresh / 2.61 m sea**
+
+**CORRECTED 2026-08-20 after the Mac audited this section.** It first
+read "2.61 m from two constants the code already owns". The third
+input was a LITERAL — `nu = 1.19e-6` typed inline, imported from
+nothing — and it disagreed with the fluid the surrounding prose named,
+1.19e-6 being a SEAWATER figure against a fresh-water argument. A
+number declared twice, in two different fluids, is this repository's
+cardinal defect, and it was committed in a message about that defect
+class. With the code's own constants: NU_FRESH_15C gives 2.537 m,
+NU_SEA_15C gives 2.610 m — a 2.9% spread, wider than the precision
+"2.61" advertised.
 
 Across the band, at nu = 1.19e-6:
 
@@ -515,8 +526,8 @@ Across the band, at nu = 1.19e-6:
 So the band is not uniformly out of scope: its BOTTOM is and its TOP is
 not, with the crossover at 2.61 m.
 
-**THIS IS THE THIRD INDEPENDENT ROUTE TO THE SAME NUMBER, and that is why
-it is worth recording.** `docs/research/SMALL-CRAFT-REGIMES.md` derived
+**IT IS A THIRD ROUTE TO THE SAME SIZE, NOT TO THE SAME NUMBER** — the
+distinction the audit forced, and the weaker claim is the true one. `docs/research/SMALL-CRAFT-REGIMES.md` derived
 ~2.6 m from three physical walls (Reynolds, environmental forcing, and the
 cube-law payload floor) with no reference to Michell. The RCD scope that
 `supported_domain` enforces starts at 2.5 m for a legal reason unrelated
