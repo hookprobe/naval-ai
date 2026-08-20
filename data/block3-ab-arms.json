@@ -1,0 +1,61 @@
+{
+ "_README": "Block 3 arms, per coverage hull. A = the shipped configuration; B = the prescription. Both are direct arguments to write_resistance_case(scale=..., n_layers=...) \u2014 no wiring needed.",
+ "arms": {
+  "3.0-5.0": {
+   "lwl_m": 3.4409443760304486,
+   "speed_ms": 1.4524906266663715,
+   "fn": 0.25,
+   "A_scale": 1.0,
+   "A_n_layers": 7,
+   "B_scale": 1.0175,
+   "B_n_layers": 3,
+   "B_cells_per_wavelength": 20.246,
+   "A_cells_per_wavelength": 19.897,
+   "first_layer_m": 0.00361277225459391,
+   "surface_cell_m": 0.008342806946194515,
+   "expected_tau_s": 0.00574379399978793
+  },
+  "5.0-7.0": {
+   "lwl_m": 5.8688398667117445,
+   "speed_ms": 1.896927105420142,
+   "fn": 0.25,
+   "A_scale": 1.0,
+   "A_n_layers": 7,
+   "B_scale": 1.0175,
+   "B_n_layers": 4,
+   "B_cells_per_wavelength": 20.246,
+   "A_cells_per_wavelength": 19.897,
+   "first_layer_m": 0.0029727373768093078,
+   "surface_cell_m": 0.01422940700441964,
+   "expected_tau_s": 0.007501293520326408
+  },
+  "7.0-10.0": {
+   "lwl_m": 7.289318993614833,
+   "speed_ms": 2.114063316923146,
+   "fn": 0.25,
+   "A_scale": 1.0,
+   "A_n_layers": 7,
+   "B_scale": 1.0175,
+   "B_n_layers": 5,
+   "B_cells_per_wavelength": 20.246,
+   "A_cells_per_wavelength": 19.897,
+   "first_layer_m": 0.002742597093214762,
+   "surface_cell_m": 0.017673456611673893,
+   "expected_tau_s": 0.0083599466819169
+  },
+  "10.0-12.0": {
+   "lwl_m": 11.362221624245555,
+   "speed_ms": 2.639405640170824,
+   "fn": 0.25,
+   "A_scale": 1.0,
+   "A_n_layers": 7,
+   "B_scale": 1.0175,
+   "B_n_layers": 7,
+   "B_cells_per_wavelength": 20.246,
+   "A_cells_per_wavelength": 19.897,
+   "first_layer_m": 0.002320048829455184,
+   "surface_cell_m": 0.027548489929474673,
+   "expected_tau_s": 0.010437383898176302
+  }
+ }
+}

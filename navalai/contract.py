@@ -478,8 +478,84 @@ def mesh_prescription(lwl_m: float | None, speed_ms: float | None,
         basis=basis, refusals=tuple(refusals))
 
 
+def judge_result(case_dir) -> tuple[str, tuple[str, ...], dict]:
+    """QUESTION D: is the RESULT converged and physically trustworthy?
+
+    (verdict, reasons, detail). Composition again — every judgement here
+    already exists and is simply never asked in one place:
+
+      settled_drag    stationarity, per component, with the LTS pseudo-time
+                      and mixed-history seams
+      physics_sanity  sign, finiteness, and magnitude against a prior
+      yPlus receipt   whether the wall model the case ASSUMED was achieved
+
+    The y+ half is the one that cannot be answered from fortress: the
+    receipt is written by the solver node, and until it is there this
+    returns UNMEASURED for that clause rather than assuming the wall model
+    held. A verdict that silently drops the clause it cannot check is the
+    defect this whole layer exists to refuse.
+    """
+    from pathlib import Path
+
+    from .cfd.post import ForceHistoryError, physics_sanity, settled_drag
+
+    case = Path(case_dir)
+    detail: dict = {"case": str(case)}
+    reasons: list[str] = []
+    if not case.exists():
+        return UNMEASURED, (f"{case} does not exist",), detail
+
+    try:
+        sd = settled_drag(case)
+    except ForceHistoryError as e:
+        return REFUSED, (f"no readable force history: {e}",), detail
+    except Exception as e:                                  # noqa: BLE001
+        return UNMEASURED, (f"settledness could not be judged: {e}",), detail
+
+    detail["settled"] = {"outcome": sd["outcome"], "drift": sd["drift"],
+                         "flow_throughs": sd["flow_throughs"]}
+    if not sd["settled"]:
+        reasons.append(f"{sd['outcome']}: " + "; ".join(sd["reasons"]))
+
+    sane = physics_sanity(float(sd["drag_n"]))
+    detail["physics_sanity"] = sane
+    reasons.extend(sane["reasons"])
+
+    # THE WALL MODEL'S OWN VALIDITY. The case DESIGNED for a y+ target;
+    # whether it achieved one is a separate measurement, and the receipt
+    # comes from the solver node. Absent, the clause is UNMEASURED — never
+    # assumed to have held.
+    info = case / "case.info"
+    yplus = None
+    if info.exists():
+        for line in info.read_text().splitlines():
+            if line.startswith("yplus_achieved="):
+                try:
+                    yplus = float(line.split("=", 1)[1])
+                except ValueError:
+                    yplus = None
+    detail["yplus_achieved"] = yplus
+    if yplus is None:
+        detail["yplus_note"] = ("no achieved-y+ receipt: the wall model's "
+                                "validity is UNMEASURED, not assumed")
+    elif not (30.0 <= yplus <= 300.0):
+        reasons.append(
+            f"achieved y+ {yplus:.1f} is outside the log-law band [30, 300] "
+            f"the case's wall functions require, so the near-wall model the "
+            f"drag was read through does not apply")
+
+    if reasons:
+        return REFUSED, tuple(reasons), detail
+    if yplus is None:
+        return MARGINAL, ("settled and physically sane, but the wall model's "
+                          "validity is unverified (no achieved-y+ receipt)",), \
+            detail
+    return OK, (), detail
+
+
 def evaluate_hull(genome, mission: MissionSpec | None = None,
-                  environment: dict | None = None) -> HullEvaluation:
+                  environment: dict | None = None,
+                  case_dir=None) -> HullEvaluation:
     """The contract. One genome in, one receipt out, no hidden assumptions.
 
     Order is the path itself, and each stage's refusal STOPS the ones that
@@ -581,10 +657,16 @@ def evaluate_hull(genome, mission: MissionSpec | None = None,
     presc = mesh_prescription(lwl, speed, fn)
 
     # ---- D: is the RESULT trustworthy? -----------------------------------
-    # Nothing has solved this hull, so there is no result to judge. That is
-    # UNMEASURED and it is why `status` cannot read OK for a design that has
-    # never been through CFD.
-    result_verdict = UNMEASURED
+    # With no case directory nothing has solved this hull, so there is no
+    # result to judge: UNMEASURED, which is why `status` cannot read OK for
+    # a design that has never been through CFD. Given one, the same three
+    # judgements the CFD lane already owns are asked here, in one place.
+    if case_dir is None:
+        result_verdict = UNMEASURED
+    else:
+        result_verdict, d_reasons, d_detail = judge_result(case_dir)
+        detail["result"] = d_detail
+        reasons.extend(f"result: {r}" for r in d_reasons)
 
     # ---- the identity block and the regime -------------------------------
     sc = (cert.descriptors or {}).get("scalars", {}) or {}

@@ -317,3 +317,72 @@ def test_out_of_domain_is_not_a_verdict_on_the_boat():
     assert ev.in_domain and ev.domain_reasons == ()
     d = ev.to_dict()
     assert d["in_domain"] is True and d["domain_reasons"] == []
+
+
+# ---------------------------------------------------------------------------
+# QUESTION D: is the RESULT converged and physically trustworthy?
+# ---------------------------------------------------------------------------
+
+
+def _solved_case(tmp_path, drag=-900.0, n=200, t_end=120.0, yplus=None):
+    """A settled, physically sane case — the fixture the D verdict grades."""
+    from tests.test_settled_drag import _write_case
+
+    t = np.linspace(t_end / n, t_end, n)
+    press = drag * 0.7 * (1.0 + 0.004 * np.sin(9.0 * t))
+    visc = drag * 0.3 * (1.0 + 0.004 * np.cos(7.0 * t))
+    case = _write_case(tmp_path, t, press, visc, symmetric=False,
+                       lwl=10.0, speed=2.5)
+    if yplus is not None:
+        p = case / "case.info"
+        p.write_text(p.read_text() + f"\nyplus_achieved={yplus}\n")
+    return case
+
+
+def test_D_is_marginal_without_a_yplus_receipt_and_never_assumes_it_held():
+    """The wall model's validity is a SEPARATE measurement from settledness,
+    and its receipt comes from the solver node. Absent, the clause is
+    UNMEASURED — so the verdict is MARGINAL, not OK. A verdict that silently
+    drops the clause it cannot check is the defect this layer exists for."""
+    from navalai.contract import judge_result
+
+    verdict, reasons, detail = judge_result(_solved_case(tmp_path_factory()))
+    assert verdict == MARGINAL
+    assert "unverified" in reasons[0]
+    assert detail["yplus_achieved"] is None
+    assert "UNMEASURED, not assumed" in detail["yplus_note"]
+
+
+def tmp_path_factory():
+    import tempfile
+    from pathlib import Path
+    return Path(tempfile.mkdtemp()) / "case"
+
+
+def test_D_refuses_a_sign_flipped_result_and_an_out_of_band_wall_model():
+    """The two clauses that can REFUSE, each on its own evidence."""
+    from navalai.contract import judge_result
+
+    flipped = _solved_case(tmp_path_factory(), drag=+900.0, yplus=100.0)
+    v, why, _ = judge_result(flipped)
+    assert v == REFUSED and any("tow convention" in r for r in why)
+
+    bad_wall = _solved_case(tmp_path_factory(), yplus=7500.0)
+    v, why, _ = judge_result(bad_wall)
+    assert v == REFUSED and any("log-law band" in r for r in why)
+
+    good = _solved_case(tmp_path_factory(), yplus=100.0)
+    v, why, _ = judge_result(good)
+    assert v == OK, why
+
+
+def test_the_contract_asks_D_only_when_given_a_case():
+    """Without a case directory D is UNMEASURED — and `status` therefore
+    refuses to read OK for a hull nothing has solved."""
+    from navalai.contract import judge_result
+
+    ev = evaluate_hull(np.array(KIT_REFERENCE), MissionSpec())
+    assert ev.result_verdict == UNMEASURED and ev.status != OK
+
+    v, why, _ = judge_result("/nonexistent/case")
+    assert v == UNMEASURED and "does not exist" in why[0]
