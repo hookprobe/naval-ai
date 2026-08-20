@@ -186,7 +186,7 @@ different Gate 2M numbers came to circulate at once (gap J1).
 | Gate 6 | rules-as-code mechanics | `tests/test_phase6.py` (6 tests) |
 | Gate 7 | flywheel: frozen suite != training draw, monotone regression mark, wall clock, committed baseline | `tests/test_phase7.py` (15 tests) |
 | Gate B | grammar AST + bend radius + 8-D genome | `tests/test_stageB.py` (13 tests) |
-| Gate C | agentic PLM network + engineer + STEP/IGES | `tests/test_stageC.py` (13 tests) |
+| Gate C | agentic PLM network + engineer + STEP/IGES | `tests/test_stageC.py` (14 tests) |
 | Gate D | waves/RAO response + dynamics + CFD post | `tests/test_stageD.py` (19 tests) |
 | Gate E | latent-space evolution + latent GP | `tests/test_stageE.py` (3 tests) |
 | Gate F | panel unroll/DXF + Pareto dash + handoff receipt | `tests/test_stageF.py` (12 tests) |
@@ -210,7 +210,7 @@ different Gate 2M numbers came to circulate at once (gap J1).
 | Gate 2D | the admissible design space refuses pathological hulls before OpenFOAM, by the named gate, at milliseconds per genome | `tests/test_admissible_space.py` (11 tests) |
 | Gate 2L | the prism-layer cap is a measured value, and a clean mesh with no boundary layer is not a pass | `tests/test_layer_cap.py` (7 tests) |
 | Gate 2F | STL forensics: watertight is not valid, and the surface handed to snappy is measured rather than assumed | `tests/test_stl_forensics.py` (16 tests) |
-| Gate 2B | Blender-native hull generation, measured and REFUSED on the hull path: a 0.05 m voxel remesh destroys the chine | `tests/test_blender_hull.py` (10 tests) |
+| Gate 2B | Blender-native hull generation, measured and REFUSED on the hull path: a 0.05 m voxel remesh destroys the chine | `tests/test_blender_hull.py` (12 tests) |
 | Gate 2C | the campaign classifier names the mechanism that actually failed, and refuses one it cannot measure | `tests/test_campaign_classifier.py` (17 tests) |
 | Gate 2K | the smoke verdict is the runner's own bar, an absent or truncated log is never promoted, and a smoke refusal can never read as a solve failure | `tests/test_smoke_verdict.py` (9 tests) |
 | Gate RT | the resistance tier: its envelope, and bit-exact values under any optimisation of the Michell integral | `tests/test_resistance.py` (17 tests) |

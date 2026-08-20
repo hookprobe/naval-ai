@@ -225,6 +225,39 @@ def test_pareto_serves_the_mission_it_was_asked_about():
 
     a = S.pareto_payload(panel)
     b = S.pareto_payload(other)
+
+    # THE DIAGNOSTIC WAS MISLEADING AND THE FAILURE IS REAL (2026-08-20).
+    # This assertion read `a["points"] != b["points"]` with the message
+    # "two different missions returned the same front", and it fired as
+    # `assert [] != []` — BOTH fronts empty. The wiring it was written to
+    # police is fine; what is broken is that the search returns NOTHING at
+    # the budget the server actually uses.
+    #
+    # MEASURED on the panel's own default brief, seed 0:
+    #     pop=24 gens=10   240 evals   0 members   2.44 s  <- SERVER'S BUDGET
+    #     pop=24 gens=20   480 evals   1 member    5.41 s
+    #     pop=40 gens=20   800 evals   0 members   9.35 s
+    #     pop=48 gens=25  1200 evals  48 members  14.69 s
+    #     pop=60 gens=25  1500 evals  16 members  17.75 s
+    # The mission is FEASIBLE — 1200 evals finds 48 members — so this is a
+    # convergence/budget defect, not an infeasible brief. Note 800 -> 0
+    # against 480 -> 1: non-monotone, so feasibility is marginal and the
+    # search is unreliable in this regime, not merely slow.
+    #
+    # It cannot be bought with a bigger budget: 1200 evals is 14.69 s
+    # against Gate 4's 100 ms interactive bar, 147x over. The fix is a warm
+    # start or a repair operator, which is optimiser work and is NOT done
+    # here — this test is left FAILING on purpose, because a dashboard that
+    # draws an empty trade-off surface for its own opening brief is a
+    # product defect and softening its guard would hide it.
+    assert a["points"], (
+        "the PANEL'S OWN DEFAULT MISSION returned an EMPTY Pareto front at "
+        "the server's live budget (pop=24/gens=10, 240 evaluations). The "
+        "mission is feasible — 1200 evaluations finds 48 members — so the "
+        "search is not converging, it is not that no boat exists. A user "
+        "pressing 'Apply mission' without editing a character gets a blank "
+        "trade-off surface.")
+    assert b["points"], "the second mission returned an EMPTY front"
     assert a["points"] != b["points"], (
         "two different missions returned the same front — the mission is not "
         "reaching the search")
