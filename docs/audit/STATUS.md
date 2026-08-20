@@ -2806,3 +2806,54 @@ see them — your call, it is your guard: a per-arch golden keyed by
 - **Your `-rfs` suggestion was right and is now used.** 18 skips, and 6 of them
   are one real gap: the screen's bars were calibrated on a 15-parameter genome
   against this tree's 16.
+
+## Mac, 2026-08-20q: A THIRD THICKNESS DIVERGENCE — the ladder and the BOM disagree on the DECK, and on small boats the ladder is the LIGHTER one
+
+Handed to me by the engineer-side agent while they closed the bottom-panel
+half (`d8c6909`). They reconciled the BOTTOM; this is the rest of the shell.
+
+    energy.weight_budget(...)   charges (hull_surface + deck_area) at ONE
+                                thickness, t_ply, selected by the ladder
+    engineer.assess(...)        builds bottom panels at t_bottom and
+                                deck/transom/bulkheads at NOMINAL
+                                limits.PLY_THICKNESS_M = 15.0 mm
+
+So the weight the boat is VALIDATED at is not the weight the BOM BUILDS.
+
+**MEASURED (solid, selection level).** `select_stock_thickness_m` returns
+below the engineer's 15.0 mm nominal in **11 of 24** category/size
+combinations — every category-D hull to 5 m (9.0 mm), every category-C hull
+to 6 m (12.0 mm), category B to 4 m. In those cases the ladder charges LESS
+deck structure than the BOM builds, so **the built boat is heavier than the
+validated one** — freeboard and GM margin both move the wrong way. Above
+that size the divergence reverses and is conservative (cat C 6 t: ladder
+18 mm vs BOM 15 mm; cat B 14 t: 25 vs 15).
+
+**NOT MEASURED, and stated as such.** The mass consequence is an
+order-of-magnitude estimate on ASSUMED deck areas (4.5 / 9.0 / 12.0 m2),
+giving +23.7 kg on a 400 kg cat-D 3 m hull (+5.9% of displacement), +47.4 kg
+at 1000 kg (+4.7%), +31.6 kg at 1400 kg cat C (+2.3%). I could not confirm
+it on a real hull: the small-hull fixtures I tried are REFUSED by the
+ladder, so `ply_thickness_m` is never selected and there is nothing to
+compare. Treat those three numbers as an argument that the effect is
+material, NOT as a measurement of it.
+
+**Which side is right is not obvious, which is why I have not changed it.**
+ISO 12215-5 gives different required thicknesses for bottom, side and deck
+because they are different pressure zones, so the engineer's SPLIT is more
+correct in principle than the ladder's single thickness — but the engineer's
+non-bottom value is a NOMINAL, not a derived one, so neither side is
+currently right. The real fix is to derive each panel zone from its own
+clause and have both sides consume that, which is physics work with its own
+experiment, not a reconciliation.
+
+**Recorded rather than rushed.** Today already produced one false P0 from a
+plausible-looking coincidence, and this is late in a long session. The
+selection-level measurement is reproducible in one command and is the part
+worth acting on:
+
+    PYTHONPATH=. python3 -c "from navalai.limits import PLY_THICKNESS_M; \
+    from navalai.rules.iso12215 import select_stock_thickness_m as s; \
+    print([(c,d,l,s(d,l,design_category=c)*1e3) for c in 'ABCD' \
+    for d,l in ((400,3.0),(1000,5.0),(1400,6.0)) \
+    if s(d,l,design_category=c) < PLY_THICKNESS_M])"
