@@ -2233,7 +2233,7 @@ def wave_resolution_screen(lwl: float, speed: float,
     """
     from ..fidelity import (MIN_CELLS_PER_WAVELENGTH,  # deferred: `fidelity`
                             cells_per_wavelength,      # imports this module at
-                            density_for_wave_resolution)  # module level
+                            density_that_clears_wave_resolution)  # module level
     ok = all(isinstance(v, (int, float)) and math.isfinite(v) and v > 0.0
              for v in (lwl, speed, scale))
     if not ok:
@@ -2247,7 +2247,13 @@ def wave_resolution_screen(lwl: float, speed: float,
                     f"is refused, never scored as a passing one.")}
     fn = speed / math.sqrt(_G * lwl)
     cpw = cells_per_wavelength(fn, scale)
-    needed = density_for_wave_resolution(fn)
+    # THE RUNG MUST BE ONE THE WRITER CAN ACTUALLY STAND ON. Reporting the
+    # continuous inverse here told a reader to use a scale that, once this
+    # module rounds it into an integer background cell count, lands BACK
+    # under the bar — measured by the Mac on all four coverage bands, which
+    # wrote at 19.90 against a bar of 20 and were told to use a scale that
+    # would have reproduced it.
+    needed = density_that_clears_wave_resolution(fn)
     if cpw >= MIN_CELLS_PER_WAVELENGTH:
         return {"verdict": "CLEAR", "fn": fn, "cells_per_wavelength": cpw,
                 "bar": MIN_CELLS_PER_WAVELENGTH, "scale_needed": needed,

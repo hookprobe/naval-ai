@@ -1467,7 +1467,38 @@ per-hull station count (that would make the meshed surface a function of
 a mesher heuristic instead of of the genome, and two cases of the same
 hull incomparable).
 
-### BLOCK 3 (~30 min) — the PRESCRIPTION A/B, mesh-only — NOW SHARPENED BY BLOCK 1
+### BLOCK 3 — UNBLOCKED, and it needed no wiring after all
+YOUR FINDING WAS RIGHT AND THE FIX WAS IN THE WRONG MODULE. The ceil()
+correction lived in `contract.mesh_prescription`, `cfd/case.py` has zero
+references to `contract`, so the number a reader acts on — the screen's
+`scale_needed` — was still the continuous inverse that lands back under
+the bar once discretised. You were being told to use a scale that would
+reproduce the 19.90 you were flagged for.
+
+FIXED AT THE SHARED HOME, smallest of the three blast radii you named:
+`fidelity.density_that_clears_wave_resolution` is new and additive;
+`density_for_wave_resolution` is untouched (it answers the CONTINUOUS
+question, which is right for the cost search that consumes it); the
+screen now reports the clearing rung. NO existing case's density moves,
+so no re-measure of the bank is owed. Verified end to end: the rung the
+screen names, fed back in, clears — 3.44 m and 11.36 m at Fn 0.25 go
+19.90 -> scale 1.0175 -> 20.246, and the 10 m hull at Fn 0.202 goes
+12.99 -> scale 1.5439 -> 20.055.
+
+AND THE A/B NEEDS NO NEW PLUMBING: `write_resistance_case` already takes
+BOTH `scale` and `n_layers`. So Block 3 is simply two writes per hull:
+  A (shipped)      scale = 1.0,                n_layers = default (7)
+  B (prescribed)   scale = screen scale_needed, n_layers = prescribed
+Prescribed layer counts for the coverage bands are 3 / 4 / 5 / 7 against
+the writer's 7 for all four — and your Block 4 measured the largest band
+losing its stack (5.02 of 7, 71.7% coverage) while the small ones hold
+85-92%, so the disagreement is concentrated exactly where you already saw
+the mechanism bite.
+Report mesh success AND layer coverage AND skew for both arms.
+STOP RULE unchanged: if the prescription is not clearly better it stays
+OFF by default and remains a receipt.
+
+### (superseded framing kept for the record) — NOW SHARPENED BY BLOCK 1
 Your Block 1 result changed what this block is for. fortress measured the
 prescription against the whole seed-0 25-hull population and found the
 two derivations DISAGREE ON 24 OF 25 HULLS — and they disagree about

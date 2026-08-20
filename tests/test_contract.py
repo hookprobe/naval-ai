@@ -242,3 +242,32 @@ def test_the_prescribed_density_clears_the_bar_AFTER_the_writer_rounds_it():
         # ...and it does not overshoot into paying for cells nobody asked
         # for: at most one background cell in x above the ideal.
         assert p.cells_per_wavelength < MIN_CELLS_PER_WAVELENGTH * 1.10
+
+
+def test_the_rung_the_screen_names_is_one_the_writer_can_stand_on():
+    """A FIX THAT WAS CORRECT AND UNREACHED, caught by the Mac.
+
+    The first attempt rounded the density up inside
+    `contract.mesh_prescription` — right arithmetic, wrong module:
+    `navalai/cfd/case.py` has ZERO references to `contract`, so the number
+    a reader actually acts on (`wave_resolution_screen`'s `scale_needed`)
+    was still the continuous inverse, which lands BACK under the bar once
+    the writer discretises it. The four coverage bands were being told to
+    use a scale that would have reproduced the 19.90 they were flagged for.
+
+    The rounding now lives in `fidelity.density_that_clears_wave_resolution`,
+    the home both callers already share, and this test asserts the property
+    that matters end to end: THE RUNG THE SCREEN NAMES, FED BACK IN, CLEARS.
+    """
+    from navalai.cfd.case import wave_resolution_screen
+    from navalai.fidelity import (MIN_CELLS_PER_WAVELENGTH,
+                                  cells_per_wavelength)
+
+    for lwl, fn in ((3.44, 0.25), (11.36, 0.25), (10.0, 0.202), (7.0, 0.18)):
+        u = fn * math.sqrt(9.81 * lwl)
+        rep = wave_resolution_screen(lwl, u, 1.0)
+        if rep["verdict"] == "CLEAR":
+            continue
+        assert cells_per_wavelength(fn, rep["scale_needed"]) >= \
+            MIN_CELLS_PER_WAVELENGTH, (
+                f"L={lwl} Fn={fn}: the screen names a rung that still misses")

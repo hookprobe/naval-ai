@@ -181,6 +181,37 @@ def cells_per_wavelength(fn: float, mesh_density: float) -> float:
     return 2.0 * math.pi * fn**2 * 4.0 * nx / 4.5
 
 
+def density_that_clears_wave_resolution(
+        fn: float, bar: float = MIN_CELLS_PER_WAVELENGTH) -> float:
+    """The density that clears the bar AFTER the writer discretises it.
+
+    `density_for_wave_resolution` inverts the floor EXACTLY, so its answer
+    buys precisely `bar` cells per wavelength as a CONTINUOUS quantity — and
+    the case writer then turns it into an integer background cell count.
+    Rounding steps under the bar whenever the fraction is below a half, and
+    a floor the pipeline's own discretisation steps under is not a floor.
+
+    MEASURED (Mac, Block 4, 2026-08-20): all four Fn-matched coverage bands
+    wrote at 19.90 cells per wavelength against a bar of 20 — the SAME 0.5%
+    miss in every band, because Fn-matched cases share their rounding. A
+    first fix rounded up inside `contract.mesh_prescription` and was
+    CORRECT AND UNREACHED: `navalai/cfd/case.py` has zero references to
+    `contract`, so the number the screen actually reports as `scale_needed`
+    was still the continuous one. This is that fix at the home BOTH callers
+    already share.
+
+    Costs at most one background cell in x. `density_for_wave_resolution`
+    is left exactly as it was: it answers the continuous question, which is
+    the right question for the cost search that consumes it.
+    """
+    from .cfd.case import _NX_BASE
+    d = density_for_wave_resolution(fn, bar)
+    if not math.isfinite(d):
+        return d
+    nx = max(1, int(math.ceil(_NX_BASE * d - 1e-9)))
+    return nx / float(_NX_BASE)
+
+
 def density_for_wave_resolution(fn: float,
                                 bar: float = MIN_CELLS_PER_WAVELENGTH) -> float:
     """Minimum mesh density that resolves the wave field at this Froude number.
