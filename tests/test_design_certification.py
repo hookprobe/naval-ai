@@ -25,14 +25,60 @@ def ref_cert():
                    MissionSpec(cruise_speed_kn=5, lwl_hint_m=10.0))
 
 
-def test_the_reference_hull_is_refused_with_the_defect_named(ref_cert):
-    """The known cold-bend violation refuses the reference hull — and the
-    certification names it rather than reporting a bare fail."""
+def test_a_refusal_NAMES_its_defect_and_the_LADDER_now_passes(ref_cert):
+    """FIXING THE BEND RADIUS UNCOVERED A DEFECT IT HAD BEEN MASKING.
+
+    This asserted `verdict == "REFUSE"` with "bend radius" among the reasons.
+    MEASURED 2026-08-20, before and after the operator adopted LAMINATED
+    construction (`limits.laminate_plan`), on the same reference hull and
+    mission:
+
+        BEFORE  evaluation_ok False, reasons: ["panel bend radius 0.95 m <
+                1.44 m (18 mm ply cold-bend limit)"]
+        AFTER   evaluation_ok TRUE, verdict REFUSE, reasons:
+                  "loading condition(s) FAIL the seaworthiness floors:
+                   PEOPLE_FORWARD"
+                  "constraint margin thin: ['rules']"
+                  "delivered Cp 0.596 misses the mission target 0.558"
+
+    The hull's 0.95 m radius clears a two-skin laminate's 0.72 m floor where
+    it failed a single sheet's 1.44 m. So the LADDER now passes — and
+    `certify` walks on to the loading states it had never reached, where
+    PEOPLE_FORWARD fails.
+
+    THAT FAILURE IS NOT NEW AND NOT A REGRESSION. It was there all along,
+    unreachable behind an earlier refusal: certification stops at
+    `evaluation_ok False`, so the three reasons above were never evaluated.
+    Removing one defect made an older one VISIBLE, which is the honest
+    outcome and worth more than the fix that caused it.
+
+    The verdict is still REFUSE, so this test still exercises what it is for
+    — that a refusal NAMES its defect rather than reporting a bare fail — but
+    on the reason the boat actually has.
+    """
+    assert ref_cert.evaluation_ok is True, (
+        "the LADDER refuses the reference hull again; the laminate floor may "
+        f"have moved: {ref_cert.reasons}")
     assert ref_cert.verdict == "REFUSE"
-    assert any("bend radius" in r for r in ref_cert.reasons)
-    assert ref_cert.evaluation_ok is False
-    # an ineligible design is not CFD-worthy
-    assert ref_cert.cfd_candidate["eligible"] is False
+    assert ref_cert.reasons, "a REFUSE with no reason is a bare fail"
+    assert any("seaworthiness floors" in r for r in ref_cert.reasons), (
+        f"the loading-state refusal has gone: {ref_cert.reasons}")
+    assert any("PEOPLE_FORWARD" in r for r in ref_cert.reasons), (
+        "the refusal must NAME the failing service state, not just say one "
+        f"failed: {ref_cert.reasons}")
+    # the bend radius is no longer the binding constraint
+    assert not any("bend radius" in r for r in ref_cert.reasons), (
+        "the cold-bend refusal returned; laminate_plan may have regressed")
+    # AND A FINDING THIS TEST NOW SURFACES: `cfd_candidate["eligible"]` is
+    # TRUE on a certification whose verdict is REFUSE. It tracks the LADDER,
+    # which passes, and does not consult the loading states that refused the
+    # boat — so the system would spend a CFD budget on a design it has just
+    # declined. Pinned as the CURRENT behaviour, not endorsed: it was
+    # invisible while the ladder refused this hull outright, and it is
+    # recorded in docs/audit/STATUS.md for its owner.
+    assert ref_cert.cfd_candidate["eligible"] is True, (
+        "eligibility changed; if it now consults the loading states this "
+        "assertion should become `is False` and the STATUS note retired")
 
 
 def test_every_quantity_carries_its_receipt(ref_cert):
@@ -245,11 +291,31 @@ def test_loading_states_gate_the_verdict_on_seaworthiness_floors_R23():
     a DOCUMENTED refusal (PayloadSpec has no transverse coordinate), and
     it does not gate — unassessed is not failed.
     """
+    # CASE B NOW REFUSES, AND THAT IS GAP B4 WORKING (2026-08-20).
+    # MEASURED: case b declares SIX crew, and the payload provision used to
+    # be a flat 800 kg that did not move with `mission.crew` — so the boat
+    # floated at a two-crew displacement while claiming six. B4 scaled it to
+    # 6 x 85 + 630 = 1140 kg, and the extra 340 kg is exactly what puts its
+    # PEOPLE_AFT and PEOPLE_FORWARD states under the seaworthiness floors.
+    #
+    # That is the defect B4 names, made visible: "a 12-crew boat put 12 x 85
+    # kg on the rail for the stability check and floated at exactly the
+    # two-crew displacement". The old expectation here — "case b keeps
+    # MARGINAL with every state seaworthy" — was measured on a boat 340 kg
+    # light. A six-crew boat that cannot carry six crew safely SHOULD be
+    # refused, and asserting otherwise would re-hide the defect.
     b = CASES["b"]
+    assert b.mission.crew == 6, "fixture changed; re-measure the provision"
     cert_b = certify(b.params, b.mission, with_gz=False)
-    assert cert_b.verdict == "MARGINAL"
-    assert all(st.get("seaworthy") is not False
-               for st in cert_b.loading.values() if isinstance(st, dict))
+    assert cert_b.verdict == "REFUSE"
+    assert any("seaworthiness floors" in r for r in cert_b.reasons)
+    failed_b = {k for k, st in cert_b.loading.items()
+                if isinstance(st, dict) and st.get("seaworthy") is False}
+    assert failed_b, "the loading states that refuse case b are not named"
+    assert "PEOPLE_AFT" in failed_b or "PEOPLE_FORWARD" in failed_b, failed_b
+    # and the DESIGN POINT itself is still fine — it is the crowd states that
+    # fail, which is the distinction this test exists to keep
+    assert cert_b.evaluation_ok is True, cert_b.reasons
 
     c = CASES["c"]
     cert_c = certify(c.params, c.mission, with_gz=False)

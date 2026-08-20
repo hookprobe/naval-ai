@@ -211,14 +211,20 @@ def test_the_ladder_and_the_engineer_plank_the_same_boat():
 
     # the defect itself, verbatim: 1.6 * the waterline area is refused
     old = hull.wetted_surface(0.0) * 1.6
-    # 48.927 / 51.616 UNTIL 2026-08-13, on the pre-plate-P1 reference hull.
-    # Both are properties of THIS hull and the hull was re-solved by the new
-    # kernel (`tests/test_phase0.mid_params`), so both moved; the margin
-    # between them — which is the whole subject of this test — is 13.9%
-    # against the 5% bar below, where it used to be 5.5%. The defect is
-    # refused by MORE now, not less.
-    assert old == pytest.approx(41.023, abs=0.01)
-    assert shell_in_budget == pytest.approx(46.707, abs=0.01)
+    # 48.927 / 51.616 UNTIL 2026-08-13, on the pre-plate-P1 reference hull;
+    # 41.023 / 46.707 until 2026-08-20. Both are properties of THIS hull, so
+    # both move whenever the hull or the area maths does — and gap E17 moved
+    # the maths: `wetted_surface` now carries the longitudinal-slope factor
+    # sqrt(1 + |perp(dP/dx)|^2), because girth * dx measures a surface whose
+    # sections are stacked without shifting. It lifts this hull's wetted area
+    # 0.77% and both figures with it.
+    #
+    # THE MARGIN IS THE SUBJECT OF THIS TEST, not either literal, and it went
+    # 13.9% -> 15.41% against the same untouched 5% bar. The defect is refused
+    # by MORE than before, which is the direction this comment has now
+    # recorded twice.
+    assert old == pytest.approx(41.514, abs=0.01)
+    assert shell_in_budget == pytest.approx(47.912, abs=0.01)
     assert abs(shell_in_budget - old) / old > 0.05, (
         "the ladder is back on the 1.6 factor (or the hull moved) — "
         f"budget shell {shell_in_budget:.3f} m^2 vs literal {old:.3f} m^2")

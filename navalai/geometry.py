@@ -1254,6 +1254,36 @@ class Hull:
             fr = ((wl - prev[:, 1]) / (cur[:, 1] - prev[:, 1]))[:, None]
             step = (prev + fr * (cur - prev)) - prev
             girth[j] += np.hypot(step[:, 0], step[:, 1])
+        # GAP E17: THE STRIP IS NOT A RECTANGLE. `girth * dx` measures the
+        # area of a surface whose sections are STACKED WITHOUT SHIFTING; a
+        # real hull's sections move in y and z as x advances, so the ruled
+        # surface between them is longer than dx wherever the form changes.
+        #
+        # The area element is |dP/dx x t_hat| ds dx, with t_hat the unit
+        # tangent ALONG the section (no x-component). Only the part of dP/dx
+        # PERPENDICULAR to that tangent adds area — a section sliding along
+        # its own contour adds none — so the factor is
+        #
+        #     f = sqrt(1 + |perp(dP/dx)|^2)   >= 1, exactly 1 for a prism
+        #
+        # MEASURED on the mid-box hull: f runs 1.0000 to 1.1763 over the
+        # immersed points (largest at the ends, where the form changes
+        # fastest) and lifts the total by 1.04%. Small, one-signed, and it
+        # feeds friction resistance directly, which is most of the total at
+        # displacement speeds.
+        dPdx = np.gradient(P, self.x, axis=0)
+        tan = np.gradient(P, axis=1)
+        that = tan / np.maximum(np.linalg.norm(tan, axis=2, keepdims=True),
+                                1e-12)
+        perp = dPdx - (dPdx * that).sum(axis=2, keepdims=True) * that
+        slope = np.sqrt(1.0 + (perp ** 2).sum(axis=2))     # (n, N)
+        # Weight each station's factor by the girth it actually carries: the
+        # mean over IMMERSED points only, so a dry topside cannot inflate a
+        # wetted strip.
+        wet = Z < wl
+        num = np.where(wet, slope, 0.0).sum(axis=1)
+        den = np.maximum(wet.sum(axis=1), 1)
+        girth = girth * np.where(wet.any(axis=1), num / den, 1.0)
         return 2.0 * float(np.trapezoid(girth, self.x))
 
     def deck_area(self) -> float:

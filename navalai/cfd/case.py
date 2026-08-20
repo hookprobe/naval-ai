@@ -2091,7 +2091,8 @@ def write_resistance_case_from_stl(stl_path: str | Path, lwl: float,
                                    symmetric: bool = False,
                                    free_motion: dict | None = None,
                                    lts: bool | None = None,
-                                   n_layers: int | None = None) -> dict:
+                                   n_layers: int | None = None,
+                                   allow_collapsed_bands: bool = False) -> dict:
     """Same case generator, but for EXTERNAL geometry (KCS/JBC calibration).
 
     The STL must be watertight, in metres, with the free surface at z=0 and
@@ -2156,7 +2157,8 @@ def write_resistance_case_from_stl(stl_path: str | Path, lwl: float,
     (out / "constant" / "triSurface" / "hull.stl").write_bytes(data)
     stl_sha = hashlib.sha256(data).hexdigest()
     info = _write_case_dicts(out, stl_sha, lwl, speed, end_time, scale,
-                             np_procs, symmetric, free_motion, lts, n_layers)
+                             np_procs, symmetric, free_motion, lts, n_layers,
+                             allow_collapsed_bands=allow_collapsed_bands)
     # The receipt goes in whether or not anything was wrong, so a reader can
     # tell "checked and clean" from "never checked".
     with (out / "case.info").open("a") as fh:
@@ -2392,7 +2394,8 @@ def write_resistance_case(hull: Hull, speed: float, out_dir: str | Path,
                           lts: bool | None = None,
                           n_layers: int | None = None,
                           manifest=None,
-                          allow_dangerous_mesh: bool = False) -> dict:
+                          allow_dangerous_mesh: bool = False,
+                          allow_collapsed_bands: bool = False) -> dict:
     """Generate a COMPLETE, runnable interFoam resistance case.
 
     scale: background-mesh refinement multiplier (1.0 / sqrt(2) steps give
@@ -2505,7 +2508,8 @@ def write_resistance_case(hull: Hull, speed: float, out_dir: str | Path,
 
     info = _write_case_dicts(out, stl_sha, lwl, speed,
                              end_time, scale, np_procs, symmetric,
-                             free_motion, lts, n_layers)
+                             free_motion, lts, n_layers,
+                             allow_collapsed_bands=allow_collapsed_bands)
     # THE CLAMP IS A SILENT KNOB, so it gets a receipt. MEASURED 2026-08-12
     # (docs/research/STL.md): `nx_requested` is 811 for EVERY hull in the
     # seed-0 batch — target_edge is proportional to lwl, so lwl cancels — and
@@ -2691,7 +2695,8 @@ def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
                       symmetric: bool = False,
                       free_motion: dict | None = None,
                       lts: bool | None = None,
-                      n_layers: int | None = None) -> dict:
+                      n_layers: int | None = None,
+                      allow_collapsed_bands: bool = False) -> dict:
     # REFUSE BEFORE WRITING ANYTHING. This is the one seam both entry points
     # pass through, so the guard sits here rather than in either caller.
     # MEASURED 2026-08-20: below scale 0.40 this function raised
@@ -2699,9 +2704,30 @@ def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
     # wrote a complete, plausible case whose WAVE band held a single cell.
     # The crash was the safe half; the silent half would have produced a
     # settled-looking force history on no free surface at all.
+    _collapsed_note = None
     _collapse = z_band_collapse(scale, symmetric)
     if _collapse is not None:
-        raise ValueError(f"write_resistance_case: {_collapse}")
+        # THE OPT-OUT IS EXPLICIT AND RECORDED, never implicit. MEASURED
+        # 2026-08-20: the first version of this guard refused
+        # tests/test_phase2.py's block-STRUCTURE checks — waterline on a cell
+        # face, background isotropy, the motion dicts — which deliberately
+        # write cheap little cases at scale 0.5 and never solve them. Blocking
+        # those is the mirror of the trap this project already documents:
+        # judging a configuration by a bar that belongs to a different use.
+        #
+        # So a caller may say it is not going to solve. It must say so BY
+        # NAME (`allow_collapsed_bands=True`), and the case records it, so a
+        # force history can never be produced from a one-cell free surface
+        # without `collapsed_z_bands` sitting in its own case.info beside it.
+        # Same shape as run-case.sh's FORCE=1: an override that leaves a
+        # trace.
+        if not allow_collapsed_bands:
+            raise ValueError(
+                f"write_resistance_case: {_collapse} If this case is only "
+                f"being written to inspect its BLOCK STRUCTURE and will "
+                f"never be solved, pass allow_collapsed_bands=True — it is "
+                f"recorded in case.info.")
+        _collapsed_note = _collapse
 
     (out / "system").mkdir(parents=True, exist_ok=True)
     # Initial fields live in 0.orig and are COPIED to 0 (the OpenFOAM tutorial
@@ -3195,6 +3221,12 @@ def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
         "Gate 2M = KCS/JBC resistance within Tokyo-2015 scatter, per-case GCI.\n")
     return {"stl_sha256": stl_sha, "speed": speed, "end_time": end_time,
             "scale": scale, "bg_cells": bg_cells,
+            # THE OVERRIDE LEAVES A TRACE. None on every ordinary case; the
+            # refusal text when a caller declared allow_collapsed_bands. A
+            # force history produced from a one-cell free surface can then be
+            # told apart from a real one by reading its own case.info, rather
+            # than by remembering which flag somebody passed.
+            "collapsed_z_bands": _collapsed_note,
             # n_layers is returned so a triplet can PIN the anchor's value on
             # every other member; first_layer_m was already constant by
             # construction and is returned beside it so both halves of the

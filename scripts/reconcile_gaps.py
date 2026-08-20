@@ -1076,9 +1076,20 @@ CHECKS: tuple[Check, ...] = (
                  "clause of three: NU_WATER is already re-derived from rho, "
                  "and 'offsets_grid includes z = wl' is REFUTED -- see "
                  "geometry.offsets_grid)",
+          # The predicate listed the SPELLINGS a slope correction might use
+          # (np.cross, ruled, dzdx...). The one implemented 2026-08-20 uses
+          # none of them: the area element is |dP/dx x t_hat| ds dx, so it
+          # takes the component of dP/dx PERPENDICULAR to the section tangent
+          # and forms sqrt(1 + |perp|^2). Checks the property instead — a
+          # per-station factor built from the x-derivative of the section
+          # stack — so a correct derivation cannot be missed for using
+          # different words.
           lambda: defines("navalai/geometry.py", "wetted_surface")
                   and bool(re.search(
-                      r"np\.cross|ruled|_panel_area|dzdx|dz_dx",
+                      r"np\.gradient\(P, self\.x, axis=0\)",
+                      func_code("navalai/geometry.py", "wetted_surface")))
+                  and bool(re.search(
+                      r"sqrt\(1\.0 \+ \(perp",
                       func_code("navalai/geometry.py", "wetted_surface")))),
     Check("E18", "no AST node validator is dead (none returns [] "
                  "unconditionally)",

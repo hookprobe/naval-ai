@@ -715,6 +715,25 @@ def test_the_memoised_girth_is_the_recomputed_girth():
                         g += float(np.hypot(
                             *((prev + fr * (cur - prev)) - prev)))
                     girth[i] = g
+                # GAP E17 (2026-08-20): the strip is not a rectangle. The
+                # area element is |dP/dx x t_hat| ds dx, so only the part of
+                # dP/dx PERPENDICULAR to the section tangent adds area — a
+                # section sliding along its own contour adds none. This
+                # recomputes that factor INDEPENDENTLY of geometry.py rather
+                # than importing it, so the test still cross-checks the maths
+                # instead of mirroring the implementation.
+                P = np.stack([h.section(i) for i in range(nst)])
+                dPdx = np.gradient(P, h.x, axis=0)
+                tang = np.gradient(P, axis=1)
+                unit = tang / np.maximum(
+                    np.linalg.norm(tang, axis=2, keepdims=True), 1e-12)
+                perp = dPdx - (dPdx * unit).sum(axis=2, keepdims=True) * unit
+                fac = np.sqrt(1.0 + (perp ** 2).sum(axis=2))
+                wet = P[:, :, 1] < wl
+                cnt = np.maximum(wet.sum(axis=1), 1)
+                girth = girth * np.where(
+                    wet.any(axis=1),
+                    np.where(wet, fac, 0.0).sum(axis=1) / cnt, 1.0)
                 want = 2.0 * float(np.trapezoid(girth, h.x))
                 _exactly(h.wetted_surface(float(wl)), want,
                          "wetted rho=%s n=%d wl=%.6f" % (rho, nst, wl))

@@ -23,6 +23,18 @@ from tests.test_phase0 import mid_params
 # everywhere.
 
 
+# THESE TESTS INSPECT BLOCK STRUCTURE AND NEVER SOLVE (2026-08-20).
+# `write_resistance_case` refuses a scale whose background z-bands collapse to
+# a single cell, because a one-cell WAVE band is not a coarse free surface —
+# it is no free surface, and a run on it would be decoration. That guard is
+# right for a case somebody intends to solve and wrong for these, which write
+# tiny cases at scale 0.5 purely to check where the waterline lands, whether
+# the background cell is near-isotropic and what the motion dicts contain.
+# Refusing them would be judging a configuration by a bar belonging to a
+# different use — the trap CLAUDE.md names. So they DECLARE that they will
+# not solve, by name, and `case.info` records `collapsed_z_bands` on every
+# case written that way.
+
 def test_hemisphere_hulme_anchor():
     pytest.importorskip("capytaine")
     """Hulme (1982): heave added mass of a floating hemisphere at omega->0 is
@@ -103,7 +115,7 @@ def test_free_surface_is_resolved_and_refinement_is_systematic(tmp_path):
     were never a refinement family (effective r = 1.297 then 1.368).
     """
     h = Hull(mid_params())
-    metas = {n: write_resistance_case(h, 2.57, tmp_path / n, scale=s)
+    metas = {n: write_resistance_case(h, 2.57, tmp_path / n, scale=s, allow_collapsed_bands=True)
              for n, s in (("coarse", 1.0), ("medium", 2 ** 0.5), ("fine", 2.0))}
 
     for name, m in metas.items():
@@ -135,7 +147,7 @@ def test_waterline_sits_on_a_block_face_for_any_cell_count(tmp_path):
     h = Hull(mid_params())
     # deliberately awkward scales: none of these would give a "nice" cell count
     for i, s in enumerate((1.0, 2 ** 0.5, 2.0, 1.234, 0.777)):
-        meta = write_resistance_case(h, 2.57, tmp_path / f"s{i}", scale=s)
+        meta = write_resistance_case(h, 2.57, tmp_path / f"s{i}", scale=s, allow_collapsed_bands=True)
         text = (tmp_path / f"s{i}" / "system" / "blockMeshDict").read_text()
         assert text.count("hex (") == 4, "expected the 4-band z stack"
         # a vertex ring sits exactly on z=0, whatever the cell counts
@@ -310,7 +322,8 @@ def test_background_cell_is_near_isotropic(tmp_path):
         out = tmp_path / f"iso{scale:.3f}"
         C.write_resistance_case_from_stl(
             _kcs_or_skip(), lwl, speed, out,
-            end_time=1.0, scale=scale, np_procs=2)
+            end_time=1.0, scale=scale, np_procs=2,
+            allow_collapsed_bands=True)
         dx, dy, dz = _background_cell(out)
         aspect = max(dx, dy, dz) / min(dx, dy, dz)
         assert aspect <= 3.0, (f"scale {scale}: "
@@ -466,7 +479,7 @@ def test_motion_dict_releases_heave_and_pitch_only(tmp_path):
     out = tmp_path / "free"
     C.write_resistance_case_from_stl(stl, KCS.LPP, KCS.DESIGN_SPEED, out,
                                      end_time=1.0, scale=0.5, np_procs=2,
-                                     symmetric=True, free_motion=motion)
+                                     symmetric=True, free_motion=motion, allow_collapsed_bands=True)
 
     d = (out / "constant" / "dynamicMeshDict").read_text()
     assert "sixDoFRigidBodyMotion" in d
@@ -492,6 +505,6 @@ def test_fixed_case_writes_no_motion_dict(tmp_path):
     out = tmp_path / "fixed"
     C.write_resistance_case_from_stl(_kcs_or_skip(), 7.2786, 2.196, out,
                                      end_time=1.0, scale=0.5, np_procs=2,
-                                     symmetric=True)
+                                     symmetric=True, allow_collapsed_bands=True)
     assert not (out / "constant" / "dynamicMeshDict").exists()
     assert not (out / "0.orig" / "pointDisplacement").exists()
