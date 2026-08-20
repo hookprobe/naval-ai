@@ -1037,11 +1037,25 @@ def test_ply_sheets_is_counted_off_the_layout():
 
 def test_thicker_ply_costs_more_sheets():
     """The layout must respond to the scantling rule, or it is not a layout.
-    mLDC 6000 kg drives the bottom to a 21 mm stock sheet (ISO 12215-5 wants
-    18.24 mm), which cannot share sheets with the 15 mm topsides."""
+    mLDC 6000 kg drives the bottom to a stock sheet the 15 mm topsides
+    cannot share.
+
+    RE-MEASURED 2026-08-20, 21 mm -> 18 mm, and the reason is a rule change
+    rather than a drift: this pin and its old docstring ("ISO 12215-5 wants
+    18.24 mm") were both computed under the PRE-6R approximation. Gate 6R
+    implemented ISO 12215-5:2008(E) from the operator's delivered text —
+    kDC by category, Eq 3's kL with its continuity resolution, Eq 4's kAR
+    with the AD cap, Table E.2's sigma_uf, and a per-sheet self-consistent
+    ply count — and the requirement at this mLDC fell to 14.49 mm bare,
+    landing on 18 mm once the ply count and the sheet are solved together.
+    The CLAIM is unchanged and is what this test is for: the bottom does
+    not share a sheet with the topsides, and the layout pays for it.
+    """
     plain = assess(Hull(mid_params()))
     ruled = assess(Hull(mid_params()), mldc_kg=6000.0)
-    assert ruled.bottom_thickness_mm == 21.0
+    assert ruled.bottom_thickness_mm == 18.0
+    assert ruled.bottom_thickness_mm != plain.bottom_thickness_mm, (
+        "the rule must move the sheet, or the layout is not responding")
     assert plain.bottom_thickness_mm == 15.0
     assert ruled.ply_sheets > plain.ply_sheets
 

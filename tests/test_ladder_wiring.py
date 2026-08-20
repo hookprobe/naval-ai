@@ -213,7 +213,19 @@ def test_the_rules_tier_alone_can_refuse_a_design():
     # ...and category B, which shares A's requirement, fails identically — so
     # the refusal tracks the CLAUSE and not one enum value.
     ev_b = evaluate(x, MissionSpec(design_category="B"))
-    assert not ev_b.ok and ev_b.g["rules"] == pytest.approx(ev_a.g["rules"])
+    # `rel=1e-4`, NOT pytest's 1e-6 default, and the reason is measured
+    # rather than assumed. A and B fail the SAME rule against the SAME
+    # requirement (R-DFH, 1.03813 m), and what differs is the MEASURED
+    # downflooding height: 0.8836405 against 0.8836354 m — five MICRONS, or
+    # 5.7e-6 relative. That is not a category effect on the boat; it is
+    # `hydrostatics.solve_equilibrium`'s convergence tolerance (tol = 1e-3 on
+    # the residual), which places a floor under any comparison of two
+    # separately-solved attitudes. Pinning tighter than the solver converges
+    # is pinning the solver's arithmetic, and it fails the day anything
+    # upstream nudges an iterate — which is exactly how this assertion came
+    # to be RED at HEAD before the 2026-08-20 audit found it.
+    assert not ev_b.ok
+    assert ev_b.g["rules"] == pytest.approx(ev_a.g["rules"], rel=1e-4)
 
     # NEGATIVE CONTROL: same hull, category C. ISO 12217-1:2015 Annex A makes
     # the required downflooding height hD(R) = (LH/15) x F1..F5 CLAMPED to

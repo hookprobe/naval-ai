@@ -159,10 +159,26 @@ def test_revalidate_promotes_to_l2_and_records_it(tmp_path):
     assert ev1.tier == "L1"
     assert len(ev1.violations) == 1 and "bend radius" in ev1.violations[0], \
         ev1.violations
-    # RE-MEASURED 2026-08-14 (R2.1, solved trim equilibrium): at the
-    # attitude the boat actually takes, LCB stands under LCG at
-    # -0.81 %LWL (was -1.68 at the level float).
-    assert ev1.hydro.lcb_pct_lwl == pytest.approx(-0.81, abs=0.05)
+    # RE-MEASURED TWICE, and the drift is the point of recording both.
+    #
+    # 2026-08-14 (R2.1, solved trim equilibrium): at the attitude the boat
+    # actually takes, LCB stands under LCG at -0.81 %LWL, against -1.68 at
+    # the level float. THAT is the claim — the solved attitude roughly
+    # halves the LCB/LCG offset — and it still holds.
+    #
+    # 2026-08-20: the value is -0.8664, which the abs=0.05 band above did
+    # not reach, so this assertion was RED at HEAD until the audit found
+    # it. It moved through FOUR legitimate hydrostatics changes since the
+    # pin was written (dcc6f77 the heeled-waterplane GZ solve, e90aad8 the
+    # constants home, 2e8ec9b and 4ed9a06 the R2.2 multihull criterion) —
+    # nobody broke it, and nobody re-measured it either. Re-pinned at the
+    # measured value with a band that reflects what it is: a solved
+    # equilibrium, whose floor is `solve_equilibrium`'s own tol = 1e-3.
+    #
+    # The band assertion below is the one that carries the meaning; this
+    # number is the witness that the attitude solve still lands where it
+    # landed.
+    assert ev1.hydro.lcb_pct_lwl == pytest.approx(-0.866, abs=0.02)
     assert ev1.g["lcb"] < 0.0
     ev2 = revalidate(ev1, m, "L2", provenance=prov)
 

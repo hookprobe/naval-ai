@@ -309,3 +309,44 @@ Found on the way, and fixed: 5 of the first 40 draws were refused with
 finding (ES-REC reports `measured = nan` on purpose, because craft type
 is not modelled) poisoning a `max()` aggregate. That is now 0 of 40; see
 the commit for the mechanism.
+
+
+---
+
+# Part V — what the OPTIMISER finds, and the question it raises for §16.F
+
+Part IV measured that uniform sampling yields 0 ACCEPT / 1 MARGINAL in 60.
+The obvious next question is whether the SEARCH finds what the draw cannot.
+**MEASURED 2026-08-20, `pareto_front(pop=40, gens=25, seed=3)`, 454 s, 25
+front members: 15 MARGINAL, 10 REFUSED, 0 ACCEPT.** The best is a 12.10 m
+hull at Fn 0.236, mesh-screen OK, EMPIRICAL tier, prescribed 6 prism
+layers, refused nothing — its only reason is `constraint margin thin:
+['gm', 'rules']`.
+
+So the search works: the MARGINAL rate goes from 1-in-60 to 15-in-25,
+roughly 36x. **But nothing reaches ACCEPT, and that is probably correct
+rather than a defect.** MARGINAL in this tree means every floor is MET and
+something sits within 5% of its bar. An optimiser minimising energy drives
+the design onto its constraints — that is what optimisation IS — so the
+optimum of a constrained problem should be expected to sit ON the
+constraint boundary, i.e. MARGINAL. Demanding ACCEPT would be demanding
+that the optimiser leave margin on the table it was asked to consume.
+
+**THE QUESTION THIS RAISES IS THE OPERATOR'S TO ANSWER, and it changes
+what §16.F measures:** the acceptance target is "≥95% valid unattended
+end-to-end". Does MARGINAL count as valid?
+
+- If YES (the defensible reading — every floor is met, and the margin is
+  reported), then the target is measurable and the search already produces
+  candidates at a useful rate.
+- If NO, then the target is unreachable BY CONSTRUCTION for any optimised
+  design, and what should be measured instead is the margin DISTRIBUTION —
+  how close to which bars, and whether the thin margins are on quantities
+  the product can carry (a 5%-thin GM is a different risk from a 5%-thin
+  scantling).
+
+Recorded rather than decided here. What the evidence supports either way:
+the binding constraints on the optimised front are GM and the rules tier —
+the same two that dominate the sampled refusals — so the design space is
+tight against STABILITY and STANDARDS, not against geometry or meshability
+(mesh verdict was OK on every front member examined).
