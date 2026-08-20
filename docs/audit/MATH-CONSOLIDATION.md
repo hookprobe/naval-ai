@@ -107,8 +107,8 @@ without checking `nproc`; this node quoted a truncated measurement):
 | M1 derived L_min had no code path | **CLOSED** | `d37b212` |
 | M2 legal vs physical bound collapsed | **CLOSED** | `d37b212` |
 | M3 crossover refutation not durable | **CLOSED** | `635eb07` |
-| M4 MeshPrescription provenance | open | — |
-| M5 cost/escalation not first-class | open — but note Gate HC already covers cost; re-audit before building | — |
+| M4 MeshPrescription provenance | **CLOSED** — 11 of 15 fields had none; all now carry a basis with a declared KIND (7 DERIVED / 6 EMPIRICAL / 5 RECEIPT ONLY / 1 INPUT) | `cfa75c1` |
+| M5 cost/escalation not first-class | **CLOSED** — re-audit confirmed the gap was real (cost hid at `mesh.wall_s` = 11 h); both now fields that EXPOSE the existing decision, never a second rule | `cf006a9` |
 | M6 no dev/validation/held-out split | **CLOSED** (Gate 2Y) | `210b00d` |
 | M7 minimum state vector | open (hypothesis only) | — |
 | M8 suite accounting / validation-set identity | **PARTLY CLOSED** — population identity is now `(arity, seed)` and machine-checked; the suite-count denominator is still open | `210b00d` |
@@ -148,3 +148,33 @@ artifact committed under `data/` is by definition something a session looked
 at, so it may not carry the validation or held-out seed. If that test fails,
 the held-out set is BURNED — draw a new seed, record the old one as spent,
 never relax the check.
+
+
+## I. FOUND WHILE FIXING (defects the matrix did not predict)
+
+Three of these are in work landed by this node, not inherited:
+
+1. **The 2.61 m edge was enforced by nobody.** `d37b212` taught
+   `supported_domain` the derived edge; `evaluate_hull` called it with no
+   `nu`, so on the path everything uses it never applied. A fix that lands
+   and is not reached is not a fix. Now inverts the fluid from the Re
+   already computed (`nu = U*L/Re`) — same water, no second constant.
+2. **`in_domain` defaulted to `True`.** A grammar-refused genome reported
+   itself INSIDE the supported domain with `lwl_m=None`. Fails closed now,
+   and the reason distinguishes NOT REACHED from OUT OF SCOPE.
+3. **The single-source fence had a hole in itself.** It required `"=" in
+   line`, so it only saw ASSIGNMENTS; a physical constant used in an
+   EXPRESSION was invisible to it. `contract.py` carried a bare `1.09e-6` in
+   an f-string for as long as the fence has existed. The VALUE was correct
+   (it is `NU_FRESH_20C`) — a delay fuse, not an error. Widened; finds
+   nothing else.
+4. **The batched-section comparator measured the wrong thing** (fortress's
+   test, flagged to them): elementwise ulp against a BATCHED result, where
+   SIMD/FMA rounding scales with the largest term summed. Now 4 ulps of the
+   array scale — 18x headroom, still catches 1e-9 relative.
+
+**The pattern across all four is one thing: a bar that exists and is not
+consulted, or consults the wrong quantity.** That is the same shape as M1
+itself, and as the `-rf`/`-rfs` skip-reason gap. It is worth treating as a
+defect CLASS rather than four incidents: *when you add a bar, prove it fires
+on the path that matters, in both directions.*
