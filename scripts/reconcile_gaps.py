@@ -792,11 +792,22 @@ CHECKS: tuple[Check, ...] = (
           lambda: has_code("scripts/gate2m.py",
                            r"cannot close the gate on its own")
                   and has_code("scripts/gate2m.py", r"^        return 3$")),
-    Check("D8", "review.is_complete requires a DATED edition per standard, and "
-                "edition_defects() names the reasons",
+    # D8's predicate carried `ledger_has("Gate 6R")` because the gate was RED
+    # BECAUSE of D8 — a correct encoding while that held, and stale the moment
+    # the gap actually closed. MEASURED 2026-08-20: both dated editions are
+    # recorded, Gate 6R is promoted to a suite gate and its ledger entry is
+    # deleted, so the old clause turned a CLOSED gap back to OPEN. The clause
+    # is replaced by the STRONGER thing the closure actually requires: the
+    # dated-year test and the required-standard set are both enforced in code.
+    Check("D8", "review.is_complete requires a DATED edition per standard, "
+                "names every REQUIRED standard, and edition_defects() gives "
+                "the reasons",
           lambda: defines("navalai/rules/review.py", "edition_defects")
                   and has_code("navalai/rules/review.py", r"editions")
-                  and ledger_has("Gate 6R")),
+                  and has_code("navalai/rules/review.py",
+                               r"REQUIRED_STANDARDS")
+                  and has_code("navalai/rules/review.py",
+                               r"_EDITION_YEAR\.search")),
     Check("D9", "reference designs + hand calculations exist, so Gate 6R's "
                 "threshold parity could become Gate 6's VERDICT parity",
           lambda: has_code("navalai/rules/review.py",
@@ -1325,12 +1336,20 @@ CHECKS: tuple[Check, ...] = (
                   and has("README.md", r"BEGIN GATE TABLE")
                   and defines("tests/test_gate_integrity.py",
                               "test_the_readme_carries_all_six_honesty_rules")),
-    Check("J3", "Gate 6R's state is single-sourced: the RED row and the ledger "
-                "entry agree, and the README table is regenerated from the "
-                "runner rather than hand-edited",
+    # J3 asked that Gate 6R's state be SINGLE-SOURCED, and its predicate
+    # spelled that as "the RED row and the ledger entry agree". That was the
+    # right shape for a red gate and became unsatisfiable when the gate was
+    # promoted 2026-08-20: there is now neither a RED row nor a ledger entry,
+    # and the old clause reported a CLOSED gap as OPEN. Single-sourced for a
+    # PROMOTED gate is the stricter condition — the verdict comes from a
+    # SUITE, and NO ledger entry may also claim it, because a row carrying
+    # both would be the declared-twice defect this gap is about.
+    Check("J3", "Gate 6R's state is single-sourced: its verdict comes from a "
+                "SUITE and no ledger entry restates it, and the README table "
+                "is regenerated from the runner rather than hand-edited",
           lambda: has_code("navalai/gates.py",
-                      r'Gate\("Gate 6R", .*\n?\s*status=Verdict\.RED')
-                  and ledger_has("Gate 6R")
+                           r'Gate\("Gate 6R", .*\n?.*\n?\s*"tests/test_phase6r\.py"\)')
+                  and not ledger_has("Gate 6R")
                   and defines("tests/test_gate_integrity.py",
                               "test_the_readme_gate_table_agrees_with_the_runner"),
           gate="Gate 6R"),

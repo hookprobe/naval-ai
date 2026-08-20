@@ -211,6 +211,15 @@ def basis_for(rule_id: str) -> str:
 # of it a later auditor can go and check. "ISO 12217-1" identifies a standard;
 # "ISO 12217-1:2022" identifies the text somebody actually held.
 _EDITION_YEAR = re.compile(r"\b(19|20)\d{2}\b")
+
+#: The standards this tree IMPLEMENTS, and therefore must name a dated edition
+#: for before Gate 6R may be green. ONE declaration, checked by
+#: `edition_defects`: `navalai/rules/iso12215.py` and `navalai/rules/iso12217.py`
+#: are the two modules that apply standard thresholds, and a third would have to
+#: appear here as well as on disk. Keeping the list here rather than globbing the
+#: directory is deliberate — `ergonomics.py` and `estrin.py` also live there and
+#: are NOT ISO standards, so a glob would either over- or under-report.
+REQUIRED_STANDARDS = ("ISO 12215-5", "ISO 12217-1")
 _PLACEHOLDER = ("not recorded", "tbd", "todo", "unknown", "?")
 
 
@@ -225,6 +234,18 @@ def edition_defects(record: dict | None = None) -> list[str]:
     editions = rec.get("editions") or {}
     if not editions:
         return ["no editions recorded at all"]
+    # A MISSING STANDARD WAS NOT A DEFECT UNTIL 2026-08-20, and that is the
+    # hole that mattered: this loop only ever inspected the entries PRESENT,
+    # so a record naming one of the two implemented standards returned
+    # `edition_defects() == []` and `is_complete() == True`. MEASURED with
+    # editions={"ISO 12217-1": "ISO 12217-1:2015"}: no defects, complete —
+    # Gate 6R would have gone GREEN with ISO 12215-5 entirely unrecorded.
+    # Found by the guard test written while PROMOTING that gate, which is the
+    # only reason it did not ship green with a hole in it.
+    for standard in REQUIRED_STANDARDS:
+        if standard not in editions:
+            out.append(f"{standard}: implemented by this tree "
+                       f"(navalai/rules/) and named by NO edition entry")
     for standard, edition in sorted(editions.items()):
         text = str(edition or "").strip()
         if not text:

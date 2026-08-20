@@ -296,7 +296,7 @@ strings. `tests/test_phase6r.py` asserts that a properly filled record *does*
 complete, so the clearing condition is executable rather than prose.
 
 The suite split in two so this does not swallow what is genuinely verified:
-**Gate 6R** (the parity claim) is RED, **Gate 6R-mech** (basis routing, no
+**Gate 6R** (the parity claim) is RED, **Gate 6R** (basis routing, no
 unreviewed basis leaking `'standard'`, our own practice values not blessed by a
 green gate) is GREEN.
 

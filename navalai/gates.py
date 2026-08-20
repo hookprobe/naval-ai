@@ -741,11 +741,29 @@ GATES = [
                  "Restore it locally with "
                  "`python scripts/fetch_benchmark_geom.py --iges <KCS.igs>`.",
              probe=_kcs_geometry_present)),
-    # Gap D8. is_complete() now requires a DATED edition per standard, which
-    # flips the parity claim red. What remains testable — that basis routes
-    # from the record, that no unreviewed basis leaks 'standard', that our own
-    # practice values are not blessed — is Gate 6R-mech and stays green.
-    Gate("Gate 6R-mech", "review-record mechanics + basis routing",
+    # Gap D8, AND THE PARITY HALF IS NOW CARRIED HERE TOO (2026-08-20).
+    # There used to be a SECOND row, a typed-RED `Gate 6R` status gate with a
+    # ledger entry, because is_complete() required a DATED edition per
+    # standard and none was recorded. MEASURED 2026-08-20 both are:
+    #   ISO 12217-1 -> "ISO 12217-1:2015 (Third edition, 2015-10-15)"
+    #   ISO 12215-5 -> "ISO 12215-5:2008(E), First edition, 2008-04
+    #                   (withdrawn; replaced by 2019 — do not mix editions)"
+    # while the ledger watermark still read "0 editions recorded, of 2
+    # required". The work was done and the gate stayed red because nobody
+    # promoted it; a stale RED is as dishonest as a soft GREEN, and
+    # tests/test_phase6r.py was asking for the flip in its own assertion.
+    #
+    # The status row is DELETED rather than turned green, because there is no
+    # GREEN verdict and there should not be: `Verdict` exists for gates with
+    # NO suite, and a gate is green by having a PASSING SUITE. This file
+    # already owns that suite, so a second row on it would be the
+    # declared-twice defect. Its ledger entry is deleted in the same commit.
+    #
+    # STILL NOT CLAIMED: this is threshold parity against a DATED text, not
+    # VERDICT parity, and 12215-5:2008(E) is WITHDRAWN — the record says so.
+    # Gap D9 stays open.
+    Gate("Gate 6R", "review-record mechanics, basis routing, AND edition "
+         "parity: both implemented standards name the dated edition held",
          "tests/test_phase6r.py"),
     # 2026-08-14 directive: "add regression tests so future architecture
     # changes cannot make the generated forms progressively less boat-like
@@ -821,9 +839,6 @@ GATES = [
          status=Verdict.RED,
          detail="see data/gate-ledger.json for the measured watermark"),
     Gate("Gate 2U", "unattended meshing (plan: >=95% of a 200-hull batch)",
-         status=Verdict.RED,
-         detail="see data/gate-ledger.json for the measured watermark"),
-    Gate("Gate 6R", "ISO threshold parity vs licensed standard text",
          status=Verdict.RED,
          detail="see data/gate-ledger.json for the measured watermark"),
     # GAP G4, AND GATE 4F'S SHAPE FOUND A SECOND TIME (2026-08-11 ALIGNMENT

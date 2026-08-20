@@ -442,15 +442,20 @@ _WATERMARK_DOCS = ("ALIGNMENT.md", "PLM.md", "README.md", "MACBOOK.md",
 # below require every key to still be a real, still-unsearchable ledger row, so
 # a new non-distinctive watermark FAILS this test rather than quietly going
 # uncovered.
-_UNSEARCHABLE_WATERMARKS: dict[str, str] = {
-    "Gate 6R": "the watermark is 0 — 'editions recorded, of 2 required'. A "
-               "one-digit literal cannot be told apart from a line number, a "
-               "count, a version or a decimal fragment anywhere in 40 KB of "
-               "house rules, so a search for it would fire on everything and "
-               "the fence would be turned off. Gate 6R's clearing condition "
-               "costs no compute (a reviewer writes two dated editions into "
-               "REVIEW['editions']), so this is expected to be short-lived.",
-}
+# EMPTIED 2026-08-20, and the entry that was here predicted this in its own
+# words: Gate 6R's watermark of 0 was exempted because a one-digit literal
+# cannot be searched for, and the note ended "Gate 6R's clearing condition
+# costs no compute (a reviewer writes two dated editions into
+# REVIEW['editions']), so this is expected to be short-lived." Both dated
+# editions are now recorded, the gate is promoted to a suite gate and its
+# ledger entry is deleted, so the exemption has outlived its cause — which is
+# precisely what the test below refuses to let stand ("an exemption that
+# outlives its cause is a hole nobody can see").
+#
+# Left as an empty dict rather than deleted, because the MECHANISM is still
+# needed: the next ledger row with a one- or two-digit watermark must be named
+# here with its reason rather than silently dropped from the fence.
+_UNSEARCHABLE_WATERMARKS: dict[str, str] = {}
 
 
 def _searchable_watermarks() -> dict[str, tuple[str, re.Pattern[str]]]:

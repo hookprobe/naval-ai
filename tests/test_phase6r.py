@@ -1,4 +1,4 @@
-"""Gate 6R-mech — the parity review is RECORDED, not asserted.
+"""Gate 6R — the parity review is RECORDED, not asserted.
 
 This gate cannot be closed by code: it asks whether our numeric thresholds
 match the licensed standard text, which needs a qualified human holding the
@@ -53,27 +53,71 @@ def test_the_record_names_a_reviewer_and_a_date():
     assert REVIEW["reviewer"] and REVIEW["date"]
 
 
-def test_the_record_cannot_yet_name_the_editions_it_checked():
-    """Gap D8, pinned. Gate 6R is RED in data/gate-ledger.json because of this.
+def test_the_record_NOW_names_the_editions_it_checked():
+    """INVERTED 2026-08-20, which is the outcome its predecessor asked for.
 
-    Do NOT "fix" this test by asserting is_complete(). The way to make it flip
-    is to write the two dated editions into REVIEW["editions"] — at which point
-    this test is meant to fail, loudly, and be replaced by its opposite along
-    with the ledger entry.
+    This test used to assert `edition_defects()` was NON-empty and carried the
+    instruction in its own failure message: "editions now look recorded — flip
+    Gate 6R green in navalai/gates.py, delete its data/gate-ledger.json entry,
+    and invert this test." All three were done in the same commit.
+
+    MEASURED, both required standards now name the DATED edition the reviewer
+    held, which is exactly the bar the ledger entry stated:
+
+        ISO 12217-1 -> "ISO 12217-1:2015 (Third edition, 2015-10-15)"
+        ISO 12215-5 -> "ISO 12215-5:2008(E), First edition, 2008-04
+                        (withdrawn; replaced by ISO 12215-5:2019 —
+                         do not mix editions)"
+
+    The ledger watermark had gone stale at "0 editions recorded, of 2
+    required" while the work was already done. A stale RED is as dishonest as
+    a soft GREEN: it spends the reader's attention on a defect that no longer
+    exists and teaches them to discount the gate ladder.
+
+    WHAT THIS DOES NOT CLAIM. Gate 6R is threshold PARITY against the dated
+    text, not verdict parity, and 12215-5:2008(E) is WITHDRAWN — the record
+    says so itself. Naming an edition is not the same as holding a current
+    one, and gap D9 ("reference designs + hand calculations exist, so Gate
+    6R's threshold parity could become Gate 6's VERDICT parity") stays OPEN.
     """
-    defects = edition_defects()
-    assert defects, ("editions now look recorded — flip Gate 6R green in "
-                     "navalai/gates.py, delete its data/gate-ledger.json entry, "
-                     "and invert this test")
-    assert not is_complete()
-    # HALF CLOSED 2026-08-12. ISO 12217-1:2015 (Third edition, 2015-10-15) was
-    # obtained and read, and R-OLH and R-DFH were corrected against it — so
-    # 12217-1 no longer has an edition defect. 12215-5 still does: no citable
-    # copy is held, and its thresholds are measured to be the wrong SHAPE, not
-    # merely uncalibrated (see REVIEW["unconfirmed"]).
-    assert not any(d.startswith("ISO 12217-1") for d in defects), (
-        "ISO 12217-1's edition is recorded; this half is closed")
-    assert any(d.startswith("ISO 12215-5") for d in defects)
+    from navalai.rules.review import REVIEW as _R
+
+    assert edition_defects() == [], edition_defects()
+    assert is_complete()
+
+    # and the editions must be DATED, not bare standard numbers — a set
+    # someone edited to "ISO 12215-5" would satisfy a membership test and
+    # is exactly what the original guard existed to refuse
+    for name, text in _R["editions"].items():
+        assert any(ch.isdigit() for ch in text.split(":")[-1][:6]), (
+            f"{name} names no dated edition: {text!r}")
+        assert text.startswith(name), (
+            f"{name}'s entry does not name the standard it belongs to: {text!r}")
+
+    # the withdrawn-edition warning must survive: mixing editions is the
+    # failure mode this record exists to prevent
+    assert "withdrawn" in _R["editions"]["ISO 12215-5"].lower()
+
+    # a reviewer and a date remain required — an unauditable confirmation
+    # must never be able to turn this green
+    assert _R["reviewer"] and _R["date"]
+
+
+def test_an_UNDATED_edition_is_still_refused():
+    """The guard the inversion must not lose.
+
+    The original test's whole purpose was that a bare standard NUMBER does
+    not count as a recorded edition. Inverting the assertion would quietly
+    drop that if it were not re-pinned here against verbatim input.
+    """
+    bare = dict(REVIEW, editions={"ISO 12217-1": "ISO 12217-1",
+                                  "ISO 12215-5": "ISO 12215-5"})
+    assert edition_defects(bare), (
+        "a bare standard number was accepted as a dated edition")
+    assert not is_complete(bare)
+
+    missing = dict(REVIEW, editions={"ISO 12217-1": "ISO 12217-1:2015"})
+    assert edition_defects(missing), "a MISSING standard was not reported"
 
 
 def test_a_properly_filled_record_does_complete():
