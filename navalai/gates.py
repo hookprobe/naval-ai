@@ -617,10 +617,32 @@ GATES = [
     # thrust could mint an L3 "measured" badge. This row owns the bars that
     # close it — including the reader, where a NaN row did not merely drop
     # but parsed as EXACTLY ZERO.
-    Gate("Gate 2P", "physics sanity: a force must have the right sign, a "
+    Gate("Gate 2N", "physics sanity: a force must have the right sign, a "
          "finite magnitude, and a defensible ratio to the cheap model — and "
          "an unreadable history is never a result",
          "tests/test_physics_sanity.py"),
+    # The case writer's physics floors, wired at the one seam both entry
+    # points pass: the wave-resolution bar and the Reynolds regime gate
+    # existed as constants for weeks and were called by nothing.
+    Gate("Gate 2W", "the case writer consults the physics floors it was "
+         "given: cells-per-wavelength and the Reynolds regime decide before "
+         "a mesh is sized", "tests/test_case_wiring.py"),
+    # h011/h012 meshed-and-failed deterministically in two independent
+    # campaigns while the screen called them SAFE. This row owns whatever
+    # invariant that investigation PROVED.
+    # INVESTIGATED 2026-08-20 AND THE ANSWER WAS NO: h011/h012's geometry is
+    # valid by construction by every test this repo can run (section solve
+    # feasible with margin, no edge crossings, z-monotone sections, 0 folded
+    # or inward quads, watertight, 0 self-intersections), and an 83-descriptor
+    # separation scan scored with the repo's own permutation instrument
+    # returns best family-wise p = 0.601. The best candidate criterion beat
+    # the shipped screen on raw counts and was REFUSED anyway, because its
+    # threshold was h011's own value to four decimals. This row owns what was
+    # PROVED, including the refusal to invent a boundary.
+    Gate("Gate 2X", "h011/h012: the geometry is provably clean, and no "
+         "measured descriptor separates the failures from the passers — a "
+         "criterion that does not separate is not a criterion",
+         "tests/test_h011_h012_invariant.py"),
     # The repair literature's whole taxonomy, implemented on the IMPORT
     # boundary only. MEASURED 2026-08-12: our own surfaces are already clean by
     # every classical metric (0 degenerate, 0 slivers, 0 zero-length edges,
@@ -687,6 +709,16 @@ GATES = [
     Gate("Gate DC", "design certification: cheap classify-and-rank with "
          "receipts, banded speed curves, loading matrix, regime refusals",
          "tests/test_design_certification.py"),
+    # The FIDELITY GOVERNOR (directive §21 / BUILD-PLAN §11.8 / research
+    # SMALL-CRAFT-REGIMES.md §16), 2026-08-20: five gates — environment, wave
+    # existence, friction regime, Froude, decision-worthiness — that ROUTE a
+    # design to a tier instead of badging it, each exercised in BOTH
+    # directions on the study's own measured numbers, plus the missing-input
+    # receipts. Registered here because Gate 0G's registry fence is right: a
+    # suite nobody owns is a suite nobody runs.
+    Gate("Gate FG", "fidelity governor: five gates route (not badge) a design "
+         "to a tier, with named receipts and no silent passes",
+         "tests/test_select_fidelity.py"),
     # GAP D11, and HONESTY RULE 6 APPLIED TO THIS FILE'S OWN REGISTRY.
     #
     # Gate 4's suite passes everything it asserts, so the row printed a blanket
