@@ -203,6 +203,13 @@ def supported_domain(lwl_m=None, fn=None, re=None, n_hulls: int = 1,
 #: Verdict vocabulary. UNMEASURED is not a hedge — it is the honest answer
 #: for a question nothing has asked yet (there is no solve, so D has no
 #: evidence), and it must never read as a pass.
+#: How much a prescribed number is worth. See MeshPrescription's docstring.
+BASIS_DERIVED = "DERIVED"
+BASIS_EMPIRICAL = "EMPIRICAL"
+BASIS_RECEIPT = "RECEIPT ONLY"
+BASIS_INPUT = "INPUT"
+BASIS_KINDS = (BASIS_DERIVED, BASIS_EMPIRICAL, BASIS_RECEIPT, BASIS_INPUT)
+
 OK = "OK"
 MARGINAL = "MARGINAL"
 REFUSED = "REFUSED"
@@ -216,6 +223,31 @@ class MeshPrescription:
     Every field is either inverted from a floor this repository measured or
     marked as not derivable; nothing here is a default that happens to have
     worked on the reference hull.
+
+    THAT CLAIM WAS FALSE WHEN IT WAS WRITTEN. MEASURED 2026-08-20: of the 15
+    fields a real hull populates, ELEVEN carried no `basis` entry at all --
+    cells_per_wavelength, target_yplus, all three cell sizes,
+    hull_refine_levels, n_layers_cap, timestep_s, cells, wall_s and ram_gb.
+    The derivations existed, in COMMENTS beside the arithmetic, and the
+    receipt a caller actually reads did not carry them. A docstring asserting
+    provenance that the object does not carry is worse than none, because it
+    stops the next reader looking (the same sentence appears over
+    `cfd/case.py`'s constant block, about the same defect).
+
+    Every populated field now carries a `basis[field]` entry, and each one
+    opens with its KIND so a reader never has to infer how much a number is
+    worth (operator brief SS10):
+
+        DERIVED      -- inverted from a floor or computed from owned
+                        constants; the entry names the equation and the
+                        function that owns it.
+        EMPIRICAL    -- fitted or calibrated; useful, no derivation.
+        RECEIPT ONLY -- one experiment's measured envelope. NOT a rule, and
+                        explicitly not transferable to another hull family.
+        INPUT        -- supplied by the caller; the entry names the default.
+
+    `tests/test_contract.py` enforces both halves: no populated field without
+    a basis, and no basis that does not open with one of these four words.
     """
 
     mesh_density: float | None            # cells per Lwl (the scale knob)
@@ -423,7 +455,7 @@ def mesh_prescription(lwl_m: float | None, speed_ms: float | None,
             "conditional form (bump only a strained mesh, crossover near "
             "baseline skew 4.6-5.8) is an untested hypothesis on 4 points.")
         basis["mesh_density"] = (
-            f"inverted from MIN_CELLS_PER_WAVELENGTH="
+            f"{BASIS_DERIVED}: inverted from MIN_CELLS_PER_WAVELENGTH="
             f"{MIN_CELLS_PER_WAVELENGTH:g} at Fn {fn:.3f} "
             f"(fidelity.density_for_wave_resolution)")
     except Exception as e:                                  # noqa: BLE001
@@ -440,7 +472,7 @@ def mesh_prescription(lwl_m: float | None, speed_ms: float | None,
         # silently the day the constant moves, which is the lying-receipt
         # defect with a delay fuse rather than an error.
         basis["first_layer_m"] = (
-            f"y+ {target_yplus:g} through ITTC-57 friction velocity at "
+            f"{BASIS_DERIVED}: y+ {target_yplus:g} through ITTC-57 friction velocity at "
             f"Re {speed_ms * lwl_m / _NU_WATER:.3g} (nu {_NU_WATER:.4g}, "
             f"cfd.case.first_layer_thickness)")
     except Exception as e:                                  # noqa: BLE001
@@ -453,6 +485,12 @@ def mesh_prescription(lwl_m: float | None, speed_ms: float | None,
     # domain length divided by the cells the density buys, halved once per
     # refinement level. Stating them HERE is what turns "will this generic
     # mesh work" into "this hull needs a 52 mm surface cell".
+    # An INPUT, not a derivation: y+ 100 sits in the wall-function band the
+    # kOmegaSST closure wants. Labelled so a reader does not mistake a
+    # defaulted argument for something this tree computed.
+    basis["target_yplus"] = (
+        f"{BASIS_INPUT}: caller-supplied, default 100.0 -- the wall-function "
+        f"band for the kOmegaSST closure. Nothing here derives it.")
     bg = surf = fs = tau = dt = None
     cells = wall = ram = None
     levels = None
@@ -481,11 +519,33 @@ def mesh_prescription(lwl_m: float | None, speed_ms: float | None,
         # The free surface is refined to its own level; `_FS_BOX`'s z extent
         # is the slab it applies in. Level 2 is the writer's shipped choice.
         fs = bg / (2.0 ** 2)
-        basis["cells_m"] = (
+        _cells_m = (
             f"domain {_DOMAIN_LENGTH_L:g}*Lwl / nx {nx} "
             f"(_NX_BASE {_NX_BASE} x density {density:.3f}); "
             f"surface halved {levels[1]}x, free surface 2x "
             f"(cfd.case._HULL_REFINE, _FS_BOX z={_FS_BOX['z']:g})")
+        basis["cells_m"] = f"{BASIS_DERIVED}: {_cells_m}"
+        # PER FIELD, because a caller reads a FIELD and not a composite key.
+        basis["background_cell_m"] = (
+            f"{BASIS_DERIVED}: {_DOMAIN_LENGTH_L:g}*Lwl / nx {nx} = "
+            f"{bg:.4g} m; nx = ceil(_NX_BASE {_NX_BASE} x density "
+            f"{density:.4f})")
+        basis["surface_cell_m"] = (
+            f"{BASIS_DERIVED}: background {bg:.4g} m halved {levels[1]}x by "
+            f"hexRef8 at hull refinement level {levels[1]} = {surf:.4g} m")
+        basis["free_surface_cell_m"] = (
+            f"{BASIS_EMPIRICAL}: background {bg:.4g} m halved 2x = "
+            f"{fs:.4g} m. Level 2 is the case writer's SHIPPED CHOICE, not a "
+            f"derivation -- no floor is inverted to reach it.")
+        basis["hull_refine_levels"] = (
+            f"{BASIS_RECEIPT}: _HULL_REFINE {tuple(levels)} is the envelope "
+            f"MEASURED on KCS after the isotropy fix (levels (2,3)/(3,4)/"
+            f"(4,5) all clean); level 5 reintroduced zero-volume cells on "
+            f"the pre-fix background. Not derived and not transferable.")
+        basis["cells_per_wavelength"] = (
+            f"{BASIS_DERIVED}: cells_per_wavelength(Fn {fn:.4f}, density "
+            f"{density:.4f}) = {cpw:.4g} against the "
+            f"MIN_CELLS_PER_WAVELENGTH={MIN_CELLS_PER_WAVELENGTH:g} bar")
         # THE GEOMETRIC FLOW TIME SCALE, which is where this connects to the
         # runner's own live abort. tau = V/(A.U) is h/U for a cube, so the
         # SMALLEST cell sets it — and run-case.sh kills a solve when the
@@ -494,7 +554,7 @@ def mesh_prescription(lwl_m: float | None, speed_ms: float | None,
         # discovering it 45 minutes in.
         tau = surf / speed_ms
         basis["expected_tau_s"] = (
-            "h_min / U for a cubic cell; run-case.sh aborts below 1e-12 s")
+            f"{BASIS_DERIVED}: h_min / U for a cubic cell; run-case.sh aborts below 1e-12 s")
 
         # THE PRISM STACK, AND IT IS NOT A DETAIL — it is the quantity the
         # Mac measured on 2026-08-20 to be the whole mechanism behind Gate
@@ -513,6 +573,10 @@ def mesh_prescription(lwl_m: float | None, speed_ms: float | None,
                                               _LAYER_EXPANSION))
             n_layers = int(min(n_bridge, _MAX_LAYERS))
             n_cap = int(_MAX_LAYERS)
+            basis["n_layers_cap"] = (
+                f"{BASIS_RECEIPT}: _MAX_LAYERS {n_cap} is the writer's cap, "
+                f"an envelope measured on this tree's own hulls (h011/h012 "
+                f"mesh at n=6 and FAIL at n=7). Not derived.")
             # EVIDENCE STATUS, 2026-08-20 (Mac Block 3): the SCALE half of
             # this prescription is measured to help and the LAYER half is
             # NOT. On the only single-variable band (10-12 m, where the arms
@@ -530,7 +594,12 @@ def mesh_prescription(lwl_m: float | None, speed_ms: float | None,
                 "unsupported (Mac Block 3, 5-7 m band worse on coverage AND "
                 "skew). The scale half IS supported (2.36x skew improvement "
                 "on the single-variable band).")
+            # DERIVED arithmetic, RECEIPT-ONLY standing: the count comes
+            # from an equation, but whether it is the RIGHT count rests on
+            # one experiment (see n_layers_evidence). The stronger claim
+            # wins the label, so this is a receipt.
             basis["n_layers"] = (
+                f"{BASIS_RECEIPT}: "
                 f"n_layers_to_bridge(first_layer {first_layer * 1000:.2f} mm, "
                 f"surface cell {surf * 1000:.1f} mm, expansion "
                 f"{_LAYER_EXPANSION:g}) = {n_bridge}, capped at {n_cap}. "
@@ -549,7 +618,13 @@ def mesh_prescription(lwl_m: float | None, speed_ms: float | None,
         dt = float(est.dt_s)
         wall = float(est.wall_s)
         ram = float(est.ram_gb)
-        basis["cost"] = est.basis if isinstance(est.basis, str) else "fidelity.estimate"
+        _cost = est.basis if isinstance(est.basis, str) else "fidelity.estimate"
+        basis["cost"] = f"{BASIS_EMPIRICAL}: {_cost}"
+        for _f, _v, _u in (("cells", cells, ""), ("timestep_s", dt, " s"),
+                           ("wall_s", wall, " s"), ("ram_gb", ram, " GB")):
+            basis[_f] = (f"{BASIS_EMPIRICAL}: {_v:.4g}{_u} from "
+                         f"fidelity.estimate at density {density or 1.0:.4f} "
+                         f"-- a FITTED cost model, not a derivation")
     except Exception as e:                                  # noqa: BLE001
         refusals.append(f"cost estimate unavailable: {e}")
 

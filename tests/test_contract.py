@@ -523,3 +523,74 @@ def test_the_derived_full_fidelity_edge_is_ENFORCED_and_is_not_the_legal_bound()
     ok_nofluid, _ = supported_domain(lwl_m=2.55)
     assert ok_nofluid, ("with no fluid given the physics edge must not be "
                         "applied at all -- refusing to guess is the point")
+
+
+def test_every_prescribed_number_carries_its_PROVENANCE_and_its_KIND():
+    """M4 (operator brief SS10), MEASURED 2026-08-20.
+
+    `MeshPrescription`'s docstring claimed "every field is either inverted
+    from a floor this repository measured or marked as not derivable". Of
+    the 15 fields a real hull populates, ELEVEN carried no `basis` entry:
+    cells_per_wavelength, target_yplus, all three cell sizes,
+    hull_refine_levels, n_layers_cap, timestep_s, cells, wall_s, ram_gb.
+
+    The derivations were not missing -- they sat in COMMENTS beside the
+    arithmetic. What was missing is that the OBJECT A CALLER READS carried
+    them. A docstring asserting provenance the object does not carry is
+    worse than no claim, because it stops the next reader from looking.
+
+    Both halves are fenced: no populated field without a basis, and no basis
+    that does not declare its KIND. The kind is the load-bearing part -- the
+    brief's SS10 asks that an empirical value be labelled empirical and a
+    receipt kept receipt-only, so that a reader never has to infer how much a
+    number is worth.
+    """
+    import math as _math
+
+    from navalai.contract import BASIS_KINDS, mesh_prescription
+
+    for lwl, speed in ((7.3, 2.11), (12.0, 3.0), (3.0, 1.2)):
+        fn = speed / _math.sqrt(9.81 * lwl)
+        pres = mesh_prescription(lwl, speed, fn)
+        fields = {k: v for k, v in pres.to_dict().items()
+                  if k not in ("basis", "refusals")}
+
+        unbacked = [k for k, v in fields.items()
+                    if v is not None and k not in pres.basis]
+        assert not unbacked, (
+            f"prescribed with NO provenance at Lwl {lwl} m: {unbacked}")
+
+        unlabelled = [k for k, v in pres.basis.items()
+                      if not str(v).startswith(tuple(BASIS_KINDS))]
+        assert not unlabelled, (
+            f"basis entries that do not declare a kind {BASIS_KINDS}: "
+            f"{unlabelled}")
+
+        # and the labels must not all collapse to one word, which would make
+        # the vocabulary decorative rather than informative
+        kinds = {str(v).split(":")[0] for v in pres.basis.values()}
+        assert len(kinds) >= 3, (
+            f"only {kinds} used — a provenance vocabulary that never "
+            f"distinguishes is not distinguishing anything")
+
+
+def test_a_RECEIPT_ONLY_number_says_so_and_is_not_dressed_as_a_derivation():
+    """The three that must never silently become rules.
+
+    `hull_refine_levels` and `n_layers_cap` are envelopes measured on this
+    tree's own hulls, and `n_layers` rests on a single experiment. Each is
+    DERIVED arithmetic in the sense that an equation produces it — and the
+    stronger claim is what a reader acts on, so the receipt label wins.
+    """
+    import math as _math
+
+    from navalai.contract import BASIS_RECEIPT, mesh_prescription
+
+    pres = mesh_prescription(7.3, 2.11, 2.11 / _math.sqrt(9.81 * 7.3))
+    for field in ("hull_refine_levels", "n_layers_cap", "n_layers"):
+        if pres.to_dict().get(field) is None:
+            continue
+        assert pres.basis[field].startswith(BASIS_RECEIPT), (
+            f"{field} is a measured envelope and must be labelled "
+            f"{BASIS_RECEIPT!r}, not dressed as a derivation: "
+            f"{pres.basis[field][:80]}")
