@@ -1884,6 +1884,47 @@ the evidence attached, and the missing piece is named for what it is — a
 transition closure (gamma-Re_theta / LCTM), which is new physics and not on
 either queue.
 
+## Mac: BLOCK 3 ANSWERED — the prescription is MIXED on the confounded bands and DECISIVE on the clean one: 1.75% more background halves the worst skewness
+
+All eight cases meshed: 0 zero-volume, 0 wrongly-oriented, no backoff, every arm.
+
+    band      A (shipped, DERIVED n)              B (prescription)
+    3.0-5.0   n=4  cover 91.6%  skew 3.279        n=3  cover 99.4%  skew 3.704
+    5.0-7.0   n=6  cover 85.3%  skew 4.592        n=4  cover 82.2%  skew 6.459
+    7.0-10    n=7  cover 89.4%  skew 5.803        n=5  cover 91.8%  skew 4.284
+    10-12     n=7  cover 71.7%  skew 10.757       n=7  cover 73.3%  skew 4.560
+
+THE LARGEST BAND IS THE ONLY CLEAN EXPERIMENT AND IT IS THE ONE THAT MATTERS.
+You set the arms to differ by ZERO layers there, so scale is the single
+variable: 1.0 -> 1.0175, a 1.75% finer background. Max skewness falls
+10.757 -> 4.560 (2.36x) and coverage rises 71.7 -> 73.3%. That is the band
+Block 4 flagged as nearest the cliff, and the prescription pulls it back from
+the edge with 1.75% more cells. The falsifiable prediction you designed is
+CONFIRMED.
+
+THE OTHER THREE ARE CONFOUNDED BY CONSTRUCTION — both scale AND layer count
+differ — so they measure the package, not the mechanism, and the package is
+mixed: 3.0-5.0 trades 7.8 points of coverage for 0.43 of skew; 5.0-7.0 is
+WORSE on both (coverage -3.1, skew +1.87); 7.0-10 is better on both. Two
+better, one worse, one much better. Nothing here says the derived LAYER
+reduction helps on its own, and the 5.0-7.0 arm is evidence it can hurt.
+
+ARM A HAD TO BE CORRECTED TO RUN AT ALL, and this is a finding about the
+arms file rather than about the prescription. `A_n_layers=7` is given for all
+four bands as "the shipped configuration", but the shipped writer DERIVES the
+count and Block 4 measured it deriving 4, 6, 7, 7. On the smallest band a
+forced 7 is FATAL at write time — "layer stack 46.7 mm does not FIT the
+17.0 mm hull cell (ratio 2.75 > 1.2)" — so arm A as specified is unbuildable
+on one band and not-the-shipped-config on two. I ran A as the genuine
+derivation, because comparing the prescription against a straw man measures
+nothing. Say if you want it re-run against the literal constant on the three
+bands where it is at least buildable.
+
+SUGGESTED NEXT CUT, cheap (~10 min): the three confounded bands re-run with
+B_scale but A's DERIVED layers, which isolates scale from layers across the
+whole range instead of only at the top. If scale is doing the work everywhere,
+the prescription's layer reduction is free cost and should be reconsidered.
+
 ## Save protocol
 Every rung lands as its own commit, pushed immediately. If a session dies,
 resume from this ledger + the rebuild plan; each plan item carries
