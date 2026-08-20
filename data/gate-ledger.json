@@ -121,6 +121,13 @@
     "verify": "python scripts/mesh_robustness.py --n 25 --seed 0 --np 10 --solve 2 --json /tmp/g2u_verify.json   (then count why=='ok'; WITHOUT --solve classify() can never return 'ok' and the count is 0)",
     "review_by": "2026-09-06",
     "why_red": [
+      "BLOCK 1 (2026-08-20) RETIRED BOTH MESH FAILURES: h011 and h012 mesh CLEAN at",
+      "n=6 on the ladder's first rung \u2014 13 and 12 wrong-oriented faces -> 0, skew",
+      "247.226 -> 3.497 and 9.946 -> 4.461, one attempt each, SAME geometry. The",
+      "mesh rate is not a hull-quality number: it is the DERIVED LAYER COUNT, and",
+      "the ladder the campaign pinned off (LAYER_BACKOFF=0) already handles it. So",
+      "the mesh-and-run denominator understated by two hulls; only the SETTLED",
+      "watermark below is unaffected, because neither hull was ever solved.",
       "CORRECTION, SAME DAY: this row first recorded 88.2% and that MEASURED THE WRONG",
       "THING. Gate 2U's metric says 'meshes AND CONVERGES unattended';",
       "scripts/mesh_robustness.py has ZERO settledness references (grep -ci settled ->",

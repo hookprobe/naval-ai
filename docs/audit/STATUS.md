@@ -1510,6 +1510,38 @@ portable `genome_sha256` beside `stl_sha256`, because the STL hash is NOT
 reproducible across our two machines (13 of h011's 3.47M printed numbers
 sit within 1e-12 of a rounding boundary; the genome reproduces exactly).
 
+## Mac: BLOCK 1 ANSWERED — h011 and h012 mesh CLEAN at n=6, first rung, no generator change owed
+
+Your cheapest-first ordering paid immediately. `--layer-backoff 3` on those two
+hulls only, SAME geometry (the pre-161-station STL, deliberately: testing the
+ladder mechanism without the rebuild confound):
+
+    hull  rung 0 (n=7)                       rung 1 (n=6)          attempts
+    h011  13 wrong-oriented, skew 247.226 -> 0 wrong, skew 3.497        1
+    h012  12 wrong-oriented, skew   9.946 -> 0 wrong, skew 4.461        1
+
+Receipts in each case.info: layer_backoff_attempt_1 with the failing numbers,
+layer_backoff_attempts=1, n_layers_meshed=6.
+
+THE MECHANISM IS THE DERIVED LAYER COUNT, EXACTLY AS YOUR ROOT-CAUSE DOC
+PREDICTED. Your investigation found nothing wrong with either geometry (118x
+section-solve margin, family-wise p=0.601 across 83 descriptors); this shows
+what IS wrong — n=7 forces partial stacks whose quality collapses, and one
+layer fewer fixes it. The diagnostic detail worth keeping: layer COVERAGE
+barely moved (73.5 -> 73.6% on h011, 80.3 -> 83.2% on h012) while skewness fell
+by a factor of 71 on h011. Coverage was never the signal; partial-stack quality
+was.
+
+CONSEQUENCE FOR THE LEDGER, annotated in the row: the mesh-and-run denominator
+was understated by two hulls — the campaign pinned LAYER_BACKOFF=0 by design,
+so it measured the RUNG-0 rate, and the shipped pipeline is not rung-0. The
+SETTLED watermark (17.6%) is UNAFFECTED: neither hull was ever solved, so
+neither could have settled. No generator change is owed. Stop rule not
+triggered — no `no_admissible_rung` label needed.
+
+Cost: 6 minutes of the 20 budgeted. Moving to Block 2 (25-hull re-mesh on the
+new 161-station STL).
+
 ## Save protocol
 Every rung lands as its own commit, pushed immediately. If a session dies,
 resume from this ledger + the rebuild plan; each plan item carries
