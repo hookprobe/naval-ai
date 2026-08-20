@@ -44,6 +44,7 @@ import numpy as np
 from . import grammar
 from .certify import certify
 from .geometry import GeometryError, Hull
+from .constants import G_STANDARD
 from .limits import RE_TRANSITION_BAND
 from .mission import MissionSpec
 from .select_fidelity import FN_PLANING_ONSET as FN_PLANING_ONSET_LOCAL
@@ -416,8 +417,25 @@ def genome_sha256(params) -> str:
     return hashlib.sha256(x.tobytes()).hexdigest()
 
 
+#: How far a SUPPLIED Fn may sit from the Fn its own (Lwl, U) imply before
+#: the prescription refuses the triple. It is a CONTRADICTION detector, not a
+#: precision check, and the size is a documented convention rather than a
+#: tuned constant (operator brief P0: "if there is a boundary convention,
+#: document it explicitly"). Two legitimate sources of disagreement have to
+#: fit under it:
+#:   * the gravity ambiguity — constants.G_STANDARD 9.80665 against
+#:     G_OPENFOAM 9.81 moves Fn by 0.017%;
+#:   * two-significant-figure Fn in a hand-written fixture — MEASURED in this
+#:     tree, `mesh_prescription(12.0, 1.5, fn=0.14)` is 1.27% from the 0.13825
+#:     its own inputs give.
+#: 2% clears both with room and still catches what was MEASURED 2026-08-20:
+#: passing DOUBLE the true Fn was accepted in silence and swung mesh_density
+#: from 1.0175 to 0.2632, a 4x change in the delivered mesh.
+FN_CONSISTENCY_REL_TOL = 0.02
+
+
 def mesh_prescription(lwl_m: float | None, speed_ms: float | None,
-                      fn: float | None, target_yplus: float = 100.0,
+                      fn: float | None = None, target_yplus: float = 100.0,
                       ) -> MeshPrescription:
     """What mesh this hull requires, INVERTED from floors already measured.
 
@@ -439,6 +457,30 @@ def mesh_prescription(lwl_m: float | None, speed_ms: float | None,
     """
     refusals: list[str] = []
     basis: dict = {}
+
+    # M7 (2026-08-20). THE MINIMUM STATE VECTOR FOR A PRESCRIPTION IS
+    # {Lwl, U, y+}. Fn is not a fourth input — it is U/sqrt(g*Lwl), so
+    # taking it as an independent argument is a number declared twice
+    # wearing an argument list, and MEASURED it could CONTRADICT its own
+    # inputs: passing 2x the true Fn moved mesh_density 1.0175 -> 0.2632
+    # with no complaint. It is derived when absent and cross-checked when
+    # supplied.
+    if lwl_m is not None and speed_ms is not None and lwl_m > 0.0:
+        _fn_derived = float(speed_ms) / math.sqrt(G_STANDARD * float(lwl_m))
+        if fn is None:
+            fn = _fn_derived
+        elif _fn_derived > 0.0 and (abs(float(fn) - _fn_derived) / _fn_derived
+                                    > FN_CONSISTENCY_REL_TOL):
+            refusals.append(
+                f"Fn {float(fn):.4f} CONTRADICTS its own inputs: Lwl "
+                f"{float(lwl_m):.3f} m at {float(speed_ms):.3f} m/s gives "
+                f"{_fn_derived:.4f} ({100*abs(float(fn)-_fn_derived)/_fn_derived:.1f}% "
+                f"apart, bar {100*FN_CONSISTENCY_REL_TOL:.0f}%). Fn is "
+                f"DERIVED from (Lwl, U); a supplied value that disagrees is "
+                f"not a second opinion, it is one of the three being wrong. "
+                f"Using the derived value.")
+            fn = _fn_derived
+
     if lwl_m is None or speed_ms is None or fn is None:
         return MeshPrescription(
             mesh_density=None, cells_per_wavelength=None, first_layer_m=None,
@@ -513,6 +555,7 @@ def mesh_prescription(lwl_m: float | None, speed_ms: float | None,
     # domain length divided by the cells the density buys, halved once per
     # refinement level. Stating them HERE is what turns "will this generic
     # mesh work" into "this hull needs a 52 mm surface cell".
+
     # An INPUT, not a derivation: y+ 100 sits in the wall-function band the
     # kOmegaSST closure wants. Labelled so a reader does not mistake a
     # defaulted argument for something this tree computed.

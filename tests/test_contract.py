@@ -691,3 +691,108 @@ def test_the_derived_edge_is_reached_on_the_MAIN_path_not_only_in_the_helper():
     assert nu_implied == pytest.approx(NU_FRESH_15C, rel=1e-6), (
         f"the domain edge would be judged in {nu_implied:.4g} m2/s while the "
         f"resistance tier used {NU_FRESH_15C:.4g} — two fluids again")
+
+
+def test_the_MINIMUM_STATE_VECTOR_for_a_numerical_prescription():
+    """M7 (operator brief SS5): the smallest set of inputs sufficient to
+    determine the numerical treatment.
+
+    The brief lists ~20 candidate variables (LWL, B, T, displacement, Cp,
+    LCB, Fn, Re, curvature, minimum feature size, wave length, hull family,
+    multihull separation, mesh scale, prism layers, background density,
+    free-surface refinement, y+, geometric tau) and asks which are
+    INDEPENDENT. MEASURED 2026-08-20 against the code:
+
+        X_mesh = { Lwl, U, y+_target }
+
+    Everything else is either DERIVED from these (Fn = U/sqrt(g*Lwl),
+    Re = U*Lwl/nu, wavelength = 2*pi*U^2/g) or is an OUTPUT of the
+    prescription rather than an input to it (mesh scale, background density,
+    free-surface refinement, prism layers, tau, timestep).
+
+    SUFFICIENT: the prescription is a pure function of these three —
+    identical inputs give an identical object.
+    MINIMAL: each of the three moves it, so none can be dropped.
+
+    SCOPE, STATED SO IT IS NOT OVER-CLAIMED. This is the state vector for
+    the PRESCRIPTION — what numbers to use. It is NOT sufficient for
+    NUMERICAL ADMISSIBILITY, which is the separate question of whether a
+    given geometry can be meshed at all: `admissibility.screen` takes the
+    whole `Hull`, because tightest-feature and curvature genuinely enter
+    there. Brief SS6's C and D are different questions and stay different.
+    """
+    import math as _math
+
+    from navalai.contract import mesh_prescription
+
+    g = 9.80665
+    ref_l, ref_u, ref_yp = 7.3, 2.11, 100.0
+
+    def pres(lwl=ref_l, u=ref_u, yp=ref_yp):
+        return mesh_prescription(lwl, u, u / _math.sqrt(g * lwl), yp).to_dict()
+
+    base = pres()
+
+    # SUFFICIENT — a pure function of the three
+    assert pres() == base, "the prescription is not deterministic"
+
+    # MINIMAL — drop-one: each input must move the result
+    for label, kw in (("Lwl", {"lwl": 8.0}),
+                      ("U", {"u": 2.5}),
+                      ("y+", {"yp": 30.0})):
+        moved = [k for k, v in pres(**kw).items()
+                 if k != "basis" and base[k] != v]
+        assert moved, (
+            f"{label} is in the claimed state vector but changing it moved "
+            f"NOTHING — it is redundant and the vector is not minimal")
+
+    # y+ must be the NARROW one: it touches the wall model, not the volume
+    # mesh. If it ever starts moving the background cell, the derivation has
+    # been rewired and this vector needs re-deriving.
+    yp_moved = {k for k, v in pres(yp=30.0).items()
+                if k != "basis" and base[k] != v}
+    assert "background_cell_m" not in yp_moved, (
+        "y+ moved the BACKGROUND cell; the wall model and the volume mesh "
+        "have become entangled")
+    assert "first_layer_m" in yp_moved
+
+
+def test_Fn_is_DERIVED_and_a_supplied_one_that_contradicts_is_refused():
+    """Fn is not a fourth state variable — it is U/sqrt(g*Lwl).
+
+    Taking it as an independent argument is this codebase's cardinal defect
+    (a number declared twice) wearing an argument list, and MEASURED
+    2026-08-20 it could CONTRADICT its own inputs in silence: passing double
+    the true Fn was accepted and swung `mesh_density` from 1.0175 to 0.2632,
+    a 4x change in the delivered mesh, with no refusal recorded.
+    """
+    import math as _math
+
+    from navalai.contract import (FN_CONSISTENCY_REL_TOL, mesh_prescription)
+
+    lwl, u = 7.3, 2.11
+    fn_true = u / _math.sqrt(9.80665 * lwl)
+
+    derived = mesh_prescription(lwl, u)                 # omitted -> derived
+    supplied = mesh_prescription(lwl, u, fn_true)       # consistent
+    assert derived.mesh_density == supplied.mesh_density
+    assert not [r for r in derived.refusals if "CONTRADICTS" in r]
+
+    liar = mesh_prescription(lwl, u, fn_true * 2.0)
+    contradiction = [r for r in liar.refusals if "CONTRADICTS" in r]
+    assert contradiction, (
+        "a doubled Fn was accepted in silence — the prescription trusted an "
+        "input that disagrees with the two inputs it is computed from")
+    assert "DERIVED" in contradiction[0]
+    # and it must fall back to the derivation, not to the lie
+    assert liar.mesh_density == derived.mesh_density
+
+    # a rounded fixture is NOT a contradiction: two-sig-fig Fn and the
+    # 9.80665/9.81 gravity ambiguity both sit inside the documented bar
+    rounded = mesh_prescription(12.0, 1.5, 0.14)
+    assert not [r for r in rounded.refusals if "CONTRADICTS" in r], (
+        "a legitimately rounded Fn was treated as a contradiction; the bar "
+        f"({100 * FN_CONSISTENCY_REL_TOL:.0f}%) is too tight")
+
+    # a missing pair still refuses rather than defaulting
+    assert mesh_prescription(None, None).refusals
