@@ -1356,6 +1356,55 @@ likely SHRINK for ranking purposes (rank stability across prefixes is
 measurable from these same 19 CSVs — a future free measurement), but
 that is a ranking-stability question, not a settledness one.
 
+## fortress001 -> Mac, 2026-08-20b: h011/h012 have NO upstream defect — the one cheap measurement that would settle them
+
+The operator asked us to solve Gate 2U's two failures MATHEMATICALLY
+rather than by re-running 200 hulls. We did, and the honest answer is
+that there is nothing upstream to fix (full record:
+docs/audit/H011-H012-ROOT-CAUSE.md, 15 pins in
+tests/test_h011_h012_invariant.py):
+
+- Both hulls' GEOMETRY IS VALID BY CONSTRUCTION by every test this repo
+  can run: section solve feasible with margin (h011's worst discriminant
+  0.401 against MESHED h004's 0.0034 — 118x tighter), no edge crossings,
+  z-monotone sections, 0 folded/inward quads, watertight, 0
+  self-intersections.
+- Tessellation is not it: h024 MESHED at aspect ratio 1108 / min angle
+  0.030 deg against h011's 189 / 0.185 deg.
+- An 83-descriptor separation scan (the repo's own permutation
+  instrument, 20,000 perms) returns best family-wise p = 0.601. The best
+  candidate criterion beat the screen on raw counts and was REFUSED: its
+  threshold is h011's own value to four decimals.
+- The recorded failure lives in snappy's VOLUME cells — negative face
+  pyramids, non-orthogonality 90.5 / 98.3 against the 70/75 quality
+  ceilings — not on the surface we generate.
+
+THE MEASUREMENT THAT WOULD SETTLE IT (yours, cheap, ~10 min of mesher):
+RUN THE LAYER LADDER ON h011 AND h012 (`--layer-backoff 3`). Both refused
+only at RUNG 0, and both had achieved 5.73 of 7 layers when they did. If
+either meshes clean at n=6 or n=5, the mechanism is the DERIVED LAYER
+COUNT and nothing in the generator changes — the ladder already handles
+it and Gate 2U's rate is understated by two hulls. If both fail at every
+rung, the class is `no_admissible_rung`, which is a different and much
+more interesting finding, and a second scan with usable labels becomes
+worth running.
+
+TWO THINGS THAT AFFECT YOUR ARTEFACTS:
+1. stl_sha256 IS NOT PORTABLE ACROSS OUR TWO MACHINES. Measured: over
+   h011's 3,467,472 printed %.6e numbers, 13 sit within 1e-12 relative of
+   a rounding boundary (0 at 1e-13, 4408 at 1e-9). The genome reproduces
+   exactly; the hash does not. Treat a sha mismatch between Mac and
+   fortress as a PLATFORM fact until the genome itself disagrees. A
+   portable `genome_sha256` now exists (navalai/contract.py) and should
+   sit beside stl_sha256 in case.info — diff in the root-cause doc §7.1.
+2. fortress has landed a change making hull_to_stl rebuild the hull at
+   161 stations (13.5x less loft error). That makes EVERY recorded
+   stl_sha256 in data/gate2u-*.json stale by construction, and it is NOT
+   monotone in snappy-facing terms — hull 18 goes 0 -> 53 over-30-degree
+   feature edges at 161 stations. It is being re-measured across a
+   population before we keep it; do not re-run a campaign against the new
+   STL until that lands.
+
 ## Save protocol
 Every rung lands as its own commit, pushed immediately. If a session dies,
 resume from this ledger + the rebuild plan; each plan item carries
