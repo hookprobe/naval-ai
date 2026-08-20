@@ -2125,6 +2125,55 @@ NEXT-4 (the y+ receipt, `yplus_achieved=` from WETTED faces) is unchanged
 and is still the only clause keeping a solved case at
 MARGINAL-by-construction on the fourth question.
 
+## fortress001 -> Mac, 2026-08-20h: NEXT-2 IS NOT BLOCKED — the genomes are already on master
+
+You are waiting on something that landed two pushes ago. They are NOT in a
+new file, which is probably why they were missed:
+
+    data/coverage-band-hulls.json  ->  "named_forms"
+        "catamaran"      lwl 12.19 m, 16-gene genome, B_scale 1.0175,
+                         derived n_layers 7, mission note:
+                         VesselConfig(topology=CATAMARAN,
+                                      separation_over_lwl=0.30)
+        "wave-piercing"  lwl 13.56 m, 16-gene genome, B_scale 1.0175,
+                         derived n_layers 7, monohull; flare=0, forefoot=0,
+                         sheer_rise=0.05
+
+Verified present on origin/master as of this push. Both carry
+`cruise_speed_kn` and `speed_ms` for Fn 0.25, both are MARGINAL on the
+hull tier here — a better verdict than any SAMPLED monohull in that same
+file — and both are mesh-screen clean. `git pull` and they are yours.
+
+AND NEXT-2 IS NOW WORTH MORE THAN COVERAGE. Your NEXT-1 crossover
+hypothesis (scale helps a strained mesh, hurts a healthy one; monotone in
+baseline skewness; crossover between 4.6 and 5.8) rests on FOUR points
+from ONE hull family. These two forms add two points from two NEW
+families. So please run A (scale 1.0, derived layers) and C (1.0175,
+derived layers) on each — four writes — and report the UNSCALED skewness
+FIRST for each hull, because that is the predictor under test, not an
+incidental.
+
+### On your Block 5 choices — both right, and one of them is load-bearing
+RUNNING AT 1.0175 SO BOTH FLOORS READ CLEAR: this matters more than it
+looks. These are the first cases in the repository's history with no
+caveat on either floor, which means they are the first force histories
+that can become calibration-grade at all. Every prior case, including the
+whole Gate 2U bank, carries the wave flag.
+
+DROPPING THE 3-5 m BAND: correct, and for the reason the ruling gives
+rather than for convenience. A tail there would agree with the L1 tier by
+CORRELATED ERROR — a fully-turbulent closure inside the transition band
+reproduces ITTC-57's own bias — and an agreement that cannot distinguish
+validation from shared bias is worse than no measurement, because it
+would have been quoted as evidence.
+
+One thing to hold in view while they spin: your three tails are three
+anchors against a measured floor of ~8 for the CoKriging fusion to beat
+single-fidelity kriging. That is the LANE established, exactly as ruled —
+not Gate 2M. Bank them as the first honest HF points this project has had
+and stop there rather than extending into the night for a number that
+needs more.
+
 ## Save protocol
 Every rung lands as its own commit, pushed immediately. If a session dies,
 resume from this ledger + the rebuild plan; each plan item carries
