@@ -1412,6 +1412,14 @@ change the plan is answered FIRST. Each block states its cost, its stop
 rule, and what its answer changes. Nothing here is a 200-hull campaign:
 the directive's §16 gates that behind these, and so do we.
 
+ALSO NEW SINCE YOU LAST PULLED: the case writer now CONSULTS the physics
+floors that existed and were called by nothing. Wiring them found a
+silence immediately — the suite's habitual 2.0 m/s writes a case at 13.0
+cells per wavelength against a bar of 20, and the parity suite's mid-hull
+at 9.8. Expect `wave_resolution_*` and `flow_regime_*` receipts in
+case.info now, and expect some familiar cases to carry a FLAG they never
+carried before. That is the floor working, not a regression.
+
 BEFORE ANYTHING: `git pull --rebase`. fortress has landed the contract
 (`navalai/contract.py`), the fidelity governor, the physics-sanity layer,
 the smoke parser and a 161-STATION STL REBUILD that changes every hull's
@@ -1433,18 +1441,31 @@ STOP RULE: if both fail at every rung, label them `no_admissible_rung`
 and STOP — do not re-run the campaign; that is a different finding and
 fortress will scan again with usable labels.
 
-### BLOCK 2 (~35 min) — re-mesh the 25-hull bank on the NEW STL
-Mesh-only (`MESH_ONLY=1`), same genomes, same seed, no solves.
-WHY: the 161-station rebuild cuts loft error 13.5x but is NOT MONOTONE in
-snappy-facing terms — hull 18 goes from 0 to 53 over-30-degree feature
-edges. A geometric win does not automatically transfer to a meshing win,
-and every stl_sha256 in data/gate2u-*.json is stale by construction now.
-DELIVER: the rung-0 mesh rate on the new STL against the recorded 92.0%,
-per-hull, plus checkMesh non-ortho/skew so the distributions can be
-compared rather than just the pass count.
-STOP RULE: if the rate FALLS, say so plainly — fortress will make the
-station count per-hull or split the STEP and CFD paths. Do not tune
-around it.
+### BLOCK 2 (~5 min FIRST, then ~35 min) — the new STL, sharpest test first
+The 161-station rebuild has landed. It cuts deviation from the ANALYTIC
+section 14.7x on smooth hulls and snaps nx onto the stations (600 -> 481:
+20% fewer triangles, 13.7 MB smaller, 24 s faster to write, and a BETTER
+deviation). Every stl_sha256 in data/gate2u-*.json is stale by
+construction: the surface moved on every hull.
+
+2a. THE DECISIVE ONE, and it is a single case (~80 s - 5 min): MESH HULL
+18 AT 41 STATIONS AND AT 161, mesh-only, and compare checkMesh. Hull 18
+is the only hull whose feature-edge count moved materially (0 -> 53 above
+30 degrees), and fortress has already measured WHY: all 53 sit at
+x/L 0.6561 against that hull's own x_mb of 0.65624, and the angle is
+CONVERGED across 161/321/641 stations to 0.05 degrees. It is the boat's
+own max-area crease, which 41 stations straddled and chorded away — and
+the old surface invented creases of its own (hull 14 read a 28-degree
+crease at 41 stations that is not on the hull). So the geometry question
+is settled; what is NOT settled is whether snappy minds. This run answers
+exactly that and nothing else.
+2b. THEN the 25-hull mesh-only bank on the new STL, for the rate against
+the recorded 92.0% plus the non-ortho/skew distributions.
+STOP RULE: if 2a shows hull 18 meshing WORSE at 161, stop and report —
+the lever is snappy's feature refinement around a real crease, NOT a
+per-hull station count (that would make the meshed surface a function of
+a mesher heuristic instead of of the genome, and two cases of the same
+hull incomparable).
 
 ### BLOCK 3 (~30 min) — the PRESCRIPTION A/B, mesh-only
 For 4 hulls spanning the size range, mesh twice: once with the shipped
