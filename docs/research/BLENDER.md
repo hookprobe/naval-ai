@@ -72,6 +72,16 @@ All measurements are at the **SHIPPED** resolution — what
 `write_resistance_case` writes for each hull via `stl_resolution`, which clamps
 all three to **600 x 120** (288818–288890 triangles). Hulls are 4 / 8 / 14 of
 `sample_valid(25, MissionSpec(), seed=0)`, Lwl 8.942 / 12.320 / 11.670 m,
+**[2026-08-20: those three hulls are a 15-PARAMETER draw and no longer
+exist. `f18fcba` moved the LWL box from [4.0, 20.0] to [2.5, 24.0] and
+re-banded L/B and B/T, which changes WHICH draws survive the feasibility
+filter, so the same call returns different boats. Index 14 reads 11.670 m
+here, 17.9671 m on the current 16-gene tree, and the 13.705 m that
+`tests/test_blender_hull.py` pinned corresponds to NO COMMIT AT ALL —
+it landed on a branch where the guard was unreachable and was never
+executed until `f18fcba` flipped it. Do not compare a number in this
+file with one in that test file: they are three different boats. This
+paragraph is a dated measurement and stays as one.]**
 `chine_row` 33 / 69 / 60.
 
 ### The ruler, validated before use
