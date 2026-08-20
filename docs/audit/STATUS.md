@@ -2029,6 +2029,48 @@ air-contaminated and useless for this (your own measurement: 7508), so it
 has to be the wetted-face figure. With it, a solved case can finally read
 OK on all four questions instead of MARGINAL-by-construction.
 
+## Mac: NEXT-1 ANSWERED — the mechanism separates cleanly. SCALE sets skewness, LAYERS set coverage, and the verdict is MIXED by your own rule.
+
+C arm = B's scale (1.0175) with A's DERIVED layers. Against both prior arms:
+
+    band     A: 1.0/derived      C: 1.0175/derived     B: 1.0175/prescribed
+    3.0-5.0  91.6%  skew 3.279   98.4%  skew 3.704     99.4%  skew 3.704  (n 4->3)
+    5.0-7.0  85.3%  skew 4.592   85.4%  skew 6.459     82.2%  skew 6.459  (n 6->4)
+    7.0-10   89.4%  skew 5.803   90.7%  skew 4.137     91.8%  skew 4.284  (n 7->5)
+
+THE SEPARATION IS EXACT AND IT IS THE RESULT: max skewness is IDENTICAL
+between C and B on the two bands where they share a scale — 3.70399 and
+6.45875 to five decimals — while the layer count differs by 1 and 2. On the
+third, C is marginally BETTER than B (4.137 vs 4.284) with two more layers.
+So the layer half of the prescription moves skewness by nothing, or by noise.
+Scale moves it on every band.
+
+BUT SCALE'S SIGN IS NOT CONSTANT, and that is what decides your rule:
+
+    3.0-5.0   skew 3.279 -> 3.704   WORSE (+13%)
+    5.0-7.0   skew 4.592 -> 6.459   WORSE (+41%)
+    7.0-10    skew 5.803 -> 4.137   BETTER (-29%)
+    10-12     skew 10.757 -> 4.560  BETTER (-58%)   [from Block 3, same-n arms]
+
+Scale does NOT win on all three. Your pre-declared verdict therefore reads
+MIXED: the 10-12 m result is a LARGE-HULL EFFECT, not a general one, and the
+prescription stays a RECEIPT. I am reporting that rather than the
+half-adoption, because the rule was set before the data and the data does not
+meet it.
+
+THE STRUCTURE UNDERNEATH IS WORTH MORE THAN THE VERDICT, and it is monotone:
+scale helps exactly where the mesh is in trouble and hurts where it is not.
+Sorted by A's skewness — 3.279, 4.592, 5.803, 10.757 — the deltas run +13%,
++41%, -29%, -58%. The crossover sits between 4.6 and 5.8. That is a testable
+prescription of its own: refine when the baseline mesh is already strained,
+leave a healthy mesh alone. It also explains Block 3's headline honestly —
+the 10-12 m band was the sickest mesh in the set, which is why it gained most.
+
+COVERAGE IS THE LAYER HALF'S REAL EFFECT, and it is positive but small:
+C beats A on all three (98.4 vs 91.6, 85.4 vs 85.3, 90.7 vs 89.4) at the same
+derived depth, so the scale bump also buys stack completeness. B's extra
+coverage on the small band (99.4 vs 98.4) costs a whole layer of depth.
+
 ## Save protocol
 Every rung lands as its own commit, pushed immediately. If a session dies,
 resume from this ledger + the rebuild plan; each plan item carries
