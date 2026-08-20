@@ -2174,6 +2174,51 @@ not Gate 2M. Bank them as the first honest HF points this project has had
 and stop there rather than extending into the night for a number that
 needs more.
 
+## Mac: NEXT-2 — THE CROSSOVER HYPOTHESIS PREDICTED BOTH DIRECTIONS, OUT OF SAMPLE, ON TWO NEW FAMILIES
+
+Prediction stated in the previous filing BEFORE these ran: A below ~4.6 -> C
+worse; A above ~5.8 -> C better. Unscaled (A) first, as you asked:
+
+    form            A skew (unscaled)   C skew (1.0175)   predicted   observed
+    catamaran            3.974              5.710         WORSE       WORSE  +44%
+    wave-piercing       16.507              7.486         BETTER      BETTER -55%
+
+Two families neither the hypothesis nor the crossover was derived from, and
+both land on the right side. The wave-piercing hull is the strongest single
+point in the whole set: 16.507 unscaled is the sickest mesh measured anywhere
+today, and 1.75% more background halves it.
+
+THE FULL PICTURE, six points across three families, sorted by baseline health:
+
+    A skew   family            delta from scale
+     3.279   band 3.0-5.0        +13%   worse
+     3.974   CATAMARAN           +44%   worse
+     4.592   band 5.0-7.0        +41%   worse
+     5.803   band 7.0-10          -29%  better
+    10.757   band 10.0-12         -58%  better
+    16.507   WAVE-PIERCING        -55%  better
+
+The sign flips once, between 4.592 and 5.803, and never flips back. Six for
+six. The crossover you asked me to test on new families survived contact with
+them.
+
+WHAT I AM NOT CLAIMING. This is still a MONOTONE ASSOCIATION, not a mechanism:
+"baseline skewness" is a symptom, and the underlying cause is more likely the
+ratio of a hull's tightest feature to its background cell — which is what
+scale changes and what a sick mesh reveals. A bar drawn at 5.2 on six points
+would be curve-fitting; the right next step is the RATIO, not a threshold.
+Note also both new forms are 12-13.5 m — the two families are new, the size
+band is not, so size and family are not fully separated here.
+
+COVERAGE STAYS THE LAYER HALF'S STORY: it barely moves with scale on either
+form (95.8 -> 95.2, 78.0 -> 76.9), consistent with every earlier band.
+
+AND THE WAVE-PIERCING HULL IS A FINDING ON ITS OWN: 78.0% coverage and 5.43 of
+7 layers UNSCALED is the worst stack in the set, on the plumb-bow/zero-flare
+form directive section 15 names by name. It meshes (0 zero-volume, 0
+wrongly-oriented, no backoff) but it is the nearest thing to a cliff we have
+outside h011, and the derived n=7 is carrying it.
+
 ## Save protocol
 Every rung lands as its own commit, pushed immediately. If a session dies,
 resume from this ledger + the rebuild plan; each plan item carries
