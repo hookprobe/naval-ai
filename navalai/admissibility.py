@@ -348,18 +348,27 @@ def surface_grid(hull: Hull, nx: int, nz: int) -> np.ndarray:
     UPDATED 2026-08-13 with plate P2: the vectorised branch below is the
     HARD-CHINE case, where the two panels are straight and linear
     interpolation IS the section. A radiused bilge is not linear in either
-    panel, so there is nothing to vectorise and the loop calls the ONE sampler
-    (`Hull._section_at_rows`) instead of transcribing it. Slower — measured
-    ~90 ms against 7 ms at 600x120 — and the alternative is a third copy of
-    the shape function.
+    panel, so the round-bilge branch used to loop the ONE sampler
+    (`Hull._section_at_rows`) per station — measured ~90 ms against 7 ms at
+    600x120, and later ~113 ms/hull (~140 ms/hull for the whole screen)
+    against the 100 ms bar the four-orders claim is pinned by.
+
+    UPDATED 2026-08-20: the round-bilge branch calls
+    `Hull._sections_at_rows_batch` — the same sampler with the station axis
+    vectorised, owned by `Hull` beside `_section_at_rows` so the two copies
+    live one screen apart. The screen's bars were MEASURED through this grid,
+    so the batch is fenced VALUE-PRESERVING against a loop over
+    `_section_at_rows` at 1e-12 on both roundness branches, at this exact
+    600x120 resolution among others
+    (tests/test_admissibility.py::test_the_batch_section_sampler_is_the_loop).
+    MEASURED after the switch: ~28 ms/hull here, ~48 ms/hull for the screen.
     """
     xs = np.linspace(float(hull.x[0]), float(hull.x[-1]), nx)
     jc = hull.chine_row(nz)
     if hull.roundness > 0.0:
         S = np.empty((len(xs), nz + 1, 3))
-        for k, xv in enumerate(xs):
-            S[k, :, 1:] = hull._section_at_rows(float(xv), jc, nz - jc)
-            S[k, :, 0] = xv
+        S[:, :, 0] = xs[:, None]
+        S[:, :, 1:] = hull._sections_at_rows_batch(xs, jc, nz - jc)
         return S
     xst = hull.x
     i = np.clip(np.searchsorted(xst, xs), 1, hull.n_stations - 1)

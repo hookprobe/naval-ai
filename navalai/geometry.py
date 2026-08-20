@@ -576,6 +576,65 @@ def sample_section(keel: np.ndarray, chine: np.ndarray, sheer: np.ndarray,
     return np.vstack([_resample(lo, n_lo + 1), _resample(hi, n_hi + 1)[1:]])
 
 
+def _resample_batch(polys: np.ndarray, n: int) -> np.ndarray:
+    """`_resample` over a (k, m, 2) stack of dense polylines, one per station.
+
+    THE ARITHMETIC IS `_resample`'s, OPERATION FOR OPERATION, so the result
+    is bit-identical to calling `_resample` per row — fenced at 1e-12 in
+    tests/test_admissibility.py::test_the_batch_section_sampler_is_the_loop,
+    including at the screen's real 600x120 resolution:
+
+      * diff, the 2-term norm and cumsum run along the point axis of the
+        stack, the same values in the same order per row;
+      * the query grid reproduces `np.linspace(0.0, L, n)` as numpy computes
+        it — `arange(n) * (L / (n-1))`, then the endpoint pinned to L — one
+        (k, n) array instead of k Python calls;
+      * the interpolation is `np.interp`'s own C formula, batched:
+        j = rightmost index with cum[j] <= t, slope = (f1-f0)/(x1-x0),
+        ans = slope*(t-x0) + f0, with numpy's exact-hit branch
+        (cum[j] == t -> f[j]) and right-endpoint branch (t at the last
+        breakpoint -> f[-1]) applied in numpy's order. Only the per-row
+        `searchsorted` stays a loop (its breakpoints differ per station).
+
+    MEASURED 2026-08-20, and why the reproduction goes this deep: the
+    per-station call overhead in `admissibility.surface_grid` (a fresh
+    linspace, a `_bezier` and two `_resample` calls per station, ~600
+    stations/hull) plus ~2400 `np.interp` wrapper calls per hull held that
+    grid at ~113 ms/hull and the screen at ~140 ms/hull against its 100 ms
+    bar (~265 ms/hull with the box under loadavg ~4). Batching took the
+    loop's ~1200 linspace + 2400 interp calls to ~1200 bare searchsorted
+    calls and the grid to ~28 ms/hull, values unchanged.
+    """
+    k, mm, _ = polys.shape
+    d = np.linalg.norm(np.diff(polys, axis=1), axis=2)
+    cum = np.concatenate([np.zeros((k, 1)), np.cumsum(d, axis=1)], axis=1)
+    L = cum[:, -1]
+    T = np.arange(n) * (L / (n - 1))[:, None]
+    T[:, -1] = L
+    j = np.empty((k, n), dtype=np.intp)
+    for r in range(k):
+        j[r] = np.searchsorted(cum[r], T[r], side="right")
+    j -= 1
+    at_end = j >= mm - 1
+    jc = np.minimum(j, mm - 2)
+    x0 = np.take_along_axis(cum, jc, axis=1)
+    dx = np.take_along_axis(cum, jc + 1, axis=1) - x0
+    # a zero-width interval is only ever selected where a mask below already
+    # decides the value (exact hit or endpoint); the guard silences 0/0 there
+    dx = np.where(dx != 0.0, dx, 1.0)
+    out = np.empty((k, n, 2))
+    for c in (0, 1):
+        f0 = np.take_along_axis(polys[:, :, c], jc, axis=1)
+        f1 = np.take_along_axis(polys[:, :, c], jc + 1, axis=1)
+        ans = (f1 - f0) / dx * (T - x0) + f0
+        ans = np.where(x0 == T, f0, ans)
+        out[:, :, c] = np.where(at_end, polys[:, -1, c][:, None], ans)
+    deg = L <= 1e-15
+    if deg.any():
+        out[deg] = polys[deg, :1]
+    return out
+
+
 def _resample(poly: np.ndarray, n: int) -> np.ndarray:
     """`n` points spaced uniformly in ARC LENGTH along a dense polyline.
 
@@ -1076,6 +1135,63 @@ class Hull:
     def _section_at(self, xv: float) -> np.ndarray:
         n = 1 if self.roundness <= 0.0 else SECTION_FILLET_SAMPLES
         return self._section_at_rows(xv, n, n)
+
+    def _sections_at_rows_batch(self, xs: np.ndarray, n_lo: int,
+                                n_hi: int) -> np.ndarray:
+        """(len(xs), n_lo+n_hi+1, 2): `_section_at_rows` at every x, one batch.
+
+        `_section_at_rows` STAYS THE DEFINITION and this is a transcription of
+        it with the station axis vectorised — the same lerp, the same Bezier
+        coefficients off the same shared `s` grid, the same arc-length
+        resample, in the same evaluation order, so every element is
+        bit-identical to the loop it replaces. That equality is FENCED, not
+        trusted (tests/test_admissibility.py::
+        test_the_batch_section_sampler_is_the_loop, 1e-12, roundness 0 and
+        roundness > 0 both): a second copy of a shape function is defect
+        class 2 and this is one.
+
+        WHY IT EXISTS: `admissibility.surface_grid` needs ~600 sections per
+        hull on the round-bilge path and the per-call overhead of
+        `sample_section` (a fresh linspace, a (2m+1, 2) `_bezier` and two
+        `_resample`s per station) put the screen at ~140 ms/hull against its
+        100 ms bar (~265 ms/hull under loadavg ~4). All ~600 stations share
+        (rho, n_lo, n_hi) and differ only in the four control points, which
+        is exactly the shape a batch removes: MEASURED 2026-08-20, this
+        method runs ~28 ms/hull at 600x120 (screen ~48 ms/hull) with the
+        sampled points unchanged.
+        """
+        xs = np.asarray(xs, dtype=float)
+        i = np.clip(np.searchsorted(self.x, xs), 1, self.n_stations - 1)
+        f = (xs - self.x[i - 1]) / (self.x[i] - self.x[i - 1])
+
+        def lerp(a):
+            return (1 - f) * a[i - 1] + f * a[i]
+
+        K = np.stack([np.zeros_like(xs), lerp(self.z_keel)], axis=1)
+        C = np.stack([lerp(self.y_chine), lerp(self.z_chine)], axis=1)
+        S = np.stack([lerp(self.y_sheer), lerp(self.z_sheer)], axis=1)
+        W = np.stack([lerp(self.y_wl), np.zeros_like(xs)], axis=1)
+        rho = self.roundness
+        if rho <= 0.0:
+            t_lo = np.linspace(0.0, 1.0, n_lo + 1)
+            t_hi = np.linspace(0.0, 1.0, n_hi + 1)[1:]
+            lo = K[:, None, :] + t_lo[None, :, None] * (C - K)[:, None, :]
+            hi = C[:, None, :] + t_hi[None, :, None] * (S - C)[:, None, :]
+            return np.concatenate([lo, hi], axis=1)
+        P0 = C + rho * (K - C)
+        P2 = C + rho * (W - C)
+        m = max(128, 2 * max(n_lo, n_hi))
+        # `_bezier`'s coefficients off the ONE shared parameter grid: the
+        # per-element products are the scalar path's, in the scalar path's
+        # order, broadcast over the station axis.
+        s = np.linspace(0.0, 1.0, 2 * m + 1)[None, :, None]
+        arc = ((1.0 - s) ** 2 * P0[:, None, :]
+               + 2.0 * s * (1.0 - s) * C[:, None, :]
+               + s * s * P2[:, None, :])
+        lo = np.concatenate([K[:, None, :], arc[:, :m + 1]], axis=1)
+        hi = np.concatenate([arc[:, m:], S[:, None, :]], axis=1)
+        return np.concatenate([_resample_batch(lo, n_lo + 1),
+                               _resample_batch(hi, n_hi + 1)[:, 1:]], axis=1)
 
     def min_bend_radius(self) -> float:
         """Smallest 3-D bend radius [m] along the keel and chine curves.

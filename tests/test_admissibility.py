@@ -179,6 +179,59 @@ def _seg_dist(py, pz, ay, az, by, bz) -> float:
     return float(np.linalg.norm(q - t * e))
 
 
+def test_the_batch_section_sampler_is_the_loop():
+    """`Hull._sections_at_rows_batch` == a loop over `Hull._section_at_rows`.
+
+    The batch is a SECOND COPY of the section sampler (defect class 2), kept
+    only because the per-station call overhead of `sample_section` put the
+    screen at ~140 ms/hull against its 100 ms bar (~600 stations per hull on
+    the round-bilge path). The screen's danger/margin bars were MEASURED
+    through this grid, so the batch must be VALUE-PRESERVING: every sampled
+    point equal to the single-x path at 1e-12, on BOTH branches — roundness 0
+    (the vectorised polyline) and roundness > 0 (the Bezier + arc-length
+    resample) — INCLUDING at the real 600x120 screen resolution, because the
+    bars' calibration lives at that grid, not at a toy one.
+    `_section_at_rows` stays the definition; this fence is what lets
+    `surface_grid` call the copy.
+    """
+    X, _ = sample_valid(3, MissionSpec(), seed=7)
+    ir = grammar.NAMES.index("roundness")
+    exercised_round = False
+    for x in X:
+        for force_hard_chine in (False, True):
+            xv = np.asarray(x, float).copy()
+            if force_hard_chine:
+                xv[ir] = 0.0
+            h = Hull(xv)
+            exercised_round |= h.roundness > 0.0
+            nz = 24
+            jc = h.chine_row(nz)
+            xs = np.linspace(float(h.x[0]), float(h.x[-1]), 37)
+            batch = h._sections_at_rows_batch(xs, jc, nz - jc)
+            assert batch.shape == (37, nz + 1, 2)
+            for k, xq in enumerate(xs):
+                ref = h._section_at_rows(float(xq), jc, nz - jc)
+                err = float(np.max(np.abs(batch[k] - ref)))
+                assert err < 1e-12, (float(xq), h.roundness, err)
+    assert exercised_round, (
+        "seed-7 draw no longer contains a round-bilge hull — the Bezier "
+        "branch went untested; pick a seed that exercises it")
+    # ...and once at the resolution the screen actually samples (600x120,
+    # from `stl_resolution` at scale 1), on one round-bilge hull: the
+    # calibrated bars were measured through THIS grid, so the equality
+    # claim has to hold where they live, not only on a small grid.
+    h = Hull(np.asarray(X[0], float))
+    assert h.roundness > 0.0
+    nx, nz = 600, 120
+    jc = h.chine_row(nz)
+    xs = np.linspace(float(h.x[0]), float(h.x[-1]), nx)
+    batch = h._sections_at_rows_batch(xs, jc, nz - jc)
+    for k in range(nx):
+        ref = h._section_at_rows(float(xs[k]), jc, nz - jc)
+        err = float(np.max(np.abs(batch[k] - ref)))
+        assert err < 1e-12, (k, err)
+
+
 def test_no_pipeline_constant_is_restated_in_this_module():
     """The bars are IMPORTED from `navalai.cfd.case`, never transcribed.
 
