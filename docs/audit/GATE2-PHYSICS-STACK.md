@@ -48,7 +48,7 @@ green is not small-craft validation."*
 |---|---|---|---|
 | **2A** | hydrostatics | **Wigley, analytic** | **GREEN — executable, this file** |
 | **2B** | free surface + wave resistance | Wigley (Fn 0.22–0.48) | machinery present, CFD run owed |
-| **2C** | displacement-hull resistance, form sensitivity | **DSYHS** | **DATA NOT HELD** |
+| **2C** | displacement-hull resistance, form sensitivity | **DSYHS** | **GREEN — 51 models, 742 points, acquired + MD5-verified** |
 | **2D** | RANS / turbulence / solver | KCS | RED, ledgered, demoted |
 | **2E** | hard-chine resistance, developable panels | **Naples Systematic Series** | **DATA NOT HELD** |
 | **2F** | planing | Fridsma / DSDS / Series 62–65 | out of regime today |
@@ -108,3 +108,53 @@ Completing the full triplet buys *numerical* credibility we can already
 mostly claim, and buys **nothing** about chine physics. The same budget spent
 acquiring DSYHS and NSS data would move rungs 2C and 2E from
 "data not held" to green.
+
+
+---
+
+# 2C ACQUIRED, 2E REFUSED — and 2E is blocked twice over (2026-08-21)
+
+## 2C DSYHS — done
+Downloaded from 4TU.ResearchData (articles 21501375, 21501402), all five
+files MD5-verified against the publisher's own checksums, then re-verified by
+two independent internal checks (derived Cb vs the released `cb0`: 0.0000%
+worst over 61 rows; wetted-surface shape ratio 0.4901..0.6089). **51 models,
+742 bare-hull points, Fn 0.089–1.150.**
+
+**MEASURED: our ITTC-57 friction line accounts for a MEDIAN 90.4% of measured
+total resistance** over 63 points in Fn 0.12–0.16 across all 51 models. The
+rest is form drag plus residual wave-making, which is what it should be.
+
+The band's lower edge is an INSTRUMENT limit, not a fit: below Fn 0.12 the
+median ratio is 1.026 — friction exceeding total, impossible for a bare hull
+— on a median force of 0.303 N, and the six worst cases sit at Fn 0.100 on
+0.11–0.23 N. That is the towing-tank load cell's floor. The test asserts the
+excluded band **still** reads above 1.0, so the edge cannot quietly become a
+convenience.
+
+## 2E Naples Systematic Series — REFUSED, and not only for the obvious reason
+
+**Blocker 1, access.** NSS is published in *Ocean Engineering* (Elsevier,
+2017) and circulated on ResearchGate. There is **no open dataset with
+publisher checksums**, so it cannot clear the bar DSYHS cleared. Transcribing
+offsets from an abstract or a scan would be exactly what
+`benchmarks/holtrop_cases.py` exists to warn against.
+
+**Blocker 2, and this one matters more: THE FROUDE RANGE DOES NOT OVERLAP OUR
+PRODUCT.** NSS was tested at **Fr 0.5–1.6** (Re > 3.5e6). Our design point is
+**Fn 0.26**. So even fully acquired, NSS would validate the *transition and
+planing* regimes — not the cruise condition our boats actually operate at.
+
+**Consequence for priority.** NSS is the geometrically closest published
+family — hard chine, explicitly transformed to developable surfaces for
+plywood, aluminium and steel construction — and that is genuinely valuable
+**when Naval-AI enters semi-planing**. It is NOT the anchor for a 5-knot
+10 m displacement boat. It should be acquired when the design space expands
+past Fn ~0.4, not before.
+
+**So the hard-chine anchor AT OUR OWN FROUDE NUMBER remains genuinely open,
+and no published series found so far fills it.** That is worth stating
+plainly rather than substituting a family that is either the wrong shape
+(DSYHS: round bilge) or the wrong speed (NSS: planing). The honest position
+is that chine physics at Fn 0.26 is currently unvalidated, and the ladder
+should say so rather than imply otherwise.
