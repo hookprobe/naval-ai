@@ -616,6 +616,52 @@ if [ "${MESH_ONLY:-0}" = "1" ]; then
   exit 0
 fi
 
+# SMOKE_ONLY=N — the classifier's missing half (Gate 2U's "converges" side).
+#
+# `post.smoke_verdict` has existed and had nothing to read: it classifies the
+# FIRST N LTS iterations of the real solve, and no runner mode produced them.
+# scripts/mesh_robustness.py already refers to "the Mac runner's SMOKE_ONLY
+# mode" in two comments, so the contract was written and the implementation
+# was owed.
+#
+# WHY THIS IS WORTH A MODE RATHER THAN A SHORTER endTime. The two incidents it
+# exists to catch both live inside the first ~200 iterations and BOTH pass
+# every checkMesh bar:
+#   * h2  — 0 zero-volume cells, 0 wrongly-oriented faces, skew 6.95, and it
+#           died with sigFpe in GAMGSolver::scale at LTS iteration 104,
+#           discovered at a 323 s price.
+#   * h18 — the local flow time scale collapsed to 4.356e-18 s, twelve orders
+#           below every hull that solved, and the run burned its whole 2700 s
+#           budget into the timeout column.
+# checkMesh is MEASURED blind to that class. A smoke solve is not, and it
+# prices the question at ~3 minutes instead of hours.
+#
+# It edits the case's OWN endTime rather than passing a flag, because the
+# solver reads controlDict and a mode that lied about what the case contains
+# would be the receipt-vs-spec defect this file already carries scars from.
+# The original value is restored on exit, so a smoked case is still the case
+# it was written as.
+if [ "${SMOKE_ONLY:-0}" != "0" ]; then
+  _SMOKE_N="${SMOKE_ONLY}"
+  _SMOKE_ORIG_END="$(foamDictionary -entry endTime -value system/controlDict 2>/dev/null || echo '')"
+  _SMOKE_ORIG_WI="$(foamDictionary -entry writeInterval -value system/controlDict 2>/dev/null || echo '')"
+  if [ -z "$_SMOKE_ORIG_END" ]; then
+    say "FATAL: SMOKE_ONLY set but controlDict has no endTime to bound"
+    exit 1
+  fi
+  say "SMOKE_ONLY=$_SMOKE_N — solving the first $_SMOKE_N iterations only"
+  say "  (endTime $_SMOKE_ORIG_END -> $_SMOKE_N; restored on exit)"
+  foamDictionary -entry endTime -set "$_SMOKE_N" system/controlDict > /dev/null
+  foamDictionary -entry writeInterval -set "$_SMOKE_N" system/controlDict > /dev/null 2>&1 || true
+  _smoke_restore() {
+    foamDictionary -entry endTime -set "$_SMOKE_ORIG_END" system/controlDict > /dev/null 2>&1 || true
+    [ -n "$_SMOKE_ORIG_WI" ] && foamDictionary -entry writeInterval -set "$_SMOKE_ORIG_WI" system/controlDict > /dev/null 2>&1 || true
+    say "SMOKE_ONLY: controlDict restored (endTime $_SMOKE_ORIG_END)"
+  }
+  trap _smoke_restore EXIT
+  _mq_record smoke_only_iterations "$_SMOKE_N"
+fi
+
 # setFields IS NOT OPTIONAL, AND `|| true` SAID IT WAS.
 # It is what puts water in the tank: `0.orig/alpha.water` is uniform 0, and
 # every cell below z=0 is filled by the boxToCell entry here. If setFields
