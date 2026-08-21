@@ -835,9 +835,46 @@ GATES = [
     # suite's across-seed test now ASSERTS the bar on five honest query
     # draws (never one chosen seed) and re-opens the ledger row with a dated
     # measurement if the bar is ever missed again.
-    Gate("Gate 2M", "KCS/JBC OpenFOAM calibration w/ per-case GCI",
+    # GATE 2 WAS REFRAMED 2026-08-21 (operator directive), and the reason is
+    # that the QUESTION changed rather than the answer.
+    #
+    # Gate 2M was written when this project intended to design arbitrary
+    # ships, and KCS -- a 230 m round-bilge container ship with a bulbous bow
+    # -- was the right anchor for that. The product is now low-cost BUILDABLE
+    # PLYWOOD boats: hard-chine, developable panels, shallow draft,
+    # displacement to semi-displacement. KCS shares no chine, transom or
+    # spray physics with any of them.
+    #
+    # KCS IS KEPT AND DEMOTED, not discarded. At model scale it sits at
+    # Fn 0.260 / Re 1.40e7 against our 10 m at 5 kn (Fn 0.260 / Re 2.26e7),
+    # so it remains an excellent test of the NUMERICS -- free-surface
+    # resolution, layer stack, y+, turbulence closure, grid convergence -- at
+    # our own operating point. What it cannot do is validate the physics our
+    # hulls actually have. The row now SAYS which of those two claims it
+    # carries, because the old title did not and that is how a solver
+    # benchmark came to be read as small-craft validation.
+    #
+    # The rest of the stack (2A hydrostatics, 2B Wigley free surface, 2C
+    # DSYHS displacement, 2E hard-chine) is tracked in
+    # docs/audit/GATE2-PHYSICS-STACK.md. Only the rows with a suite or a
+    # ledger entry appear here; a gate with neither would be a gate that
+    # verifies nothing.
+    # Gate 2's EXECUTABLE rungs. 2A is the strongest benchmark in the
+    # project: the Wigley hull's displaced volume is exactly 4LBT/9, so the
+    # integrator is checked against MATHEMATICS rather than an experiment
+    # with a scatter band to hide in. The rungs that need data this tree does
+    # not hold (2C DSYHS, 2E Naples) are recorded in
+    # docs/audit/GATE2-PHYSICS-STACK.md and are deliberately NOT stubbed
+    # here -- a gate that asserts nothing is worse than an absent one.
+    Gate("Gate 2P-Stack", "Gate 2 physics stack: hydrostatics as a "
+         "MATHEMATICAL invariant (Wigley 4LBT/9, second-order convergence), "
+         "and KCS pinned as solver verification only",
+         "tests/test_gate2_physics_stack.py"),
+    Gate("Gate 2M", "SOLVER VERIFICATION ONLY (not small-craft validation): "
+                    "KCS/JBC OpenFOAM numerics w/ per-case GCI",
          status=Verdict.RED,
-         detail="see data/gate-ledger.json for the measured watermark"),
+         detail="see data/gate-ledger.json; demoted from primary physical "
+                "anchor 2026-08-21 — see docs/audit/GATE2-PHYSICS-STACK.md"),
     Gate("Gate 2U", "unattended meshing (plan: >=95% of a 200-hull batch)",
          status=Verdict.RED,
          detail="see data/gate-ledger.json for the measured watermark"),

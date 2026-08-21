@@ -18,7 +18,7 @@
     "become permanent furniture."
   ],
   "Gate 2M": {
-    "metric": "C_T vs KRISO EFD 3.711e-3, and Roache GCI over a solved triplet",
+    "metric": "SOLVER VERIFICATION: C_T vs KRISO EFD 3.711e-3 and Roache GCI over a solved triplet. NOT a small-craft physical validation — see scope below.",
     "watermark": "NONE — no reproducible measurement exists (see why_red)",
     "units": "E%D, (EFD-CFD)/EFD * 100; negative = we over-predict",
     "better_is": "toward_zero",
@@ -62,7 +62,9 @@
       "per grid) and is superseded by the base-57 family with n_layers pinned;",
       "regenerate with `make_case.py --triplet --symmetric` before solving."
     ],
-    "verify_note": "RE-CHECKED 2026-08-07 during the four-branch consolidation: the previous verify named runs/kcs_gci2, which does not exist on this machine either. That is the same defect the watermark already records — a ledger that cites a deleted run is citing nothing — so the field now names no run directory at all."
+    "verify_note": "RE-CHECKED 2026-08-07 during the four-branch consolidation: the previous verify named runs/kcs_gci2, which does not exist on this machine either. That is the same defect the watermark already records — a ledger that cites a deleted run is citing nothing — so the field now names no run directory at all.",
+    "scope": "Demoted 2026-08-21 from primary physical anchor to NUMERICAL anchor. KCS at model scale is Fn 0.260 / Re 1.40e7 against our 10 m at 5 kn (Fn 0.260 / Re 2.26e7), so it tests the numerics at our operating point — free surface, layers, y+, turbulence, grid convergence. It has a bulbous bow and a round bilge and cannot exercise chine spray, hard-chine separation or transom ventilation, which is all the product actually builds. Passing this gate must never be reported as validating a plywood hull.",
+    "superseded_as_primary_by": "docs/audit/GATE2-PHYSICS-STACK.md (Gate 2A/2B/2C/2E)"
   },
   "Gate 2U": {
     "metric": "% of a random valid-hull batch that meshes AND CONVERGES unattended, one rung per hull. CONVERGES is settled_drag's verdict, not 'ran to budget'. Two sub-rates, because they are different claims: RAN-TO-BUDGET 88.2% (15/17) and SETTLED 17.6% (3/17, i.e. 3 of the 15 runners).",

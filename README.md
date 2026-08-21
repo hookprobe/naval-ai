@@ -229,7 +229,8 @@ different Gate 2M numbers came to circulate at once (gap J1).
 | Gate DC | design certification: cheap classify-and-rank with receipts, banded speed curves, loading matrix, regime refusals | `tests/test_design_certification.py` (12 tests) |
 | Gate FG | fidelity governor: five gates route (not badge) a design to a tier, with named receipts and no silent passes | `tests/test_select_fidelity.py` (42 tests) |
 | Gate 4F | raw generative feasibility: UNFILTERED model draws vs the >=99% bar (BuildPlan Phase 4) | **RED** — `data/gate-ledger.json` |
-| Gate 2M | KCS/JBC OpenFOAM calibration w/ per-case GCI | **RED** — `data/gate-ledger.json` |
+| Gate 2P-Stack | Gate 2 physics stack: hydrostatics as a MATHEMATICAL invariant (Wigley 4LBT/9, second-order convergence), and KCS pinned as solver verification only | `tests/test_gate2_physics_stack.py` (3 tests) |
+| Gate 2M | SOLVER VERIFICATION ONLY (not small-craft validation): KCS/JBC OpenFOAM numerics w/ per-case GCI | **RED** — `data/gate-ledger.json` |
 | Gate 2U | unattended meshing (plan: >=95% of a 200-hull batch) | **RED** — `data/gate-ledger.json` |
 | Gate 6D | developable-panel refold: EXPORTED panels back onto the hull vs the 5 mm bar (BuildPlan 12.3) | **RED** — `data/gate-ledger.json` |
 
