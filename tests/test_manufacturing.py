@@ -1414,7 +1414,11 @@ def test_a_cut_file_is_refused_when_the_panels_would_not_close_on_the_hull():
         parts += split_panel(p, PLY_THICKNESS_M)
     layout = nest(parts)
 
-    with _pytest.raises(ValueError, match="refold deviation"):
+    # The message names the FAMILY now, not a single deviation: this fixture's
+    # family is (124.07, 74.06, 22.29) mm — REFINING, i.e. falling but still
+    # over the bar at the finest count, which is a refusal for a different and
+    # honest reason than NON_DEVELOPABLE.
+    with _pytest.raises(ValueError, match="refold family"):
         export_dxf(layout, "/dev/null", hull=hull)
 
     # The override exists for geometry research and SAYS SO IN THE FILE.
@@ -1424,7 +1428,7 @@ def test_a_cut_file_is_refused_when_the_panels_would_not_close_on_the_hull():
         out = export_dxf(layout, pathlib.Path(d) / "over.dxf", hull=hull,
                          allow_unverified=True)
         head = out.read_text()[:400]
-        assert "OVER the" in head and "NOT a production cut file" in head
+        assert "OVERRIDDEN" in head and "NOT a production cut file" in head
 
         # And a file written with NO hull must not read as verified: an
         # unmeasured quantity is refused, never assumed good.
@@ -1578,3 +1582,130 @@ def test_refold_convergence_refuses_to_name_an_order_it_cannot_support():
 
     with pytest.raises(ValueError):
         unroll.refold_convergence(_kit_corner_params(), counts=(81, 41))
+
+
+def test_the_cut_file_draws_every_part_the_BOM_tells_the_builder_to_cut():
+    """MEASURED 2026-08-21, on a hull the kit lane actually delivered.
+
+    `engineer.assess` computed the nesting layout, read `ply_sheets`,
+    `nest_utilisation` and every `BomLine.sheet` off it -- and then RETURNED
+    ONLY THE BOM. So anything wanting the CUT FILE had to re-derive the nest,
+    and re-deriving it is easy to get subtly wrong: rebuilding from
+    `_shell_parts` alone, omitting the `fixed` parts (deck, transom and the
+    eight bulkheads), gave a DXF with **84 part outlines against a BOM of 186
+    sheet-good parts**.
+
+    102 parts the builder is told to cut were not drawn in the file they cut
+    from. Nothing detected it, because nothing compared them: two nests, one
+    BOM, one cut file, no fence. That is A NUMBER DECLARED TWICE in its most
+    expensive form -- the boat is short a bottom strake, six deck tiles and
+    every bulkhead, and you find out at the saw.
+
+    `EngineerReport` now carries `layout` and `parts`, so the BOM and the cut
+    file are the same nest by construction. This test is the fence.
+    """
+    import numpy as np
+
+    from navalai.engineer import assess
+    from navalai.geometry import Hull
+    from navalai.unroll import export_dxf, parse_dxf_polylines
+
+    # The developable corner of the grammar — `assess` refuses a radiused
+    # bilge outright, so the fixture must be hard-chine for the test to reach
+    # the nest at all.
+    d = _kit_corner_params()
+    hull = Hull(np.array([d[n] for n in unroll.grammar.NAMES], float))
+    rep = assess(hull, wl=0.0)
+    assert rep.layout is not None, "assess must carry the nest it computed"
+    assert rep.parts, "assess must carry the parts it nested"
+
+    # `ply_sheets` and the BOM's sheet assignments are read off THAT layout.
+    assert rep.ply_sheets == rep.layout.sheets
+
+    import tempfile
+    import pathlib
+    with tempfile.TemporaryDirectory() as d:
+        out = export_dxf(rep.layout, pathlib.Path(d) / "cut.dxf",
+                         hull=hull, allow_unverified=True)
+        drawn = {k for k in parse_dxf_polylines(out)
+                 if not k.startswith("SHEET-")}
+
+    want = {b.part for b in rep.bom if b.sheet is not None}
+    assert want, "this hull must have sheet-good parts for the test to mean anything"
+    missing = want - drawn
+    assert not missing, (
+        f"{len(missing)} of {len(want)} BOM part(s) are NOT drawn in the cut "
+        f"file, e.g. {sorted(missing)[:6]}. A builder cannot cut what the file "
+        f"does not contain.")
+
+
+def test_a_refold_verdict_is_a_FAMILY_and_the_cut_file_gate_uses_it():
+    """MEASURED 2026-08-21, and it caught a hull this session had ALREADY
+    SHIPPED as verified.
+
+    `export_dxf`'s first buildability guard read `refold_surface_deviation_mm`
+    at the ladder's 41 stations and compared it to the 5 mm bar. But the panel
+    is built as straight chords between stations, so at n=41 part of every
+    reading is a 40-segment polyline's sagitta: a surface whose Gaussian
+    curvature is 7.8e-14 -- machine zero, exactly developable -- reads 17.1 mm
+    there and 1.5 mm at n=321.
+
+    The consequence was not a conservative gate. It was a FALSE PASS. A
+    refinement search scored on that same 41-station number returned
+
+        n=41  4.92 mm      n=81  5.22 mm      n=161  8.71 mm
+
+    -- under the bar at the count it was optimised against, and RISING. It
+    optimised the artefact instead of the curvature, and the cut file was
+    stamped REFOLD VERIFIED.
+
+    Falling under refinement is measurement; rising is geometry. Only the
+    second is a hull you cannot build, and only a family can tell them apart --
+    the same discipline `cfd.post.gci` applies to a mesh family.
+    """
+    import numpy as np
+    import pytest as _pytest
+
+    from navalai import unroll
+    from navalai.geometry import Hull
+    from navalai.limits import PLY_THICKNESS_M, REFOLD_BAR_MM
+    from navalai.unroll import (export_dxf, hull_panels, nest,
+                                refold_convergence, split_panel)
+
+    # A DEVELOPABLE hull whose 41-station reading is far OVER the bar: the
+    # positive control for "falling is measurement".
+    corner = _kit_corner_params()
+    fam = refold_convergence(corner, counts=(41, 81, 161))
+    assert fam.verdict == "PASSES", (fam.verdict, fam.worst_mm)
+    assert fam.worst_mm[0] > REFOLD_BAR_MM, (
+        "this control is only meaningful if the COARSE count misses the bar "
+        "while the family passes")
+    assert fam.finest_mm <= REFOLD_BAR_MM
+
+    # and the gate must let it through on the strength of the trend, not
+    # refuse it on the strength of its 41-station value.
+    hull = Hull(np.array([corner[n] for n in unroll.grammar.NAMES], float))
+    parts = []
+    for pan in hull_panels(hull):
+        parts += split_panel(pan, PLY_THICKNESS_M)
+    layout = nest(parts)
+
+    import pathlib
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        out = export_dxf(layout, pathlib.Path(d) / "ok.dxf", hull=hull)
+        head = out.read_text()[:300]
+        assert "REFOLD VERIFIED" in head, head[:160]
+        # the stamp must carry the FAMILY, not a lone number
+        assert "PASSES" in head or "family" in head, head[:160]
+
+    # A hull whose family RISES must be refused however good n=41 looks.
+    bad = _kit_corner_params(flare=25.0)
+    fam_bad = refold_convergence(bad, counts=(41, 81, 161))
+    assert fam_bad.verdict == "NON_DEVELOPABLE", fam_bad.worst_mm
+    hull_bad = Hull(np.array([bad[n] for n in unroll.grammar.NAMES], float))
+    parts_b = []
+    for pan in hull_panels(hull_bad):
+        parts_b += split_panel(pan, PLY_THICKNESS_M)
+    with _pytest.raises(ValueError, match="NON_DEVELOPABLE"):
+        export_dxf(nest(parts_b), "/dev/null", hull=hull_bad)

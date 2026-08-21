@@ -93,6 +93,23 @@ class EngineerReport:
     nest_utilisation: float = 0.0  # placed part footprint / sheet area
     sheet_area_m2: float = 0.0
     bottom_thickness_mm: float = PLY_THICKNESS_M * 1e3
+    # THE NEST ITSELF, and the BOM above is derived from it. Carried rather
+    # than discarded because it is the ONE layout: `ply_sheets`,
+    # `nest_utilisation` and every `BomLine.sheet` are read off it, and a
+    # caller that wants the CUT FILE must draw the same one.
+    #
+    # MEASURED 2026-08-21, which is why this field exists. `assess` computed
+    # the layout, used it, and returned only the BOM — so an exporter had to
+    # re-derive it, and re-deriving it is easy to get wrong: rebuilding the
+    # parts from `_shell_parts` alone (omitting `fixed`, i.e. deck, transom
+    # and the eight bulkheads) produced a DXF with 84 outlines against a BOM
+    # of 186 sheet-good parts. **102 parts the builder is told to cut were not
+    # drawn in the cut file.** That is A NUMBER DECLARED TWICE in its most
+    # expensive form: two nests, one BOM, one cut file, and no fence between
+    # them. `layout` and `parts` make the cut file and the BOM the same nest
+    # by construction.
+    layout: object | None = None
+    parts: tuple = ()
 
 
 # Extra strake counts tried beyond the minimum. MEASURED on the reference
@@ -327,4 +344,5 @@ def assess(hull: Hull, wl: float = 0.0,
         nest_utilisation=round(layout.utilisation(), 4),
         sheet_area_m2=round(layout.sheets * SHEET_M2, 2),
         bottom_thickness_mm=round(t_bottom * 1e3, 1),
+        layout=layout, parts=tuple(parts),
     )

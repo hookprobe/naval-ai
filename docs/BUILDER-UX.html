@@ -648,11 +648,23 @@ footer{padding:44px 0 66px; color:var(--ink-3); font-size:.85rem}
   <div class="sec-head"><span class="sec-num">04</span><h2>Builder's Output</h2></div>
   <div class="stack col">
     <p class="eyebrow">From design tool to build project</p>
-    <p><strong>As of 2026-08-21 this phase has a real artefact.</strong> The lane now runs mission sentence → governed search →
-    buildability refinement → a DXF a shop could cut: LWL 11.82 m, GM 3.87 m, ladder passing, panels at 4.9 and 4.8 mm against the 5 mm
-    bar, and a header stamped <code>REFOLD VERIFIED 4.9 mm &lt;= 5 mm</code>. Ninety plywood sheets at 75.2% nest, an ISO-derived 18 mm
-    bottom, 141 kg of epoxy, a 207-line BOM. An hour earlier the same lane wrote a DXF for panels that missed the hull by 221.5 mm with
-    nothing objecting.</p>
+    <p><strong>As of 2026-08-21 this phase has a real LANE, and a retracted result.</strong> The pipeline runs end to end —
+    mission sentence → governed search → buildability refinement → a complete DXF whose every BOM part is drawn (a check that
+    caught <strong>102 of 186 parts missing</strong> from an earlier cut file). Ninety plywood sheets at 75.2% nest, an ISO-derived
+    18 mm bottom, 141 kg of epoxy, a 207-line BOM. An hour earlier the same lane wrote a DXF for panels that missed the hull by
+    221.5 mm with nothing objecting.</p>
+    <div class="bind refuse">
+      <span class="lbl">Retracted the same day it was written — and PU-4 is why</span>
+      <p>This paragraph previously reported a delivered hull at <em>"4.9 and 4.8 mm, header stamped REFOLD VERIFIED"</em>.
+      <strong>That hull is not buildable.</strong> Re-measured as a FAMILY rather than at one station count:
+      <code>n=41 → 4.92 mm · n=81 → 5.22 mm · n=161 → 8.71 mm</code> — <strong>RISING</strong>, verdict
+      <code>NON_DEVELOPABLE</code>.</p>
+      <p>The refinement search had been scored on the 41-station number, so it optimised the <em>sagitta artefact</em> this
+      document's own §04 identifies rather than the curvature: a surface with Gaussian curvature 7.8e-14 reads 17.1 mm at n=41.
+      It gamed the metric. <code>export_dxf</code> now gates on <code>refold_convergence</code>'s trend and REFUSES that hull by
+      name, which is PU-4 enforced at the boundary instead of stated as an intention. The kit route in the wireframe below is
+      therefore still a search with no guaranteed answer — as it is drawn.</p>
+    </div>
     <p>So the interface changes character here. Sliders disappear. And it opens not with a download button but with a <strong>routing
     verdict</strong>, because the backend makes one: every hull is classified <em>sheet-kit</em> or <em>mould</em>, and the DXF exporter
     <strong>raises rather than writing a file</strong> when the panels do not re-fold within the bar.</p>

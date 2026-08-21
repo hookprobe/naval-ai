@@ -107,6 +107,26 @@ def _refine(x0, mission, policy, box, budget_s, seed):
         except Exception:
             return (1e6, 1e6)
 
+    def verdict_of(x):
+        """The FAMILY verdict — the only thing that decides buildability.
+
+        MEASURED 2026-08-21 and it is why this function exists. Scoring the
+        refinement on the 41-station number alone produced a hull reading
+        4.92 / 5.22 / 8.71 mm at 41 / 81 / 161: UNDER the bar at the count it
+        was optimised against, and RISING. It gamed the metric. Part of every
+        41-station reading is a 40-segment polyline's sagitta -- a surface with
+        Gaussian curvature 7.8e-14 reads 17.1 mm there -- so a single count is
+        a number and only a family is a verdict.
+
+        The cheap score above still DRIVES the search, because the family costs
+        several times more per step. This confirms the winner.
+        """
+        try:
+            return unroll.refold_convergence(grammar.named(x),
+                                             bar_mm=REFOLD_BAR_MM)
+        except Exception:
+            return None
+
     t0 = time.time()
     best, bx = score(np.asarray(x0, float)), np.asarray(x0, float).copy()
 
@@ -137,7 +157,17 @@ def _refine(x0, mission, policy, box, budget_s, seed):
         if s < best:
             best, bx, sigma = s, cand, min(sigma * 1.2, 0.25)
             if best[0] == 0.0 and best[1] <= REFOLD_BAR_MM:
-                return bx, evaluate(bx, mission, policy=policy), best[1]
+                # Cheap score says buildable. CONFIRM ON THE FAMILY before
+                # believing it, and keep searching if the trend says the
+                # coarse count was flattering.
+                conv = verdict_of(bx)
+                if conv is not None and conv.verdict == "PASSES":
+                    return (bx, evaluate(bx, mission, policy=policy),
+                            float(conv.finest_mm))
+                if conv is not None:
+                    print(f"    n=41 said {best[1]:.2f} mm but the family "
+                          f"{tuple(round(v, 2) for v in conv.worst_mm)} is "
+                          f"{conv.verdict} — rejected, continuing")
         else:
             sigma = max(sigma * 0.995, 0.004)
     return None
@@ -354,6 +384,31 @@ def main(argv=None) -> int:
           f"approx) · build {eng.build_hours:.0f} h")
     print(f"  BOM {len(eng.bom)} line items")
 
+    # ---- THE CUT FILE, from the SAME nest the BOM was read off ----------
+    #
+    # MEASURED 2026-08-21: re-deriving the nest for the exporter (rebuilding
+    # from `_shell_parts` and forgetting `fixed` — deck, transom, eight
+    # bulkheads) produced a DXF with 84 outlines against a BOM of 186
+    # sheet-good parts. 102 parts the builder is told to cut were not drawn.
+    # `EngineerReport` now carries `layout`, so there is one nest and the
+    # question cannot be asked twice.
+    dxf = out / "cut.dxf"
+    try:
+        unroll.export_dxf(eng.layout, dxf, ev=ev, hull=hull)
+        drawn = set(unroll.parse_dxf_polylines(dxf))
+        drawn = {k for k in drawn if not k.startswith("SHEET-")}
+        want = {b.part for b in eng.bom if b.sheet is not None}
+        if want - drawn:
+            print(f"\n  CUT FILE INCOMPLETE: {len(want - drawn)} BOM part(s) "
+                  f"are not drawn — REFUSED as a kit")
+            return 4
+        print(f"\nCUT FILE: {dxf}  ({len(drawn)} part outlines over "
+              f"{eng.layout.sheets} sheets, every BOM part drawn)")
+        print(f"  header: {dxf.read_text().splitlines()[1]}")
+    except ValueError as exc:
+        print(f"\nCUT FILE REFUSED: {exc}")
+        return 3
+
     cert = certify(x, m, policy=policy)
     (out / "certification.json").write_text(json.dumps({
         "mission": a.mission,
@@ -361,6 +416,8 @@ def main(argv=None) -> int:
                          else policy.constitution.name),
         "params": [float(v) for v in x],
         "stl_sha256": sha,
+        "cut_file": str(dxf),
+        "ply_sheets": eng.ply_sheets,
         "verdict": getattr(cert, "verdict", None),
         "bom": [b.as_dict() for b in eng.bom],
     }, indent=1, default=str))

@@ -1627,23 +1627,46 @@ def export_dxf(layout, path: str | Path, gap: float = 0.1,
     verdict = ("REFOLD NOT VERIFIED - hull not supplied to export_dxf; "
                "this is NOT a production cut file")
     if hull is not None:
-        worst = 0.0
-        for _pan in hull_panels(hull):
-            worst = max(worst, float(
-                np.max(refold_surface_deviation_mm(hull, _pan))))
-        if worst > REFOLD_BAR_MM and not allow_unverified:
+        # A FAMILY, NOT ONE COUNT -- and the first version of this guard got
+        # that wrong in a way that shipped a bad answer.
+        #
+        # `refold_surface_deviation_mm` builds the panel as straight chords
+        # between the hull's stations, so at `_LADDER_STATIONS` = 41 part of
+        # every reading is a 40-segment polyline's sagitta. MEASURED: a surface
+        # with Gaussian curvature 7.8e-14 -- machine zero, exactly developable
+        # -- reads 17.1 mm at n=41 and 1.5 mm at n=321. So a single count is
+        # not a manufacturing verdict, and CLAUDE.md rule 4 names this exactly:
+        # a defect measured at a configuration the product never runs.
+        #
+        # It cuts BOTH ways, which is why this guard changed. A refinement
+        # search that optimised the n=41 number produced a hull reading
+        # 4.92 / 5.22 / 8.71 mm at 41 / 81 / 161 -- under the bar at the coarse
+        # count and RISING. It gamed the metric. Falling under refinement is
+        # measurement; rising is geometry, and only the second is a boat you
+        # cannot build. `refold_convergence` returns the trend.
+        conv = refold_convergence(grammar.named(hull.params),
+                                  bar_mm=REFOLD_BAR_MM)
+        worst = float(conv.finest_mm)
+        if conv.verdict != "PASSES" and not allow_unverified:
             raise ValueError(
-                f"export_dxf: worst refold deviation {worst:.1f} mm exceeds "
-                f"the {REFOLD_BAR_MM:.0f} mm bar (limits.REFOLD_BAR_MM, "
-                f"BuildPlan 12.3 / Gate 6D). Refolded onto the hull's moulded "
-                f"surface these panels miss by that much, so cutting plywood "
-                f"to them produces panels that do not close. REFUSED. Pass "
-                f"allow_unverified=True only for geometry research, never to "
-                f"hand a shop a file.")
-        verdict = (f"REFOLD VERIFIED {worst:.1f} mm <= {REFOLD_BAR_MM:.0f} mm"
-                   if worst <= REFOLD_BAR_MM else
-                   f"REFOLD {worst:.1f} mm OVER the {REFOLD_BAR_MM:.0f} mm "
-                   f"bar - OVERRIDDEN, NOT a production cut file")
+                f"export_dxf: refold family {conv.counts} -> "
+                f"{tuple(round(v, 2) for v in conv.worst_mm)} mm, verdict "
+                f"{conv.verdict!r} against the {REFOLD_BAR_MM:.0f} mm bar "
+                f"(limits.REFOLD_BAR_MM, BuildPlan 12.3 / Gate 6D). A verdict "
+                f"is the TREND across station counts, never one count: a "
+                f"shortfall that FALLS under refinement is the polyline's "
+                f"sagitta, one that RISES is double curvature the sheet cannot "
+                f"take. Cutting plywood to these produces panels that do not "
+                f"close. REFUSED. Pass allow_unverified=True only for geometry "
+                f"research, never to hand a shop a file.")
+        verdict = (f"REFOLD VERIFIED {worst:.2f} mm at n="
+                   f"{conv.counts[-1]} <= {REFOLD_BAR_MM:.0f} mm "
+                   f"(family {tuple(round(v, 2) for v in conv.worst_mm)}, "
+                   f"{conv.verdict})"
+                   if conv.verdict == "PASSES" else
+                   f"REFOLD {conv.verdict} - family "
+                   f"{tuple(round(v, 2) for v in conv.worst_mm)} mm at "
+                   f"{conv.counts} - OVERRIDDEN, NOT a production cut file")
     if isinstance(layout, (list, tuple)):
         parts: list[Part] = []
         for p in layout:

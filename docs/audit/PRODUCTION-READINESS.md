@@ -420,3 +420,48 @@ the system today, even though the search cannot yet aim at buildability.
 when `construction = sheet-developable`. Note the contract it must respect —
 `policy.rows_for` is a READER of a finished evaluation and measures nothing
 itself, so the quantity has to reach `Evaluation` first.
+
+
+---
+
+# THE 41-STATION CORRECTION (2026-08-21, later the same day)
+
+Every refold number above was measured at `geometry._LADDER_STATIONS` = 41.
+The other session measured what that count is worth, and it changes how two of
+this document's claims must be read.
+
+`refold_surface_deviation_mm` builds the panel as straight chords between the
+hull's stations, so part of every reading is a 40-segment polyline's SAGITTA —
+discretisation, not surface. A hull with Gaussian curvature **7.8e-14** (machine
+zero, exactly developable) reads **17.1 mm at n=41** and **1.5 mm at n=321**.
+41 was chosen for hydrostatics cost; nothing about manufacturing picked it.
+That is CLAUDE.md rule 4 — a defect measured at a configuration the product
+never runs — except here it also produced a false PASS.
+
+**The discriminator is the TREND, not the value**, exactly as `cfd.post.gci`
+treats a mesh family: falling under refinement is measurement, rising is
+geometry. `unroll.refold_convergence` returns it.
+
+## What survives, and what is retracted
+
+| hull | 41 / 81 / 161 mm | verdict | standing |
+|---|---|---|---|
+| the **4.952 mm existence proof** | 4.95 · 2.71 · **2.36** | **PASSES** | **STANDS — and is stronger than reported**: it is 2.36 mm at n=161, falling |
+| the other session's kit corner (flare 0) | 17.13 · 5.77 · **4.10** | **PASSES** | independent second existence proof |
+| the 3.900 mm unconstrained hull | 3.90 · 4.35 · 4.32 | NON_DEVELOPABLE | was already discarded — GM −0.35 m, it capsizes |
+| **the hull the kit lane DELIVERED** | 4.92 · 5.22 · **8.71** | **NON_DEVELOPABLE** | **RETRACTED. It is not buildable.** |
+
+**So Gate 6D is still closable — two independent hulls pass the family test —
+and the DELIVERY PATH was broken.** The refinement stage scored on the
+41-station number, so it optimised the sagitta artefact rather than the
+curvature and returned a hull that games the metric. That is the sharpest
+failure in this session: not a wrong measurement, but a search pointed at one.
+
+## Fixed
+
+- `unroll.export_dxf` gates on `refold_convergence`'s trend and refuses the
+  delivered hull by name. Verified against that exact hull.
+- `scripts/design_kit.py` still DRIVES the search on the cheap 41-station score
+  (the family costs several times more per step) but CONFIRMS every candidate
+  on the family before returning it, and says so when the coarse count was
+  flattering.

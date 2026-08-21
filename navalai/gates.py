@@ -902,6 +902,16 @@ GATES = [
     # paraboloid 46.7 mm. THE UNROLLER IS EXACT ON DEVELOPABLES and correctly
     # flags what is not one.
     #
+    # AND THE WATERMARK'S OWN COUNT IS PART OF IT (2026-08-21, later). The
+    # 124.1 mm is measured at `geometry._LADDER_STATIONS` = 41, where the panel
+    # is a 40-segment polyline and part of every reading is that polyline's
+    # sagitta: a surface with Gaussian curvature 7.8e-14 reads 17.1 mm there
+    # and 1.5 mm at 321. So a single count is a number and only a FAMILY is a
+    # verdict -- `unroll.refold_convergence`, falling = measurement, rising =
+    # geometry. It cuts both ways: a refinement search scored on n=41 returned
+    # a hull at 4.92 / 5.22 / 8.71 mm, under the bar where it was optimised and
+    # RISING. `export_dxf` now refuses on the trend.
+    #
     # What this gate measures is the HULL. Over governed hulls
     # corr(non_developable_frac, refold) = +0.783, with `flare` dominant at
     # +0.694 (flare 0° -> ndev_frac 0.0064; flare 25° -> 0.2953). The
