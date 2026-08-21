@@ -27,6 +27,81 @@ def test_named_vector_roundtrip():
     assert np.allclose(grammar.vector(grammar.named(x)), x)
 
 
+#: GAP E5, PARTIAL. The gap asks for a round-trip over "12+ KNOWN
+#: (public-CAD) hulls, not just vector(named(x)) on one hand-picked vector".
+#: The second half is closed here and the first is NOT, and the difference
+#: matters enough to write down.
+#:
+#: WHAT THIS TREE ACTUALLY HOLDS, counted rather than assumed: KCS
+#: (benchmarks/kcs.py), Wigley (analytic), and the single worked ship from
+#: Holtrop & Mennen 1982 -- three hulls with published particulars. Plus six
+#: CHARACTERISED but not public hulls in data/coverage-band-hulls.json (four
+#: size bands, catamaran, wave-piercing). That is nine, and none of the six
+#: is public CAD.
+#:
+#: SO THE PUBLIC-CAD ANCHOR SET IS STILL OWED, and inventing nine ships'
+#: principal particulars to reach twelve would be exactly the defect this
+#: repository exists to prevent -- an unsourced number wearing a citation.
+#: What is fixed is the weakness the gap actually names: the round-trip was
+#: exercised on ONE hand-picked vector, and a one-sample identity test proves
+#: almost nothing about an encoder.
+KNOWN_HULLS_OWED = (
+    "12+ public-CAD hulls with published principal particulars. Held today: "
+    "KCS, Wigley, Holtrop & Mennen's 1982 worked ship. Candidates that would "
+    "close it: KVLCC2, DTC, JBC, the DSYHS series, Series 60 -- all with "
+    "published Lpp/B/T/Cb, none held here. Do NOT transcribe them from "
+    "memory; the Holtrop case in benchmarks/ shows the standard this project "
+    "holds transcriptions to.")
+
+
+def test_the_named_vector_roundtrip_holds_over_a_POPULATION_not_one_vector():
+    """Gap E5's substance: a one-sample identity test proves almost nothing.
+
+    `vector(named(x)) == x` on a single hand-picked vector can pass while the
+    encoder is wrong everywhere else -- a mid-box vector is the most
+    forgiving point in the space, with no gene near a bound.
+
+    This runs it over the whole DEVELOPMENT population (regenerable, hashed,
+    never the validation or held-out seeds), plus the box CORNERS, which is
+    where an off-by-one in the parameter order or a clipped bound actually
+    shows. Exact equality, not allclose: this is a permutation and a lookup,
+    not arithmetic, so a rounding here would mean a real defect.
+
+    The public-CAD half of E5 remains open; see KNOWN_HULLS_OWED.
+    """
+    import json
+    import pathlib as _pl
+
+    pop = _pl.Path("data/populations/a16-s0-n25@d03aa32f45601499a.json")
+    if not pop.exists():
+        pytest.skip("development population manifest not in this checkout")
+    genomes = json.loads(pop.read_text())["genomes"]
+    assert len(genomes) >= 12, (
+        f"only {len(genomes)} hulls; E5 asks for at least 12 round-trips")
+
+    for i, g in enumerate(genomes):
+        x = np.asarray(g, dtype=float)
+        back = grammar.vector(grammar.named(x))
+        assert np.array_equal(back, x), (
+            f"development hull {i}: named/vector round-trip is not the "
+            f"identity — first mismatch at index "
+            f"{int(np.argmax(back != x))}")
+
+    # AND THE CORNERS, where an encoder actually breaks
+    for label, corner in (("LOW", np.asarray(grammar.LOW, dtype=float)),
+                          ("HIGH", np.asarray(grammar.HIGH, dtype=float))):
+        back = grammar.vector(grammar.named(corner))
+        assert np.array_equal(back, corner), f"{label} corner did not survive"
+
+    # a PERMUTED vector must not round-trip to the original: if it did, the
+    # encoder would be discarding the order it claims to preserve
+    shuffled = np.asarray(genomes[0], dtype=float)[::-1].copy()
+    if not np.array_equal(shuffled, np.asarray(genomes[0], dtype=float)):
+        back = grammar.vector(grammar.named(shuffled))
+        assert np.array_equal(back, shuffled), (
+            "the round-trip is not order-preserving")
+
+
 def test_reference_hull_is_feasible():
     rep = grammar.check(mid_params())
     assert rep.ok, rep.violations
@@ -191,9 +266,21 @@ def test_shell_area_is_integrated_not_a_factor_times_the_waterline_area():
     # is an INTEGRAL and not a factor times the waterline area — is the line
     # above and the box sweep below, both unchanged, and the ratio moved
     # FURTHER from 1.6, not closer.
-    assert exact == pytest.approx(46.707, abs=0.01)
-    assert h.wetted_surface(0.0) == pytest.approx(25.639, abs=0.01)
-    assert exact / h.wetted_surface(0.0) == pytest.approx(1.8217, abs=1e-3)
+    # E17 (2026-08-20): wetted_surface carries the longitudinal-slope factor
+    # sqrt(1 + |perp(dP/dx)|^2), +0.77% on this hull, and shell area follows.
+    # Was 46.707.
+    assert exact == pytest.approx(47.912, abs=0.01)
+    # E17 (2026-08-20): +1.20% here, from the longitudinal-slope factor.
+    # Was 25.639. This hull's ends change form faster than the mid-box
+    # reference's (+0.77%), which is exactly where the factor is largest.
+    assert h.wetted_surface(0.0) == pytest.approx(25.946, abs=0.01)
+    # The RATIO moves too, and by less than either term: the slope factor
+    # lifts the shell (whole girth, including the fast-changing topsides)
+    # more than the waterline-only wetted area. Was 1.8217. This ratio is
+    # the test's real subject — that shell area is INTEGRATED rather than
+    # a constant times the waterline area — and 1.85 is still nowhere
+    # near the 1.6 literal the defect used.
+    assert exact / h.wetted_surface(0.0) == pytest.approx(1.8466, abs=1e-3)
 
     # ...and it is emphatically not 1.6 anywhere but by luck. Sweep the box.
     X = grammar.sample(200, np.random.default_rng(3))
@@ -266,7 +353,9 @@ def test_wh_per_nm_sigma_is_propagated_and_says_so():
     # 103.34 UNTIL 2026-08-13, on the pre-plate-P1 reference hull. The hull
     # changed (see `mid_params`), so the resistance and its uncertainty band
     # changed with it. The RATIO assertion four lines up is the invariant.
-    assert en.sigma_wh_per_nm == pytest.approx(179.81, abs=0.5)
+    # E17: the same 0.77% reaches Wh/NM through friction resistance.
+    # Was 179.81.
+    assert en.sigma_wh_per_nm == pytest.approx(180.449, abs=0.5)
     # IT IS NOT THE OLD DECORATION — MEASURED ACROSS HULLS, NOT ON ONE.
     #
     # This check used to read `abs(sigma - 0.30*wh) > 0.10*wh`, which is a

@@ -171,7 +171,7 @@ different Gate 2M numbers came to circulate at once (gap J1).
 | Gate 1M | the vessel: topology/manning/regime, the parallel-axis I_T, separation in the PRODUCTION wave term, and no multihull safety verdict from a monohull GM floor | `tests/test_multihull.py` (31 tests) |
 | Gate PV-B | vessel-conditional proportion bands, the sourced size box, and the multihull stability refusal | `tests/test_vessel_bands.py` (20 tests) |
 | Gate 0B | buildability metrics are PROXIES that refuse rather than default, are grid-converged by a measured residual, and price manufacturing in ABSOLUTE m^2 — never in a ratio an optimiser can inflate | `tests/test_buildability.py` (11 tests) |
-| Gate 0 | grammar/geometry/DB | `tests/test_phase0.py` (15 tests) |
+| Gate 0 | grammar/geometry/DB | `tests/test_phase0.py` (16 tests) |
 | Gate 1 | L1 physics + Wigley anchor + <50ms | `tests/test_phase1.py` (35 tests) |
 | Gate 1H | Holtrop-Mennen vs the 1982 worked example | `tests/test_holtrop.py` (57 tests) |
 | Gate 1C | the constraint vector: complete, ordered, finite, and no undefined state reported as ideal | `tests/test_constraints_honest.py` (19 tests) |
