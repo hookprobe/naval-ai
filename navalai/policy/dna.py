@@ -52,6 +52,16 @@ _OWNER = ("owner constitution (BuildPlan 3 §2.2 design DNA) — a PREFERENCE th
           "owner of this constitution may relax; not law, not physics")
 
 
+# The construction methods this platform knows how to reason about, and the
+# one thing that follows from each. SHEET_DEVELOPABLE is the CNC-kit product:
+# the shell is cut flat and bent, so it must be a DEVELOPABLE surface and a
+# radiused bilge is not one — `unroll.hull_panels` refuses `roundness != 0`
+# by name. MOULDED takes no position on curvature.
+SHEET_DEVELOPABLE = "sheet-developable"
+MOULDED = "moulded"
+CONSTRUCTION_METHODS = (SHEET_DEVELOPABLE, MOULDED)
+
+
 def owner(value, unit: str, what: str, note: str = "") -> PolicyValue:
     """A `basis='policy'` constant, with the owner-decision provenance attached.
 
@@ -81,6 +91,15 @@ class DesignDNA:
     allowed_propulsion: PolicyValue | None = None
     forbidden_propulsion: PolicyValue | None = None
     material_palette: PolicyValue | None = None
+    # The construction METHOD, which is a separate owner position from the
+    # material palette and is NOT inferable from it. MEASURED 2026-08-21: the
+    # reference palette is "sheet goods the platform can derive from its own
+    # geometry" AND it contains epoxy + glass-cloth, from which a compound-
+    # curved shell can perfectly well be moulded. So a palette does not decide
+    # whether the SHELL is developable; only the builder does. Declaring it
+    # here keeps one home for the fact instead of inferring it from a set of
+    # material strings that happens to read the right way today.
+    construction: PolicyValue | None = None
     # limits.py attribute name -> the tightened value. Checked at COMPILE time
     # against the live value in `limits.py`; see `compiler.RATCHETS`.
     floors: Mapping[str, PolicyValue] = field(default_factory=dict)
@@ -106,6 +125,15 @@ class DesignDNA:
                     f"preferences are basis='policy' — a preference wearing "
                     f"'directive' or 'regulation' claims the force of law it "
                     f"does not have (BuildPlan 3 §2.2).")
+        if self.construction is not None:
+            if str(self.construction.value) not in CONSTRUCTION_METHODS:
+                raise PolicyError(
+                    f"DesignDNA.construction is "
+                    f"{self.construction.value!r}; this platform knows "
+                    f"{list(CONSTRUCTION_METHODS)}. An unrecognised method "
+                    f"would silently take NO position on shell curvature, "
+                    f"which is the permissive answer -- so it is refused "
+                    f"rather than defaulted.")
         for k, v in dict(self.floors).items():
             if not isinstance(v, PolicyValue):
                 raise PolicyError(
@@ -116,6 +144,18 @@ class DesignDNA:
                     f"DesignDNA.floors[{k!r}] carries basis {v.basis!r}; a "
                     f"tightening of a `limits.py` bar is an owner decision and "
                     f"is basis='policy'")
+
+    def requires_developable_shell(self) -> bool:
+        """Must the hull shell be cuttable from flat sheet?
+
+        The ONE derived consequence of `construction`. A constitution that
+        takes no position returns False -- which is today's behaviour for every
+        ungoverned run, and is why adopting this field changes no number for a
+        constitution that does not set it.
+        """
+        if self.construction is None:
+            return False
+        return str(self.construction.value) == SHEET_DEVELOPABLE
 
     def lh_from_lwl(self, lwl_m: float) -> float:
         """Hull length as this constitution models it from waterline length.
@@ -192,8 +232,21 @@ KIT_LINE_V3 = DesignDNA(
         "the CNC kit path of BuildPlan 3 §2.5 — sheet goods the platform can "
         "derive from its own geometry, plus the fasteners and adhesives that "
         "join them"),
+    construction=owner(
+        SHEET_DEVELOPABLE, "",
+        "the CNC kit path builds the shell from flat plywood: it is cut, "
+        "bent and stitched, never laid into a mould",
+        note="MEASURED 2026-08-21 and this is why the field exists. The "
+             "product reframed to plywood-only buildable boats, and that "
+             "reframe reached the BENCHMARK (Gate 2M demoted to solver "
+             "verification) but never reached the SEARCH SPACE. 60 hulls "
+             "drawn from the flagship mission: roundness > 0 on 60 of 60, "
+             "median 0.541, and `unroll.hull_panels` refused 60 of 60. The "
+             "ladder validated a design space that is 100% unbuildable in "
+             "the one material this product is made of."),
     floors={},
 )
 
 
-__all__ = ["DesignDNA", "KIT_LINE_V3", "owner"]
+__all__ = ["DesignDNA", "KIT_LINE_V3", "owner", "MOULDED",
+           "SHEET_DEVELOPABLE", "CONSTRUCTION_METHODS"]

@@ -41,11 +41,29 @@ two documents can disagree about the same thing.
 | `navalai/gates.py` + `data/gate-ledger.json` | **THE STATUS** | prose verdicts |
 | `navalai/experiments.py` (Gate 0X), run by `python -m navalai.experiments` | **THE HYDRODYNAMIC MEASUREMENT SUITE** — the controlled sweeps behind the 2026-08-13 findings (lever comparison, bow sharpness, catamaran separation, the Michell phase convention). It is CODE, so it re-measures on demand instead of ageing | a plan, an order, or a verdict about anything it did not sweep |
 | `ALIGNMENT.md`, `MACBOOK.md` | the original-plan audit; the Mac runbook. Both are read by `scripts/reconcile_gaps.py` predicates | — |
+| **`docs/audit/*`** | **AUDIT RECORDS** — a dated investigation and what it measured (`GATE2-PHYSICS-STACK.md`, `ALIGNMENT-2026-08-21.md`, `MATH-CONSOLIDATION.md`, `INTEGRATION-GAP-MATRIX.md`, `H011-H012-ROOT-CAUSE.md`, the seven 2026-08-18 domain reports, and the captured suite logs) | a current status; a forward plan; **a gate NAME the runner does not define** |
+| **`docs/audit/STATUS.md`** | **THE Mac ↔ fortress001 CHANNEL** — append-only, newest at the bottom | a verdict. It is a channel, and it says so in its own header |
 
 **The law this table encodes, which is the existing law one level up:**
 
 > A number lives in exactly one place. **So does a work item.**
 > No work item may exist only in prose.
+> **And so does a gate NAME.**
+
+That third clause was added 2026-08-21 and it was not free. `docs/audit/` held
+sixteen files and had **no row in this table at all** — no declared authority,
+and therefore no "must NOT contain" constraint. One of them,
+`GATE2-PHYSICS-STACK.md`, introduced a physics ladder numbered `2A`..`2H`, and
+seven of those eight letters were already executable gates in
+`navalai/gates.py` meaning something else entirely. `Gate 2G` was "the KCS STL
+is on disk" to the runner and "waves, RAOs and added resistance" to the
+document — and the runner deliberately prints 2G SKIPPED when that gitignored
+geometry is absent, so the two readings of one identifier were *"benchmark
+geometry not fetched"* and *"seakeeping is unverified"*. The ladder now uses
+the `2-PHYS-*` namespace and
+`tests/test_gate_integrity.py::test_no_document_renames_an_executable_gate_letter`
+is the fence. An unlisted document is an ungoverned one; that is what this row
+fixes.
 
 Every item is a gap with a predicate, a gate with a bar, or a recorded
 retirement. §15.2 is the list of things that currently satisfy none of the
@@ -1169,15 +1187,25 @@ slender, round-bilge, no chine, no immersed transom, at Fn 0.26.** Everything
 downstream inherited it — benchmark geometry, y+ targets, case-generator
 defaults, and months of CFD.
 
-**The correction is SEQUENCE, not substitution.** KCS is not demoted: what it
-teaches is hull-agnostic and all of it transfers.
+~~**The correction is SEQUENCE, not substitution.** KCS is not demoted.~~
+**SUPERSEDED 2026-08-21 — KCS IS DEMOTED, by operator direction.** Not
+discarded: demoted from primary physical anchor to *numerical* anchor, and
+labelled so in the registry (`Gate 2M`: "SOLVER VERIFICATION ONLY") and in the
+ledger, with a fence
+(`test_gate2d_KCS_is_labelled_SOLVER_VERIFICATION_and_cannot_drift_back`) so it
+cannot drift back. The sentence struck above was written when this project
+intended to design arbitrary ships; the product is now plywood-only buildable
+boats, and what KCS teaches is hull-agnostic *about the SOLVER* — free-surface
+capture, wall treatment, grid convergence — and hull-specific about everything
+else. `docs/audit/GATE2-PHYSICS-STACK.md` owns the rung-by-rung account.
 
 | Anchor | What it validates | State |
 |---|---|---|
 | **Wigley** (analytic) | the wave-resistance MACHINERY, against a closed-form Michell answer we derive ourselves. Free, no tank data, no transom to confound it | in the tree |
 | **KCS** (tank) | free-surface capture, wall treatment and y+, force integration, grid convergence, AND — via published sinkage and trim — the mass/inertia/CoG/6-DOF chain every boat needs. The only hull we have with published truth | keeps the full workload |
-| **DSYHS** | 9–14 m displacement/semi-displacement yachts. Directly the liveaboard SKU | **OWED** |
+| **DSYHS** | 9–14 m displacement/semi-displacement yachts. Validates a displacement-hull REGIME — R_F, and via round-bilge geometry R_form and R_wave. It does NOT identify R_chine | **HELD** — 51 models, 742 points, publisher MD5, `benchmarks/dsyhs.py` |
 | **Fridsma / Series 62** | hard-chine planing: chine, immersed transom, spray, dynamic lift. Directly the dayboat and tender | **OWED** |
+| **Compton / USNA YP** (tank) | **the hard-chine rung, and the strongest candidate found.** 1.524 m models of coastal-patrol/training/recreational powerboats over **Fn 0.10–0.60**, varying L/B, displacement/length, LCG and SECTION SHAPE (hard chine *and* round bilge); resistance, sinkage and trim. Our Fn 0.26 is INTERIOR to the range. The YP81 programme is a matched pair — 3 round-bilge, 3 hard-chine, 3 displacements, 3 LCGs, 54 runs — designed to isolate the chine effect | **CANDIDATE — experiment identified 2026-08-21, DATA NOT HELD.** Paper paywalled (DOI 10.5957/MT1.1986.23.4.345); OCR scrapes are not provenance-grade. Recovering offsets + tables is a PROCUREMENT task, not a research question |
 | **NTUA Series** | double-chine semi-displacement, with model-test resistance, CG rise and trim. **A CANDIDATE for the row above, surfaced 2026-08-13** — its bands are transcribed in `docs/research/HULL-FORM-RULES.md` §7, and unlike KCS it is in the SKU size band and it is chined | **CANDIDATE, not adopted.** Caveat that decides it: it is a *planing* series and `resistance.FN_MICHELL_MAX` is 0.45, so part of the series is outside the L1 model it would anchor. Adopting it means declaring which subset of the series L1 is allowed to be judged on |
 
 **Reading a green KCS gate as small-craft validation is forbidden.** The same

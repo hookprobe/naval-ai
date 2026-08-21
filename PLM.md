@@ -97,6 +97,18 @@ CFD spends only on novel keeps (active learning), by design.
 | **+2–3 weeks** — fortress001's queue (loading conditions, the 6D refold that is the Kit-Line's premise, tier E/F mass admission) | **Recreational v1**: mission -> buildable monohull or catamaran, plywood, with evidence — usable by a technically capable person |
 | **later, separately** | the drone line — now QUANTIFIED (2026-08-19 regime study + independent evidence sweep, `docs/research/SMALL-CRAFT-REGIMES.md`; `docs/BUILD-PLAN.md` §11.8): minimum sensible drone is **2–3 m LWL** — three walls close below that: the fully-turbulent-Re × displacement-Fn window is EMPTY below L ≈ 2.6 m [THY, corroborated by ITTC's Re 5e6 stimulation floor and the 3 m Delft-372 validation anchor]; the environment dominates below ~1 m (windage 4–50× hull drag, SS3 orbital ≥ cruise speed — measured with the repo's own L0); and the cube-law payload floor bites at ~1.5–2.5 m [PROP]. Un-block list: a transitional friction line (±40%→±15% sigma), a windage/orbital environment estimator, and the rulebook gap (ISO/RCD scope starts at 2.5 m) — plus the mission layer. Deliberately descoped until v1 earns it |
 
+**What the KCS anchor in that second row does and does not buy (added
+2026-08-21, after the Gate 2M reframe).** It calibrates the SOLVER — free-surface
+resolution, layer stack, y+, turbulence closure, grid convergence — at our own
+operating point (KCS model scale is Fn 0.260 / Re 1.40e7; our 10 m at 5 kn is
+Fn 0.260 / Re 2.26e7). It does NOT validate the physics our hulls have. KCS has
+a bulbous bow and a round bilge; the SKUs are hard-chine sheet ply, and
+`dR_chine` at Fn ~ 0.26 remains unvalidated against experiment. So "resistance
+calibrated" in that row means *the numerics are anchored and the declared sigma
+is earned*, not *the resistance of a plywood boat is validated*. The candidate
+experiment for the second claim is Compton's 1986 USNA series
+(`docs/audit/GATE2-PHYSICS-STACK.md`); the data is not yet held.
+
 Two commissioning items gate the first two rows and are in flight as this is
 written: the unattended-CFD reliability campaign on the shipped genome
 (running), and the re-derived calibration lane — the single estimator-settled
@@ -112,7 +124,7 @@ Everything ships from one shared kernel — never per-product forks:
 | Platform asset | Code | Truth mechanism |
 |---|---|---|
 | Hull grammar + typologies | `navalai/grammar.py`, `hull_ast.py` | L0 algebraic gate, <1 ms |
-| Physics ladder L1→L3 | `hydrostatics/resistance/seakeeping/cfd` | benchmark anchors (Wigley, Hulme, KCS) |
+| Physics ladder L1→L3 | `hydrostatics/resistance/seakeeping/cfd` | benchmark anchors: Wigley (analytic 4LBT/9), Hulme, **DSYHS** (51 models, 742 points, MD5-verified) — and **KCS as SOLVER VERIFICATION ONLY**, demoted 2026-08-21. The rungs and what each does *not* prove: `docs/audit/GATE2-PHYSICS-STACK.md` |
 | Surrogate spine | `surrogate.py`, `latent.py` | Forrester anchor, OOD refusal, frozen-benchmark regression gate |
 | Generative core | `generative.py` (diffusion upgrade slot) | L0-feasible sampling, measured on the MODEL's raw draws — a feasibility figure measured on a rejection sampler with `grammar.check` inside its loop is true by construction and means nothing |
 | Mission front end | `mission.py`, `translate.py` | held-out brief set, no geometry pathway |

@@ -24,7 +24,7 @@ from benchmarks import wigley
 
 
 def test_gate2a_hydrostatics_is_a_MATHEMATICAL_gate_not_a_CFD_one():
-    """GATE 2A. The Wigley hull's displaced volume is EXACTLY 4LBT/9.
+    """GATE 2-PHYS-A. The Wigley hull's displaced volume is EXACTLY 4LBT/9.
 
     That is the strongest kind of benchmark available anywhere in this
     project: an analytic truth with no experiment, no uncertainty band and
@@ -82,7 +82,7 @@ def test_gate2a_the_analytic_hull_is_INDEPENDENT_of_our_geometry_kernel():
 
     `wigley_offsets` is y = (B/2)(1-(2x/L)^2)(1-(z/T)^2) written out, and the
     exact volume is a closed form. Neither passes through `navalai.geometry`,
-    so Gate 2A checks an INTEGRATOR against MATHEMATICS rather than checking
+    so Gate 2-PHYS-A checks an INTEGRATOR against MATHEMATICS rather than checking
     the kernel against itself -- the tautology this repository has already
     shipped once, in a layer table that printed the requested spec as the
     achieved one.
@@ -104,7 +104,7 @@ def test_gate2a_the_analytic_hull_is_INDEPENDENT_of_our_geometry_kernel():
 
 
 def test_gate2d_KCS_is_labelled_SOLVER_VERIFICATION_and_cannot_drift_back():
-    """GATE 2D. KCS keeps its place and loses its title.
+    """GATE 2-PHYS-D. KCS keeps its place and loses its title.
 
     The registry row and the ledger entry must both say that passing it is a
     NUMERICAL result, because the old title said neither and that is exactly
@@ -132,7 +132,7 @@ def test_gate2d_KCS_is_labelled_SOLVER_VERIFICATION_and_cannot_drift_back():
 
 
 def test_gate2c_the_DSYHS_data_verifies_ITSELF_before_anything_is_claimed():
-    """GATE 2C, integrity half. Acquired data is guilty until checked.
+    """GATE 2-PHYS-C, integrity half. Acquired data is guilty until checked.
 
     `benchmarks/holtrop_cases.py` sets the standard three files away: one
     worked example from an OCR'd scan, trusted only because two INDEPENDENT
@@ -178,7 +178,7 @@ def test_gate2c_the_DSYHS_data_verifies_ITSELF_before_anything_is_claimed():
 
 
 def test_gate2c_our_FRICTION_LINE_reproduces_51_real_hulls():
-    """GATE 2C, physics half — and this is the rung KCS could never provide.
+    """GATE 2-PHYS-C, physics half — and this is the rung KCS could never provide.
 
     At Fn ~0.1 a bare hull is friction-dominated, so measured TOTAL
     resistance is a fair test of the friction line by itself. MEASURED

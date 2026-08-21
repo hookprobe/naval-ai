@@ -347,3 +347,70 @@ Two rules, and the second is the general one:
    Neither was a reasoning failure. Both acted on a DESCRIPTION of a thing
    instead of the thing. Before a number is allowed to reorder anyone's work,
    read it from the raw bytes at its own line, in full.
+
+## A STALLED SOLVE IS NOT A CRASH, AND BOTH LIVENESS CHECKS READ HEALTHY (2026-08-21)
+
+`runs/g2m_coarse` was watched by an hourly monitor for hours while it was
+already dead. Neither of its two liveness checks fired:
+
+- `pgrep -x interFoam` -> **RUNNING**. It genuinely was. The process was alive,
+  burning ten ranks, and advancing the timestep loop.
+- `grep -cE "FOAM FATAL|sigFpe::sigHandler|SIGSEGV"` -> **0**. There was no
+  crash. interFoam does not consider this an error at all.
+
+What was actually true, from the log:
+
+    Time = 1.50613          <- frozen, hours, while the loop kept iterating
+    deltaT = 3.4e-09        <- collapsed, creeping UP by ~0.1% a step
+    Courant Number mean: 0.00094  max: 4.9934   <- max PINNED at the limit
+
+This is the pathological-cell signature CLAUDE.md already documents. One cell's
+local Courant will not fall, so the adaptive controller shrinks dt without
+bound. At 3.4e-9 s a step, the 75 s endTime needs ~2e10 steps.
+
+**The lesson is about the WATCHER, not the solver.** A monitor built from
+"is the process up?" and "did it print a fatal?" cannot see the most expensive
+failure mode there is: a run that is alive, quiet, and making no progress. Both
+questions had the right answer and the wrong meaning.
+
+Watch PROGRESS, not liveness: latest `Time` against the previous sample. If it
+has not advanced between two checks, the run is dead regardless of what the
+process table says. A collapsing `deltaT` with a pinned Courant maximum is the
+same fact seen a step earlier and is worth alerting on by itself.
+
+Same shape as the `${VAR:-0}` receipts and the layer table that printed the
+REQUESTED spec: **an unmeasured quantity was allowed to read as a good one.**
+Here the unmeasured quantity was progress.
+
+## A NEGATIVE RESULT ABOUT THE LITERATURE IS A CLAIM ABOUT YOUR SEARCH (2026-08-21)
+
+`docs/audit/GATE2-PHYSICS-STACK.md` concluded, after a targeted hunt, that no
+published series gives hard-chine resistance at Fn ~ 0.26 — and went further,
+offering a mechanism: a chine is chosen to generate dynamic lift, so hard-chine
+models are towed at planing speeds, and nobody tows one at 5 knots. The pattern
+in the evidence table was real. The conclusion was **FALSE**.
+
+Compton's 1986 USNA systematic series varies section shape between HARD CHINE
+and ROUND BILGE over **Fn 0.10–0.60** — our 0.26 is interior to it — and the
+companion YP81 programme is a matched-pair experiment (three round-bilge,
+three hard-chine, three displacements, three LCGs, 54 runs) whose stated
+purpose was to isolate the effect of the chine. It has existed since before
+this project started. The operator found it after this document had declared
+the absence structural.
+
+Three failures compounded, and only the first is about searching:
+
+1. A handful of queries returned no hit, and "I did not find it" was written up
+   as "it does not exist".
+2. **A MECHANISM WAS INVENTED TO EXPLAIN THE ABSENCE.** That is what made the
+   error durable: a plausible physical story ("chines are for planing") turned
+   a search result into a law, and a law does not invite re-checking. An
+   explanation for a negative result is not evidence for it.
+3. The conclusion was stated with no search attached, so no reader could see
+   what had actually been looked at.
+
+A negative result about a body of literature is only ever a statement about the
+queries that were run. State it as one — with the queries — or do not state it.
+The positive claims in the same document were held to a far higher bar: DSYHS
+became evidence when the data was ACQUIRED and MD5-verified, not when the
+series was named. Absence deserved the same rigour and did not get it.

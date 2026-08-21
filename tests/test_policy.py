@@ -819,3 +819,94 @@ def test_the_compile_report_names_what_it_compiled():
     assert "1" in rep["ratchets"][0] and "2" in rep["ratchets"][0]
     assert "NOT legal advice" in rep["disclaimer"]
     assert rep["legal"]["allowed_categories"] == ["C", "D"]
+
+
+def test_a_sheet_built_constitution_bounds_the_search_to_hulls_the_shop_can_cut():
+    """MEASURED 2026-08-21, running the flagship mission end to end.
+
+    `scripts/demo_mission.py` crashed at the manufacturing stage: the optimiser
+    returned a hull at `roundness` 0.045 and `unroll.hull_panels` refused it --
+    "a radiused bilge is not a two-panel developable shell". It was not a fluke
+    of one seed. On the 19-member ungoverned Pareto front for that mission,
+    `unroll` refused 19 of 19; drawing 60 hulls from the same mission gave
+    roundness > 0 on 60 of 60, median 0.541, refused 60 of 60.
+
+    So the ladder was validating, badging and RANKING a design space that is
+    entirely unbuildable in the one material this product is made of. The
+    2026-08-21 reframe to plywood-only reached the BENCHMARK -- Gate 2M demoted
+    to solver verification -- and never reached the SEARCH SPACE.
+
+    And the cost of fixing it is nil, which is the part worth pinning: the SAME
+    19 front hulls with roundness forced to 0 were still 19/19 ladder-ok, and
+    went from 0/19 to 19/19 accepted by `unroll`. Hard chine cost NOTHING in
+    feasibility here. At a realistic search budget (pop 64, 80 gens) the
+    governed+pinned front came back with 64 members against 62 unpinned; the
+    empty front seen at pop 24 x 10 gens was a SEARCH-BUDGET artefact and was
+    very nearly misread as an empty design space.
+
+    `certify` already measures `non_developable_frac` -- but it feeds only the
+    CFD-candidacy SCORE, so it ranked hulls without ever refusing one. A
+    receipt is not a bar.
+    """
+    from navalai import grammar
+    from navalai.policy import reference_policy
+    from navalai.policy.dna import SHEET_DEVELOPABLE
+
+    pol = reference_policy()
+    assert pol.constitution.dna.requires_developable_shell()
+    assert pol.constitution.dna.construction.value == SHEET_DEVELOPABLE
+
+    box = pol.box("C")
+    j = box.names.index("roundness")
+    assert box.high[j] == 0.0, (
+        "a sheet-built constitution must bound roundness to 0 in the BOX: "
+        "unroll.hull_panels refuses anything else, so every evaluation spent "
+        "above 0 buys a hull the shop cannot cut")
+    assert box.low[j] == 0.0
+    assert any(e.param == "roundness" and e.edge == "high" and e.now == 0.0
+               for e in box.edits), "the tightening must be RECORDED as an edit"
+
+    # The grammar itself must stay permissive -- this is a PRODUCT position,
+    # not physics. Delete the constitution and the search space is generic
+    # naval architecture again, round bilges included.
+    assert grammar.HIGH[j] == 1.0, (
+        "the bound belongs to the constitution, not to the grammar; a moulded "
+        "constitution must still be able to ask for a radiused bilge")
+
+
+def test_a_constitution_that_takes_no_position_on_construction_changes_nothing():
+    """The load-bearing clause of §9, applied to the new field.
+
+    A DNA with `construction=None` must bound roundness exactly as before, so
+    adopting the field changes no number for any constitution that does not set
+    it. This is the same property the package already asserts globally
+    ("delete the constitution and every physics result must be bit-identical"),
+    checked at the one bound this change touches.
+    """
+    import dataclasses
+
+    from navalai.policy import reference_policy
+    from navalai.policy.compiler import compile_policy
+
+    pol = reference_policy()
+    con = pol.constitution
+    silent = compile_policy(
+        dataclasses.replace(con, dna=dataclasses.replace(con.dna,
+                                                         construction=None)))
+    box = silent.box("C")
+    j = box.names.index("roundness")
+    assert (box.low[j], box.high[j]) == (0.0, 1.0)
+    assert not any(e.param == "roundness" for e in box.edits)
+
+
+def test_an_unrecognised_construction_method_is_refused_not_defaulted():
+    """An unknown method would take NO position on curvature, which is the
+    PERMISSIVE answer -- the failure mode this codebase calls a bare literal
+    wearing a badge. It is refused at construction time instead."""
+    import pytest as _pytest
+
+    from navalai.policy.base import PolicyError
+    from navalai.policy.dna import DesignDNA, owner
+
+    with _pytest.raises(PolicyError, match="knows"):
+        DesignDNA(name="bad", construction=owner("cold-moulded", "", "typo"))

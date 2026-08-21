@@ -854,16 +854,23 @@ GATES = [
     # carries, because the old title did not and that is how a solver
     # benchmark came to be read as small-craft validation.
     #
-    # The rest of the stack (2A hydrostatics, 2B Wigley free surface, 2C
-    # DSYHS displacement, 2E hard-chine) is tracked in
+    # The rest of the stack (2-PHYS-A hydrostatics, 2-PHYS-B Wigley free
+    # surface, 2-PHYS-C DSYHS displacement, 2-PHYS-E hard-chine) is tracked in
     # docs/audit/GATE2-PHYSICS-STACK.md. Only the rows with a suite or a
     # ledger entry appear here; a gate with neither would be a gate that
     # verifies nothing.
-    # Gate 2's EXECUTABLE rungs. 2A is the strongest benchmark in the
+    # Gate 2's EXECUTABLE physics rungs. NOTE THE NAMESPACE: the physics
+    # ladder is 2-PHYS-A..H, NOT 2A..2H. Seven of those eight letters are
+    # already executable gates in THIS FILE meaning something else entirely
+    # (2A is the admissibility screen, 2G is "the KCS STL is on disk"), and
+    # for a while this comment used both meanings a dozen lines apart. See the
+    # collision table in docs/audit/GATE2-PHYSICS-STACK.md.
+    #
+    # 2-PHYS-A is the strongest benchmark in the
     # project: the Wigley hull's displaced volume is exactly 4LBT/9, so the
     # integrator is checked against MATHEMATICS rather than an experiment
     # with a scatter band to hide in. The rungs that need data this tree does
-    # not hold (2C DSYHS, 2E Naples) are recorded in
+    # not hold (2-PHYS-C DSYHS, 2-PHYS-E Naples) are recorded in
     # docs/audit/GATE2-PHYSICS-STACK.md and are deliberately NOT stubbed
     # here -- a gate that asserts nothing is worse than an absent one.
     Gate("Gate 2P-Stack", "Gate 2 physics stack: hydrostatics as a "

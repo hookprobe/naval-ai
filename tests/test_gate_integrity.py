@@ -496,3 +496,58 @@ def test_judge_red_regression_rule_R03():
     # did: expected, not a failure, no comparison implied.
     label, fail = G.judge_red("G-up", led, t)
     assert fail is False and "REGRESSED" not in label
+
+
+def test_no_document_renames_an_executable_gate_letter():
+    """MEASURED 2026-08-21. `docs/audit/GATE2-PHYSICS-STACK.md` introduced a
+    physics ladder written `2A`..`2H`, and SEVEN of those eight letters were
+    already executable gates in `navalai/gates.py` meaning something else:
+    2A was the CFD-admissibility screen, not hydrostatics; 2C the campaign
+    classifier, not DSYHS; 2G "the KCS STL is on disk", not waves and RAOs.
+
+    2G is the one that bites. The runner prints it SKIPPED when the gitignored
+    benchmark geometry is absent — by design, loudly — and a reader holding the
+    document's meaning reads that as SEAKEEPING IS UNVERIFIED. That is the
+    project's signature defect, A NAME DECLARED TWICE, applied to gate
+    identifiers instead of to numbers.
+
+    The executable rows are the incumbents (README, the ledger and eleven test
+    modules cite them), so the physics ladder took the `2-PHYS-*` namespace.
+    This fence keeps it there: no document may attach a physics-ladder meaning
+    to a letter the runner has already spent.
+    """
+    executable = {g.name for g in G.GATES}
+    # Words that mean the PHYSICS ladder's rung, not the executable gate.
+    physics_words = ("hydrostatic", "wigley", "dsyhs", "planing", "seakeep",
+                     "added resistance", "rao", "naples", "hard-chine")
+    doc = _ROOT / "docs" / "audit" / "GATE2-PHYSICS-STACK.md"
+    raw = doc.read_text()
+    # The document explains the collision with a table that necessarily QUOTES
+    # the taken letters. That region is fenced by markers and excluded here --
+    # excluded by an explicit delimiter rather than by loosening the pattern,
+    # so a new bare `Gate 2G` written anywhere else still trips the test.
+    assert raw.count("<!-- COLLISION-EXPLANATION BEGIN -->") == 1
+    head, rest = raw.split("<!-- COLLISION-EXPLANATION BEGIN -->", 1)
+    explanation, tail = rest.split("<!-- COLLISION-EXPLANATION END -->", 1)
+    text = head + tail
+    for letter in "ABCDEFGH":
+        if f"Gate 2{letter}" not in executable:
+            continue
+        # A bare `2A`/`Gate 2A` token in the physics document is forbidden:
+        # the ladder must say 2-PHYS-A.
+        for token in (f"Gate 2{letter}", f"**2{letter}**"):
+            assert token not in text, (
+                f"{doc.name} uses {token!r}, which navalai/gates.py already "
+                f"defines as an executable gate with a different meaning. "
+                f"The physics rung is 2-PHYS-{letter}."
+            )
+    # And the ladder actually uses its own namespace for every rung it claims.
+    for letter in "ABCDEFGH":
+        assert f"2-PHYS-{letter}" in text, f"rung 2-PHYS-{letter} missing"
+    # The collision must stay EXPLAINED, not merely fixed: the next author
+    # reaching for `2A` needs to find out why it is taken.
+    assert "A NAME DECLARED TWICE" in explanation
+    assert "2-PHYS-" in (_ROOT / "navalai" / "gates.py").read_text(), (
+        "gates.py's own comment used both meanings a dozen lines apart; the "
+        "corrected namespace must be visible where the gates are defined"
+    )

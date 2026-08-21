@@ -458,6 +458,29 @@ class CompiledPolicy:
             tighten("T", "high", float(dna.max_draft_m.value),
                     str(dna.max_draft_m.source))
 
+        # --- the construction method, which is the bound this box was MISSING
+        #
+        # MEASURED 2026-08-21, running the flagship mission end to end: the
+        # optimiser returned a hull at `roundness` 0.045 and
+        # `unroll.hull_panels` refused it -- "a radiused bilge is not a
+        # two-panel developable shell". Drawing 60 hulls from the same mission:
+        # roundness > 0 on 60 of 60, median 0.541, unroll refused 60 of 60.
+        #
+        # The ladder was validating, badging and ranking a design space that is
+        # ENTIRELY unbuildable in the one material this product is made of. The
+        # 2026-08-21 reframe to plywood-only reached the BENCHMARK -- Gate 2M
+        # demoted to solver verification -- and never reached the SEARCH SPACE.
+        #
+        # This is a BOUND and not a row, and that is the whole point of §9's
+        # split: developability is a property of the shape the search PROPOSES,
+        # decidable before a drop of physics is computed, so spending
+        # evaluations outside it is pure waste. `certify` already measures
+        # `non_developable_frac` on the floated hull -- but it feeds only the
+        # CFD-candidacy SCORE, so it ranks hulls without ever refusing one.
+        # A receipt is not a bar.
+        if dna.requires_developable_shell():
+            tighten("roundness", "high", 0.0, str(dna.construction.source))
+
         bad = [grammar.NAMES[i] for i in range(grammar.N_PARAMS)
                if lo[i] > hi[i]]
         if bad:

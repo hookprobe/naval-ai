@@ -101,11 +101,12 @@ docs/research/*.png
 # code". Put a rendered result here and the rule has been broken, not widened.
 !docs/assets/
 skips.log
-full-suite.log
-full-suite-2.log
-full-suite-3.log
-full-suite-final.log
-full-suite-eod.log
+# Captured suite logs. A PATTERN, not a hand-kept list:
+# this was five literal filenames and grew by one every
+# session that ran the suite -- the hand-maintained copy
+# defect, applied to ignore rules. A log worth KEEPING
+# goes to docs/audit/ with a date in its name.
+full-suite*.log
 # DSYHS source spreadsheets: re-downloadable from 4TU with published MD5s
 # (see benchmarks/dsyhs.py). The EXTRACTED dsyhs_modelscale.json is tracked.
 data/refdata/dsyhs/*.xlsx
