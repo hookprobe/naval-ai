@@ -221,6 +221,7 @@ def main(argv=None) -> int:
     print(f"\nfront {len(X)}; verifying refold on {len(scored)} ladder-valid "
           f"member(s) (~{2.3 * len(scored):.0f} s) ...")
     verified = []
+    refined = False
     best_miss = (float("inf"), None)
     for e, xx in scored:
         try:
@@ -267,6 +268,7 @@ def main(argv=None) -> int:
         if got is not None:
             x, ev, worst_ok = got
             verified = [(ev, x, worst_ok)]
+            refined = True
             print(f"  REFINED to {worst_ok:.2f} mm — buildable, ladder-valid")
 
     if not verified:
@@ -295,7 +297,11 @@ def main(argv=None) -> int:
     print(f"  {len(verified)}/{len(scored)} member(s) verified buildable; "
           f"selected one refolds to {worst_ok:.2f} mm")
     p = grammar.named(x)
-    print(f"front {len(X)}; selected lowest-energy hull:")
+    # NOT "selected lowest-energy hull" any more. When stage 3 runs, this hull
+    # was REFINED and is not a member of the front at all -- saying otherwise
+    # would be a label that survived the change beneath it, which is the defect
+    # class this repository keeps catching.
+    print(f"HULL ({'refined for buildability' if refined else 'selected from the front, lowest energy'}):")
     print(f"  LWL {p['LWL']:.2f} m · BWL {p['BWL']:.2f} m · T {p['T']:.2f} m "
           f"· deadrise {p['beta_mid']:.1f}° · roundness {p['roundness']:.4f}")
     print(f"  displacement {ev.hydro.disp_kg:.0f} kg | GM {ev.gm_m:.2f} m | "
