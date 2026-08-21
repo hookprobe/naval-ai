@@ -2907,3 +2907,47 @@ I recommend (1) and have not taken any of them. Recorded rather than
 guessed, because a wrong choice here moves every displacement in the tree
 and with it every baseline — the 6R re-shape did exactly that on 2026-08-19
 and cost a day of re-baselining.
+
+## Mac, 2026-08-21: the gap loop — 115 of 123 closed, and WHY the last five are not
+
+Ran the operator's continuous gap-closing loop. `reconcile_gaps.py` went
+**109 closed / 11 open -> 115 closed / 5 open**, every closure with a
+regression test naming the measured incident. Closed this pass: **B4**
+(payload follows crew), **B5** (premise refuted — build area already costs
+length), **E17** (wetted strip is not a rectangle), **I14** (surrogate spine
+gets a load-bearing consumer), **F1** (added resistance in waves — the only
+CRITICAL row), **D9** (worked reference designs).
+
+### THE FIVE THAT REMAIN ARE NOT "TODO" — each is blocked on something this
+### machine cannot manufacture, and saying which is the point
+
+| gap | blocked on | why it cannot be closed by writing code |
+|---|---|---|
+| **E5** | 12+ public-CAD hulls | This tree holds THREE hulls with published particulars (KCS, Wigley, Holtrop & Mennen's 1982 worked ship) plus six characterised-but-not-public band hulls. Reaching twelve means transcribing nine ships' principal particulars **from memory**. `benchmarks/holtrop_cases.py` sets the standard in the same directory: one OCR'd scan, trusted only because two INDEPENDENT internal checks would break under corruption. Nothing available clears that bar. **The substance was fixed** — the round-trip now runs over 25 development hulls plus both box corners, exact equality, instead of one mid-box vector — and the predicate was deliberately NOT satisfied, because renaming a constant to match `known_hulls` would close a gap by spelling. |
+| **I1** | settled high-fidelity rows | Co-kriging must be fitted from a tier above L1. The machinery is ready — `Provenance.training_matrix(tier, quantity)` already filters by tier — but there are no L2/L3 resistance rows to fit. Producing them needs SETTLED solves, and this project's own budget for one GCI triplet is ~69 h. Not a code gap. |
+| **I13** | a human | "A recorded NON-EXPERT session producing a hull that passes the full ladder." I cannot produce that artifact: fabricating a recorded session would be manufacturing evidence about a person. Building a speculative recorder first would repeat I14's own defect — machinery with no consumer. It needs a real operator, once. |
+| **F16** | ~69 h of CFD | Gate 2M needs a SETTLED triplet and a GCI. The measured budget is ~21x the coarse grid, and this Mac cannot sustain it (thermal-sleep incident on record). Beyond the operator's 8-hour cap by an order of magnitude. |
+| **F17** | in flight — see below | |
+
+### F17: THE INSTRUMENT NOW EXISTS, AND IT WAS VALIDATED ON ONE HULL FIRST
+`post.smoke_verdict` had existed and had NOTHING TO READ — it classifies the
+first N LTS iterations and no runner mode produced them. `SMOKE_ONLY=N` is
+landed (`run-case.sh`), and it is what makes Gate 2U's "converges" half
+affordable at all: **2 min 40 s per hull** instead of hours.
+
+Per the operator's instruction, ONE instance was validated before any
+campaign: development hull 0, mesh clean (0 zero-volume, 0 wrongly-oriented,
+skew 7.138), `verdict: promoted`, min tau **1.187e-05 s** — inside the
+measured solved band (7.8e-6..2.1e-5) and twelve orders above the diverged
+4.356e-18. Only then was the population campaign started.
+
+It edits the case's own `endTime` and RESTORES it on exit, so a smoked case
+is still the case it was written as — the receipt-versus-spec distinction
+this file has been burned by before.
+
+### A NOTE ON THE MONITOR, because it nearly misled me
+An hourly watch reported "solver IDLE" at 12 of 25 cases and I read it as a
+stall. The campaign script was alive and the hull was mid-`decomposePar`;
+solver liveness is sampled between invocations and is NOT a progress signal.
+**The case COUNT is the signal.** Recorded because a monitor that can cry
+wolf hourly will eventually be believed at the wrong moment.
