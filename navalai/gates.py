@@ -364,6 +364,25 @@ GATES = [
     # shortfall stated in this row's `scope` was prose — see that row.
     Gate("Gate 4", "generative + slider p95<100ms (raw feasibility: Gate 4F)",
          "tests/test_phase4.py"),
+    # THE BUILDER-FACING SURFACE HAD NO GATE, AND `test_every_test_file_is_
+    # owned_by_a_gate` caught it the moment the suite landed — which is the
+    # fence working exactly as intended. Gate 4 owns the LATENCY clause of the
+    # interactive surface (`p95 < 100 ms` per widget) and keeps it; this row
+    # owns the HONESTY clauses of the mapping layer in `ui/api.py`, which are
+    # a different question and would have been invisible inside Gate 4's
+    # scope: every payload declares its own `source`; a NaN is a refusal and
+    # never reaches the wire; an absence is declared in exactly ONE place and
+    # is SERVED rather than typed into the markup; the route verdict reads the
+    # refold TREND and not one station count (PU-4); KG is measured from the
+    # keel plane and not from the waterline (measured wrong at -0.02 m while
+    # the endpoint was being wired); a speed past Fn 0.45 is REFUSED by name
+    # rather than extrapolated; and no gate verdict is claimed by a page that
+    # ran no suite.
+    Gate("Gate 4U", "the builder surface's honesty contract: every payload "
+         "declares its source, no NaN on the wire, one home per absence, the "
+         "kit/mould route reads the refold TREND, KG from the keel plane, "
+         "Fn > 0.45 refused by name, and no gate verdict without a suite run",
+         "tests/test_ui_surface.py"),
     Gate("Gate 5", "mission translation + LLM seam", "tests/test_phase5.py"),
     Gate("Gate 6", "rules-as-code mechanics", "tests/test_phase6.py"),
     # Re-read against the suite 2026-08-06. Gate 7 has TWO clauses and the row

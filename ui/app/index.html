@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Naval-AI — the lofting floor</title>
+<link rel="stylesheet" href="/app/app.css">
+</head>
+<body>
+
+<header class="mast">
+  <div class="brand">
+    <span class="mark"></span>
+    <span class="wordmark">NAVAL<span>-AI</span></span>
+  </div>
+  <div class="thesis">
+    <b>You define the mission.</b> Naval-AI does the engineering.
+    <b>Physics proves the design.</b>
+  </div>
+  <div class="mast-right">
+    <span id="mission-chip" class="chip unk" title="no mission locked">
+      <i class="dot unk"></i> no mission
+    </span>
+    <span id="eval-chip" class="chip" title="last evaluate() round trip">— ms</span>
+    <button id="level-btn" class="ghost" title="progressive disclosure level">
+      L1 · MISSION
+    </button>
+    <button id="theme-btn" class="ghost" title="light / dark">◐</button>
+  </div>
+</header>
+
+<div class="shell">
+  <nav id="rail" class="rail" aria-label="primary"></nav>
+  <main id="screen" class="screen" tabindex="-1"></main>
+</div>
+
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+<!-- THE ERROR TRAP IS A CLASSIC SCRIPT, ON PURPOSE. A module that fails to
+     EVALUATE never installs its own handlers, so a trap inside main.js cannot
+     report main.js failing to parse — and a blank window is indistinguishable
+     from a window that measured nothing, which is the one confusion this
+     product may not create about itself. -->
+<script>
+window.addEventListener("error", function (e) {
+  var host = document.getElementById("screen");
+  if (!host) return;
+  var d = document.createElement("div");
+  d.className = "note refuse";
+  d.innerHTML = "<span class='lbl'>the interface failed to start</span>";
+  var p = document.createElement("p");
+  p.textContent = (e.message || String(e.error || e))
+    + (e.filename ? "  —  " + e.filename + ":" + e.lineno + ":" + e.colno : "");
+  d.appendChild(p);
+  host.prepend(d);
+}, true);
+</script>
+<script type="module" src="/app/main.js"></script>
+</body>
+</html>

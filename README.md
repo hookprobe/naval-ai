@@ -182,6 +182,7 @@ different Gate 2M numbers came to circulate at once (gap J1).
 | Gate 2P | slamming pressure is measurable: a bow patch that partitions the hull, a function object that refuses to point at nothing, and a Wagner C_p guarded at both limits | `tests/test_slamming.py` (14 tests) |
 | Gate 3 | surrogate spine: GP + co-kriging rho, OOD refusal, batched-EI infill + the held-out across-seed error bar | `tests/test_phase3.py` (24 tests) |
 | Gate 4 | generative + slider p95<100ms (raw feasibility: Gate 4F) | `tests/test_phase4.py` (27 tests) |
+| Gate 4U | the builder surface's honesty contract: every payload declares its source, no NaN on the wire, one home per absence, the kit/mould route reads the refold TREND, KG from the keel plane, Fn > 0.45 refused by name, and no gate verdict without a suite run | `tests/test_ui_surface.py` (15 tests) |
 | Gate 5 | mission translation + LLM seam | `tests/test_phase5.py` (13 tests) |
 | Gate 6 | rules-as-code mechanics | `tests/test_phase6.py` (6 tests) |
 | Gate 7 | flywheel: frozen suite != training draw, monotone regression mark, wall clock, committed baseline | `tests/test_phase7.py` (15 tests) |
@@ -194,7 +195,7 @@ different Gate 2M numbers came to circulate at once (gap J1).
 | Gate V2.1 | arrangement grammar: envelope, spaces, deck zones, and an L0-A that names the space it refuses | `tests/test_arrangement.py` (42 tests) |
 | Gate V3.0 | governance compiles to a parameter box and to constraint rows, ratchets only tighter, and the ladder never imports it | `tests/test_policy.py` (55 tests) |
 | Gate 6P | the product surface: scope guards refuse what does not govern, and the mission contract binds | `tests/test_gapfix_product.py` (28 tests) |
-| Gate L | one limit, one home; scantling derived from the rule | `tests/test_limits_single_source.py` (21 tests) |
+| Gate L | one limit, one home; scantling derived from the rule | `tests/test_limits_single_source.py` (22 tests) |
 | Gate L2 | numeric literals are categorised, not banned: an AST fence that catches a physical constant in any expression position | `tests/test_constpolicy.py` (43 tests) |
 | Gate 6M | manufacturing back end: nesting, BOM, developability controls, export receipt (refold onto the hull: Gate 6D) | `tests/test_manufacturing.py` (44 tests) |
 | Gate R3 | the ladder is climbable: L2 escalation, monotone tier promotion, honest refusal of L3 | `tests/test_ladder.py` (8 tests) |

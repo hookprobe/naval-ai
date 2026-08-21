@@ -77,6 +77,31 @@ from navalai.evaluate import evaluate, sample_valid
 from navalai.flywheel import DeployedSurrogate
 from navalai.generative import HullGenerator, make_generator
 from navalai.mission import MissionSpec, parse_mission
+from ui import api
+
+# STATIC ASSETS ARE SERVED FROM ONE DIRECTORY AND NO OTHER. `_app_file`
+# resolves under `ui/app/` and refuses anything that escapes it — a handler
+# that concatenates a request path onto a directory is a path traversal, and
+# this one is reachable from a browser.
+_APP_DIR = (Path(__file__).parent / "app").resolve()
+_CTYPES = {".html": "text/html; charset=utf-8",
+           ".css": "text/css; charset=utf-8",
+           ".js": "text/javascript; charset=utf-8",
+           ".json": "application/json",
+           ".svg": "image/svg+xml"}
+
+
+def _ctype(name: str) -> str:
+    return _CTYPES.get("." + name.rsplit(".", 1)[-1].lower(),
+                       "application/octet-stream")
+
+
+def _app_file(name: str) -> bytes:
+    target = (_APP_DIR / name).resolve()
+    if not str(target).startswith(str(_APP_DIR) + "/") or not target.is_file():
+        raise FileNotFoundError(name)
+    return target.read_bytes()
+
 
 _model_lock = threading.Lock()
 _model: HullGenerator | None = None
@@ -643,9 +668,35 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
-        if self.path in ("/", "/index.html"):
+        path = self.path.split("?", 1)[0]
+        if path in ("/app", "/app/", "/studio"):
+            # THE BUILDER-FACING SURFACE IS AT /app, NOT AT /.
+            #
+            # It was briefly at `/`, and `tests/test_phase4.py::
+            # test_http_server_smoke` caught it: that test asserts the
+            # engineer's page is what the root serves, and it is an EXISTING
+            # fence over an entry point this work was not asked to move. A
+            # test is not softened to make a routing preference win — the
+            # routing changed instead. `serve()` prints both URLs.
+            self._send(200, _app_file("index.html"),
+                       "text/html; charset=utf-8")
+        elif path.startswith("/app/"):
+            name = path[len("/app/"):]
+            try:
+                body = _app_file(name)
+            except (FileNotFoundError, ValueError):
+                self._send(404, b"{}")
+                return
+            self._send(200, body, _ctype(name))
+        elif path in ("/", "/index.html", "/legacy"):
             html = (Path(__file__).parent / "index.html").read_bytes()
             self._send(200, html, "text/html; charset=utf-8")
+        elif path.startswith("/api/"):
+            out = api.handle_get(path)
+            if out is None:
+                self._send(404, b"{}")
+                return
+            self._send(200, json.dumps(out).encode())
         elif self.path == "/pareto":
             # GET carries no body, so this is the DEFAULT mission's front and
             # nothing else. It is kept for the warm-up path and for a caller
@@ -682,6 +733,15 @@ class Handler(BaseHTTPRequestHandler):
                 # the dashboard showed a trade-off surface for a boat nobody
                 # had asked about.
                 out = pareto_payload(body.get("mission"))
+            elif self.path.split("?", 1)[0].startswith("/api/"):
+                # The builder-facing mapping layer. It lives in `ui/api.py`
+                # because THIS file is pinned by tests down to its payload
+                # strings, and because BUILD-PLAN §PU says the gap to a
+                # builder surface "is a mapping layer, not a rewrite".
+                out = api.handle_post(self.path.split("?", 1)[0], body)
+                if out is None:
+                    self._send(404, b"{}")
+                    return
             else:
                 self._send(404, b"{}")
                 return
@@ -696,6 +756,8 @@ def serve(port: int = 8642):
     print(f"navalai slider surface: http://127.0.0.1:{port} "
           f"(prefit {info['prefit_s']:.2f} s: model + {info['n_ref']}/"
           f"{info['n_cand']} scored pool + Pareto front)")
+    print(f"navalai builder surface: http://127.0.0.1:{port}/app  "
+          f"(mission -> envelope -> studio -> build; docs/UX-ARCHITECTURE.md)")
     httpd.serve_forever()
 
 
