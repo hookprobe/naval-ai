@@ -497,7 +497,7 @@ def test_the_offset_load_lever_is_the_vessel_beam_not_the_demihull_beam(
 def test_two_demihulls_are_two_shells(ref_hull):
     """Counting, not modelling: the same moulded surface built twice.
 
-    MEASURED on `mid_params` at the 6000 kg mission: shell area 46.707 m^2
+    MEASURED on `mid_params` at the 6000 kg mission: shell area 47.912 m^2
     per demihull; `structure_kg` 1087.187 -> 1824.921 (RE-MEASURED
     2026-08-19 at the Gate 6R re-shape — the ISO 12215-5:2008(E) selection
     picks a thinner sheet for this boat than the flat-floor model did, so
@@ -507,11 +507,15 @@ def test_two_demihulls_are_two_shells(ref_hull):
     the fit-out, and only the SHELL is built twice.
     """
     from navalai.energy import shell_area_m2
-    assert shell_area_m2(Hull(ref_hull)) == pytest.approx(46.707, abs=1e-3)
+    # E17 (2026-08-20): +0.77% from the wetted-surface longitudinal-slope
+    # factor. Was 46.707.
+    assert shell_area_m2(Hull(ref_hull)) == pytest.approx(47.912, abs=1e-3)
     mono = evaluate(ref_hull, MissionSpec())
     cat = evaluate(ref_hull, MissionSpec(vessel=_cat(0.60)))
-    assert mono.weights.structure_kg == pytest.approx(1087.187, abs=1e-2)
-    assert cat.weights.structure_kg == pytest.approx(1824.921, abs=1e-2)
+    # E17: structure mass follows shell area, +0.77%. Was 1087.187.
+    assert mono.weights.structure_kg == pytest.approx(1106.228, abs=1e-2)
+    # E17: same +0.77% on the catamaran. Was 1824.921.
+    assert cat.weights.structure_kg == pytest.approx(1863.002, abs=1e-2)
     assert 1.0 < cat.weights.structure_kg / mono.weights.structure_kg < 2.0
     assert any("KG is a single-hull KG" in c for c in cat.vessel["caveats"])
     assert any("bridge deck contributes none" in c
