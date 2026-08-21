@@ -100,6 +100,13 @@ class DesignDNA:
     # here keeps one home for the fact instead of inferring it from a set of
     # material strings that happens to read the right way today.
     construction: PolicyValue | None = None
+    # The owner's ceiling on how much of the shell a flat sheet cannot take.
+    # A CEILING (kind 1), not a ratchet: `limits.py` owns no such bar, and the
+    # quantity is measured by the LADDER (`Evaluation.non_developable_frac`),
+    # so it compiles to a ROW and not to a box edge -- a box bounds what the
+    # search may PROPOSE, a row measures what the ladder actually FLOATED, and
+    # developability is a property of the drawn hull, not of its genome.
+    max_non_developable_frac: PolicyValue | None = None
     # limits.py attribute name -> the tightened value. Checked at COMPILE time
     # against the live value in `limits.py`; see `compiler.RATCHETS`.
     floors: Mapping[str, PolicyValue] = field(default_factory=dict)

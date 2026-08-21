@@ -440,18 +440,42 @@ def test_the_placeholder_sigma_fraction_is_declared_in_exactly_one_place():
     # deleted. And it must read CODE and not prose — defect class 8, "the word
     # was in the comment on the defect": the sentence documenting this very
     # fix, in energy.py's own docstring, contains the string it forbids.
+    # AND THE WIDENED FENCE STILL HAD BOTH HOLES (2026-08-21). It was widened
+    # to the PACKAGE, and `ui/server.py` is not in the package — it sat outside
+    # `pkg.rglob` serving four sigmas typed at the call site, two of them
+    # literal fractions of their own value:
+    #
+    #     freeboard_m          0.02                 a bare constant
+    #     cb                   0.02                 a bare constant
+    #     solar_kwh_day        value * 0.25         a declared fraction
+    #     range_solar_nm_day   value * 0.35         a declared fraction
+    #
+    # That is J1's shape for the SECOND time on the same gap: the fence had a
+    # hole exactly where the duplicates lived, and gap H1 has been recorded
+    # CLOSED throughout. The second hole is narrower and worse — `_is_wh`
+    # matched only `wh_per_nm`, so even scanning the file would have missed
+    # `solar_kwh_day * 0.25`. A fence aimed at ONE quantity cannot enforce a
+    # rule stated about ALL of them.
+    #
+    # Scan is now every directory that can construct a badge, and the matcher
+    # is the set of served quantity names rather than one of them.
     import ast as _ast
-    pkg = pathlib.Path(energy.__file__).parent
+    root = pathlib.Path(energy.__file__).parent.parent
+    scan = [root / "navalai", root / "ui", root / "scripts"]
+    _QUANTITY_SUFFIXES = ("wh_per_nm", "solar_kwh_day", "range_solar_nm_day",
+                          "freeboard_min", "disp_kg")
 
     def _is_wh(node) -> bool:
+        name = None
         if isinstance(node, _ast.Name):
-            return node.id.endswith("wh_per_nm")
-        if isinstance(node, _ast.Attribute):
-            return node.attr.endswith("wh_per_nm")
-        return False
+            name = node.id
+        elif isinstance(node, _ast.Attribute):
+            name = node.attr
+        return bool(name) and name.endswith(_QUANTITY_SUFFIXES)
 
     offenders = []
-    for path in sorted(pkg.rglob("*.py")):
+    for path in sorted(p for d in scan if d.is_dir()
+                       for p in d.rglob("*.py")):
         for node in _ast.walk(_ast.parse(path.read_text())):
             if not (isinstance(node, _ast.BinOp)
                     and isinstance(node.op, _ast.Mult)):

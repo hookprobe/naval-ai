@@ -230,6 +230,64 @@ def test_the_list_constraint_is_no_longer_unconditionally_satisfiable():
         "documented resting state has changed")
 
 
+def test_the_list_row_can_now_actually_be_violated():
+    """THE OTHER HALF OF E13, CLOSED 2026-08-21. The test above pins the
+    constraint's two RESTING states — inert at -LIST_LIMIT_DEG, or undefined
+    at INFEASIBLE_G. Neither is a violation, and until today no production
+    path could produce one: `weights.MassItem.y_m`, `aggregate.tcg_m` and the
+    `atan(TCG/GM)` heel were all built and tested, `arrangement.mass_items()`
+    emitted correctly positioned tier-E items with a real `y_m`, and NOTHING
+    JOINED THEM UP. `evaluate` built its own item list from
+    `energy.LCG_FRACTION` / `VCG_FRACTION`, every one of which is on
+    centreline, so `tcg_m` was identically 0.0 and the row read EXACTLY
+    -2.000 across 800 evaluations. A constraint occupying an NSGA-II dimension
+    that cannot fail is a defect this repository has already shipped once.
+
+    Two seams close it, and this test exercises both: a declared
+    `PayloadSpec.y_frac_bwl`, and caller-supplied `extra_mass_items` — the one
+    `arrangement.mass_items()` has been waiting for.
+    """
+    import navalai.evaluate as E
+    from navalai.mission import PayloadSpec
+    from navalai.weights import MassItem
+    x = mid_params()
+
+    # THE RESTING STATE IS UNCHANGED. This is the load-bearing assertion: the
+    # seam is opt-in, so every existing caller gets the identical number.
+    base = evaluate(x, MissionSpec())
+    assert base.masses.tcg_m == 0.0
+    assert base.g["list"] == pytest.approx(-LIST_LIMIT_DEG)
+
+    # 1. DECLARED VIA THE MISSION.
+    off = evaluate(x, MissionSpec(payload=PayloadSpec(
+        mass_kg=1000.0, x_frac_lwl=0.5, z_frac_depth=0.4, y_frac_bwl=0.30)))
+    assert off.masses.tcg_m > 0.05, off.masses.tcg_m
+    assert off.list_deg is not None and off.list_deg > LIST_LIMIT_DEG
+    assert off.g["list"] > 0.0, "an off-centre tonne did not violate the row"
+    item = next(i for i in off.masses.items if i.id == "mission_payload")
+    assert item.y_m > 0.0 and "off centreline" in item.source
+
+    # A load nobody said was off-centre is NOT reported as defaulted — that
+    # word is reserved for x/z, where defaulting means we chose for them.
+    sym = evaluate(x, MissionSpec(payload=PayloadSpec(
+        mass_kg=1000.0, x_frac_lwl=0.5, z_frac_depth=0.4)))
+    sym_item = next(i for i in sym.masses.items if i.id == "mission_payload")
+    assert sym_item.y_m == 0.0
+    assert "declared position" in sym_item.source
+    assert "off centreline" not in sym_item.source
+    assert sym.g["list"] == pytest.approx(-LIST_LIMIT_DEG)
+
+    # 2. SUPPLIED BY A CALLER — the drag-a-weight seam.
+    batt = MassItem(id="battery_bank", mass_kg=1000.0, x_m=3.0, z_m=-0.1,
+                    y_m=0.9, sigma_kg=20.0, tier="E",
+                    source="caller-positioned", basis="declared")
+    drag = evaluate(x, MissionSpec(), extra_mass_items=[batt])
+    assert drag.masses.n_items == base.masses.n_items + 1
+    assert drag.g["list"] > 0.0, drag.g["list"]
+    # APPENDED, not replacing: the hull's own budget is still there.
+    assert {i.id for i in base.masses.items} <= {i.id for i in drag.masses.items}
+
+
 # --------------------------------------------- E16: order without assert
 
 

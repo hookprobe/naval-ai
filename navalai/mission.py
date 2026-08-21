@@ -324,6 +324,15 @@ class PayloadSpec:
     equipment_volume_m3: float = 0.0
     x_frac_lwl: float | None = None   # position along LWL; None = defaulted
     z_frac_depth: float | None = None
+    # TRANSVERSE, as a fraction of BWL, + to starboard; None = on centreline.
+    # Added 2026-08-21. Until then NOTHING in the product could declare an
+    # athwartships offset, so `weights.aggregate` returned tcg_m == 0.0 on
+    # every production path and the `list` row read EXACTLY -LIST_LIMIT_DEG
+    # over 800 evaluations — a constraint occupying an NSGA-II dimension that
+    # could not fail. `certify` already records ASYMMETRIC_PAYLOAD as
+    # "refused: not representable"; this is the field that makes it
+    # representable. Appended LAST so no positional construction moves.
+    y_frac_bwl: float | None = None
 
     def __post_init__(self) -> None:
         for name in ("mass_kg", "volume_m3", "power_w", "peak_power_w",
@@ -635,6 +644,51 @@ _NUM = r"(\d+(?:[.,]\d+)?)"
 # ordinary English and were silently unparsed while `\s*` only spanned spaces.
 _SEP = r"[\s-]*"
 
+# THE UNIT IS RIGHT AND THE QUANTITY IS WRONG (MEASURED 2026-08-21).
+# `re.search` takes the FIRST match and the regexes carry no notion of which
+# dimension the unit measures, so on the brief
+#
+#     "monohull wave-piercer, 4-6 people, 1-tonne battery payload,
+#      3 m total height, stitch-and-glue plywood"
+#
+# "3 m total height" became `lwl_hint_m = 3.0` and "1-tonne battery payload"
+# became `displacement_target_kg = 1000.0` — a 3-metre boat weighing one tonne,
+# from a brief describing neither. Both land INSIDE `FIELD_RANGES`, so
+# `clamp()` emitted nothing and `notes` came back empty: it read as a clean
+# parse. That is the same shape as the thousands-separator defect recorded in
+# `parse_mission` below, and it is worse, because that one at least produced a
+# number the user had typed.
+#
+# The discriminator has to be the FOLLOWING NOUN, not the separator and not
+# the position: `tests/test_phase5.py` locks "a 9-metre cruiser, 4 t" to 4000
+# kg with the mass at end-of-string, and `tests/test_phase1.py` locks
+# "40 kWh battery" to a battery — so "a number followed by 'battery'" cannot
+# be banned generally, only for the MASS units.
+_DENY_MASS = (r"(?:batter(?:y|ies)|payload|cargo|ballast|engine|motor|"
+              r"anchor|winch)")
+_DENY_LENGTH = (r"(?:total\s+)?(?:height|headroom|clearance|air\s*draft|"
+                r"tall|high|beam|wide|width|draft|draught|freeboard)")
+
+
+def _qualifying(pattern: str, text: str, deny: str, notes: list,
+                field: str):
+    """First match of `pattern` whose trailing noun is not in `deny`.
+
+    Scans ALL matches rather than testing only the first, so a brief that
+    mentions a disqualified quantity before the real one ("1-tonne battery
+    payload, 6 tonne boat") still finds the real one. Every skip is RECORDED:
+    a number the parser saw and refused is exactly the thing that must not be
+    silent, since the whole defect was a wrong value arriving with empty notes.
+    """
+    for g in re.finditer(pattern, text):
+        tail = text[g.end():g.end() + 32]
+        if re.match(r"\s*(?:of\s+)?" + deny + r"\b", tail):
+            notes.append(f"{field}: ignored {g.group(0).strip()!r} — it "
+                         f"measures something else in this brief")
+            continue
+        return g
+    return None
+
 
 def parse_mission(text: str) -> MissionSpec:
     """Rule-based NL -> MissionSpec. Deliberately conservative: anything it
@@ -651,14 +705,17 @@ def parse_mission(text: str) -> MissionSpec:
     m = MissionSpec(name=text.strip()[:70])
     unparsed = []
 
-    if g := re.search(_NUM + _SEP + r"(?:tonnes?|tons?|t)\b", t):
+    if g := _qualifying(_NUM + _SEP + r"(?:tonnes?|tons?|t)\b", t,
+                        _DENY_MASS, unparsed, "displacement"):
         m.displacement_target_kg = float(g.group(1)) * 1000.0
-    elif g := re.search(_NUM + _SEP + r"kg\b", t):
+    elif g := _qualifying(_NUM + _SEP + r"kg\b", t, _DENY_MASS, unparsed,
+                          "displacement"):
         m.displacement_target_kg = float(g.group(1))
     else:
         unparsed.append("displacement (default 6 t)")
 
-    if g := re.search(_NUM + _SEP + r"(?:metres?|meters?|m)\b", t):
+    if g := _qualifying(_NUM + _SEP + r"(?:metres?|meters?|m)\b", t,
+                        _DENY_LENGTH, unparsed, "lwl_hint_m"):
         m.lwl_hint_m = float(g.group(1))
 
     if g := re.search(_NUM + _SEP + r"(?:knots?|kn)\b", t):
@@ -720,6 +777,17 @@ def parse_mission(text: str) -> MissionSpec:
     # the defaults, so a parsed 0 knots or 5000 crew would have walked straight
     # past it. Its notes join the unparsed list, which is the only channel this
     # function has for saying "what you got back is not what you asked for".
+    # A DECLARED LIMIT WITH NOWHERE TO LIVE IS SAID OUT LOUD. There is no air
+    # draft, mast height or bridge-clearance concept anywhere in this tree —
+    # `WindageSpec.centroid_above_wl_m` is the centroid of a lateral AREA for a
+    # heeling moment, not a maximum height, and repurposing it would answer a
+    # different question. So a brief that states a vertical clearance gets told
+    # that nothing will check it, rather than having the number silently
+    # absorbed into the waterline length (which is what used to happen).
+    if re.search(r"\b(?:air\s*draft|air-draft|headroom|clearance|"
+                 r"(?:total|overall)\s+height|bridge)\b", t):
+        unparsed.append("a vertical clearance was stated and NOTHING checks "
+                        "it: this tree has no air-draft field")
     unparsed.extend(m.clamp())
     m.notes = "; ".join(unparsed)
     return m

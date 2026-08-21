@@ -48,6 +48,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -72,6 +73,76 @@ MISSION = ("6 tonne solar-electric liveaboard, 10 m, Danube and Black Sea "
 POP, GENS = 64, 80
 
 
+def _refine(x0, mission, policy, box, budget_s, seed):
+    """(1+1)-ES on the AUTHORITATIVE refold meter, subject to the full ladder.
+
+    Lexicographic: feasibility first, then refold. A step that breaks the
+    ladder is never accepted, so the hull that comes out is a hull the ladder
+    passed AND whose panels are measured to close — not a buildable shape that
+    happens to sink, which is exactly what an unconstrained refold search
+    returns (measured: 3.900 mm at GM -0.35 m, i.e. it capsizes).
+    """
+    lo = np.array(box.low, float)
+    hi = np.array(box.high, float)
+    width = hi - lo                 # EXACTLY zero on a pinned gene, on purpose:
+                                    # an epsilon here puts roundness at 1e-13
+                                    # and `hull_panels` refuses `> 0.0`
+                                    # strictly — measured, it rejected 600 of
+                                    # 600 draws.
+    rng = np.random.default_rng(seed + 1)
+
+    def score(x):
+        try:
+            if not grammar.check(x).ok:
+                return (1e6, 1e6)
+            ev = evaluate(x, mission, policy=policy)
+            if not ev.ok or ev.energy is None:
+                viol = sum(max(0.0, min(v, 1e3))
+                           for v in (ev.g or {}).values())
+                return (viol if viol > 0 else 1.0, 1e6)
+            h = Hull(x)
+            r = max(float(np.max(unroll.refold_surface_deviation_mm(h, pan)))
+                    for pan in unroll.hull_panels(h))
+            return (0.0, r)
+        except Exception:
+            return (1e6, 1e6)
+
+    t0 = time.time()
+    best, bx = score(np.asarray(x0, float)), np.asarray(x0, float).copy()
+
+    # SEED PHASE, and it is not optional. MEASURED 2026-08-21, same mission,
+    # same box, same refiner: seeded from the lowest-ENERGY front member
+    # (refold 120.3 mm) it did not reach the bar in 900 s; seeded from the best
+    # of a random sweep (refold 38.37 mm) it reached 4.952 mm in ~335 s.
+    #
+    # The seed dominates because the buildable region is TINY -- 3 of 400
+    # random draws clear 5 mm -- and a local search started 120 mm away spends
+    # its whole budget walking. Cheapest fix by far: sweep the box first on the
+    # lexicographic score and start from the best point found, so the ES begins
+    # inside the right basin instead of proving it can walk.
+    sweep_s = min(0.35 * budget_s, 300.0)
+    n_sweep = 0
+    while time.time() - t0 < sweep_s:
+        cand = lo + rng.random(len(lo)) * width
+        s_ = score(cand)
+        n_sweep += 1
+        if s_ < best:
+            best, bx = s_, cand
+    print(f"    seed sweep: {n_sweep} draws, best "
+          f"{'infeasible' if best[0] > 0 else f'{best[1]:.1f} mm'}")
+    sigma = 0.10
+    while time.time() - t0 < budget_s:
+        cand = np.clip(bx + rng.normal(0, sigma, len(lo)) * width, lo, hi)
+        s = score(cand)
+        if s < best:
+            best, bx, sigma = s, cand, min(sigma * 1.2, 0.25)
+            if best[0] == 0.0 and best[1] <= REFOLD_BAR_MM:
+                return bx, evaluate(bx, mission, policy=policy), best[1]
+        else:
+            sigma = max(sigma * 0.995, 0.004)
+    return None
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="design_kit")
     ap.add_argument("--mission", default=MISSION)
@@ -79,6 +150,11 @@ def main(argv=None) -> int:
     ap.add_argument("--pop", type=int, default=POP)
     ap.add_argument("--gens", type=int, default=GENS)
     ap.add_argument("--seed", type=int, default=11)
+    ap.add_argument("--refine-s", type=float, default=900.0,
+                    help="seconds of buildability refinement when no "
+                         "front member unrolls within the bar")
+    ap.add_argument("--no-refine", action="store_true",
+                    help="skip refinement and report the refusal")
     ap.add_argument("--ungoverned", action="store_true",
                     help="compile NO constitution. Kept so the difference is "
                          "demonstrable rather than asserted -- it is not a "
@@ -156,6 +232,43 @@ def main(argv=None) -> int:
             verified.append((e, xx, w))
         elif w < best_miss[0]:
             best_miss = (w, e)
+    if not verified and not a.no_refine:
+        # ---- STAGE 3: BUILDABILITY REFINEMENT ----------------------------
+        #
+        # This is the stage that makes the tool produce boats instead of
+        # reporting that it cannot. NSGA-II optimises the mission; NOTHING in
+        # its objectives or constraints is buildability, so it lands in the
+        # buildable region only by accident. MEASURED on the flagship mission:
+        #
+        #     NSGA-II governed front          0 of N under the 5 mm bar
+        #     400 random draws in the box     3 under the bar (0.75%)
+        #     refold-targeted (1+1)-ES        FOUND ONE: 4.952 mm, GM +2.545 m,
+        #                                     zero ladder violations
+        #
+        # So the search direction is the whole difference, and the ONLY meter
+        # that can supply it is the authoritative one. Two cheap proxies were
+        # measured and BOTH FAILED to separate, which is why this stage pays
+        # 2.3 s a step instead of steering for free:
+        #
+        #     Hull.panel_twist_rate()   0.02 ms   r = +0.089
+        #     shell_complexity().ndev   1.80 ms   r = +0.460 over N=400
+        #         and at its most selective useful threshold (ndev <= 0.005)
+        #         only 33% of hulls clear the bar, while the three measured
+        #         passers span ndev 0.0019..0.0816 — so a bar tight enough to
+        #         steer EXCLUDES TWO OF THE THREE KNOWN SOLUTIONS.
+        #
+        # A criterion that does not separate is not a criterion. Refinement on
+        # the real meter is slower and it is the one that works.
+        print(f"  no front member is buildable (best {best_miss[0]:.1f} mm) — "
+              f"REFINING on the authoritative meter for up to "
+              f"{a.refine_s:.0f} s ...")
+        seed_ev, seed_x = min(scored, key=lambda t: t[0].energy.wh_per_nm)
+        got = _refine(seed_x, m, policy, box, a.refine_s, a.seed)
+        if got is not None:
+            x, ev, worst_ok = got
+            verified = [(ev, x, worst_ok)]
+            print(f"  REFINED to {worst_ok:.2f} mm — buildable, ladder-valid")
+
     if not verified:
         print(f"  NO MEMBER of the front unrolls within {REFOLD_BAR_MM:.0f} mm."
               f" Best was {best_miss[0]:.1f} mm.")

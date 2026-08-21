@@ -1498,3 +1498,83 @@ def test_the_unroller_is_EXACT_on_a_developable_surface():
 
     hyp_b = np.stack([np.ones(n), t * 2.0, t * t * 1.5], axis=1)
     assert err_mm(pl_a, hyp_b, "hypar") > 10.0
+
+
+def _kit_corner_params(**over):
+    """The developable corner of the grammar: no flare, no forefoot, no
+    deadrise warp, hard chine. `over` perturbs one gene at a time."""
+    d = {n: (lo + hi) / 2 for (n, u, lo, hi, _d) in unroll.grammar.PARAMS}
+    d.update(LWL=10.5, BWL=3.2, T=0.55, D=1.35, roundness=0.0, flare=0.0,
+             forefoot=0.0, rocker=0.0, beta_bow=2.0, beta_mid=2.0,
+             sheer_rise=0.0)
+    d.update(over)
+    return d
+
+
+def test_a_refold_shortfall_is_told_apart_from_its_station_count():
+    """MEASURED 2026-08-21. The COMPANION to
+    `test_refold_does_not_converge_with_station_count` above, which measures
+    `mid_params` — a hull whose non-developable area fraction is 0.201 (flare
+    10 deg, forefoot 0.600, deadrise warping 8 -> 30 deg). Refinement does not
+    help there, and that test is right about that hull.
+
+    What had never been measured is whether refinement helps ANYWHERE, and it
+    does. `refold_surface_deviation_mm` builds the panel as straight chords
+    between the hull's stations and compares it against the hull sampled at
+    4001, so at `_LADDER_STATIONS` = 41 part of every reported deviation is a
+    40-segment polyline's sagitta. On a hull that is actually developable that
+    part is the WHOLE of it:
+
+        hull                  ndev_frac    n=41    n=81   n=161   n=321
+        flare 0                0.000000    17.1     5.8     4.1     1.5
+        deadrise warp 2->40    0.063811    40.6    20.5    10.3     5.3
+        flare 25               0.275547   379.8   448.3   484.6   503.6
+
+    Row one is machine-zero Gaussian curvature (7.8e-14) reading 17.1 mm at the
+    count Gate 6D quotes. So the 41-station value is not a manufacturing
+    verdict on its own — 41 was chosen for hydrostatics cost, and this is
+    CLAUDE.md's rule 4, a defect measured at a configuration the product never
+    runs.
+
+    The DIRECTION is the discriminator, and it is the same discipline
+    `cfd.post.gci` applies to a mesh family: falling under refinement is
+    measurement, rising is geometry, and only the second is a reason to change
+    the hull. This test pins both signs so neither can drift.
+
+    It also settles the question `hull_panels`' history left open — whether the
+    grammar admits a sub-bar hull at all. It does.
+    """
+    dev = unroll.refold_convergence(_kit_corner_params(), counts=(41, 81, 161))
+    assert dev.verdict == "PASSES", (dev.verdict, dev.worst_mm)
+    assert dev.finest_mm <= REFOLD_BAR_MM, dev.worst_mm
+    # strictly falling, and by a lot: 17.1 -> 4.1 is the polyline going away
+    assert all(b < a for a, b in zip(dev.worst_mm, dev.worst_mm[1:])), dev.worst_mm
+    assert dev.worst_mm[0] > 3.0 * dev.worst_mm[-1], dev.worst_mm
+
+    nondev = unroll.refold_convergence(_kit_corner_params(flare=25.0),
+                                       counts=(41, 81, 161))
+    assert nondev.verdict == "NON_DEVELOPABLE", (nondev.verdict, nondev.worst_mm)
+    # RISING. A finer sample of a doubly-curved surface finds more of the error
+    # it could not represent, never less.
+    assert all(b > a for a, b in zip(nondev.worst_mm, nondev.worst_mm[1:])), \
+        nondev.worst_mm
+
+    # A hull the unroller refuses is REFUSED, not given a fabricated number.
+    filleted = unroll.refold_convergence(_kit_corner_params(roundness=0.5),
+                                         counts=(41, 81))
+    assert filleted.verdict == "REFUSED" and filleted.worst_mm == ()
+
+
+def test_refold_convergence_refuses_to_name_an_order_it_cannot_support():
+    """The successive ratios on the developable family are 2.97 and 1.41 —
+    they disagree by more than 2x, so no single power law describes them and
+    `order` stays None. Printing one anyway is the defect `post_gci` was fixed
+    for: quoting a convergence order off a family whose refinement ratio was
+    never measured.
+    """
+    dev = unroll.refold_convergence(_kit_corner_params(), counts=(41, 81, 161))
+    assert dev.order is None, dev.ratios
+    assert len(dev.ratios) == 2 and max(dev.ratios) / min(dev.ratios) > 2.0
+
+    with pytest.raises(ValueError):
+        unroll.refold_convergence(_kit_corner_params(), counts=(81, 41))

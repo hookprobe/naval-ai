@@ -973,3 +973,84 @@ def test_every_governed_entry_point_threads_the_policy_through():
         assert sig.parameters["policy"].default is None, (
             f"{fn.__name__}'s policy must default to None: an ungoverned run "
             f"must produce the numbers it always produced")
+
+
+def test_an_unmeasurable_developability_is_a_VIOLATION_never_a_pass():
+    """GAP E11's SHAPE, CAUGHT IN THE ACT ON 2026-08-21.
+
+    `Evaluation.non_developable_frac` was first written to return 0.0 when the
+    quantity could not be measured. 0.0 is the BEST POSSIBLE value of this
+    quantity -- and `buildability.shell_complexity` REFUSES precisely the shape
+    that is most certainly not sheet-buildable, a radiused bilge: "measuring it
+    here anyway would report a curvature of a surface the boat does not have."
+
+    So a round-bilge hull -- the one hull that definitively cannot be cut from
+    flat ply -- scored as PERFECTLY DEVELOPABLE. That is "undefined must never
+    be reported as ideal" reproduced exactly, in a field written to close a
+    different gap.
+
+    It is NaN now, and `_apply_policy` already turns a non-finite constraint
+    into INFEASIBLE_G with a named violation rather than a pass.
+    """
+    import math
+
+    import numpy as np
+
+    from navalai import grammar
+    from navalai.evaluate import evaluate
+    from navalai.mission import MissionSpec
+
+    x = (np.array(grammar.LOW) + np.array(grammar.HIGH)) / 2.0
+    j = grammar.NAMES.index("roundness")
+    assert x[j] > 0.0, "this fixture must be round-bilged to be the test"
+
+    round_bilge = evaluate(x, MissionSpec())
+    assert math.isnan(round_bilge.non_developable_frac), (
+        "an UNMEASURABLE developability must be NaN, never 0.0 -- zero is the "
+        "best possible value and would score the least buildable hull ideal")
+
+    y = x.copy()
+    y[j] = 0.0
+    hard_chine = evaluate(y, MissionSpec())
+    assert math.isfinite(hard_chine.non_developable_frac)
+    assert hard_chine.non_developable_frac > 0.0
+
+
+def test_the_buildability_row_is_steering_and_says_so():
+    """The row exists because the search was not AIMING at buildability.
+
+    MEASURED 2026-08-21 on the flagship mission: NO member of a governed
+    NSGA-II front unrolled within the 5 mm bar (best 120.3 mm), while a
+    seaworthy hull at 4.952 mm refold with GM +2.545 m and zero ladder
+    violations demonstrably exists in the SAME governed box. The search was not
+    failing; it had no buildability term to fail against.
+
+    The row is a STEERING proxy and must never be mistaken for the guarantee:
+    `Evaluation.non_developable_frac` costs 1.8 ms and correlates with the
+    authoritative refold meter at r = +0.783, where the meter itself costs
+    2301 ms (8561x `grammar.check`) and cannot live inside NSGA-II. The binding
+    check stays at the cut-file boundary.
+    """
+    import dataclasses
+
+    from navalai.policy import reference_policy
+    from navalai.policy.compiler import ROW_BUILD, compile_policy
+    from navalai.policy.dna import owner
+
+    base = reference_policy().constitution
+
+    # A constitution that takes no position emits NO row -- the None doctrine.
+    assert ROW_BUILD not in compile_policy(base).rows or \
+        base.dna.max_non_developable_frac is not None
+
+    dna = dataclasses.replace(
+        base.dna,
+        max_non_developable_frac=owner(0.02, "-", "test ceiling"))
+    pol = compile_policy(dataclasses.replace(base, dna=dna))
+    assert ROW_BUILD in pol.rows
+
+    # It is a ROW and not a BOX EDGE, deliberately: developability is a
+    # property of the DRAWN hull, not of its genome, so it measures what the
+    # ladder floated rather than bounding what the search may propose.
+    box = pol.box("C")
+    assert not any(e.param == "non_developable_frac" for e in box.edits)

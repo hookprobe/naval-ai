@@ -36,8 +36,8 @@ from pathlib import Path
 import numpy as np
 
 from . import db, grammar
-from .energy import (EnergyReport, WeightBudget, energy_report, shell_area_m2,
-                     weight_budget, weight_items)
+from .energy import (SIGMA_PROPAGATED_LOWER_BOUND, EnergyReport, WeightBudget,
+                     energy_report, shell_area_m2, weight_budget, weight_items)
 from .geometry import RHO_WATER, Hull
 from .holtrop import envelope_violations as holtrop_envelope_violations
 from .holtrop import particulars_from_floated
@@ -74,12 +74,22 @@ from .weights import MassAggregate, MassItem, aggregate
 # that failed ISO 12215-5 or the offset-load heel came back ok=True and
 # exported. PLM.md section 1 lists the rules tier as a platform truth mechanism
 # that "fails closed"; it was a print statement in a demo.
-# "list" IS A RESERVED TIER-E/F HOOK, AND SAYING SO IS THE POINT (gap E13).
-# It read EXACTLY -2.000 across 800 evaluations, because `agg.tcg_m` is
-# identically 0 while no mass item declares a transverse offset — and nothing
-# in the product declares one yet, so on today's inputs it is a green light
-# occupying an NSGA-II constraint dimension. It is KEPT rather than deleted for
-# two reasons, both of which are now gate tests rather than assurances:
+# "list" WAS A RESERVED TIER-E/F HOOK, AND IS NOW LIVE (gap E13, closed
+# 2026-08-21). It read EXACTLY -2.000 across 800 evaluations, because
+# `agg.tcg_m` was identically 0 while nothing in the product could declare a
+# transverse offset — a green light occupying an NSGA-II constraint dimension.
+# TWO SEAMS CLOSED IT, and the parts they join were all already built and
+# tested: `MassItem.y_m` -> `aggregate.tcg_m` -> `atan(TCG/GM)` -> the row, and
+# `arrangement.mass_items()` emitting positioned tier-E items with a real y_m
+# and ZERO production callers. What was missing was only the wiring —
+# `PayloadSpec.y_frac_bwl` for a declared mission load, and `evaluate`'s
+# `extra_mass_items=` for a caller that positions its own. MEASURED on
+# mid_params with 1000 kg at 0.30*BWL to starboard: TCG 0.160 m, list 12.14
+# deg, g 10.14 — the row VIOLATES, which it could not previously do.
+# Both seams are opt-in and default to nothing, so an existing caller gets the
+# identical number and the resting state below is unchanged.
+# It was KEPT rather than deleted for two reasons, both gate tests rather than
+# assurances:
 #   1. it is LIVE, not dead. Give any item a y_m and it moves; the trade it
 #      constrains is the one tier E (arrangement) and tier F (tanks, foam) will
 #      produce, and a galley to port is the ordinary case, not an exotic one.
@@ -234,6 +244,39 @@ class Evaluation:
     resistance: ResistanceResult | None = None
     energy: EnergyReport | None = None
     ply_thickness_m: float = 0.0    # DERIVED from ISO 12215-5, not declared
+    # BUILDABILITY-FROM-SHEET, measured on the drawn hull. NOT a physics
+    # quantity and it changes none: it is the fraction of shell area a flat
+    # sheet cannot take without stretching, and it exists here so a
+    # constitution can APPEND a row against it (`policy.rows_for` is a READER
+    # of a finished Evaluation and measures nothing itself).
+    #
+    # WHY THIS ONE. MEASURED 2026-08-21 against the authoritative meter,
+    # `unroll.refold_surface_deviation_mm`:
+    #     refold_surface_deviation_mm   2301 ms/hull   IS the meter   unusable
+    #                                                                 in a search
+    #     Hull.panel_twist_rate()       0.02 ms/hull   corr +0.089    USELESS
+    #     shell_complexity(...).ndev    1.80 ms/hull   corr +0.783    usable
+    # The L0 twist rate is free and does NOT separate — 0 of 30 governed hulls
+    # under the 5 mm bar, the cheapest-twist hull refolding at 43.4 mm while
+    # the 5th-cheapest is at 1274 mm. A criterion that does not separate is
+    # not a criterion, so the 1.8 ms is paid.
+    #
+    # It is a STEERING proxy at r = 0.783, NEVER a guarantee: the authoritative
+    # check stays at the cut-file boundary (`unroll.export_dxf`, which refuses
+    # over `limits.REFOLD_BAR_MM` and stamps its verdict into the file).
+    # NaN — NOT 0.0 — when it could not be measured, and that choice is the
+    # whole point. 0.0 is the BEST POSSIBLE value of this quantity, so the
+    # first version of this field reported an UNMEASURABLE hull as a perfectly
+    # developable one: `shell_complexity` correctly REFUSES a radiused bilge
+    # ("measuring it here anyway would report a curvature of a surface the
+    # boat does not have") and the refusal came back as 0.000. A round-bilge
+    # hull — the one shape that is definitively NOT sheet-buildable — would
+    # have scored ideal. That is gap E11's shape exactly, "undefined must
+    # never be reported as ideal", caught in the act on 2026-08-21.
+    #
+    # NaN is safe because `_apply_policy` already turns a non-finite constraint
+    # into INFEASIBLE_G with a named violation rather than a pass.
+    non_developable_frac: float = float("nan")
     unaccounted_frac: float = 0.0   # displacement with no declared position
     # LWL is a GRAMMAR INPUT, not a computed result: it is sitting in `params`
     # before a single line of physics runs, so it is carried on EVERY return
@@ -391,6 +434,29 @@ def _declared_lwl_m(params) -> float:
     return v if math.isfinite(v) and v > 0.0 else 0.0
 
 
+def _non_developable_frac(hull) -> float:
+    """Fraction of shell area a flat sheet cannot take, or 0.0 if unmeasurable.
+
+    Imported lazily and failure-tolerant on purpose: this is a BUILDABILITY
+    receipt, and a hull whose developability cannot be measured must not have
+    its PHYSICS refused for it. A constitution that cares reads the number and
+    appends a row; one that does not is unaffected either way.
+
+    Returns NaN when it cannot be measured, NEVER 0.0: zero is the BEST
+    POSSIBLE value here, and `shell_complexity` refuses precisely the hull that
+    is most certainly unbuildable from sheet — a radiused bilge. Returning 0.0
+    scored that hull as perfectly developable. `_apply_policy` turns a
+    non-finite constraint into INFEASIBLE_G with a named violation, so NaN
+    fails closed exactly where it should.
+    """
+    try:
+        from .buildability import shell_complexity
+        v = float(shell_complexity(hull).non_developable_frac)
+        return v if math.isfinite(v) else float("nan")
+    except Exception:
+        return float("nan")
+
+
 def _apply_policy(ev: Evaluation, mission: MissionSpec, policy) -> None:
     """Append a compiled constitution's rows to a FINISHED evaluation.
 
@@ -446,7 +512,8 @@ def _apply_policy(ev: Evaluation, mission: MissionSpec, policy) -> None:
 def evaluate(params: np.ndarray, mission: MissionSpec,
              rho: float = RHO_WATER,
              provenance: db.Provenance | None = None,
-             policy=None) -> Evaluation:
+             policy=None,
+             extra_mass_items: list[MassItem] | None = None) -> Evaluation:
     """Run the ladder as far as L1. Fails fast and cheap (Fitness=inf pattern).
 
     `policy` is an optional COMPILED constitution
@@ -640,15 +707,49 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
               else VCG_FRACTION["payload"])
         defaulted = (payload_spec.x_frac_lwl is None
                      or payload_spec.z_frac_depth is None)
+        # THE TRANSVERSE COORDINATE, ADDED 2026-08-21. `y_frac_bwl` is NOT in
+        # the `defaulted` predicate above, deliberately: centreline is the
+        # honest default for a load nobody said was off-centre, whereas a
+        # missing x or z means "we put it somewhere you did not choose".
+        # Saying a symmetric load was DEFAULTED would make the source string
+        # cry wolf on every mission that has no asymmetry to declare.
+        yf = (payload_spec.y_frac_bwl
+              if payload_spec.y_frac_bwl is not None else 0.0)
         items.append(MassItem(
             id="mission_payload", mass_kg=payload_spec.mass_kg,
-            x_m=xf * p["LWL"], z_m=zf * p["D"] - t_design, y_m=0.0,
+            x_m=xf * p["LWL"], z_m=zf * p["D"] - t_design,
+            y_m=yf * p["BWL"],
             sigma_kg=0.0, tier="L1",
             source=("mission.PayloadSpec"
                     + (" (position DEFAULTED to the budget's payload "
                        "station — declare x_frac_lwl/z_frac_depth)"
-                       if defaulted else " (declared position)")),
+                       if defaulted else " (declared position)")
+                    + ("" if payload_spec.y_frac_bwl is None
+                       else f" (declared {yf * p['BWL']:+.3f} m off "
+                            f"centreline)")),
             basis="declared"))
+    # CALLER-SUPPLIED POSITIONED MASSES (2026-08-21). The equilibrium solver,
+    # the quadrature aggregate and `MassItem.y_m` -> `agg.tcg_m` -> the `list`
+    # row were all built and tested, and nothing could reach them: `evaluate`
+    # constructed its own item list from `energy.LCG_FRACTION` /
+    # `VCG_FRACTION`, so the battery was pinned at 0.45*LWL and `tcg_m` was
+    # identically 0. `arrangement.mass_items()` has emitted correctly
+    # positioned tier-E items with a real `y_m` since Gate V2.1 and had ZERO
+    # production callers.
+    #
+    # APPEND, never replace. The hull's own structure, panels and outfit are
+    # still the budget's; what a caller adds is what the budget does not know
+    # about. A caller that wants to supersede the outfit bucket has
+    # `arrangement.supersede_outfit` for exactly that and should apply it to
+    # the list it passes.
+    #
+    # With `extra_mass_items=None` — every call site in the tree today — the
+    # list is untouched, `tcg_m` stays exactly 0.0 and `g["list"]` stays
+    # exactly -LIST_LIMIT_DEG, which is what
+    # `test_the_list_constraint_is_no_longer_unconditionally_satisfiable`
+    # pins as its documented resting state.
+    if extra_mass_items:
+        items.extend(extra_mass_items)
     # THE UNACCOUNTED MASS IS DECLARED, NOT HIDDEN IN A max().
     # `target = max(budget, mission_target)` floated the hull at the mission's
     # displacement while KG, LCG and trim were computed from the budget alone.
@@ -1171,6 +1272,39 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
         # behind. The basis string comes from `energy` too, so a placeholder
         # can never again be served under a badge that does not say so.
         "wh_per_nm": ("L1", en.sigma_wh_per_nm, en.sigma_basis),
+        # H1'S FENCE HAD A HOLE, AND IT WAS THE SHAPE OF J1's (2026-08-21).
+        # H1 is recorded closed against a predicate that greps ONE literal
+        # (`en.wh_per_nm * 0.30`) in ONE file (`evaluate.py`), and the test
+        # behind it walks `navalai/**` only. `ui/server.py` is outside that
+        # walk, and it was serving FOUR sigmas typed at the call site:
+        # freeboard 0.02, cb 0.02, solar_kwh_day * 0.25 and
+        # range_solar_nm_day * 0.35. Two of them are literal declared
+        # fractions of their own value, which is verbatim the thing H1's prose
+        # says is gone. The root cause is here rather than there: `badges` had
+        # no entry to propagate FROM, so the UI typed one.
+        #
+        # FREEBOARD is propagatable and now is. Freeboard is sheer minus
+        # waterline, and the waterline is set by floating the boat to the mass
+        # model's total, so the mass sigma reaches it through the waterplane
+        # stiffness: d(sinkage) = d(mass) / (rho * Awp). Same `agg.sigma_kg`
+        # that already backs displacement and GM, so a boat whose weights are
+        # poorly known reports a correspondingly vague freeboard instead of a
+        # confident 20 mm. LOWER BOUND because the geometry's own uncertainty
+        # in z_sheer is not modelled anywhere.
+        "freeboard": ("L1", agg.sigma_kg / max(rho * hs.awp, 1e-9),
+                      SIGMA_PROPAGATED_LOWER_BOUND),
+        # RANGE ON SOLAR divides a generation estimate by Wh/NM, and the
+        # DENOMINATOR carries a real propagated band. Taking that term alone
+        # is a lower bound in exactly the sense the vocabulary already means:
+        # the generation term is missing because `EnergySpec` declares no
+        # uncertainty on solar yield, packing or panel efficiency, so there is
+        # nothing to propagate from and inventing one is the defect. The 0.35
+        # it replaces was not a bound of any kind.
+        "range_solar_nm_day": (
+            "L1",
+            abs(en.range_solar_nm_day)
+            * (en.sigma_wh_per_nm / max(abs(en.wh_per_nm), 1e-9)),
+            SIGMA_PROPAGATED_LOWER_BOUND),
     }
     # WHICH resistance method answered, and why the other one did not (gap
     # E1b). Not in `values` below: it is a method receipt, not a quantity, and
@@ -1183,7 +1317,13 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
     # Every badged quantity is checked HERE, with its sigma, so an unusable
     # number cannot leave evaluate() wearing a plain "L1".
     values = {"displacement": hs.disp_kg, "GM": gm_m,
-              "resistance": res.total, "wh_per_nm": en.wh_per_nm}
+              "resistance": res.total, "wh_per_nm": en.wh_per_nm,
+              # The two badges added 2026-08-21 are checked here too — a
+              # propagated sigma divides (by rho*Awp, by Wh/NM) and a divisor
+              # that reaches zero produces an inf that must not leave wearing
+              # a plain L1.
+              "freeboard": hs.freeboard_min,
+              "range_solar_nm_day": en.range_solar_nm_day}
     for name, val in values.items():
         tier_b, sigma, basis = badges[name]
         bad = []
@@ -1290,6 +1430,7 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
         trim_deg=trim, list_deg=heel, resistance=res, energy=en, g=g,
         ply_thickness_m=t_ply, unaccounted_frac=unaccounted_frac,
         hull_lwl_m=float(p["LWL"]), rules=rules_rep, params=np.asarray(params),
+        non_developable_frac=_non_developable_frac(hull),
         eval_ms=(time.perf_counter() - t0) * 1e3, badges=badges,
         vessel=vessel_report, targets=targets_report,
         resistance_envelope=flow_envelope,

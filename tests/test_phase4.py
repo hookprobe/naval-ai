@@ -389,11 +389,38 @@ def test_slider_eval_p95_under_100ms():
     # sigma reached the propagation.
     from navalai.energy import (SIGMA_PLACEHOLDER, SIGMA_PROPAGATED,
                                 SIGMA_PROPAGATED_LOWER_BOUND)
-    for q in out["quantities"].values():
+    # PER QUANTITY, NOT PER SET (2026-08-21). The blanket form of this
+    # assertion admitted "assumed" for everything, and "assumed" is what four
+    # typed sigmas in this file were wearing: freeboard 0.02, cb 0.02,
+    # solar_kwh_day * 0.25 and range_solar_nm_day * 0.35. Two of those are
+    # literal declared fractions of their own value — verbatim the thing gap
+    # H1's prose says is gone — and the blanket check could not see them
+    # because it asked about the VOCABULARY and not about which quantity used
+    # which word. Banning "placeholder" outright made it worse: it forced the
+    # two quantities that genuinely have no input sigma to call themselves
+    # something warmer than they are.
+    #
+    # So: every served quantity must name a basis, and the two that CAN
+    # propagate must be shown doing it.
+    propagatable = {"displacement_kg", "GM_m", "Rt_N", "freeboard_m",
+                    "wh_per_nm", "range_solar_nm_day"}
+    for name, q in out["quantities"].items():
         assert set(q) == {"value", "tier", "sigma", "basis"}
-        assert q["basis"] in ("measured", "assumed", SIGMA_PROPAGATED,
-                             SIGMA_PROPAGATED_LOWER_BOUND)
-        assert q["basis"] != SIGMA_PLACEHOLDER
+        assert q["basis"] in ("measured", SIGMA_PROPAGATED,
+                             SIGMA_PROPAGATED_LOWER_BOUND, SIGMA_PLACEHOLDER)
+        if name in propagatable:
+            assert q["basis"] != SIGMA_PLACEHOLDER, (
+                f"{name} has a propagatable band and is serving none")
+            assert q["sigma"] is None or q["sigma"] > 0.0, name
+        else:
+            # A placeholder carries NO band. Serving a number under it would
+            # be the same defect one word further along.
+            assert q["basis"] == SIGMA_PLACEHOLDER and q["sigma"] == 0.0, (
+                name, q)
+    assert out["quantities"]["freeboard_m"]["basis"] == \
+        SIGMA_PROPAGATED_LOWER_BOUND, (
+            "freeboard is back to a typed 0.02 m; the mass sigma reaches it "
+            "through the waterplane stiffness and must be shown doing so")
     assert out["quantities"]["wh_per_nm"]["basis"] == \
         SIGMA_PROPAGATED_LOWER_BOUND, (
             "the UI is back to serving a declared fraction as a one-sigma band")

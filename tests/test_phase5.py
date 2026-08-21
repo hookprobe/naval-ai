@@ -273,3 +273,48 @@ def test_llm_seam_can_declare_a_vessel_and_a_bad_one_degrades_with_a_note():
         "an unspecified multihull must degrade to the floor, not sneak in")
     assert "vessel rejected" in m.notes, (
         f"the degradation left no note: {m.notes!r}")
+
+
+def test_a_unit_match_that_measures_the_wrong_quantity_is_refused_and_said():
+    """MEASURED 2026-08-21 on a brief the product's own UX doc used as its
+    worked example:
+
+        "Monohull wave-piercer, 4-6 people, 1-tonne battery payload,
+         3 m total height, stitch-and-glue plywood"
+
+    `re.search` takes the FIRST match and the unit regexes carry no notion of
+    which dimension the unit measures, so this parsed to a 3-metre boat
+    weighing one tonne — `lwl_hint_m = 3.0` from "3 m total height" and
+    `displacement_target_kg = 1000.0` from "1-tonne battery payload". Both land
+    INSIDE `FIELD_RANGES`, so `clamp()` said nothing and `notes` came back
+    EMPTY. It read as a clean parse of a brief that stated neither number.
+
+    Same shape as the thousands-separator defect already recorded in
+    `parse_mission`, and worse: that one at least returned digits the user had
+    typed. The discriminator is the FOLLOWING NOUN, because the units are
+    genuinely right — and it must be, since the cases below lock a mass at
+    end-of-string and a battery in kWh that must both keep working.
+    """
+    m = parse_mission("Monohull wave-piercer, 4-6 people, 1-tonne battery "
+                      "payload, 3 m total height, stitch-and-glue plywood")
+    assert m.lwl_hint_m is None, "a stated height became the waterline length"
+    assert m.displacement_target_kg == 6000.0, (
+        "a stated payload became the whole boat's displacement")
+    # AND IT IS NOT SILENT. The empty-notes part is the defect, not a detail.
+    assert "1-tonne" in m.notes and "3 m" in m.notes, m.notes
+    assert "air-draft" in m.notes, (
+        "a declared vertical clearance that nothing checks must say so")
+
+    # THE SCAN DOES NOT STOP AT THE FIRST MATCH: a disqualified number before
+    # a real one must not cost us the real one.
+    m2 = parse_mission("1-tonne battery payload, 6 tonne boat, 9 m")
+    assert m2.displacement_target_kg == 6000.0 and m2.lwl_hint_m == 9.0
+
+    # THE LOCKED CASES STILL PARSE — these are why the rule cannot simply ban
+    # "a number followed by 'battery'" or "a number near the end".
+    assert parse_mission("a 9-metre cruiser, 4 t").displacement_target_kg == 4000
+    assert parse_mission("2 ton tender, 5 meters").lwl_hint_m == 5.0
+    assert parse_mission(
+        "6 tonne solar-electric liveaboard, 10 m, Danube and Black Sea "
+        "coastal, cruise 5 knots, 2 crew, 40 kWh battery"
+    ).energy.battery_kwh == pytest.approx(40)

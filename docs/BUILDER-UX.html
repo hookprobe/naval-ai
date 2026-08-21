@@ -168,7 +168,7 @@ footer{padding:44px 0 66px; color:var(--ink-3); font-size:.85rem}
       <div class="fact acc"><span class="n mono">11.4 ms</span><span class="l">Measured <code>evaluate()</code>, L0 + full L1. Sliders can evaluate every frame.</span></div>
       <div class="fact acc"><span class="n mono">16</span><span class="l">Grammar parameters. The builder should never see one.</span></div>
       <div class="fact good"><span class="n mono">8</span><span class="l">Constraint rows. These are the traffic lights — the complete set.</span></div>
-      <div class="fact bad"><span class="n mono">124.1 mm</span><span class="l">Gate 6D refold error against a 5 mm bar. Most hulls are <em>not</em> kit-buildable.</span></div>
+      <div class="fact bad"><span class="n mono">124.1 mm</span><span class="l">Gate 6D refold against a 5 mm bar — but measured at 41 stations. Read §04.</span></div>
       <div class="fact warn"><span class="n mono">0.45</span><span class="l">Froude ceiling. Above it the drag model disowns itself, by design.</span></div>
     </div>
   </div>
@@ -181,8 +181,9 @@ footer{padding:44px 0 66px; color:var(--ink-3); font-size:.85rem}
   <div class="sec-head"><span class="sec-num">00</span><h2>The primitive everything is built from</h2></div>
   <div class="stack col">
     <p>Before any screen: <strong>every quantity carries <code>{value, tier, sigma, basis}</code></strong>. A live evaluation returns
-    <code>GM_m = {0.82, L1, σ 0.272, measured}</code> next to <code>freeboard_m = {0.842, L1, σ 0.02, assumed}</code>. Same tier,
-    same colour if you are careless — and one of them was computed from the hull while the other's sigma was typed into the server by hand.</p>
+    <code>GM_m = {0.82, L1, σ 0.272, measured}</code> next to what <em>used</em> to be
+    <code>freeboard_m = {0.842, L1, σ 0.02, assumed}</code>. Same tier, same colour if you are careless — and one was computed from the hull
+    while the other's sigma had been typed into the server by hand. That one is fixed (§06); the discipline it taught is not optional.</p>
     <p>So the atomic component is a <strong>Quantity badge</strong>, and the rule that makes it honest is sharper than it looks:</p>
   </div>
 
@@ -474,12 +475,14 @@ footer{padding:44px 0 66px; color:var(--ink-3); font-size:.85rem}
       <span class="lbl">The starboard platform — two blockers, and one is not the one you'd guess</span>
       <p><strong>Geometry:</strong> the manufacturing model emits shell parts at <code>qty = 2</code>, port and starboard mirrored.
       An asymmetric hull feature breaks that at the panel level, and the arrangement module has no path into nesting at all.</p>
-      <p><strong>Physics — the real one:</strong> the brief says the toggle should "instantly recalculate the asymmetrical weight balance."
-      <strong>It cannot.</strong> <code>PayloadSpec</code> has <em>no transverse coordinate</em>, so <code>tcg</code> is identically zero in
-      production and <code>list</code> is always exactly 0°. Certification says so out loud, recording asymmetric payload as
-      <em>"refused: not representable."</em> Ship the platform as a deck object that is visible and carries mass fore/aft, and state
-      plainly that its athwartships effect is not yet modelled. A toggle that silently reports 0° of list is worse than one that admits
-      it cannot see sideways.</p>
+      <p><strong>Physics — fixed 2026-08-21, and it was one seam.</strong> This section previously said the toggle could not recalculate
+      the asymmetric weight balance, because <code>PayloadSpec</code> had no transverse coordinate and <code>tcg</code> was identically zero
+      in production. Everything downstream was already built and tested — <code>MassItem.y_m</code> → <code>aggregate.tcg_m</code> →
+      <code>atan(TCG/GM)</code> → the <code>list</code> row — and nothing joined it up. Two opt-in seams close it:
+      <code>PayloadSpec.y_frac_bwl</code> and <code>evaluate(extra_mass_items=…)</code>. MEASURED: one tonne at 0.30·BWL to starboard now
+      reads TCG 0.160 m, <strong>list 12.14°</strong>, and the row <em>fails</em> — where it previously read exactly −2.000 on every hull
+      ever evaluated. So the toggle can tell the truth about heel. The geometry blocker above still stands: it is a deck object, not a
+      panel.</p>
     </div>
   </div>
 </section>
@@ -522,11 +525,11 @@ footer{padding:44px 0 66px; color:var(--ink-3); font-size:.85rem}
 ├─────────────────────────────────────────────────────────────────────────────────────────┤
 │  WILL IT FLOAT AND STAY UPRIGHT?                                              ● 3  ▨ 1   │
 │  ┌──────────────────┬──────────────────┬──────────────────┬──────────────────┐          │
-│  │ ◆ FREEBOARD      │ ● STABILITY      │ ● TRIM           │ ▨ LIST           │          │
-│  │   0.84 m         │   GM 0.82 m      │   +0.4° bow up   │   not modelled   │          │
-│  │   assumed ±0.02  │   measured ±0.27 │   measured       │   we can't see   │          │
-│  │   floor 0.45     │   floor 0.45 C   │   limit ±2.0°    │   sideways yet   │          │
-│  │   ▓▓▓▓▓▓▓▓░░ 87% │   ▓▓▓▓▓▓▓░░░ 71% │   ▓▓░░░░░░░░ 20% │   ▨▨▨▨▨▨▨▨▨▨     │          │
+│  │ ▲ FREEBOARD      │ ● STABILITY      │ ● TRIM           │ ● LIST           │          │
+│  │   0.84 m         │   GM 0.82 m      │   +0.4° bow up   │   0.0° upright   │          │
+│  │   ≥ ±0.089       │   measured ±0.27 │   measured       │   measured       │          │
+│  │   floor 0.45     │   floor 0.45 C   │   limit ±2.0°    │   limit ±2.0°    │          │
+│  │   ▓▓▓▓▓▓▓▓░░ 87% │   ▓▓▓▓▓▓▓░░░ 71% │   ▓▓░░░░░░░░ 20% │   ░░░░░░░░░░  0% │          │
 │  └──────────────────┴──────────────────┴──────────────────┴──────────────────┘          │
 │      ↑ headroom to the limit. Full bar = at the limit.                                  │
 │                                                                                         │
@@ -594,7 +597,8 @@ footer{padding:44px 0 66px; color:var(--ink-3); font-size:.85rem}
           <tr><td><strong>Constraint light</strong></td>
             <td>Not a dot — a <strong>headroom bar</strong> with the limit printed. A bar says <em>how close</em>, which is what links a
             slider to its consequence. Colour is never the only channel: ● measured, ◆ assumed, ▲ lower-bound, ▨ absent, plus text.
-            <code>list</code> renders in the <em>absent</em> register, not as a passing 0°.</td></tr>
+            <code>list</code> was in the <em>absent</em> register until 2026-08-21 and now reads as a real measurement — see the platform
+            note below.</td></tr>
           <tr><td><strong>Waterline attitude</strong></td>
             <td>The hull in the viewport <em>is</em> the trim indicator. The backend solves sinkage and trim <strong>simultaneously</strong> —
             a damped 2-D Newton warm-started from the level float, which is what keeps it inside the 50 ms budget. Move weight, the boat
@@ -685,9 +689,32 @@ footer{padding:44px 0 66px; color:var(--ink-3); font-size:.85rem}
 └──────────────────┴──────────────────────────────────────────────────┴───────────────────┘</pre>
   </div>
 
-  <div class="stack" style="margin-top:8px">
+  <div class="bind refuse" style="margin-top:20px">
+    <span class="lbl">The routing question was being asked at the wrong resolution — MEASURED 2026-08-21</span>
+    <p>A refold deviation is measured against a panel built as straight chords between the hull's <em>stations</em>, and the ladder
+    discretises at 41 of them — a count chosen for hydrostatics cost, by nothing to do with manufacturing. Part of every reported
+    deviation is therefore that 40-segment polyline's sagitta. On a hull whose Gaussian curvature is machine-zero it is <em>all</em> of it:</p>
+    <div class="tbl-shell" style="margin-top:10px">
+      <table>
+        <thead><tr><th>hull</th><th>ndev_frac</th><th>n=41</th><th>n=81</th><th>n=161</th><th>n=321</th><th>reading</th></tr></thead>
+        <tbody>
+          <tr><td>flare 0</td><td>0.000000</td><td>17.1</td><td>5.8</td><td>4.1</td><td><strong>1.5</strong></td><td>falls → discretisation</td></tr>
+          <tr><td>deadrise warp 2→40°</td><td>0.063811</td><td>40.6</td><td>20.5</td><td>10.3</td><td>5.3</td><td>falls, slowly</td></tr>
+          <tr><td>flare 25°</td><td>0.275547</td><td>379.8</td><td>448.3</td><td>484.6</td><td><strong>503.6</strong></td><td>rises → real double curvature</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>So the verdict is the <strong>direction</strong>, not the value — the same discipline the project already applies to a CFD mesh
+    family, where one grid is a number and a family is a verdict. A shortfall that falls under refinement is measurement; one that rises
+    is geometry, and only the second is a reason to change the boat. <code>unroll.refold_convergence()</code> now returns
+    PASSES / REFINING / NON_DEVELOPABLE / REFUSED on exactly that test.</p>
+    <p>This also answers the question the repo left open — whether the grammar admits a sub-bar hull at all. <strong>It does:</strong>
+    flare 0, forefoot 0, no deadrise warp, hard chine reaches 1.5 mm. The kit route is real, and the UI should route on the trend.</p>
+  </div>
+
+  <div class="stack" style="margin-top:26px">
     <h3>The refusal screen — the one that earns the product its credibility</h3>
-    <p class="col">Reached whenever refold error exceeds the bar, which on current measurements is <strong>most interesting hulls</strong>.
+    <p class="col">Reached when the refold error is <em>rising</em> under refinement — genuine double curvature, not a coarse measurement.
     It must not read as an error. It is a routing decision, and there is a real boat at the end of both branches.</p>
   </div>
 
@@ -806,10 +833,10 @@ footer{padding:44px 0 66px; color:var(--ink-3); font-size:.85rem}
         <tr><td>Solar vs. draw</td><td><span class="chip warn"><span class="dot warn"></span>value yes, σ no</span></td><td>Ships with the caption saying generation σ is typed, not measured.</td></tr>
         <tr><td>Resistance, Fn ≤ 0.45</td><td><span class="chip pass"><span class="dot pass"></span>self-policing</span></td><td>Speed control hard-stops; above it the gauge reads REFUSED.</td></tr>
         <tr><td>Nesting, DXF, scantlings, RCD routing</td><td><span class="chip pass"><span class="dot pass"></span>built</span></td><td>Download gate and legal stage are enforceable server-side.</td></tr>
-        <tr><td>Developable unwrap + refold meter</td><td><span class="chip warn"><span class="dot warn"></span>built, failing</span></td><td>Route verdict and refusal become <em>core flow</em>, not edge case.</td></tr>
+        <tr><td>Developable unwrap + refold meter</td><td><span class="chip warn"><span class="dot warn"></span>built; now convergence-aware</span></td><td>Route verdict must read the TREND, not the 41-station value.</td></tr>
         <tr><td>Mission parsing of the example brief</td><td><span class="chip warn"><span class="dot warn"></span>partial, silent</span></td><td>Mandatory read-back step; air draft declared unrepresentable.</td></tr>
-        <tr><td>Transverse CG → the <code>list</code> light</td><td><span class="chip fail"><span class="dot fail"></span>absent</span></td><td>Renders as absent. Platform toggle cannot claim a heel effect.</td></tr>
-        <tr><td>Per-item mass placement</td><td><span class="chip fail"><span class="dot fail"></span>seam missing</span></td><td>Only one payload lump is draggable until <code>evaluate()</code> takes items.</td></tr>
+        <tr><td>Transverse CG → the <code>list</code> light</td><td><span class="chip pass"><span class="dot pass"></span>closed 08-21</span></td><td>Live: 1 t at 0.30·BWL reads 12.14° and fails the row.</td></tr>
+        <tr><td>Per-item mass placement</td><td><span class="chip pass"><span class="dot pass"></span>closed 08-21</span></td><td><code>evaluate(extra_mass_items=)</code> — drag-a-weight is bindable.</td></tr>
         <tr><td>Stem rake / reverse bow</td><td><span class="chip fail"><span class="dot fail"></span>absent by design</span></td><td>Bow slider ships short; the locked zone is labelled.</td></tr>
         <tr><td>Motion in a chop, slamming, deck wetness</td><td><span class="chip unk"><span class="dot unk"></span>parts only</span></td><td>Tile renders absent and offers the L2 route. No fabricated score.</td></tr>
         <tr><td>Planing / semi-displacement drag</td><td><span class="chip fail"><span class="dot fail"></span>refused by name</span></td><td>Not a gap to paper over — a hard stop with an explanation.</td></tr>
@@ -822,8 +849,8 @@ footer{padding:44px 0 66px; color:var(--ink-3); font-size:.85rem}
     <span class="lbl">The through-line</span>
     <p>Four screens, one idea: <strong>the interface hides the mathematics and refuses to hide the uncertainty.</strong>
     A builder never sees a prismatic coefficient. They do see that 3298 kg is unaccounted for, that the drag model was validated on a ship
-    nothing like theirs, that nobody has predicted how their bow behaves in a chop, that we cannot see sideways yet, and that their hull
-    wants a mould rather than a flat-pack. Hiding any of those would make a smoother demo and a worse boat — and this platform's whole
+    nothing like theirs, that nobody has predicted how their bow behaves in a chop, and that their hull may want a mould rather than a
+    flat-pack. Hiding any of those would make a smoother demo and a worse boat — and this platform's whole
     thesis is that a failing check is information, never something to soften.</p>
   </div>
 </section>

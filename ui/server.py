@@ -72,6 +72,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import numpy as np
 
 from navalai import grammar
+from navalai.energy import SIGMA_PLACEHOLDER
 from navalai.evaluate import evaluate, sample_valid
 from navalai.flywheel import DeployedSurrogate
 from navalai.generative import HullGenerator, make_generator
@@ -553,14 +554,34 @@ def eval_payload(params: dict, mission_d: dict | None) -> dict:
         out["quantities"] = {
             "displacement_kg": _q(ev.hydro.disp_kg, *ev.badges["displacement"]),
             "GM_m": _q(ev.gm_m, *ev.badges["GM"]),
-            "freeboard_m": _q(ev.hydro.freeboard_min, "L1", 0.02),
+            # H1's FENCE DID NOT REACH THIS FILE (2026-08-21). Four sigmas
+            # were typed HERE, at the call site, two of them as literal
+            # fractions of their own value: freeboard 0.02, cb 0.02,
+            # solar * 0.25 and range_solar * 0.35. `evaluate.badges` had no
+            # entry to propagate from, so the UI invented one — and the badge
+            # dict is the only place allowed to decide what a sigma means.
+            # freeboard and range_solar now propagate; see the comment on
+            # `evaluate.badges` for why the other two cannot yet.
+            "freeboard_m": _q(ev.hydro.freeboard_min, *ev.badges["freeboard"]),
             "Rt_N": _q(ev.resistance.total, *ev.badges["resistance"]),
             "wh_per_nm": _q(ev.energy.wh_per_nm, *ev.badges["wh_per_nm"]),
-            "solar_kwh_day": _q(ev.energy.solar_kwh_day, "L1",
-                                ev.energy.solar_kwh_day * 0.25),
-            "range_solar_nm_day": _q(ev.energy.range_solar_nm_day, "L1",
-                                     ev.energy.range_solar_nm_day * 0.35),
-            "cb": _q(ev.hydro.cb, "L1", 0.02),
+            # SOLAR GENERATION STILL HAS NO PROPAGATABLE SIGMA. `EnergySpec`
+            # declares `solar_yield_kwh_m2_day`, `panel_packing` and
+            # `panel_eff` as bare floats, so there is no input band to carry
+            # through. The honest move is to say so rather than to keep
+            # dressing a typed 25% as a one-sigma result: the value is served
+            # with sigma 0.0 under the basis `energy` owns for exactly this
+            # case. Closing it needs a SOURCED yield spread on EnergySpec,
+            # which is a data decision, not a code one.
+            "solar_kwh_day": _q(ev.energy.solar_kwh_day, "L1", 0.0,
+                                SIGMA_PLACEHOLDER),
+            "range_solar_nm_day": _q(ev.energy.range_solar_nm_day,
+                                     *ev.badges["range_solar_nm_day"]),
+            # cb is a shape coefficient of the FLOATED hull, so its band is
+            # the sinkage band seen through the volume integral. Nothing
+            # computes that today, and 0.02 was a guess wearing a one-sigma
+            # column.
+            "cb": _q(ev.hydro.cb, "L1", 0.0, SIGMA_PLACEHOLDER),
         }
         if ev.masses is not None:
             # HONESTY RULE 1 WAS VIOLATED IN THE ONE PLACE A USER READS.

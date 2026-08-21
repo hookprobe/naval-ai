@@ -1018,6 +1018,121 @@ def refold_surface_deviation_mm(hull: Hull, panel: FlatPanel,
     return worst * 1000.0
 
 
+@dataclass(frozen=True)
+class RefoldConvergence:
+    """`refold_surface_deviation_mm` measured over a family of station counts.
+
+    Fields: `counts` the station counts, `worst_mm` the worst panel at each,
+    `verdict` one of PASSES / REFINING / NON_DEVELOPABLE / REFUSED, `ratios`
+    the successive reduction factors, and `order` the observed convergence
+    order when the ratios agree well enough to name one (else None).
+    """
+
+    counts: tuple[int, ...]
+    worst_mm: tuple[float, ...]
+    ratios: tuple[float, ...]
+    verdict: str
+    order: float | None
+    bar_mm: float
+
+    @property
+    def finest_mm(self) -> float:
+        return self.worst_mm[-1]
+
+
+# A refold family is DECREASING when each level improves on the last by more
+# than this. Below it the two levels are the same number and the trend is
+# noise, not convergence.
+_REFOLD_CONVERGED_TOL = 1.02
+
+
+def refold_convergence(params, counts: tuple[int, ...] = (41, 81, 161),
+                       bar_mm: float | None = None,
+                       rulings: str = "developable") -> RefoldConvergence:
+    """Is a refold shortfall DOUBLE CURVATURE, or is it the station count?
+
+    MEASURED 2026-08-21, and it overturns the reading of Gate 6D's watermark.
+    `refold_surface_deviation_mm` compares a panel built as straight chords
+    between the hull's stations against the hull sampled at 4001 stations. At
+    `geometry._LADDER_STATIONS` = 41 the panel is a 40-segment polyline, so
+    part of every reported deviation is that polyline's sagitta — a property of
+    the DISCRETISATION, not of the surface. The ladder's 41 stations were
+    chosen for hydrostatics cost; nothing about manufacturing picked them.
+
+    Same three hulls, LWL 10.5 m, roundness 0, only the station count varying:
+
+        hull                  ndev_frac    n=41    n=81   n=161   n=321
+        flare 0                0.000000    17.1     5.8     4.1     1.5
+        deadrise warp 2->40    0.063811    40.6    20.5    10.3     5.3
+        flare 25               0.275547   379.8   448.3   484.6   503.6
+
+    Row one is a surface whose Gaussian curvature is 7.8e-14 — machine zero,
+    developable — and it refolds 17.1 mm at the count Gate 6D reports. It is
+    1.5 mm at 321. Row three INCREASES with refinement, which is the signature
+    that cannot be discretisation: a finer sample of a doubly-curved surface
+    finds MORE of the error it could not represent, never less.
+
+    So the discriminator is the TREND, not the value, and this is the same
+    discipline `cfd/post.gci` already applies to a mesh family: a single grid
+    is a number, a family is a verdict. A shortfall that falls under refinement
+    is measurement; one that rises is geometry, and only the second is a reason
+    to change the hull.
+
+    This answers the question `hull_panels`' own history left open — whether the
+    grammar admits a sub-bar hull at all. It does: flare 0, forefoot 0, no
+    deadrise warp, roundness 0 reaches 1.5 mm against a 5 mm bar.
+
+    COST is why this is a gate instrument and not a slider one: ~9.6 s for
+    (41, 81, 161) on one hull, since `hull_panels` is ~1.4 s at 41 stations and
+    scales with the count. Do not call it from `evaluate`.
+
+    `params` is a grammar parameter vector or the dict `grammar.named` returns.
+    A hull the unroller refuses at every level (a filleted bilge, say) returns
+    verdict REFUSED rather than a fabricated number.
+    """
+    from .limits import REFOLD_BAR_MM
+    bar = REFOLD_BAR_MM if bar_mm is None else float(bar_mm)
+    v = grammar.vector(params) if isinstance(params, dict) else np.asarray(
+        params, dtype=float)
+    counts = tuple(int(c) for c in counts)
+    if len(counts) < 2 or any(b <= a for a, b in zip(counts, counts[1:])):
+        raise ValueError("counts must be at least two, strictly increasing")
+
+    worst: list[float] = []
+    for n in counts:
+        hull = Hull(v, n_stations=n)
+        try:
+            panels = hull_panels(hull, rulings=rulings)
+        except ValueError:
+            return RefoldConvergence(counts, (), (), "REFUSED", None, bar)
+        worst.append(max(refold_surface_deviation_mm(hull, p) for p in panels))
+
+    ratios = tuple(worst[i] / worst[i + 1] if worst[i + 1] > 0 else float("inf")
+                   for i in range(len(worst) - 1))
+
+    # A level that does not improve on its predecessor is the non-developable
+    # signature. Checked pairwise rather than end-to-end so a family that turns
+    # over in the middle is caught rather than averaged away.
+    if any(r < _REFOLD_CONVERGED_TOL for r in ratios):
+        verdict = "NON_DEVELOPABLE"
+    elif worst[-1] <= bar:
+        verdict = "PASSES"
+    else:
+        verdict = "REFINING"
+
+    # Observed order, named ONLY when the successive ratios agree. Two ratios
+    # that disagree by more than 2x describe no single power law, and printing
+    # an order for them would be the same defect as quoting a GCI off a family
+    # whose refinement ratio was never measured.
+    order = None
+    if verdict != "NON_DEVELOPABLE" and len(ratios) >= 2:
+        if max(ratios) / max(min(ratios), 1e-12) <= 2.0:
+            h = counts[-1] / counts[-2]
+            if h > 1.0 and ratios[-1] > 0:
+                order = float(np.log(ratios[-1]) / np.log(h))
+    return RefoldConvergence(counts, tuple(worst), ratios, verdict, order, bar)
+
+
 def rulings_that_cross(panel: FlatPanel) -> int:
     """How many neighbouring ruling pairs intersect INSIDE the panel.
 

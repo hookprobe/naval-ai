@@ -104,7 +104,8 @@ ROW_LEGAL = "policy_legal"
 ROW_DNA = "policy_dna"
 ROW_ENERGY = "policy_energy"
 ROW_FLOORS = "policy_floors"
-ROW_NAMES = (ROW_LEGAL, ROW_DNA, ROW_ENERGY, ROW_FLOORS)
+ROW_BUILD = "policy_buildable"
+ROW_NAMES = (ROW_LEGAL, ROW_DNA, ROW_ENERGY, ROW_FLOORS, ROW_BUILD)
 
 # Direction of tightening. Named rather than a bool because "True means higher
 # is stricter" is exactly the kind of comment that outlives its code.
@@ -604,6 +605,56 @@ class CompiledPolicy:
                     f"[{dna.min_solar_fraction.source}]"
                     if g[ROW_ENERGY] > 0.0 else "")
 
+        # -------------------------------------------------- policy_buildable
+        if ROW_BUILD in self.rows:
+            # WHAT THIS ROW IS AND IS NOT. It is a STEERING term, not a
+            # guarantee. `Evaluation.non_developable_frac` correlates with the
+            # authoritative meter -- `unroll.refold_surface_deviation_mm`, the
+            # two-sided distance from the REFOLDED panel back onto the hull --
+            # at r = +0.783 over governed hulls, and costs 1.8 ms against that
+            # meter's 2301 ms. The meter itself is 8561x `grammar.check` and
+            # cannot live inside NSGA-II; the cheap L0 alternative,
+            # `Hull.panel_twist_rate()`, is 0.02 ms and correlates at +0.089,
+            # which is no criterion at all.
+            #
+            # So the search is STEERED here and VERIFIED at the cut-file
+            # boundary: `unroll.export_dxf` refuses over `limits.REFOLD_BAR_MM`
+            # and stamps its verdict into the DXF. A design passing this row is
+            # a design worth measuring properly, never a design certified
+            # buildable.
+            #
+            # WHY IT EXISTS AT ALL, MEASURED 2026-08-21: NSGA-II's objectives
+            # and constraints contained no buildability term, so on the
+            # flagship mission NO member of a governed front unrolled within
+            # the 5 mm bar -- best 120.3 mm -- while a seaworthy hull at
+            # 4.952 mm with GM +2.545 m and zero violations demonstrably
+            # exists in the same box. The search was not failing; it was not
+            # aiming.
+            bar = float(dna.max_non_developable_frac.value)
+            frac = float(getattr(ev, "non_developable_frac", float("nan")))
+            if not math.isfinite(frac):
+                # NaN reaches here when `buildability.shell_complexity` REFUSED
+                # the hull -- which it does for a radiused bilge, the one shape
+                # that is definitively not sheet-buildable. Zero would have
+                # been the best possible value; a violation is the honest one.
+                g[ROW_BUILD] = INFEASIBLE_G
+                why[ROW_BUILD] = (
+                    f"developability could not be measured on this hull "
+                    f"({frac!r}). `shell_complexity` refuses a radiused bilge "
+                    f"because the two-strip ruled surface is not that hull -- "
+                    f"and a shape whose developability is UNMEASURABLE is not "
+                    f"a shape a sheet-built kit may certify. A quantity that "
+                    f"could not be computed is a violation, never a pass.")
+            else:
+                g[ROW_BUILD] = _rel(bar, frac, CEILING)
+                why[ROW_BUILD] = (
+                    f"non-developable shell fraction {frac:.4f} exceeds the "
+                    f"owner ceiling of {bar:.4f} "
+                    f"[{dna.max_non_developable_frac.source}]. STEERING ONLY "
+                    f"(r = 0.783 against the refold meter): the binding check "
+                    f"is unroll.export_dxf against limits.REFOLD_BAR_MM"
+                    if g[ROW_BUILD] > 0.0 else "")
+
         # ----------------------------------------------------- policy_floors
         if ROW_FLOORS in self.rows:
             parts = []
@@ -817,6 +868,8 @@ def compile_policy(constitution: Constitution) -> CompiledPolicy:
         rows.append(ROW_ENERGY)
     if any(RATCHETS[k].measure is not None for k in dna.floors):
         rows.append(ROW_FLOORS)
+    if dna.max_non_developable_frac is not None:
+        rows.append(ROW_BUILD)
     ordered = tuple(n for n in ROW_NAMES if n in rows)
 
     compiled = CompiledPolicy(constitution, ordered, tuple(findings))
