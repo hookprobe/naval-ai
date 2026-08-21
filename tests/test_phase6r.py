@@ -174,3 +174,88 @@ def test_recorded_interpretations_survive_the_green_gate():
     # bound, B an upper), and the table stores one scalar. Keep it visible.
     assert "R-CAT" in REVIEW["interpretations"]
     assert "lower bound" in REVIEW["interpretations"]["R-CAT"]
+
+
+def test_the_reference_designs_reproduce_the_clause_chain_STEP_BY_STEP():
+    """Gap D9: Gate 6R's THRESHOLD parity moves toward Gate 6's VERDICT
+    parity.
+
+    Gate 6R asks only that the dated edition be NAMED. It says nothing about
+    whether the numbers this code produces match the clause — a weaker claim
+    than it looks. `REFERENCE_DESIGNS` records the ISO 12215-5:2008(E)
+    bottom-pressure chain step by step:
+
+        base = 2.4 * mLDC^0.33 + 20
+        Eq 7 = base * k_AR * k_DC * k_L        (k_L = 1 at the forward panel)
+        Eq 8 = (0.45 * mLDC^0.33 + 0.9 * LWL) * k_DC
+        P_BM = max(Eq 7, Eq 8)
+
+    EVERY INTERMEDIATE IS RECOMPUTED HERE WITH INDEPENDENT ARITHMETIC rather
+    than by calling the same functions, so a refactor that changes a
+    coefficient BREAKS the row instead of moving with it. A test that asked
+    `design_pressure_bottom` whether it agreed with itself would be
+    tautological — the defect class this repository already records for a
+    layer table that printed the requested spec as the achieved one.
+
+    THE HONEST LIMIT, asserted rather than left implicit: these rows are a
+    transcript of what THIS implementation computes, not an independent
+    derivation from the standard's text — the record's own `unconfirmed`
+    list says no citable copy of 12215-5:2008(E) is held. Gate 6 stays open
+    until a reviewer signs them.
+    """
+    import math
+
+    import pytest
+
+    from navalai.rules import iso12215
+    from navalai.rules.review import REFERENCE_DESIGNS, hand_calculation
+
+    assert REFERENCE_DESIGNS, "the reference set is empty"
+    cats = {k[0] for k in REFERENCE_DESIGNS}
+    assert len(cats) >= 3, (
+        f"one design category proves little about k_DC; got {cats}")
+
+    for (cat, mldc, lwl, b, l), want in REFERENCE_DESIGNS.items():
+        # --- independent arithmetic, straight from the clause -------------
+        base = 2.4 * float(mldc) ** 0.33 + 20.0
+        assert base == pytest.approx(want["base"], abs=5e-4), (cat, mldc)
+
+        eq8 = (0.45 * float(mldc) ** 0.33 + 0.9 * float(lwl)) * want["k_dc"]
+        assert eq8 == pytest.approx(want["eq8"], abs=5e-4), (cat, mldc)
+
+        eq7 = base * want["k_ar"] * want["k_dc"]
+        assert eq7 == pytest.approx(want["eq7"], abs=5e-4), (cat, mldc)
+        assert want["p_bm"] == pytest.approx(max(eq7, eq8), abs=5e-4)
+
+        # --- and the CODE must land on the same chain ---------------------
+        assert iso12215.k_dc(cat) == pytest.approx(want["k_dc"], abs=1e-6)
+        assert iso12215.k_ar(mldc, b, l) == pytest.approx(
+            want["k_ar"], abs=1e-5)
+        assert iso12215.design_pressure_bottom(
+            mldc, lwl, cat, b, 1.0, l) == pytest.approx(
+                want["p_bm"], abs=5e-4), (
+            f"{cat} {mldc} kg: the code no longer reproduces its own "
+            f"recorded chain — a coefficient moved")
+        assert iso12215.required_thickness_mm(
+            mldc, lwl, span_mm=b, design_category=cat,
+            l_mm=l) == pytest.approx(want["t_req_mm"], abs=5e-4)
+
+        # the accessor returns a COPY, so a caller cannot edit the record
+        hc = hand_calculation(cat, mldc, lwl, b, l)
+        hc["p_bm"] = -1.0
+        assert REFERENCE_DESIGNS[(cat, mldc, lwl, b, l)]["p_bm"] > 0.0
+
+    # k_DC must ORDER the categories: an open-water boat sees more pressure
+    ordered = [iso12215.k_dc(c) for c in ("D", "C", "B", "A")]
+    assert ordered == sorted(ordered), f"k_DC out of order: {ordered}"
+
+    # and the minimum (Eq 8) must actually be capable of governing, or the
+    # max() in the chain is decoration — a very light, very long boat
+    tiny = iso12215.design_pressure_bottom(150.0, 12.0, "A", 400.0, 1.0, 1000.0)
+    base_t = 2.4 * 150.0 ** 0.33 + 20.0
+    eq7_t = base_t * iso12215.k_ar(150.0, 400.0, 1000.0) * iso12215.k_dc("A")
+    eq8_t = (0.45 * 150.0 ** 0.33 + 0.9 * 12.0) * iso12215.k_dc("A")
+    assert tiny == pytest.approx(max(eq7_t, eq8_t), abs=5e-4)
+    assert eq8_t > eq7_t, (
+        "Eq 8 never governs even for a light long hull; the max() would be "
+        f"dead code (Eq7 {eq7_t:.3f}, Eq8 {eq8_t:.3f})")

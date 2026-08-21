@@ -223,7 +223,7 @@ different Gate 2M numbers came to circulate at once (gap J1).
 | Gate 2X | h011/h012: the geometry is provably clean, and no measured descriptor separates the failures from the passers — a criterion that does not separate is not a criterion | `tests/test_h011_h012_invariant.py` (15 tests) |
 | Gate 2H | surface repair on the import boundary, and generated geometry refused rather than healed | `tests/test_mesh_repair.py` (9 tests) |
 | Gate 2G | KCS benchmark geometry: present and accepted (scripts/fetch_benchmark_geom.py) | `tests/test_benchmark_geom.py` (4 tests) |
-| Gate 6R | review-record mechanics, basis routing, AND edition parity: both implemented standards name the dated edition held | `tests/test_phase6r.py` (11 tests) |
+| Gate 6R | review-record mechanics, basis routing, AND edition parity: both implemented standards name the dated edition held | `tests/test_phase6r.py` (12 tests) |
 | Gate PF | physical form regression: six deterministic hulls stay boat-like (descriptors, SAC shape, sourced bands, ratchet) | `tests/test_physical_form.py` (46 tests) |
 | Gate VM | vessel matrix: five vessel classes end-to-end (ladder + manifest), refusals explicit, roles judged apart | `tests/test_vessel_matrix.py` (9 tests) |
 | Gate DC | design certification: cheap classify-and-rank with receipts, banded speed curves, loading matrix, regime refusals | `tests/test_design_certification.py` (12 tests) |

@@ -220,6 +220,60 @@ _EDITION_YEAR = re.compile(r"\b(19|20)\d{2}\b")
 #: directory is deliberate — `ergonomics.py` and `estrin.py` also live there and
 #: are NOT ISO standards, so a glob would either over- or under-report.
 REQUIRED_STANDARDS = ("ISO 12215-5", "ISO 12217-1")
+
+
+#: GAP D9: WORKED REFERENCE DESIGNS, so Gate 6R's THRESHOLD parity can become
+#: VERDICT parity. Gate 6R asks only that the dated edition be named; it says
+#: nothing about whether the numbers the code produces MATCH the clause. That
+#: is a weaker claim than it looks, and this is the evidence that closes the
+#: distance.
+#:
+#: Each row spells out the ISO 12215-5:2008(E) bottom-pressure chain STEP BY
+#: STEP, so a human with the standard open can check any one line rather than
+#: being handed a single end-to-end number and asked to trust it:
+#:
+#:     base = 2.4 * mLDC^0.33 + 20                  [kN/m2]
+#:     Eq 7 = base * k_AR * k_DC * k_L
+#:     Eq 8 = (0.45 * mLDC^0.33 + 0.9 * LWL) * k_DC   (the minimum)
+#:     P_BM = max(Eq 7, Eq 8)
+#:
+#: Assessed at the governing forward panel (x/LWL = 1, so k_L = 1).
+#:
+#: THE ROWS ARE THE CODE'S OWN OUTPUT AND THAT IS THE HONEST LIMIT. This
+#: project holds no citable copy of 12215-5:2008(E) — the record's own
+#: `unconfirmed` list says so — so these are not independently derived from
+#: the text; they are a TRANSCRIPT of what this implementation computes, at
+#: enough resolution that a reviewer who does hold the standard can find the
+#: step where it disagrees. That is worth more than a single thickness and
+#: less than an independent derivation, and it must not be described as the
+#: latter. Gate 6 (VERDICT parity) stays open until a reviewer signs these.
+#:
+#: The fence in tests/test_phase6r.py recomputes every intermediate with
+#: INDEPENDENT arithmetic rather than calling the same functions, so a
+#: refactor that changes a coefficient breaks the row instead of moving with
+#: it.
+REFERENCE_DESIGNS: dict[tuple, dict] = {
+    # (category, mLDC kg, LWL m, panel short span mm, panel long dim mm)
+    ("C", 6000, 10, 400, 1000): dict(
+        base=62.3644, k_ar=0.66986, k_dc=0.600,
+        eq7=25.0652, eq8=10.1660, p_bm=25.0652, t_req_mm=14.4927),
+    ("D", 1400, 6, 400, 1000): dict(
+        base=46.2080, k_ar=0.53849, k_dc=0.400,
+        eq7=9.9531, eq8=4.1256, p_bm=9.9531, t_req_mm=9.1326),
+    ("B", 14000, 12, 500, 1250): dict(
+        base=76.0317, k_ar=0.65086, k_dc=0.800,
+        eq7=39.5889, eq8=17.0447, p_bm=39.5889, t_req_mm=22.7673),
+}
+
+
+def hand_calculation(category: str, mldc_kg: float, lwl_m: float,
+                     span_mm: float, l_mm: float) -> dict:
+    """The recorded step-by-step chain for a reference design, or KeyError.
+
+    Named `hand_calculation` because that is what it is FOR: giving a human
+    the intermediates to check against the clause, one line at a time.
+    """
+    return dict(REFERENCE_DESIGNS[(category, mldc_kg, lwl_m, span_mm, l_mm)])
 _PLACEHOLDER = ("not recorded", "tbd", "todo", "unknown", "?")
 
 
