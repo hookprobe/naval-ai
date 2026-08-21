@@ -162,7 +162,7 @@ different Gate 2M numbers came to circulate at once (gap J1).
 
 | Gate | Scope | Verified by |
 |---|---|---|
-| Gate 0G | the ladder cannot be talked into passing | `tests/test_gate_integrity.py` (38 tests) |
+| Gate 0G | the ladder cannot be talked into passing | `tests/test_gate_integrity.py` (39 tests) |
 | Gate 0R | a missed clause is RED BY RECORD, never prose in a scope | `tests/test_red_by_record.py` (14 tests) |
 | Gate 0K | geometry kernel: SAC/DWL design curves + N-point section | `tests/test_geometry_kernel.py` (24 tests) |
 | Gate 1E | the stages agree with each other: one geometry, one resistance, one ply, tier+sigma across every handoff | `tests/test_end_to_end_flow.py` (14 tests) |
@@ -192,7 +192,7 @@ different Gate 2M numbers came to circulate at once (gap J1).
 | Gate F | panel unroll/DXF + Pareto dash + handoff receipt | `tests/test_stageF.py` (14 tests) |
 | Gate G | APSE: similitude/ITTC-78/cost/planner/evidence | `tests/test_stageG.py` (53 tests) |
 | Gate V2.1 | arrangement grammar: envelope, spaces, deck zones, and an L0-A that names the space it refuses | `tests/test_arrangement.py` (42 tests) |
-| Gate V3.0 | governance compiles to a parameter box and to constraint rows, ratchets only tighter, and the ladder never imports it | `tests/test_policy.py` (48 tests) |
+| Gate V3.0 | governance compiles to a parameter box and to constraint rows, ratchets only tighter, and the ladder never imports it | `tests/test_policy.py` (51 tests) |
 | Gate 6P | the product surface: scope guards refuse what does not govern, and the mission contract binds | `tests/test_gapfix_product.py` (28 tests) |
 | Gate L | one limit, one home; scantling derived from the rule | `tests/test_limits_single_source.py` (21 tests) |
 | Gate L2 | numeric literals are categorised, not banned: an AST fence that catches a physical constant in any expression position | `tests/test_constpolicy.py` (43 tests) |
