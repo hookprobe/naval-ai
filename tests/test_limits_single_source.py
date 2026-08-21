@@ -420,3 +420,39 @@ def test_scripts_do_not_redeclare_physical_constants_C33():
     assert not findings, (
         "physical-constant literals re-declared in scripts/ or ui/:\n  "
         + constpolicy.report(findings))
+
+
+def test_the_refold_station_family_is_declared_once():
+    """A NUMBER DECLARED TWICE, caught before it drifted (2026-08-21).
+
+    The refold verdict is read over a family of station counts, and
+    `scripts/design_kit.py` drives its refinement search at the FINEST member
+    of that family — deliberately, because scoring at the ladder's 41 stations
+    rewards the polyline sagitta and shipped two hulls stamped buildable that
+    the family refuses.
+
+    So the same tuple is consumed in two places. Typing `161` into the search
+    would let the two drift the moment the family changed: the gate would judge
+    a trend the search never optimised. `unroll.REFOLD_COUNTS` is the one home,
+    and the search takes `max()` of it.
+    """
+    import re
+
+    from navalai import unroll
+
+    assert unroll.REFOLD_COUNTS == tuple(sorted(unroll.REFOLD_COUNTS))
+    assert len(unroll.REFOLD_COUNTS) >= 2
+
+    # The default of the function that renders the verdict IS the named tuple,
+    # not a copy that happens to be equal today.
+    assert unroll.refold_convergence.__defaults__[0] is unroll.REFOLD_COUNTS
+
+    src = (_ROOT / "scripts" / "design_kit.py").read_text()
+    assert "max(unroll.REFOLD_COUNTS)" in src, (
+        "design_kit must DERIVE its refinement station count from "
+        "unroll.REFOLD_COUNTS, never restate it")
+    body = "\n".join(ln for ln in src.splitlines()
+                     if not ln.lstrip().startswith("#"))
+    assert not re.search(r"_REFINE_STATIONS\s*=\s*\d", body), (
+        "a literal station count in design_kit is the second declaration this "
+        "test exists to prevent")

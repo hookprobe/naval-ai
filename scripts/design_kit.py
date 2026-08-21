@@ -73,6 +73,30 @@ MISSION = ("6 tonne solar-electric liveaboard, 10 m, Danube and Black Sea "
 POP, GENS = 64, 80
 
 
+# THE STATION COUNT THE REFINEMENT SCORES ON, and it is the whole fix.
+#
+# MEASURED 2026-08-21: scoring on the ladder's 41 stations produced TWO hulls
+# stamped buildable that the station family refuses (4.92/5.22/8.71 and
+# 4.84/3.88/3.95). At n=41 the panel is a 40-segment polyline and part of every
+# reading is its SAGITTA, so a search rewarded for driving that number down
+# optimises the DISCRETISATION instead of the curvature. It is not a subtle
+# effect: a surface with Gaussian curvature 7.8e-14 reads 17.1 mm at n=41.
+#
+# Scoring at the FINEST count removes the incentive rather than policing it
+# afterwards — there is no sagitta left to harvest. It costs 3.7x:
+#
+#     n= 41   1.52 s/hull
+#     n= 81   2.84 s/hull
+#     n=161   5.62 s/hull
+#
+# That is the price of searching for the thing instead of for its shadow.
+#
+# DERIVED, never typed: it is the finest member of the family the verdict is
+# read over, so the search and the gate cannot drift apart. A literal 161 here
+# would be the same number declared twice.
+_REFINE_STATIONS = max(unroll.REFOLD_COUNTS)
+
+
 def _refine(x0, mission, policy, box, budget_s, seed):
     """(1+1)-ES on the AUTHORITATIVE refold meter, subject to the full ladder.
 
@@ -100,7 +124,7 @@ def _refine(x0, mission, policy, box, budget_s, seed):
                 viol = sum(max(0.0, min(v, 1e3))
                            for v in (ev.g or {}).values())
                 return (viol if viol > 0 else 1.0, 1e6)
-            h = Hull(x)
+            h = Hull(x, n_stations=_REFINE_STATIONS)
             r = max(float(np.max(unroll.refold_surface_deviation_mm(h, pan)))
                     for pan in unroll.hull_panels(h))
             return (0.0, r)

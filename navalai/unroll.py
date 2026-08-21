@@ -1046,7 +1046,18 @@ class RefoldConvergence:
 _REFOLD_CONVERGED_TOL = 1.02
 
 
-def refold_convergence(params, counts: tuple[int, ...] = (41, 81, 161),
+#: The station family a refold verdict is measured over. NAMED because it is
+#: consumed in two places and this codebase's recurring defect is a number
+#: declared twice: `refold_convergence` scores the trend across all of it, and
+#: `scripts/design_kit.py` drives its refinement search at `max(...)` — the
+#: finest count — so the search optimises the converged deviation rather than
+#: the 41-station polyline sagitta it would otherwise be rewarded for.
+#: 41 is `geometry._LADDER_STATIONS`, the count the ladder already floats at;
+#: the family doubles from there so successive ratios describe one power law.
+REFOLD_COUNTS: tuple[int, ...] = (41, 81, 161)
+
+
+def refold_convergence(params, counts: tuple[int, ...] = REFOLD_COUNTS,
                        bar_mm: float | None = None,
                        rulings: str = "developable") -> RefoldConvergence:
     """Is a refold shortfall DOUBLE CURVATURE, or is it the station count?
