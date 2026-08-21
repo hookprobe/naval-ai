@@ -890,9 +890,24 @@ GATES = [
     #
     # BuildPlan section 12.3 requires that "panels re-fold to the hull within
     # the stated millimetre bar". They do not, by a factor of ~28x and ~45x
-    # against the 5 mm bar, and the shortfall does not refine away — so it is a
-    # geometric property of taking the rulings at constant station x, not a
-    # discretisation artefact. And yet NOTHING OWNED THE FAILURE:
+    # against the 5 mm bar, and the shortfall does not refine away.
+    #
+    # ~~so it is a geometric property of taking the rulings at constant
+    # station x~~ — SUPERSEDED 2026-08-21, and the correction moves the blame
+    # off the unroller entirely. MEASURED against surfaces whose
+    # developability is known in CLOSED FORM
+    # (tests/test_manufacturing.py::test_the_unroller_is_EXACT_on_a_developable
+    # _surface): cylinder 0.0000 mm, flat plane 0.0002 mm, tapered cone 0.0013
+    # mm — and, as negative controls, twisted cylinder 436.6 mm and hyperbolic
+    # paraboloid 46.7 mm. THE UNROLLER IS EXACT ON DEVELOPABLES and correctly
+    # flags what is not one.
+    #
+    # What this gate measures is the HULL. Over governed hulls
+    # corr(non_developable_frac, refold) = +0.783, with `flare` dominant at
+    # +0.694 (flare 0° -> ndev_frac 0.0064; flare 25° -> 0.2953). The
+    # shortfall does not refine away because REFINEMENT CANNOT FLATTEN DOUBLE
+    # CURVATURE — not because the ruling family is wrong. It is not a
+    # discretisation artefact either way. And yet NOTHING OWNED THE FAILURE:
     # `tests/test_manufacturing.py::test_gate6_refold_clause_is_red_on_the_hull`
     # ASSERTS the shortfall, honestly and deliberately, so the suite is GREEN
     # BECAUSE the bar is missed; Gate 6M therefore printed GREEN; the only

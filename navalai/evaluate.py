@@ -301,10 +301,25 @@ class Evaluation:
 
 
 def sample_valid(n: int, mission: MissionSpec, seed: int = 0,
-                 quantity: str = "wh_per_nm"):
+                 quantity: str = "wh_per_nm", policy=None):
     """Sample n hulls that clear L0 AND produce a finite L1 evaluation.
 
     Returns (X, y) for surrogate training — the flywheel's data feed.
+
+    `policy` is an optional COMPILED constitution
+    (`navalai.policy.compile_policy` / `reference_policy`). When given, the
+    draw box is TIGHTENED through `policy.box(...)` before a single hull is
+    sampled, and the appended constraint rows are evaluated. Defaults to None,
+    so an ungoverned call draws exactly the box it always drew.
+
+    WHY THE BOX AND NOT A FILTER (gap: the 2026-08-21 buildability finding).
+    This feed is where `agents.run_plm` fits its generative Genome. Drawing
+    from the ungoverned box and rejecting afterwards fits the genome on hulls
+    the product cannot build: MEASURED on the flagship mission, 60 of 60 draws
+    had `roundness > 0` and `unroll.hull_panels` refused every one, so the
+    PLM lane's engineer stage discarded them one at a time with the generative
+    model still aimed at the middle of an unbuildable space. A bound moves the
+    aim; a filter only moves the survivors.
     """
     rng = np.random.default_rng(seed)
     # The pre-filter must judge by the SAME role the ladder will: a demihull
@@ -318,6 +333,12 @@ def sample_valid(n: int, mission: MissionSpec, seed: int = 0,
     # draws the full box exactly as before (band is None), which remains the
     # explicit exploration mode.
     lo, hi = grammar.LOW.copy(), grammar.HIGH.copy()
+    if policy is not None:
+        # The compiler's output (1). `box()` only ever ratchets INWARD and
+        # takes the caller's bounds, so the mission's Cp band below still
+        # applies on top and neither can widen the other.
+        _b = policy.box(mission.design_category, low=lo, high=hi)
+        lo, hi = np.array(_b.low, float), np.array(_b.high, float)
     hint = getattr(mission, "lwl_hint_m", None)
     if hint:
         band = mission_cp_band(mission, max(hint * 0.9, float(lo[grammar.NAMES.index("LWL")])),
@@ -332,7 +353,7 @@ def sample_valid(n: int, mission: MissionSpec, seed: int = 0,
         x = rng.uniform(lo, hi)
         if not grammar.check(x, vessel=vessel_cfg).ok:
             continue
-        ev = evaluate(x, mission)
+        ev = evaluate(x, mission, policy=policy)
         if ev.energy is None:
             continue
         val = {"wh_per_nm": ev.energy.wh_per_nm,

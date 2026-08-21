@@ -365,7 +365,8 @@ _MARGINAL_G = -0.05
 
 
 def certify(params, mission: MissionSpec,
-            with_gz: bool = True, with_kit: bool = False) -> DesignCertification:
+            with_gz: bool = True, with_kit: bool = False,
+            policy=None) -> DesignCertification:
     """The screening engine: one design, one mission, one classified answer.
 
     Cost: a few seconds — evaluate + descriptors + speed sweep + loading
@@ -376,7 +377,14 @@ def certify(params, mission: MissionSpec,
     rather than implying the check passed.
     """
     x = np.asarray(params, float)
-    ev = evaluate(x, mission)
+    # `policy` is an optional COMPILED constitution. Behind the same
+    # `if policy is not None` doctrine as every other call site: an ungoverned
+    # certification executes the same CODE and produces the same numbers, and
+    # a governed one carries the constitution's APPENDED rows in `ev.g`.
+    # This lane certifies a hull it is HANDED, so the compiler's parameter box
+    # does not apply here -- only its rows. The box governs the SEARCH
+    # (`sample_valid`, `optimize.pareto_front`).
+    ev = evaluate(x, mission, policy=policy)
     reasons: list[str] = []
     assumptions: list[str] = []
 

@@ -131,7 +131,56 @@ search is never handed the compiled policy. Fixing the box (§3) was necessary
 and is not sufficient — a bound nothing consumes is a receipt, which is the
 same defect one level up.
 
-### Why this is NOT fixed in this pass
+### WIRED 2026-08-21, on operator instruction ("go ahead, fix everything")
+
+Threaded through the four call sites that decide what the product proposes and
+what it certifies, each `policy=None` by default so an ungoverned run executes
+the same code and produces the same numbers:
+
+| call site | what the constitution reaches |
+|---|---|
+| `evaluate.sample_valid(..., policy=)` | **the draw box** — the generative feed `agents.run_plm` fits its Genome on |
+| `agents.run_plm(..., policy=)` | the feed above, plus the validator's appended rows |
+| `certify(..., policy=)` | the appended rows (this lane is HANDED a hull, so the box does not apply) |
+| `optimize.pareto_front(..., policy=)` | already accepted one; now actually given one |
+
+MEASURED immediately after wiring, flagship mission, 30 draws each:
+
+    ungoverned : roundness max 0.9937   unroll ACCEPTED  0/30
+    governed   : roundness max 0.0000   unroll ACCEPTED 30/30
+
+`sample_valid` is the load-bearing one and the reason is structural: it is
+where the generative model is FITTED. Drawing ungoverned and rejecting
+afterwards aims the model at the middle of an unbuildable space and then
+discards its output one hull at a time in the LAST stage, the engineer agent,
+with the audit trail reading "rejected" over and over. **A bound moves the aim;
+a filter only moves the survivors.**
+
+New CLI surface: `scripts/design_kit.py` (governed mission -> hull -> STL ->
+stitch-and-glue panels -> nested BOM) and `python -m navalai.design_report
+--constitution kit-line-v3`. `design_report` defaults to `none` so no number it
+already printed moves silently.
+
+### What the wiring did NOT fix, and it is the real blocker for cut files
+
+Running the governed lane end to end produces a buildable hull and then
+REFUSES to call the panels a cut file:
+
+    STITCH AND GLUE: 2 developable panel(s)
+      bottom-stbd  refold deviation max    21.2 mm  OVER the 5 mm bar
+      topside-stbd refold deviation max   221.5 mm  OVER the 5 mm bar
+
+That is **Gate 6D**, RED and ledgered (watermark 124.1 mm on the reference
+hull). The panels are GEOMETRY, not release-grade cut files: refolded onto the
+hull's moulded surface they miss by two orders of magnitude more than the
+BuildPlan 12.3 bar. Cutting plywood to them would produce panels that do not
+close on the chine. This is now printed with its bar beside it, because a
+millimetre figure with no bar reads as a pass.
+
+### The budget is part of the wiring, not a tuning knob
+
+### The old caution, kept because it is why the budget default is what it is
+
 
 Wiring it in CHANGES WHAT THE PRODUCT ACCEPTS, and that is an owner decision,
 not a tidy-up. It is also not free, and the cost is measured (§3): under the

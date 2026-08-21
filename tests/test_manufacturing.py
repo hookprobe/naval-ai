@@ -1373,3 +1373,128 @@ def test_the_kit_reference_hull_is_certifiable_and_kit_buildable():
     assert kit["kit_buildable"], kit
     for name, mm in kit["refold_mm"].items():
         assert 2.0 < mm <= REFOLD_BAR_MM, f"{name} {mm:.2f} mm"
+
+
+def test_a_cut_file_is_refused_when_the_panels_would_not_close_on_the_hull():
+    """GATE 6D AT THE BOUNDARY THAT MATTERS. MEASURED 2026-08-21.
+
+    `export_dxf` gated on `refuse_unvalidated(ev, 'DXF')`, which asks whether
+    the LADDER passed. The ladder does not measure refold accuracy -- there is
+    no such row in `evaluate.CONSTRAINT_NAMES` -- so it cannot answer the only
+    question a shop cares about: will these panels close on the hull?
+
+    On a hull the GOVERNED search delivered and the ladder passed (ev.ok True),
+    the worst refold deviation was 221.5 mm against a 5 mm bar, and export_dxf
+    wrote a 67 kB DXF without complaint. Someone could have cut it; the topside
+    would have missed the chine by the better part of a quarter metre.
+
+    Gate 6D is RED and ledgered at 124.1 mm. A red gate whose ARTEFACT ships
+    anyway is a gate softened by omission, so the check is made where the file
+    is produced.
+    """
+    import numpy as np
+    import pytest as _pytest
+
+    from navalai.geometry import Hull
+    from navalai.limits import PLY_THICKNESS_M, REFOLD_BAR_MM
+    from navalai.unroll import (export_dxf, hull_panels, nest,
+                                refold_surface_deviation_mm, split_panel)
+
+    hull = Hull(mid_params())
+    panels = hull_panels(hull)
+    worst = max(float(np.max(refold_surface_deviation_mm(hull, p)))
+                for p in panels)
+    assert worst > REFOLD_BAR_MM, (
+        "this fixture is chosen BECAUSE it misses the bar; if the unroller "
+        "improves enough that it passes, re-point the test at a hull that "
+        "still fails rather than deleting it")
+
+    parts = []
+    for p in panels:
+        parts += split_panel(p, PLY_THICKNESS_M)
+    layout = nest(parts)
+
+    with _pytest.raises(ValueError, match="refold deviation"):
+        export_dxf(layout, "/dev/null", hull=hull)
+
+    # The override exists for geometry research and SAYS SO IN THE FILE.
+    import tempfile
+    import pathlib
+    with tempfile.TemporaryDirectory() as d:
+        out = export_dxf(layout, pathlib.Path(d) / "over.dxf", hull=hull,
+                         allow_unverified=True)
+        head = out.read_text()[:400]
+        assert "OVER the" in head and "NOT a production cut file" in head
+
+        # And a file written with NO hull must not read as verified: an
+        # unmeasured quantity is refused, never assumed good.
+        out2 = export_dxf(layout, pathlib.Path(d) / "unk.dxf")
+        assert "REFOLD NOT VERIFIED" in out2.read_text()[:400]
+
+
+def test_the_unroller_is_EXACT_on_a_developable_surface():
+    """THE MATHEMATICAL CONTROL FOR GATE 6D, and it moves the blame.
+
+    Gate 6D is RED at 124.1 mm against a 5 mm bar, and the cause on record --
+    `navalai/gates.py`, `docs/audit/PRODUCTION-READINESS.md` -- was "a
+    geometric property of taking the rulings at constant station x", i.e. the
+    UNROLLER. That reading survived because the shortfall does not refine away,
+    which looked like a structural property of the algorithm.
+
+    MEASURED 2026-08-21 against surfaces whose developability is known in
+    CLOSED FORM, so there is no hull, no grammar and no scatter band to hide
+    in -- the same discipline as Wigley's 4LBT/9 for the integrator:
+
+        surface                developable?   max |refold(B) - B|
+        cylinder                    yes            0.0000 mm
+        flat plane                  yes            0.0002 mm
+        cone (tapered)              yes            0.0013 mm
+        twisted cylinder            NO           436.6376 mm
+        hyperbolic paraboloid       NO            46.7388 mm
+
+    The unroller is EXACT on developables to the last bit, and it correctly
+    reports a large error on surfaces that are not. It is not the defect.
+
+    What Gate 6D measures is the HULL: `shell_complexity` reads the topside's
+    constant-x twist at 0.958 against the hypar negative control's 1.000, and
+    over governed hulls corr(non_developable_frac, refold) = +0.783 with
+    `flare` the dominant driver at +0.694 (flare 0 deg -> ndev 0.0064,
+    flare 25 deg -> ndev 0.2953). The shortfall does not refine away because
+    REFINEMENT CANNOT FLATTEN DOUBLE CURVATURE.
+
+    This test exists so the blame cannot drift back: if someone "fixes" the
+    unroller and this starts failing, they broke the one part that was right.
+    """
+    import numpy as np
+
+    from navalai.unroll import develop, refold
+
+    def err_mm(A, B, name):
+        pan = develop(A, B, name)
+        return float(np.max(np.linalg.norm(refold(pan) - B, axis=1))) * 1e3
+
+    n = 60
+    th = np.linspace(0.0, 0.9, n)
+    t = np.linspace(0.0, 1.0, n)
+
+    # --- positive controls: zero Gaussian curvature by construction --------
+    cyl_a = np.stack([np.zeros(n), np.cos(th), np.sin(th)], axis=1)
+    cyl_b = np.stack([np.full(n, 3.0), np.cos(th), np.sin(th)], axis=1)
+    assert err_mm(cyl_a, cyl_b, "cyl") < 1e-3
+
+    pl_a = np.stack([np.zeros(n), t * 2.0, np.zeros(n)], axis=1)
+    pl_b = np.stack([np.ones(n), t * 2.0, np.zeros(n)], axis=1)
+    assert err_mm(pl_a, pl_b, "plane") < 1e-2
+
+    cone_a = np.stack([np.zeros(n), 0.2 * np.cos(th), 0.2 * np.sin(th)], axis=1)
+    cone_b = np.stack([np.full(n, 4.0), 2.0 * np.cos(th), 2.0 * np.sin(th)],
+                      axis=1)
+    assert err_mm(cone_a, cone_b, "cone") < 1e-1
+
+    # --- negative controls: the meter must not read zero on everything -----
+    tw_b = np.stack([np.full(n, 3.0), np.cos(th + 0.6 * t),
+                     np.sin(th + 0.6 * t)], axis=1)
+    assert err_mm(cyl_a, tw_b, "twisted") > 100.0
+
+    hyp_b = np.stack([np.ones(n), t * 2.0, t * t * 1.5], axis=1)
+    assert err_mm(pl_a, hyp_b, "hypar") > 10.0

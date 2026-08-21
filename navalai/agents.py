@@ -110,7 +110,7 @@ async def _builder(inbox: asyncio.Queue, out: asyncio.Queue, audit: Audit,
 
 
 async def _validator(inbox: asyncio.Queue, out: asyncio.Queue, audit: Audit,
-                     mission: MissionSpec) -> None:
+                     mission: MissionSpec, policy=None) -> None:
     while True:
         msg = await inbox.get()
         if msg.kind == "stop":
@@ -152,7 +152,7 @@ async def _validator(inbox: asyncio.Queue, out: asyncio.Queue, audit: Audit,
                               {"fitness": float("inf"), "why": tuple(why),
                                "stage": "L0 type-check"}))
             continue
-        ev = evaluate(x, mission)
+        ev = evaluate(x, mission, policy=policy)
         if not ev.ok:
             audit.log(Message("validator", "orchestrator", "rejected",
                               {"fitness": float("inf"), "why": ev.violations,
@@ -220,7 +220,8 @@ async def _engineer(inbox: asyncio.Queue, out: asyncio.Queue, audit: Audit,
 
 
 async def _orchestrate(mission_text: str, n_designs: int, batch: int,
-                       timeout_s: float) -> tuple[list[DesignRecord], Audit, MissionSpec]:
+                       timeout_s: float, policy=None
+                       ) -> tuple[list[DesignRecord], Audit, MissionSpec]:
     mission = translate(mission_text)
     audit = Audit()
     audit.log(Message("orchestrator", "orchestrator", "mission",
@@ -228,7 +229,7 @@ async def _orchestrate(mission_text: str, n_designs: int, batch: int,
                        "displacement": mission.displacement_target_kg}))
 
     # the builder's generative basis: a genome fitted on-mission
-    X, _ = sample_valid(80, mission, seed=17)
+    X, _ = sample_valid(80, mission, seed=17, policy=policy)
     genome = Genome.fit(X)
 
     q_build: asyncio.Queue = asyncio.Queue()
@@ -238,7 +239,8 @@ async def _orchestrate(mission_text: str, n_designs: int, batch: int,
 
     tasks = [
         asyncio.create_task(_builder(q_build, q_val, audit, genome, batch)),
-        asyncio.create_task(_validator(q_val, q_eng, audit, mission)),
+        asyncio.create_task(_validator(q_val, q_eng, audit, mission,
+                                       policy)),
         asyncio.create_task(_engineer(q_eng, q_out, audit, mission)),
     ]
 
@@ -262,7 +264,20 @@ async def _orchestrate(mission_text: str, n_designs: int, batch: int,
 
 
 def run_plm(mission_text: str, n_designs: int = 3, batch: int = 8,
-            timeout_s: float = 120.0):
+            timeout_s: float = 120.0, policy=None):
     """Synchronous entry: mission text -> validated, engineered designs +
-    the full message audit trail."""
-    return asyncio.run(_orchestrate(mission_text, n_designs, batch, timeout_s))
+    the full message audit trail.
+
+    `policy` is an optional COMPILED constitution. It reaches BOTH of the
+    compiler's outputs: the generative genome is fitted on a draw from the
+    GOVERNED box, and the validator appends the constitution's rows.
+
+    It matters most here, and the reason is measured. The engineer stage calls
+    `unroll.hull_panels`, which REFUSES a radiused bilge by name -- so under a
+    sheet-built constitution an ungoverned run fits its genome on hulls the
+    shop cannot cut and then discards them one at a time, in the last stage,
+    with the audit trail reading "rejected" over and over. Governing the DRAW
+    aims the generative model inside the buildable space instead.
+    """
+    return asyncio.run(_orchestrate(mission_text, n_designs, batch, timeout_s,
+                                    policy))

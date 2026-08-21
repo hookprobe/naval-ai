@@ -1471,7 +1471,8 @@ def _polyline_dxf(pts: np.ndarray, layer: str) -> list[str]:
 
 def export_dxf(layout, path: str | Path, gap: float = 0.1,
                units_mm: bool = True, ev=None,
-               thickness_m: float = PLY_THICKNESS_M) -> Path:
+               thickness_m: float = PLY_THICKNESS_M,
+               hull=None, allow_unverified: bool = False) -> Path:
     """Write the NEST — sheets, boundaries and placed parts — in MILLIMETRES.
 
     THE UNITS WERE UNDECLARED AND THE COORDINATES WERE METRES. The file had no
@@ -1491,13 +1492,54 @@ def export_dxf(layout, path: str | Path, gap: float = 0.1,
     """
     from .export import refuse_unvalidated
     refuse_unvalidated(ev, 'DXF')
+
+    # ---- GATE 6D AT THE CUT-FILE BOUNDARY (MEASURED 2026-08-21) ----------
+    #
+    # `refuse_unvalidated` asks whether the LADDER passed. The ladder does not
+    # measure refold accuracy -- there is no such row in
+    # `evaluate.CONSTRAINT_NAMES` -- so it cannot answer the only question a
+    # shop cares about: will these panels close on the hull?
+    #
+    # MEASURED, on a hull the governed search delivered and the ladder passed
+    # (ev.ok True): worst refold deviation 221.5 mm against a 5 mm bar, and
+    # this function wrote a 67 kB DXF without complaint. Someone could cut it.
+    # The topside would miss the chine by the better part of a quarter metre.
+    #
+    # Gate 6D is RED and ledgered at 124.1 mm; a red gate whose artefact ships
+    # anyway is a gate that has been softened by omission. So the accuracy is
+    # checked HERE, where the file is produced.
+    from .limits import REFOLD_BAR_MM
+    verdict = ("REFOLD NOT VERIFIED - hull not supplied to export_dxf; "
+               "this is NOT a production cut file")
+    if hull is not None:
+        worst = 0.0
+        for _pan in hull_panels(hull):
+            worst = max(worst, float(
+                np.max(refold_surface_deviation_mm(hull, _pan))))
+        if worst > REFOLD_BAR_MM and not allow_unverified:
+            raise ValueError(
+                f"export_dxf: worst refold deviation {worst:.1f} mm exceeds "
+                f"the {REFOLD_BAR_MM:.0f} mm bar (limits.REFOLD_BAR_MM, "
+                f"BuildPlan 12.3 / Gate 6D). Refolded onto the hull's moulded "
+                f"surface these panels miss by that much, so cutting plywood "
+                f"to them produces panels that do not close. REFUSED. Pass "
+                f"allow_unverified=True only for geometry research, never to "
+                f"hand a shop a file.")
+        verdict = (f"REFOLD VERIFIED {worst:.1f} mm <= {REFOLD_BAR_MM:.0f} mm"
+                   if worst <= REFOLD_BAR_MM else
+                   f"REFOLD {worst:.1f} mm OVER the {REFOLD_BAR_MM:.0f} mm "
+                   f"bar - OVERRIDDEN, NOT a production cut file")
     if isinstance(layout, (list, tuple)):
         parts: list[Part] = []
         for p in layout:
             parts += split_panel(p, thickness_m)
         layout = nest(parts)
     scale = 1000.0 if units_mm else 1.0
-    lines = ["0", "SECTION", "2", "HEADER",
+    # The standing travels WITH the artefact. A DXF that leaves this process
+    # is read by a shop, not by this module's caller, so the one place the
+    # verdict cannot be lost is inside the file.
+    lines = ["999", verdict,
+             "0", "SECTION", "2", "HEADER",
              "9", "$INSUNITS", "70", "4" if units_mm else "6",
              "9", "$MEASUREMENT", "70", "1",
              "0", "ENDSEC",

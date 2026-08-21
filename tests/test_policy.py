@@ -910,3 +910,66 @@ def test_an_unrecognised_construction_method_is_refused_not_defaulted():
 
     with _pytest.raises(PolicyError, match="knows"):
         DesignDNA(name="bad", construction=owner("cold-moulded", "", "typo"))
+
+
+def test_the_governed_data_feed_draws_only_hulls_the_shop_can_cut():
+    """THE WIRING, not the bound. Gate V3.0 compiled a parameter box from
+    2026-08-11 and NOTHING SHIPPING EVER ASKED FOR ONE: measured 2026-08-21,
+    every non-test caller of reference_policy/compile_policy in the tree was a
+    docstring. The legal envelope and the design DNA governed nothing.
+
+    `sample_valid` is the load-bearing one because it is where
+    `agents.run_plm` fits its generative Genome. Drawing from the ungoverned
+    box and rejecting afterwards fits the model on hulls the product cannot
+    build, then discards them one at a time in the LAST stage -- the engineer
+    agent -- with the audit trail reading "rejected" over and over.
+
+    MEASURED on the flagship mission, 30 draws each:
+        ungoverned: roundness max 0.9937, unroll accepted  0/30
+        governed  : roundness max 0.0000, unroll accepted 30/30
+    """
+    import numpy as np
+
+    from navalai import grammar, unroll
+    from navalai.evaluate import sample_valid
+    from navalai.geometry import Hull
+    from navalai.policy import reference_policy
+    from navalai.translate import translate
+
+    m = translate("6 tonne solar-electric liveaboard, 10 m, Danube and Black "
+                  "Sea coastal, cruise 5 knots, 2 crew, 40 kWh battery")
+    j = grammar.NAMES.index("roundness")
+
+    X, _ = sample_valid(8, m, seed=17, policy=reference_policy())
+    assert np.max(X[:, j]) == 0.0, "a governed draw must be hard-chine"
+    for x in X:
+        unroll.hull_panels(Hull(x))       # raises if the shop cannot cut it
+
+    # And the ungoverned feed is UNCHANGED -- the None doctrine, checked
+    # rather than asserted: policy=None must draw the box it always drew.
+    Y, _ = sample_valid(8, m, seed=17)
+    assert np.max(Y[:, j]) > 0.0, (
+        "an ungoverned draw must still explore the full grammar box; if this "
+        "fails the bound leaked out of the constitution into the platform")
+
+
+def test_every_governed_entry_point_threads_the_policy_through():
+    """A bound nothing consumes is a receipt, which is the defect one level up.
+
+    This pins the CALL SITES rather than the compiler: the four places the
+    2026-08-21 wiring pass touched must all accept a compiled constitution and
+    must all default to None, so an ungoverned run executes the same code.
+    """
+    import inspect
+
+    from navalai.agents import run_plm
+    from navalai.certify import certify
+    from navalai.evaluate import evaluate, sample_valid
+    from navalai.optimize import pareto_front
+
+    for fn in (sample_valid, certify, run_plm, pareto_front, evaluate):
+        sig = inspect.signature(fn)
+        assert "policy" in sig.parameters, f"{fn.__name__} takes no policy"
+        assert sig.parameters["policy"].default is None, (
+            f"{fn.__name__}'s policy must default to None: an ungoverned run "
+            f"must produce the numbers it always produced")

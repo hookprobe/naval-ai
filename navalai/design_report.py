@@ -93,7 +93,21 @@ def main(argv=None) -> int:
     ap.add_argument("--no-gz", action="store_true",
                     help="skip the righting-arm solve (faster)")
     ap.add_argument("--json", help="write the machine-readable result here")
+    ap.add_argument("--constitution", choices=("none", "kit-line-v3"),
+                    default="none",
+                    help="compile a governing constitution and apply its "
+                         "APPENDED constraint rows. Default 'none' so no "
+                         "number this command already printed moves silently; "
+                         "'kit-line-v3' is the sheet-plywood CNC kit line "
+                         "(navalai.policy.reference_policy)")
     args = ap.parse_args(argv)
+
+    policy = None
+    if args.constitution != "none":
+        from navalai.policy import reference_policy
+        policy = reference_policy()
+        print(f"constitution: {policy.constitution.name} "
+              f"({len(policy.rows)} appended constraint row(s))")
 
     if args.case:
         case = {c.key: c for c in formcheck.CASES}[args.case]
@@ -108,7 +122,7 @@ def main(argv=None) -> int:
     else:
         ap.error("need --case or --mission")
 
-    cert = certify(params, mission, with_gz=not args.no_gz)
+    cert = certify(params, mission, with_gz=not args.no_gz, policy=policy)
     print(report(cert))
     if args.json:
         def _default(o):

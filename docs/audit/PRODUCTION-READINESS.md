@@ -200,3 +200,119 @@ that was P0-1 and it is closed. What remains:
 **Do not open the held-out set until 1 and 2 are settled.** It can be spent
 once, and `write_manifest` refuses to overwrite it — re-sealing is spending
 the seed.
+
+---
+
+# WHAT IS MISSING TO SHIP (2026-08-21, after the governance wiring)
+
+The question this section answers: **what stands between today's tree and
+handing a builder a kit they can cut?** Ranked by whether it stops a kit
+shipping, not by how hard it is.
+
+## P0 — BLOCKING. The cut files are wrong, and until today nothing said so
+
+    hull the GOVERNED search delivered, ladder ev.ok = True
+      bottom-stbd   refold deviation max    21.2 mm
+      topside-stbd  refold deviation max   221.5 mm     bar: 5 mm
+      export_dxf -> SUCCEEDED, 67 kB, no complaint
+
+That is the whole problem in four lines. `refold_surface_deviation_mm` is the
+two-sided distance from the REFOLDED panel back onto the hull's moulded
+surface: cut plywood to these outlines and the topside misses the chine by the
+better part of a quarter metre. It does not close. Gate 6D is RED and ledgered
+at **124.1 mm** against `limits.REFOLD_BAR_MM` = 5 mm.
+
+**Why it escaped.** `export_dxf` gated on `refuse_unvalidated(ev, 'DXF')` --
+did the LADDER pass? The ladder has no refold row in
+`evaluate.CONSTRAINT_NAMES`, so it cannot answer the only question a shop
+cares about. A red gate whose artefact ships anyway is a gate softened by
+omission.
+
+**Closed 2026-08-21 at the boundary**, not by softening the bar: `export_dxf`
+now takes the hull, refuses over the bar by name, and STAMPS the verdict into
+the DXF header (`999` comment) so the standing travels with the artefact --
+`REFOLD VERIFIED n mm <= 5 mm`, or `REFOLD NOT VERIFIED - not a production cut
+file` when no hull was supplied. An unmeasured quantity is refused, never
+assumed good.
+
+**So the product is now HONEST but cannot ship a kit.** That is the correct
+state and it is the top of the queue.
+
+**What the fix is — CORRECTED 2026-08-21, and the correction inverts it.**
+The cause on record was the unroller ("rulings taken at constant station x").
+It is not. Measured against closed-form surfaces: cylinder **0.0000 mm**, flat
+plane 0.0002 mm, tapered cone 0.0013 mm, with twisted-cylinder 436.6 mm and
+hyperbolic-paraboloid 46.7 mm as negative controls. **The unroller is exact on
+developables.**
+
+Gate 6D is measuring a HULL THAT IS NOT DEVELOPABLE. Over governed hulls
+corr(non_developable_frac, refold) = **+0.783**, `flare` dominant at **+0.694**:
+
+    flare  0 deg -> ndev_frac 0.0064 -> refold  62.8 mm
+    flare 12 deg -> ndev_frac 0.2302 -> refold 149.3 mm
+    flare 25 deg -> ndev_frac 0.2953 -> refold 193.0 mm
+
+So this is the ROUNDNESS FINDING AGAIN, one level deeper: the search proposes
+shapes flat sheet cannot take, and the manufacturing stage is blamed for it.
+The fix is therefore a DESIGN-SIDE bound (a developability constraint the
+search respects), not a better solver. Whether the grammar admits a sub-5 mm
+hull at all is the open question -- random search over the governed box found
+**10.8 mm** at flare -1 deg, 2.2x the bar. If no such hull exists the grammar
+needs a developable-by-construction mode.
+Owner `chief-architect`, `review_by` 2026-11-11.
+
+## P1 — the performance claim is not yet earned
+
+Both of these are about the NUMBER A CUSTOMER IS QUOTED (range, Wh/NM), not
+about whether the boat floats.
+
+1. **Resistance sigma is uncalibrated.** Gate 2M watermark is the string
+   `NONE` -- no reproducible measurement exists. Wh/NM carries a DECLARED
+   sigma, not a measured one, and range varies ~2.7x across a 0.75-2.0
+   resistance bias.
+2. **The hard-chine physics has no experimental anchor at our Froude number,
+   and it is now the ONLY physics we ship.** The 2026-08-21 bound pins
+   `roundness` to 0, so every hull the product proposes is hard-chine -- and
+   `dR_chine` at Fn ~ 0.26 is exactly the quantity DSYHS (round bilge) and KCS
+   (round bilge, bulbous bow) cannot validate. The experiment EXISTS: Compton's
+   1986 USNA series, hard chine and round bilge over Fn 0.10-0.60. The data is
+   not held. See `docs/audit/GATE2-PHYSICS-STACK.md`.
+
+## P2 — autonomy, not correctness
+
+| gate | watermark | bar | what it costs today |
+|---|---|---|---|
+| **2U** unattended meshing | **17.6 %** settled (88.2 % ran to budget) | >= 95 % | CFD cannot run unattended; every campaign needs a human |
+| **4F** raw generative feasibility | **79.33 %** (GMM; pPCA 88.67 %) | >= 99 % | the generative model proposes invalid hulls 1 time in 5 |
+
+Neither blocks a kit. Both block doing it AT SCALE without a person watching.
+
+## P3 — evidence and process
+
+- **E5** — no round-trip against 12+ public-CAD hulls; the geometry kernel is
+  verified against its own output.
+- **I1** — co-kriging still fitted on the synthetic Forrester pair, not real
+  high-fidelity rows.
+- **I13** — Gate 4 clause 3 has no artefact: no recorded non-expert session
+  producing a hull that passes the ladder. **This is the one that decides
+  whether the product is usable by its intended customer**, and it needs a
+  person, not code.
+- **Gate RT** — red on arm64 by construction (530/4906 keys, one-ulp,
+  IEEE-legal; golden recorded on x86-64). It CANNOT be ledgered: `judge_red`
+  only runs for gates with `suite is None`. The honest fix is a
+  per-architecture golden.
+
+## WHAT IS ALREADY PRODUCTION-GRADE, so the list above is read in proportion
+
+Mission parsing -> governed search -> L0/L1 physics -> ISO 12215-5 scantlings
+and ISO 12217-1 stability with clause provenance -> loading matrix -> GZ curve
+-> weight/energy with propagated sigma -> nesting with a real MaxRects packer
+-> line-item BOM -> STL -> content-addressed provenance. 1585 tests green.
+`tests/test_end_to_end_flow.py` asserts, at 14 points, that the exported solid,
+the CFD STL, the BEM mesh, the BOM and the arrangement are all the SAME hull
+the ladder validated.
+
+**The honest summary: the design side is production-grade and the
+MANUFACTURING side is one solver short.** Everything upstream of the cut file
+is measured, badged and fenced. The cut file itself is geometry that does not
+yet close, and as of today it says so instead of shipping.
