@@ -170,6 +170,7 @@ footer{padding:44px 0 66px; color:var(--ink-3); font-size:.85rem}
       <div class="fact good"><span class="n mono">8</span><span class="l">Constraint rows. These are the traffic lights — the complete set.</span></div>
       <div class="fact bad"><span class="n mono">124.1 mm</span><span class="l">Gate 6D refold against a 5 mm bar — but measured at 41 stations. Read §04.</span></div>
       <div class="fact warn"><span class="n mono">0.45</span><span class="l">Froude ceiling. Above it the drag model disowns itself, by design.</span></div>
+      <div class="fact good"><span class="n mono">3 / 400</span><span class="l">Random hulls that are cuttable. The kit route is a search job, not a slider.</span></div>
     </div>
   </div>
 </header>
@@ -647,9 +648,14 @@ footer{padding:44px 0 66px; color:var(--ink-3); font-size:.85rem}
   <div class="sec-head"><span class="sec-num">04</span><h2>Builder's Output</h2></div>
   <div class="stack col">
     <p class="eyebrow">From design tool to build project</p>
-    <p>The interface changes character. Sliders disappear. And it opens not with a download button but with a <strong>routing
-    verdict</strong>, because the backend already makes one: every hull is classified <em>sheet-kit</em> or <em>mould</em>, and the DXF
-    exporter <strong>raises rather than writing a file</strong> when the panels do not re-fold to the hull within 5 mm.</p>
+    <p><strong>As of 2026-08-21 this phase has a real artefact.</strong> The lane now runs mission sentence → governed search →
+    buildability refinement → a DXF a shop could cut: LWL 11.82 m, GM 3.87 m, ladder passing, panels at 4.9 and 4.8 mm against the 5 mm
+    bar, and a header stamped <code>REFOLD VERIFIED 4.9 mm &lt;= 5 mm</code>. Ninety plywood sheets at 75.2% nest, an ISO-derived 18 mm
+    bottom, 141 kg of epoxy, a 207-line BOM. An hour earlier the same lane wrote a DXF for panels that missed the hull by 221.5 mm with
+    nothing objecting.</p>
+    <p>So the interface changes character here. Sliders disappear. And it opens not with a download button but with a <strong>routing
+    verdict</strong>, because the backend makes one: every hull is classified <em>sheet-kit</em> or <em>mould</em>, and the DXF exporter
+    <strong>raises rather than writing a file</strong> when the panels do not re-fold within the bar.</p>
     <p>That refusal is a first-class outcome and must be met <em>before</em> the user reaches for a download.</p>
   </div>
 
@@ -742,19 +748,28 @@ footer{padding:44px 0 66px; color:var(--ink-3); font-size:.85rem}
 │   └───────────────────────────────────────────────────────────────────────┘             │
 │                                                                                         │
 │   ┌──────────────────────────────────┐   ┌──────────────────────────────────┐           │
-│   │  MAKE IT CUTTABLE                │   │  BUILD IT OVER A MOULD           │           │
+│   │  FIND ME A CUTTABLE VERSION      │   │  BUILD IT OVER A MOULD           │           │
 │   │                                  │   │                                  │           │
-│   │  Flatter and beamier. We have a  │   │  Frames and battens, then sheet   │           │
-│   │  hull that cuts at 4.95 mm and   │   │  it. More work, more skill,       │           │
-│   │  is MORE stable (GM +2.55 m).    │   │  any shape you like.              │           │
-│   │                                  │   │  Cut files: frames + patterns.    │           │
-│   │  But it is a real trade:         │   │                                  │           │
-│   │    plywood   59 →  121 sheets    │   │                                  │           │
-│   │    build   1825 → 3679 hours     │   │                                  │           │
-│   │    energy   412 →  595 Wh/nm     │   │                                  │           │
-│   │  Twice the build, 44% thirstier. │   │                                  │           │
-│   │        [ see both → ]            │   │        [ continue → ]            │           │
+│   │  This is a SEARCH, not a switch. │   │  Frames and battens, then sheet   │           │
+│   │  Only 3 hulls in 400 can be cut  │   │  it. More work, more skill,       │           │
+│   │  from flat sheet, so we go       │   │  any shape you like.              │           │
+│   │  looking. Runs in the background;│   │  Cut files: frames + patterns.    │           │
+│   │  you can keep working or leave.  │   │                                  │           │
+│   │                                  │   │  No search needed — your hull     │           │
+│   │  ▓▓▓▓▓▓▓▓▓▓░░░░░░  best so far   │   │  is already the shape you drew.   │           │
+│   │                     9.5 mm       │   │                                  │           │
+│   │  [ start ]        [ cancel ]     │   │        [ continue → ]            │           │
 │   └──────────────────────────────────┘   └──────────────────────────────────┘           │
+│                                                                                         │
+│   WHEN IT FINDS ONE, IT WILL COST YOU SOMETHING. Last time:                             │
+│   ┌───────────────────────────────────────────────────────────────────────┐             │
+│   │                    your hull        cuttable one                      │             │
+│   │   plywood            59 sheets  →   121 sheets      +105%             │             │
+│   │   build hours          1825     →     3679          +102%             │             │
+│   │   energy            412 Wh/nm   →   595 Wh/nm        +44%             │             │
+│   │   stability          GM 0.82    →   GM 2.55          BETTER           │             │
+│   │   Flat and beamy cuts well and floats well. It is not cheap.          │             │
+│   └───────────────────────────────────────────────────────────────────────┘             │
 │                                                                                         │
 │   We are not going to give you a DXF that produces a boat you cannot close up.          │
 └─────────────────────────────────────────────────────────────────────────────────────────┘</pre>
@@ -769,6 +784,11 @@ footer{padding:44px 0 66px; color:var(--ink-3); font-size:.85rem}
           <tr><td><strong>Route verdict</strong></td>
             <td>First on the screen, before any artefact. Kit or mould, with the number and the bar. Never a silent fallback, never a
             download that turns out to be useless.</td></tr>
+          <tr><td><strong>The cuttable search</strong></td>
+            <td><strong>A job with progress and a cancel — never a control.</strong> MEASURED: only <strong>3 of 400</strong> random
+            hulls clear the 5 mm bar, and a local search seeded 120 mm away did <em>not</em> reach it in 900 s. The recipe that works is
+            a 76 420-draw sweep (most die in the L0 gate at 0.27 ms) followed by an evolutionary refine. Drawing that as a toggle would
+            promise something instant that takes minutes, and would hide the trade below. The result screen shows both boats and the bill.</td></tr>
           <tr><td><strong>Blame bars</strong></td>
             <td>The refusal ranks <em>which slider</em> cost how many millimetres and offers a one-tap return to the kit corner —
             flare 0, forefoot 0, deadrise warp within about 8° — with the cost stated in knots and interior volume, previewed before it is
@@ -844,7 +864,9 @@ footer{padding:44px 0 66px; color:var(--ink-3); font-size:.85rem}
         <tr><td>Solar vs. draw</td><td><span class="chip warn"><span class="dot warn"></span>value yes, σ no</span></td><td>Ships with the caption saying generation σ is typed, not measured.</td></tr>
         <tr><td>Resistance, Fn ≤ 0.45</td><td><span class="chip pass"><span class="dot pass"></span>self-policing</span></td><td>Speed control hard-stops; above it the gauge reads REFUSED.</td></tr>
         <tr><td>Nesting, DXF, scantlings, RCD routing</td><td><span class="chip pass"><span class="dot pass"></span>built</span></td><td>Download gate and legal stage are enforceable server-side.</td></tr>
-        <tr><td>Developable unwrap + refold meter</td><td><span class="chip warn"><span class="dot warn"></span>built; now convergence-aware</span></td><td>Route verdict must read the TREND, not the 41-station value.</td></tr>
+        <tr><td>Developable unwrap + refold meter</td><td><span class="chip warn"><span class="dot warn"></span>built; convergence-aware</span></td><td>Route verdict reads the TREND, not the 41-station value.</td></tr>
+        <tr><td>Mission sentence → cut file, end to end</td><td><span class="chip pass"><span class="dot pass"></span>runs 08-21</span></td><td>Phase 4 has a real artefact: stamped DXF, 90 sheets, 207-line BOM.</td></tr>
+        <tr><td>A cuttable hull on the DEFAULT path</td><td><span class="chip fail"><span class="dot fail"></span>0 of 7</span></td><td>Gate 6D stays RED. The kit route needs the search job (PU-3).</td></tr>
         <tr><td>Mission parsing of the example brief</td><td><span class="chip warn"><span class="dot warn"></span>partial, silent</span></td><td>Mandatory read-back step; air draft declared unrepresentable.</td></tr>
         <tr><td>Transverse CG → the <code>list</code> light</td><td><span class="chip pass"><span class="dot pass"></span>closed 08-21</span></td><td>Live: 1 t at 0.30·BWL reads 12.14° and fails the row.</td></tr>
         <tr><td>Per-item mass placement</td><td><span class="chip pass"><span class="dot pass"></span>closed 08-21</span></td><td><code>evaluate(extra_mass_items=)</code> — drag-a-weight is bindable.</td></tr>
@@ -856,7 +878,17 @@ footer{padding:44px 0 66px; color:var(--ink-3); font-size:.85rem}
     </table>
   </div>
 
-  <div class="bind note" style="margin-top:26px">
+  <div class="bind" style="margin-top:26px">
+    <span class="lbl">Where the ORDER lives — not here</span>
+    <p>This page is the design: what the builder sees, and what each control binds to. It carries <strong>no schedule, no owner and no
+    sequence</strong>, deliberately. Those are <code>docs/BUILD-PLAN.md</code> <strong>§PU — The builder-facing surface</strong>, which
+    is the one plan and holds PU-1 … PU-7 with their gates and their done-when. A second ordered list here would be the defect this
+    project keeps finding: a thing declared twice, drifting apart the moment one copy is edited.</p>
+    <p>The phase's bar is gap <strong>I13</strong>, already open and already worded for it — <em>a recorded non-expert session producing
+    a hull that passes the full ladder</em>. It cannot be met with a screenshot.</p>
+  </div>
+
+  <div class="bind note" style="margin-top:20px">
     <span class="lbl">The through-line</span>
     <p>Four screens, one idea: <strong>the interface hides the mathematics and refuses to hide the uncertainty.</strong>
     A builder never sees a prismatic coefficient. They do see that 3298 kg is unaccounted for, that the drag model was validated on a ship

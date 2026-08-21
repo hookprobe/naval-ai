@@ -41,6 +41,7 @@ two documents can disagree about the same thing.
 | `navalai/gates.py` + `data/gate-ledger.json` | **THE STATUS** | prose verdicts |
 | `navalai/experiments.py` (Gate 0X), run by `python -m navalai.experiments` | **THE HYDRODYNAMIC MEASUREMENT SUITE** — the controlled sweeps behind the 2026-08-13 findings (lever comparison, bow sharpness, catamaran separation, the Michell phase convention). It is CODE, so it re-measures on demand instead of ageing | a plan, an order, or a verdict about anything it did not sweep |
 | `ALIGNMENT.md`, `MACBOOK.md` | the original-plan audit; the Mac runbook. Both are read by `scripts/reconcile_gaps.py` predicates | — |
+| **`docs/BUILDER-UX.html`** | **BUILDER-FACING DESIGN** — what the DIY builder sees, the four-phase flow, and the endpoint or field EVERY control binds to. Published as an Artifact; the file in `docs/` is the source | a schedule, an order or an owner (those are **PU** in this file); a status; a gate verdict; any watermark restated without its measured configuration |
 | **`docs/audit/*`** | **AUDIT RECORDS** — a dated investigation and what it measured (`GATE2-PHYSICS-STACK.md`, `ALIGNMENT-2026-08-21.md`, `MATH-CONSOLIDATION.md`, `INTEGRATION-GAP-MATRIX.md`, `H011-H012-ROOT-CAUSE.md`, the seven 2026-08-18 domain reports, and the captured suite logs) | a current status; a forward plan; **a gate NAME the runner does not define** |
 | **`docs/audit/STATUS.md`** | **THE Mac ↔ fortress001 CHANNEL** — append-only, newest at the bottom | a verdict. It is a channel, and it says so in its own header |
 
@@ -2458,6 +2459,50 @@ mission says, and today the mission says one number.
 | P1-3 | **`optimize.py` objective 1 becomes the integral**, not the point. `ParetoResult.F`'s stale `# (wh_per_nm, build_area, -gm)` comment is corrected in the same change — it still names a `-gm` objective that the GM-band change replaced | **Gate 1b** (NSGA-II Pareto front) | the objective names are a tuple in code rather than a comment, so the comment can no longer disagree with `F`, proven by a test that reads the tuple |
 | P1-4 | `B4` (payload flat regardless of crew), `B5` (nothing costs length), `E1b` (Holtrop implemented and anchored but **not wired into `evaluate()`** — and our own small craft fall outside its envelope, so wiring it must carry the `L1H-INVALID` badge rather than silently substituting) | gaps; predicates in `reconcile_gaps.py` | the predicates close |
 | P1-5 | §3: freeze and hash the mission contract; `PriceValue` with a tier and an expiry; BOM pricing and cost closure; feasibility negotiation over `Evaluation.g`; render the delivery route `policy/legal.py` already computes and shows nobody | **new gates M1, Q1, Q2, N1** | as specified in §3 |
+
+### PU — The builder-facing surface (weeks)
+
+**The design is `docs/BUILDER-UX.html`; this is the wiring, and this table is
+the only place its ORDER lives.** The blueprint answers "what does the builder
+see and what does each control bind to". It deliberately carries no schedule,
+because §0's law is one authority per question and the schedule is this file's.
+
+The surface already exists and is not a greenfield: `ui/server.py` (682 lines)
+serves `/eval`, `/bounds`, `/mission`, `/generate`, `/pareto`, and
+`ui/index.html` renders **one slider per grammar parameter**, labelled with the
+coefficient names — `Cp`, `cb`, `lcb`. That is the engineer's surface. A DIY
+builder cannot use it, and the gap is a mapping layer, not a rewrite.
+
+Ordered AFTER P1 because P1-5 renders the delivery route and freezes the
+mission contract, and the Mission Builder is the screen that consumes both.
+Unblocked by 2ba39f3, which made the mission-sentence-to-cut-file lane produce
+a DXF a shop could run — before that, Phase 4 of the blueprint had no artefact
+to show.
+
+| # | Item | Gate | Done when |
+|---|---|---|---|
+| PU-1 | **The behavioural slider layer.** Six intent controls (bow attitude, room-vs-range, planted, bottom shape, keel line, stern) each driving several of the 16 `grammar.PARAMS` along a curated path. Track ends come from `CompiledPolicy.box`, so illegal is undraggable rather than rejected later | **Gate 4** | an `⚙ expert` switch swaps to the raw `/bounds` sliders with the SAME evaluation and no second code path, and a policy-clipped bound shows as a locked end with its reason |
+| PU-2 | **The two-rate render loop.** MEASURED on this Mac: `evaluate()` 11.35 ms, `Hull.panel_mesh()` 1.66 ms, `Hull.closed_mesh()` 49.75 ms, `unroll.hull_panels()` 869 ms. Physics and the fast mesh run per frame; the fine mesh on `change`; the unroller never in the loop | **Gate 4** (`<100 ms` per widget, `tests/test_phase4.py`) | drag p95 is measured, not assumed, and the viewport never shows a spinner over the boat |
+| PU-3 | **"Make it cuttable" is a JOB, not a control.** MEASURED 2ba39f3: **3 of 400** random draws clear the 5 mm bar, and a local search seeded 120.3 mm away did NOT reach it in 900 s — the working recipe is a 76 420-draw seed sweep (most die in `grammar.check` at 0.27 ms) followed by a (1+1)-ES. The UI submits it, reports progress, and can cancel | **Gate 6D** + **Gate 4** | the studio never implies the kit route is instantaneous, and the result screen shows the measured TRADE (59 → 121 ply sheets, 1825 → 3679 build hours, 412 → 595 Wh/NM) rather than a one-tap "fix it" |
+| PU-4 | **The route verdict reads the TREND, not one station count.** `unroll.refold_convergence` returns PASSES / REFINING / NON_DEVELOPABLE / REFUSED over a station family; the UI routes kit-vs-mould on that verdict | **Gate 6D** | a hull whose refold FALLS under refinement is never routed to a mould on the strength of its 41-station value alone |
+| PU-5 | **Absent capabilities render as absent.** No stem rake in the grammar (so no reverse-raked bow is drawable), no motion-in-a-chop, no air-draft field, no propagatable solar sigma, `cb` unbanded | **Gate 4** | each is a hatched tile naming what would close it, and NONE is filled with a plausible number — the blueprint's §00 rule, colour on `basis` not on `tier` |
+| PU-6 | **Mass closure is surfaced beside the stability lights**, not buried. MEASURED on the 6 t reference mission: 45% of displacement resolves to named items, **3298 kg does not** | **Gate 4** | the unaccounted mass is listed by name, never absorbed into a margin, and the stability tiles above it are marked provisional while it stands |
+| PU-7 | **The legal stage renders P1-5's route**; it does not compute a second one. `policy/legal.py` already holds `OWN_USE_KIT`, the five-year Art. 2(2)(a)(vii) embargo and the Art. 19(4) resale clause | **Gate N1** (P1-5) | the own-use five-year rule prints verbatim with its article, and a route of `NOTIFIED_BODY_REQUIRED` refuses to emit a release |
+
+**Bar for this phase: gap I13, which is already open and already worded for
+it** — *"Gate 4 clause 3 has an artifact: a recorded non-expert session
+producing a hull that passes the full ladder"*. It is the right bar because it
+cannot be satisfied by a screenshot: it needs a session record in which someone
+who cannot define a prismatic coefficient reaches a validated hull. PU is
+finished when that artifact exists and the cut file at the end of it carries
+the `REFOLD VERIFIED` stamp `export_dxf` now writes.
+
+**What this phase is explicitly NOT.** It is not a claim that the physics
+behind the surface is validated for these craft — the only CFD anchor shares no
+chine, transom or spray physics with the SKUs, and the resistance model refuses
+above Fn 0.45 by name. The UI's job is to carry that refusal to the builder in
+their own language, not to launder it. A prettier surface over an unvalidated
+model is the one outcome this phase must not produce.
 
 ### P2 — The solar roof becomes an object (weeks)
 
