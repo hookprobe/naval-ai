@@ -143,3 +143,60 @@ What is not ready is the POPULATION the gate would measure. With ~7% of draws
 feasible, a ≥95% unattended mesh+converge claim over "the supported domain"
 would be a claim about whichever 7% survived — the "95% of an easy population"
 the brief forbids by name. **Fix P0-1 first, then draw the held-out set.**
+
+---
+
+# FINAL STATE, 2026-08-21 (supersedes §0 above)
+
+    suite    1 failed / 1592 passed / 5 skipped     (was 14 / 1436 / 18)
+    gaps     115 closed / 5 open of 123             (was 109 / 11)
+
+**The single failure is red BY CONSTRUCTION**, not a defect:
+`test_resistance_is_bit_identical_to_the_golden` declares `GOLDEN_ARCH` =
+x86-64 and reports PLATFORM rather than REGRESSION off it. Re-measured on
+arm64: 530 of 4906 keys move, max relative **5.656e-13**, and **none exceeds
+the 1e-12 parity bar**. Re-recording it here would blunt the guard on the
+architecture that owns it.
+
+## What the buildability decision actually bought
+
+    feasible designs (flagship brief, 30 draws)   2/30  ->  7/30
+    bend-radius refusals                         17/30  ->  3/30
+    Pareto front at the SERVER'S live budget      0     ->  13 members
+
+The last line matters most: `test_stageF` had been recorded as a
+**convergence** defect needing a warm start, on the evidence that 240
+evaluations returned 0 members and 1200 returned 48. It was neither. **The
+search was fine; the space was empty.** A budget sweep is a poor instrument
+for telling "cannot converge" from "nothing to converge on".
+
+## Two defects that only became visible once others were fixed
+
+1. **A crowd state judged by the DESIGN trim bar.** `TRIM_LIMIT_DEG`'s own
+   comment says "static attitude from the ARRANGEMENT alone (NO CREW
+   MOVEMENT, no seaway)", and it was gating `PEOPLE_FORWARD`/`PEOPLE_AFT`.
+   It passed unnoticed at 1.78 deg and failed at 4.05 deg once the laminate
+   let those hulls past the ladder. **Every canonical vessel class was
+   refusing.** Trim is now reported, not gated; a crowd-state criterion is
+   owed and is NOT invented.
+2. **A seaworthiness failure behind a manufacturing refusal.** Certification
+   stops at `evaluation_ok False`, so while the reference hull was refused on
+   its cold-bend radius its loading states were never reached.
+
+**Both were revealed by fixing something else.** That is the argument for
+fixing the cheap thing first even when it looks cosmetic.
+
+## READY FOR THE HELD-OUT GATE 2U CAMPAIGN?
+
+**Not yet, and the blocker has changed.** It is no longer the design space —
+that was P0-1 and it is closed. What remains:
+
+| # | blocker | state |
+|---|---|---|
+| 1 | Gate 2U's bar is mesh **AND** convergence over a **HELD-OUT** population | The instrument now exists (`SMOKE_ONLY`, 2 min 40 s/hull) and reads **24/25 = 96.0%** on the DEVELOPMENT set. The held-out set is sealed and unopened. |
+| 2 | A smoke verdict is **not** a settled drag | It answers "does this mesh begin to solve". Gate 2U's "converges" needs `settled_drag`, which needs full solves. |
+| 3 | Gate 2M (F16) has no settled triplet | ~69 h of CFD, an order of magnitude past the 8-hour cap. |
+
+**Do not open the held-out set until 1 and 2 are settled.** It can be spent
+once, and `write_manifest` refuses to overwrite it — re-sealing is spending
+the seed.
