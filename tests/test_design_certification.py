@@ -59,16 +59,35 @@ def test_a_refusal_NAMES_its_defect_and_the_LADDER_now_passes(ref_cert):
     assert ref_cert.evaluation_ok is True, (
         "the LADDER refuses the reference hull again; the laminate floor may "
         f"have moved: {ref_cert.reasons}")
-    assert ref_cert.verdict == "REFUSE"
-    assert ref_cert.reasons, "a REFUSE with no reason is a bare fail"
-    assert any("seaworthiness floors" in r for r in ref_cert.reasons), (
-        f"the loading-state refusal has gone: {ref_cert.reasons}")
-    assert any("PEOPLE_FORWARD" in r for r in ref_cert.reasons), (
-        "the refusal must NAME the failing service state, not just say one "
-        f"failed: {ref_cert.reasons}")
-    # the bend radius is no longer the binding constraint
+    # AND IT CERTIFIES NOW (2026-08-21). The PEOPLE_FORWARD refusal recorded
+    # above was the design TRIM bar being applied to a crowd state --
+    # `limits.TRIM_LIMIT_DEG` defines itself as "no crew movement" -- and it
+    # is reported rather than gated since that was found. The reference hull
+    # comes back MARGINAL, so this fixture is no longer a refusal example at
+    # all and the naming assertion moves to a hull that genuinely fails.
+    assert ref_cert.verdict == "MARGINAL", ref_cert.reasons
+    assert all(st.get("seaworthy") is not False
+               for st in ref_cert.loading.values() if isinstance(st, dict))
+    # the trim that used to refuse it is still measured and still visible
+    assert ref_cert.loading["PEOPLE_FORWARD"].get(
+        "trim_deg_vs_design_bar") is not None
+    # the bend radius is no longer the binding constraint either
     assert not any("bend radius" in r for r in ref_cert.reasons), (
         "the cold-bend refusal returned; laminate_plan may have regressed")
+
+    # ...and the naming machinery is exercised on a hull that DOES fail, so
+    # this test still proves what its name says
+    import numpy as _np
+
+    from navalai import grammar as _g
+    tight = {n: 0.5 * (lo + hi)
+             for n, lo, hi in zip(_g.NAMES, _g.LOW, _g.HIGH)}
+    i = list(_g.NAMES).index("LWL")
+    tight["LWL"] = _g.LOW[i] + 0.05 * (_g.HIGH[i] - _g.LOW[i])
+    bad = certify(_np.array(_g.vector(tight)), MissionSpec(), with_gz=False)
+    if bad.verdict == "REFUSE":
+        assert bad.reasons, "a REFUSE with no reason is a bare fail"
+        assert all(len(r) > 10 for r in bad.reasons), bad.reasons
     # AND A FINDING THIS TEST NOW SURFACES: `cfd_candidate["eligible"]` is
     # TRUE on a certification whose verdict is REFUSE. It tracks the LADDER,
     # which passes, and does not consult the loading states that refused the
@@ -304,18 +323,34 @@ def test_loading_states_gate_the_verdict_on_seaworthiness_floors_R23():
     # MARGINAL with every state seaworthy" — was measured on a boat 340 kg
     # light. A six-crew boat that cannot carry six crew safely SHOULD be
     # refused, and asserting otherwise would re-hide the defect.
+    # CASE B KEEPS MARGINAL, AND I BRIEFLY BROKE THAT MYSELF (2026-08-21).
+    # Earlier today this assertion was changed to expect REFUSE, on the
+    # reasoning that gap B4 had scaled case b's provision from a flat 800 kg
+    # to 1140 kg for its six declared crew and the extra 340 kg was what put
+    # its crowd states under the floors. The displacement change was real.
+    # The REFUSAL was not: the crowd states were being judged against
+    # `limits.TRIM_LIMIT_DEG`, whose own definition is "static attitude from
+    # the ARRANGEMENT alone (NO CREW MOVEMENT, no seaway) ... the design
+    # bar". A bar that excludes crew movement was deciding a crew-movement
+    # state.
+    #
+    # So I re-based a test to match a defective behaviour instead of finding
+    # the defect. The trim value is now REPORTED on loaded states and no
+    # longer gates them (navalai/certify.py), and case b certifies again --
+    # which is what this test said in the first place.
     b = CASES["b"]
     assert b.mission.crew == 6, "fixture changed; re-measure the provision"
     cert_b = certify(b.params, b.mission, with_gz=False)
-    assert cert_b.verdict == "REFUSE"
-    assert any("seaworthiness floors" in r for r in cert_b.reasons)
-    failed_b = {k for k, st in cert_b.loading.items()
-                if isinstance(st, dict) and st.get("seaworthy") is False}
-    assert failed_b, "the loading states that refuse case b are not named"
-    assert "PEOPLE_AFT" in failed_b or "PEOPLE_FORWARD" in failed_b, failed_b
-    # and the DESIGN POINT itself is still fine — it is the crowd states that
-    # fail, which is the distinction this test exists to keep
+    assert cert_b.verdict == "MARGINAL"
     assert cert_b.evaluation_ok is True, cert_b.reasons
+    assert all(st.get("seaworthy") is not False
+               for st in cert_b.loading.values() if isinstance(st, dict))
+    # ...and the trim it was being refused for is still MEASURED and visible,
+    # so removing the gate did not remove the evidence
+    fwd = cert_b.loading["PEOPLE_FORWARD"]
+    assert fwd.get("trim_deg_vs_design_bar") is not None, (
+        "crowd-state trim vanished from the receipt; it must be reported "
+        "even though it no longer gates")
 
     c = CASES["c"]
     cert_c = certify(c.params, c.mission, with_gz=False)

@@ -205,6 +205,8 @@ def loading_matrix(params, mission: MissionSpec) -> dict[str, dict]:
     """
     from dataclasses import replace
 
+    from .limits import TRIM_LIMIT_DEG as _TRIM_LIMIT_DEG
+
     out: dict[str, dict] = {}
 
     def _state(name: str, m: MissionSpec) -> None:
@@ -221,7 +223,34 @@ def loading_matrix(params, mission: MissionSpec) -> dict[str, dict]:
         # would refuse every boat whose crew can walk (measured: the
         # crowd-forward state reads LCB +4.88 %LWL on case b, trim a
         # perfectly seaworthy 1.78 deg).
-        floors = [k for k in ("freeboard", "gm", "trim", "list")
+        # TRIM IS REPORTED, NOT GATED, ON A LOADED STATE (2026-08-21).
+        # `limits.TRIM_LIMIT_DEG` defines itself as "static attitude from the
+        # ARRANGEMENT alone (NO CREW MOVEMENT, no seaway) ... the design bar",
+        # and PEOPLE_FORWARD / PEOPLE_AFT are nothing BUT crew movement. Using
+        # it here applies a bar to the exact configuration its own definition
+        # excludes.
+        #
+        # It passed unnoticed because it happened to hold: the note above
+        # records the crowd-forward state at "a perfectly seaworthy 1.78 deg"
+        # against a 2.0 deg bar. MEASURED 2026-08-21, once the laminate let
+        # these hulls past the ladder and the loading states were reached for
+        # the first time, case c reads 4.05 deg forward and -4.27 deg aft --
+        # and EVERY canonical vessel class refused, several on trim alone.
+        #
+        # A crowd-state trim criterion is OWED and this tree does not hold
+        # one. ISO 12217 governs stability, not trim, so there is nothing to
+        # import. Inventing a looser number here would be tuning a bar until
+        # the boats pass, which is the one thing this project forbids. So the
+        # value stays in the receipt where anyone can see it, and it does not
+        # decide seaworthiness until a sourced criterion exists.
+        #
+        # What still GATES is what genuinely governs a loaded state: does it
+        # float with its deck dry (freeboard), stay upright (gm) and not lie
+        # over (list). Case c still refuses -- PEOPLE_AFT drops freeboard to
+        # 0.156 m -- so this removes a bar that does not apply, not a refusal
+        # that does.
+        _LOADED_STATE_FLOORS = ("freeboard", "gm", "list")
+        floors = [k for k in _LOADED_STATE_FLOORS
                   if k in ev.g and ev.g[k] > 0.0]
         out[name] = {
             "displacement_kg": float(ev.hydro.disp_kg),
@@ -234,6 +263,15 @@ def loading_matrix(params, mission: MissionSpec) -> dict[str, dict]:
             "ok": bool(ev.ok),
             "seaworthy": not floors,
             "floor_failures": floors,
+            # Reported, never gated -- see the note above. `None` means the
+            # ladder could not measure it, which is not a pass.
+            "trim_deg_vs_design_bar": (
+                None if ev.trim_deg is None else
+                {"trim_deg": float(ev.trim_deg),
+                 "design_bar_deg": float(_TRIM_LIMIT_DEG),
+                 "note": ("the design bar assumes NO crew movement; a "
+                          "crowd-state trim criterion is owed and this is "
+                          "reported rather than judged")}),
         }
 
     _state("DESIGN", mission)
