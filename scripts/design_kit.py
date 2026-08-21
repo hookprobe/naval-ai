@@ -383,16 +383,28 @@ def main(argv=None) -> int:
     # two-sided distance from the REFOLDED panel back onto the hull's moulded
     # surface, against BuildPlan 12.3's 5 mm. A panel that misses by this much
     # is not yet a cut file a shop should trust.
-    worst = 0.0
+    # REPORT THE FAMILY, NOT THE LADDER'S COUNT. This block used to print the
+    # per-panel deviation at the default 41 stations and label anything over
+    # 5 mm "OVER the bar / GATE 6D RED" — directly above a cut-file header
+    # reading REFOLD VERIFIED 1.92 mm, PASSES. Two verdicts on one screen, and
+    # the alarming one was the wrong instrument: at n=41 part of every reading
+    # is the panel polyline's sagitta, which is exactly what
+    # `refold_convergence` exists to separate out.
+    fam = unroll.refold_convergence(grammar.named(x), bar_mm=REFOLD_BAR_MM)
     for pan in panels:
-        dev = float(np.max(unroll.refold_surface_deviation_mm(hull, pan)))
-        worst = max(worst, dev)
-        print(f"  {pan.name:12s} refold deviation max {dev:8.1f} mm "
-              f"{'OK' if dev <= 5.0 else 'OVER the 5 mm bar'}")
-    if worst > 5.0:
-        print(f"  GATE 6D: worst {worst:.1f} mm against a 5 mm bar — RED, and "
-              f"expected-red in data/gate-ledger.json. The panels below are "
-              f"GEOMETRY, not yet a release-grade cut file.")
+        print(f"  {pan.name}")
+    print(f"  refold family {fam.counts} -> "
+          f"{tuple(round(v, 2) for v in fam.worst_mm)} mm   "
+          f"verdict {fam.verdict}")
+    if fam.verdict == "PASSES":
+        print(f"  converged to {fam.finest_mm:.2f} mm against the "
+              f"{REFOLD_BAR_MM:.0f} mm bar — the falling trend is the coarse "
+              f"count's sagitta, not curvature")
+    else:
+        print(f"  GATE 6D: {fam.verdict} — the panels below are GEOMETRY, not "
+              f"a release-grade cut file. Gate 6D stays RED regardless: it is "
+              f"about the DEFAULT path (measured 0 of 7), not about a search "
+              f"job that found one.")
 
     # CONSUME the ladder's derived scantling; do NOT also pass mldc_kg.
     # `assess` refuses both, by name: two sources for one number is the defect
