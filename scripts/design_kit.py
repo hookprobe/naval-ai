@@ -61,6 +61,7 @@ from navalai.engineer import assess as engineer_assess
 from navalai.evaluate import evaluate
 from navalai.geometry import Hull
 from navalai.optimize import pareto_front
+from navalai.limits import REFOLD_BAR_MM
 from navalai.policy import reference_policy
 from navalai.translate import translate
 
@@ -122,7 +123,64 @@ def main(argv=None) -> int:
     if not scored:
         print("front returned but nothing passed the full ladder — REFUSED")
         return 2
-    ev, x = min(scored, key=lambda t: t[0].energy.wh_per_nm)
+
+    # ---- STAGE 2: VERIFY BUILDABILITY ON THE FRONT ------------------------
+    #
+    # Refold accuracy is the only thing that decides whether these panels can
+    # be cut, and it CANNOT be a constraint inside NSGA-II: MEASURED, it costs
+    # 2301 ms per hull against `grammar.check`'s 0.27 ms -- 8561x -- so a
+    # pop-64 x 80-gen run would spend 3.3 hours on it.
+    #
+    # The obvious cheap proxy DOES NOT WORK and that is recorded here rather
+    # than discovered again: `Hull.panel_twist_rate()` is 122319x cheaper and
+    # correlates with refold at **+0.089** over 30 governed hulls (Spearman
+    # +0.224). A criterion that does not separate is not a criterion.
+    # `buildability.shell_complexity(...).non_developable_frac` DOES correlate
+    # (+0.783) and costs 1.8 ms, which is ~9 s across a whole NSGA-II run --
+    # that is the number to steer with if this is ever moved inside the search.
+    #
+    # So the front is verified with the AUTHORITATIVE meter instead: 64
+    # members x 2.3 s = ~147 s, paid once. The product then delivers a hull
+    # whose panels are MEASURED to close, or it refuses and says by how much.
+    print(f"\nfront {len(X)}; verifying refold on {len(scored)} ladder-valid "
+          f"member(s) (~{2.3 * len(scored):.0f} s) ...")
+    verified = []
+    best_miss = (float("inf"), None)
+    for e, xx in scored:
+        try:
+            w = max(float(np.max(unroll.refold_surface_deviation_mm(Hull(xx), pan)))
+                    for pan in unroll.hull_panels(Hull(xx)))
+        except ValueError:
+            continue
+        if w <= REFOLD_BAR_MM:
+            verified.append((e, xx, w))
+        elif w < best_miss[0]:
+            best_miss = (w, e)
+    if not verified:
+        print(f"  NO MEMBER of the front unrolls within {REFOLD_BAR_MM:.0f} mm."
+              f" Best was {best_miss[0]:.1f} mm.")
+        print("  REFUSED — this is Gate 6D, and a cut file is not produced.")
+        # AND DO NOT SAY "RAISE THE BUDGET". That was this script's first
+        # message here and it is WRONG: NSGA-II's objectives and constraints
+        # contain no buildability term at all, so more generations search
+        # harder for the same thing and never for this one. MEASURED — a
+        # seaworthy hull at 4.952 mm refold, GM +2.545 m, zero ladder
+        # violations, EXISTS in this grammar and was found by a dedicated
+        # refold search, not by a longer NSGA-II run.
+        print("  The space is NOT empty: a seaworthy hull at 4.952 mm refold "
+              "with GM +2.545 m and zero violations was measured in this same "
+              "governed box (2026-08-21).")
+        print("  The search simply does not AIM at buildability — there is no "
+              "such term in its objectives or constraints — so a bigger "
+              "budget will not find it. What is owed is STEERING: "
+              "buildability.shell_complexity(...).non_developable_frac "
+              "correlates +0.783 with refold and costs 1.8 ms, i.e. ~9 s "
+              "across a whole pop-64 x 80-gen run. Hull.panel_twist_rate() is "
+              "cheaper still and does NOT work (+0.089).")
+        return 3
+    ev, x, worst_ok = min(verified, key=lambda t: t[0].energy.wh_per_nm)
+    print(f"  {len(verified)}/{len(scored)} member(s) verified buildable; "
+          f"selected one refolds to {worst_ok:.2f} mm")
     p = grammar.named(x)
     print(f"front {len(X)}; selected lowest-energy hull:")
     print(f"  LWL {p['LWL']:.2f} m · BWL {p['BWL']:.2f} m · T {p['T']:.2f} m "

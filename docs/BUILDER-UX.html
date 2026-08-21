@@ -1,0 +1,838 @@
+<title>The Lofting Floor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap">
+
+<style>
+:root{
+  --ground:#F1F3F2; --panel:#FFFFFF; --panel-2:#E6EBEA; --sunk:#E9EDEC;
+  --ink:#121A1E; --ink-2:#3F4A50; --ink-3:#6A767C;
+  --rule:#C7D1D2; --rule-2:#DCE3E3;
+  --accent:#1C5A78; --accent-soft:#DAE7ED;
+  --copper:#B85C24;
+  --pass:#2E7A4C; --warn:#9E6B08; --fail:#AF3636; --unknown:#758085;
+  --pass-bg:#DFEDE4; --warn-bg:#F4EAD2; --fail-bg:#F3DEDE; --unknown-bg:#E4E9E9;
+  --grid:rgba(28,90,120,.055);
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --ground:#0D1316; --panel:#141C20; --panel-2:#1C262B; --sunk:#101819;
+    --ink:#E7EDEC; --ink-2:#A6B2B7; --ink-3:#79858A;
+    --rule:#28343A; --rule-2:#1F2A2F;
+    --accent:#63ACCE; --accent-soft:#15303D;
+    --copper:#DE8B4F;
+    --pass:#54AB72; --warn:#D3A233; --fail:#D96C6C; --unknown:#8B969B;
+    --pass-bg:#16291E; --warn-bg:#2A2213; --fail-bg:#2C1919; --unknown-bg:#1B2326;
+    --grid:rgba(99,172,206,.07);
+  }
+}
+:root[data-theme="dark"]{
+  --ground:#0D1316; --panel:#141C20; --panel-2:#1C262B; --sunk:#101819;
+  --ink:#E7EDEC; --ink-2:#A6B2B7; --ink-3:#79858A;
+  --rule:#28343A; --rule-2:#1F2A2F;
+  --accent:#63ACCE; --accent-soft:#15303D;
+  --copper:#DE8B4F;
+  --pass:#54AB72; --warn:#D3A233; --fail:#D96C6C; --unknown:#8B969B;
+  --pass-bg:#16291E; --warn-bg:#2A2213; --fail-bg:#2C1919; --unknown-bg:#1B2326;
+  --grid:rgba(99,172,206,.07);
+}
+
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--ground); color:var(--ink);
+  font-family:"IBM Plex Sans","Helvetica Neue",Arial,sans-serif;
+  font-size:16px; line-height:1.62; -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:1180px; margin:0 auto; padding:0 28px}
+.col{max-width:70ch}
+
+h1,h2,h3,h4{font-family:"IBM Plex Sans Condensed","IBM Plex Sans",sans-serif; text-wrap:balance; margin:0}
+h1{font-weight:700; font-size:clamp(2.4rem,6vw,4rem); line-height:1.02; letter-spacing:-.015em}
+h2{font-weight:700; font-size:clamp(1.7rem,3.4vw,2.4rem); line-height:1.1; letter-spacing:-.01em}
+h3{font-weight:600; font-size:1.24rem; line-height:1.24}
+h4{font-weight:600; font-size:1.02rem; line-height:1.3}
+p{margin:0}
+a{color:var(--accent)}
+
+.eyebrow{
+  font-family:"IBM Plex Mono",monospace; font-size:.7rem; font-weight:500;
+  letter-spacing:.15em; text-transform:uppercase; color:var(--ink-3);
+}
+.mono,code{font-family:"IBM Plex Mono",monospace; font-variant-numeric:tabular-nums}
+
+header.mast{
+  border-bottom:1px solid var(--rule);
+  background:
+    repeating-linear-gradient(to right, var(--grid) 0 1px, transparent 1px 46px),
+    repeating-linear-gradient(to bottom, var(--grid) 0 1px, transparent 1px 46px),
+    var(--panel);
+}
+.mast-in{display:flex; flex-direction:column; gap:26px; padding:64px 0 46px}
+.mast h1 .thin{font-weight:500; color:var(--ink-3); display:block}
+.lede{font-size:1.16rem; color:var(--ink-2); max-width:62ch}
+.mast-rule{height:3px; width:64px; background:var(--copper)}
+
+.facts{display:grid; grid-template-columns:repeat(auto-fit,minmax(186px,1fr)); gap:1px; background:var(--rule); border:1px solid var(--rule); margin-top:8px}
+.fact{background:var(--panel); padding:16px 18px; display:flex; flex-direction:column; gap:3px}
+.fact .n{font-family:"IBM Plex Sans Condensed",sans-serif; font-weight:700; font-size:1.8rem; line-height:1; font-variant-numeric:tabular-nums}
+.fact .l{font-size:.79rem; color:var(--ink-3); line-height:1.35}
+.fact.good .n{color:var(--pass)} .fact.bad .n{color:var(--fail)} .fact.acc .n{color:var(--accent)} .fact.warn .n{color:var(--warn)}
+
+section{padding:64px 0; border-bottom:1px solid var(--rule-2)}
+.sec-head{display:flex; gap:22px; align-items:baseline; margin-bottom:8px}
+.sec-num{
+  font-family:"IBM Plex Mono",monospace; font-size:.82rem; font-weight:600; color:var(--copper);
+  border:1px solid var(--copper); border-radius:2px; padding:3px 8px; flex:none; letter-spacing:.04em;
+}
+.stack{display:flex; flex-direction:column; gap:20px}
+.stack-s{display:flex; flex-direction:column; gap:11px}
+
+.wire-shell{margin:6px 0; border:1px solid var(--rule); background:var(--sunk)}
+.wire-cap{
+  display:flex; justify-content:space-between; align-items:center; gap:14px; flex-wrap:wrap;
+  padding:9px 14px; border-bottom:1px solid var(--rule); background:var(--panel-2);
+  font-family:"IBM Plex Mono",monospace; font-size:.72rem; letter-spacing:.06em; text-transform:uppercase; color:var(--ink-2);
+}
+.wire{
+  margin:0; padding:20px; overflow-x:auto; font-family:"IBM Plex Mono",monospace;
+  font-size:12.5px; line-height:1.5; color:var(--ink-2); white-space:pre;
+  background:repeating-linear-gradient(to bottom, var(--grid) 0 1px, transparent 1px 19px);
+}
+
+.tbl-shell{overflow-x:auto; border:1px solid var(--rule); background:var(--panel)}
+table{border-collapse:collapse; width:100%; font-size:.88rem; min-width:640px}
+th,td{text-align:left; padding:10px 14px; border-bottom:1px solid var(--rule-2); vertical-align:top}
+thead th{
+  background:var(--panel-2); font-family:"IBM Plex Mono",monospace; font-weight:600;
+  font-size:.68rem; letter-spacing:.1em; text-transform:uppercase; color:var(--ink-2);
+  border-bottom:1px solid var(--rule);
+}
+tbody tr:last-child td{border-bottom:0}
+td code{font-size:.82em; background:var(--panel-2); padding:1px 4px; border-radius:2px}
+
+.bind{border-left:3px solid var(--accent); background:var(--accent-soft); padding:13px 16px; display:flex; flex-direction:column; gap:5px}
+.bind .lbl{font-family:"IBM Plex Mono",monospace; font-size:.68rem; letter-spacing:.12em; text-transform:uppercase; color:var(--accent); font-weight:600}
+.bind p{font-size:.9rem; color:var(--ink-2)}
+.bind code{font-size:.85em; color:var(--ink)}
+.refuse{border-left-color:var(--fail); background:var(--fail-bg)}
+.refuse .lbl{color:var(--fail)}
+.note{border-left-color:var(--copper); background:var(--panel-2)}
+.note .lbl{color:var(--copper)}
+
+.chip{
+  font-family:"IBM Plex Mono",monospace; font-size:.72rem; padding:3px 9px;
+  border:1px solid var(--rule); background:var(--panel); color:var(--ink-2); border-radius:2px;
+  display:inline-flex; align-items:center; gap:6px; white-space:nowrap;
+}
+.chip.pass{color:var(--pass); border-color:var(--pass); background:var(--pass-bg)}
+.chip.warn{color:var(--warn); border-color:var(--warn); background:var(--warn-bg)}
+.chip.fail{color:var(--fail); border-color:var(--fail); background:var(--fail-bg)}
+.chip.unk{color:var(--unknown); border-color:var(--unknown); background:var(--unknown-bg)}
+.dot{width:7px; height:7px; flex:none; display:inline-block}
+.dot.pass{background:var(--pass); border-radius:50%}
+.dot.warn{background:var(--warn); transform:rotate(45deg)}
+.dot.fail{background:var(--fail)}
+.dot.unk{background:repeating-linear-gradient(45deg,var(--unknown) 0 2px,transparent 2px 4px); border-radius:50%}
+
+.cards{display:grid; grid-template-columns:repeat(auto-fit,minmax(250px,1fr)); gap:1px; background:var(--rule); border:1px solid var(--rule)}
+.card{background:var(--panel); padding:17px 19px; display:flex; flex-direction:column; gap:8px}
+.card p{font-size:.87rem; color:var(--ink-2)}
+
+ul,ol{margin:0; padding-left:1.15em; display:flex; flex-direction:column; gap:8px}
+li::marker{color:var(--ink-3)}
+strong{font-weight:600; color:var(--ink)}
+em.term{font-style:normal; font-family:"IBM Plex Mono",monospace; font-size:.88em; color:var(--copper)}
+
+footer{padding:44px 0 66px; color:var(--ink-3); font-size:.85rem}
+:focus-visible{outline:2px solid var(--copper); outline-offset:2px}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+@media (max-width:640px){
+  .wrap{padding:0 18px}
+  .sec-head{flex-direction:column; gap:10px}
+  .wire{font-size:10.5px; padding:14px}
+}
+</style>
+
+<header class="mast">
+  <div class="wrap mast-in">
+    <div class="stack-s">
+      <span class="eyebrow">Naval-AI · builder-facing UX blueprint · 2026-08-21</span>
+      <h1>The Lofting Floor<span class="thin">Four phases, one honest boat</span></h1>
+      <div class="mast-rule"></div>
+    </div>
+    <p class="lede">A UX for DIY builders who have never heard of a prismatic coefficient — designed against what the Naval-AI backend
+      <em>actually</em> computes today, not against what a boat-design app is supposed to look like. Every component names the field or
+      endpoint it binds to. Where the backend cannot answer, the interface says so instead of drawing a gauge.</p>
+
+    <div class="facts">
+      <div class="fact acc"><span class="n mono">11.4 ms</span><span class="l">Measured <code>evaluate()</code>, L0 + full L1. Sliders can evaluate every frame.</span></div>
+      <div class="fact acc"><span class="n mono">16</span><span class="l">Grammar parameters. The builder should never see one.</span></div>
+      <div class="fact good"><span class="n mono">8</span><span class="l">Constraint rows. These are the traffic lights — the complete set.</span></div>
+      <div class="fact bad"><span class="n mono">124.1 mm</span><span class="l">Gate 6D refold error against a 5 mm bar. Most hulls are <em>not</em> kit-buildable.</span></div>
+      <div class="fact warn"><span class="n mono">0.45</span><span class="l">Froude ceiling. Above it the drag model disowns itself, by design.</span></div>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+
+<!-- 00 -->
+<section>
+  <div class="sec-head"><span class="sec-num">00</span><h2>The primitive everything is built from</h2></div>
+  <div class="stack col">
+    <p>Before any screen: <strong>every quantity carries <code>{value, tier, sigma, basis}</code></strong>. A live evaluation returns
+    <code>GM_m = {0.82, L1, σ 0.272, measured}</code> next to <code>freeboard_m = {0.842, L1, σ 0.02, assumed}</code>. Same tier,
+    same colour if you are careless — and one of them was computed from the hull while the other's sigma was typed into the server by hand.</p>
+    <p>So the atomic component is a <strong>Quantity badge</strong>, and the rule that makes it honest is sharper than it looks:</p>
+  </div>
+
+  <div class="bind refuse" style="margin-top:16px">
+    <span class="lbl">The single most important line in this document</span>
+    <p><strong>Colour on <code>basis</code>, not on <code>tier</code>.</strong> A traffic light that reads <code>tier</code> alone renders
+    <code>freeboard_m</code> (σ hard-coded 0.02) and the solar pair (σ typed as ×0.25 and ×0.35 in the server) as confident L1 green.
+    They are not measurements. And <code>SIGMA_PLACEHOLDER</code> — which the energy module documents as
+    <em>"no input sigma was supplied — DO NOT USE"</em> — must render grey, never green.</p>
+  </div>
+
+  <div class="wire-shell">
+    <div class="wire-cap"><span>Component · QuantityBadge</span><span>4 registers, keyed on basis</span></div>
+<pre class="wire">  MEASURED            ASSUMED              LOWER-BOUND          NOT MEASURED
+  ┌──────────────┐    ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
+  │ ● 0.82 m     │    │ ◆ 0.84 m     │     │ ▲ 487 Wh/nm  │     │ ▨ no value   │
+  │   GM         │    │   freeboard  │     │   at best    │     │   chop motion│
+  │   ±0.27  L1  │    │   ±0.02  L1  │     │   ±86    L1  │     │   needs L2   │
+  └──────────────┘    └──────────────┘     └──────────────┘     └──────────────┘
+   solid fill          hairline outline     open triangle        45° hatch
+   basis=measured      basis=assumed        propagated-lower-    absent — never
+   σ propagated        σ is DECORATION      bound: truth is      filled with a
+                       and says so           worse, not better    plausible number</pre>
+  </div>
+
+  <div class="bind">
+    <span class="lbl">Binds to</span>
+    <p><code>POST /eval</code> → <code>quantities{}</code>, wrapped by <code>ui/server._q()</code>, which already refuses non-finite values as
+    <code>{"value": null, "state": "non-finite — refused"}</code> rather than shipping NaN. Note there are <em>two</em> different
+    <code>Quantity</code> dataclasses in the tree (<code>certify.py</code>, <code>experiments.py</code>) with different validation.
+    <strong>Build the UI on <code>_q</code>'s wire contract</strong> — it is the one every screen already crosses.</p>
+  </div>
+</section>
+
+<!-- 01 -->
+<section>
+  <div class="sec-head"><span class="sec-num">01</span><h2>Mission Builder</h2></div>
+  <div class="stack col">
+    <p class="eyebrow">Intent → a legal envelope, not a boat</p>
+    <p>This phase does not produce a design. It produces a <strong>box</strong> — a bounded region the rest of the app may not leave.
+    The governance kernel compiles a constitution into parameter bounds <em>and</em> extra constraint rows, so a length ceiling becomes a
+    slider limit rather than a rejection the user meets an hour later.</p>
+    <p>The measured case for doing it this way is the strongest number in the project: sampling <strong>without</strong> the compiled box
+    produced <code>roundness &gt; 0</code> on <strong>60 of 60</strong> draws and the unroller refused all 60 — the search was ranking a
+    design space that was 100% unbuildable in plywood. <strong>With</strong> the box, 30 of 30 unrolled.</p>
+  </div>
+
+  <div class="bind refuse" style="margin-top:6px">
+    <span class="lbl">Free text alone is unsafe — measured against your own example brief</span>
+    <p>The parser is keyword-based and honest about it, but it fails <em>silently</em> in ways that matter. On
+    <em>"…1-ton battery payload, 3m total height…"</em>: <strong>"3m" is swallowed as waterline length</strong>
+    (<code>lwl_hint_m = 3.0</code>) — there is no air-draft concept anywhere in the tree — and <strong>"1-ton battery" becomes target
+    displacement</strong>, not payload, because no prose path sets <code>PayloadSpec.mass_kg</code>. "Monohull" and "wave-piercer" are
+    not parsed at all. So free text seeds the form; <strong>it never commits it</strong>. Every parsed value is shown back for
+    confirmation, and anything unrecognised is surfaced as prose in a <em>"we didn't understand this"</em> list, not dropped.</p>
+  </div>
+
+  <div class="wire-shell">
+    <div class="wire-cap"><span>Screen · Step 1, the read-back</span><span>720 px measure, centred, no viewport</span></div>
+<pre class="wire">┌─────────────────────────────────────────────────────────────────────────────┐
+│   ──────────●──────────○──────────○──────────○──────────○                   │
+│   THE BOAT  aboard     waters     building   envelope                       │
+│                                                                             │
+│   Tell us about the boat in your own words.                                 │
+│   ┌─────────────────────────────────────────────────────────────────────┐   │
+│   │ Monohull wave-piercer, 4–6 people, solar and kite, 1-tonne battery, │   │
+│   │ 3 m total height, stitch-and-glue plywood, Danube and Black Sea     │   │
+│   └─────────────────────────────────────────────────────────────────────┘   │
+│                                                                             │
+│   HERE'S WHAT WE UNDERSTOOD              tap any line to correct it         │
+│   ┌─────────────────────────────────────────────────────────────────────┐   │
+│   │ ✓ where            Danube + Black Sea → coastal, category C         │   │
+│   │ ✓ people           6                                                │   │
+│   │ ✓ battery          1000 kg  ← we read this as PAYLOAD, not the      │   │
+│   │                              whole boat's weight. Correct?          │   │
+│   │ ✓ built as         stitch-and-glue plywood                          │   │
+│   └─────────────────────────────────────────────────────────────────────┘   │
+│                                                                             │
+│   WE COULDN'T USE THESE — YOU'LL SET THEM BY HAND                           │
+│   ┌─────────────────────────────────────────────────────────────────────┐   │
+│   │ ▨ "3 m total height"                                                │   │
+│   │   We have no way to hold an air-draft limit yet. Nothing in the      │   │
+│   │   boat will check your bridge clearance. Note it and watch it.       │   │
+│   │ ▨ "wave-piercer"                                                     │   │
+│   │   Our hull shapes can't make a reverse-raked bow. More in the        │   │
+│   │   studio.                                                            │   │
+│   │ ▨ "kite"                                                             │   │
+│   │   Not in the power model. Solar only, for now.                       │   │
+│   └─────────────────────────────────────────────────────────────────────┘   │
+│                                                          [ Continue →  ]    │
+└─────────────────────────────────────────────────────────────────────────────┘</pre>
+  </div>
+
+  <div class="stack">
+    <h3>The five steps, and what each one actually locks</h3>
+    <div class="tbl-shell">
+      <table>
+        <thead><tr><th>Step</th><th>User does</th><th>Silently sets</th><th>Binds to</th></tr></thead>
+        <tbody>
+          <tr><td><strong>1 · The boat</strong></td><td>One sentence, then confirms the read-back above.</td><td>Seeds defaults. Nothing locked.</td><td><code>parse_mission</code> → <code>MissionSpec</code></td></tr>
+          <tr><td><strong>2 · Aboard</strong></td><td>Payload cards — people, battery, water, gear — each with a coarse fore/aft position.</td><td>Target displacement and the LCG that <code>trim</code> is judged against.</td><td><code>PayloadSpec</code>, <code>weights.MassItem</code></td></tr>
+          <tr><td><strong>3 · Waters</strong></td><td>River / lake / coastal / offshore, and a typical day.</td><td><strong>Design category C or D</strong> — which sets kDC, which sets bottom plate thickness <em>and</em> the GM floor (C 0.45 m, D 0.35 m).</td><td><code>limits.CATEGORY_TABLE</code></td></tr>
+          <tr><td><strong>4 · Building it</strong></td><td>Method, garage size, CNC access.</td><td>The consequential one. Stitch-and-glue sets <code>construction = SHEET_DEVELOPABLE</code>, which clips <code>roundness</code> to <strong>exactly [0, 0]</strong>.</td><td><code>DesignDNA.construction</code></td></tr>
+          <tr><td><strong>5 · Envelope</strong></td><td>Reads the compiled box, presses <em>Lock the brief</em>.</td><td>Freezes and hashes the mission. The hash rides every later screen and the export.</td><td><code>compile_policy(Constitution)</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="wire-shell" style="margin-top:26px">
+    <div class="wire-cap"><span>Screen · The Envelope</span><span>the one place a novice sees the machine think</span></div>
+<pre class="wire">┌─────────────────────────────────────────────────────────────────────────────┐
+│   YOUR ENVELOPE                                                             │
+│   Your answers cut the search space by 94%. What's left is legal,           │
+│   buildable in your garage, and floats what you're carrying.                │
+│                                                                             │
+│                   was                          is now                       │
+│   LENGTH    2.5 ├──────────────────────┤ 24    8.4 ├─────┤ 11.6    m        │
+│   BEAM      0.2 ├──────────────────────┤ 6.0   2.6 ├───┤ 3.4      m         │
+│   DRAFT    0.01 ├──────────────────────┤ 2.0  0.35 ├──┤ 0.62      m         │
+│   BILGE  round  ├──────────────────────┤ hard      ├┤ hard only              │
+│                 └ grey ghost = what the engine could build                  │
+│                   copper = what your brief allows                           │
+│                                                                             │
+│   ┌───────────────────────────────────────────────────────────────────┐     │
+│   │ WHY IT NARROWED                              every move recorded  │     │
+│   │  · 1710 kg aboard        → floor under length and beam            │     │
+│   │  · Danube + Black Sea    → design category C                      │     │
+│   │  · stitch-and-glue ply   → bilge pinned to hard chine             │     │
+│   │  · own-use build         → RCD Art. 2(2)(a)(vii), no notified body│     │
+│   │                                                                    │     │
+│   │  Without that third line, 60 out of 60 boats we drew for you      │     │
+│   │  could not have been cut from flat sheet. With it, 30 of 30 can.  │     │
+│   └───────────────────────────────────────────────────────────────────┘     │
+│                                                                             │
+│   ⚑ 2 EXTRA CHECKS ADDED TO YOUR BOAT                                       │
+│     policy_legal · policy_dna    live in the studio, cannot be switched off │
+│                                                                             │
+│   mission 7f3a91c2 ·  ┌──────────────────────────────┐                      │
+│                       │   Lock the brief  →          │                      │
+│                       └──────────────────────────────┘                      │
+└─────────────────────────────────────────────────────────────────────────────┘</pre>
+  </div>
+
+  <div class="stack">
+    <div class="bind">
+      <span class="lbl">Binds to</span>
+      <p>The "was / is now" bars are <code>grammar.PARAMS</code> against <code>CompiledPolicy.box(category)</code>. Every move is already
+      recorded as a <code>BoxEdit(param, edge, was, now, source)</code> — the <em class="term">why it narrowed</em> list is that tuple,
+      rendered. The <em class="term">⚑ extra checks</em> are <code>CompiledPolicy.rows</code>, appended to the eight base constraints.</p>
+    </div>
+    <div class="bind note">
+      <span class="lbl">Motion design, derived from an invariant</span>
+      <p>A policy may only <strong>append</strong> a row and only move a bound <strong>inward</strong>; a floor that would loosen a
+      <code>limits.py</code> bar raises at compile time, and so does one exactly equal to it. So the envelope animation can only ever
+      close in from the ends — never widen, never jump. Let the motion express that. It teaches something true.</p>
+    </div>
+    <div class="bind note">
+      <span class="lbl">Build note for step 4</span>
+      <p>A <code>Constitution</code> is not free to synthesise from a form. Every field must be a <code>PolicyValue</code> carrying
+      <code>value, unit, source, basis</code>, and construction <strong>rejects a source string under 20 characters</strong>. That is a
+      deliberate bar. The form must map each choice to a real, pre-written provenance sentence — not echo the user's click back as
+      justification.</p>
+    </div>
+  </div>
+</section>
+
+<!-- 02 -->
+<section>
+  <div class="sec-head"><span class="sec-num">02</span><h2>Parametric Studio</h2></div>
+  <div class="stack col">
+    <p class="eyebrow">Six behavioural sliders over a 16-parameter grammar</p>
+    <p>Today's <code>ui/index.html</code> builds one slider per grammar parameter, labelled <em>"Block coeff"</em> and
+    <em>"TARGET prismatic coefficient"</em>. That is the engineer's surface. It stays — behind a switch — and the builder gets six
+    controls that each drive several parameters along a curated path.</p>
+  </div>
+
+  <div class="tbl-shell">
+    <table>
+      <thead><tr><th>Builder control</th><th>Reads as</th><th>Drives</th><th>What the user feels</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Bow attitude</strong></td><td>"Cuts through it" ←→ "Rides over it"</td><td><code>forefoot, beta_bow, sheer_rise</code></td><td>Wet ride vs dry ride. Moves buildability <em>hard</em>.</td></tr>
+        <tr><td><strong>Room vs. range</strong></td><td>"More boat inside" ←→ "Further per kWh"</td><td><code>BWL, D, Cp</code></td><td>Drag, and the solar day, in the same frame.</td></tr>
+        <tr><td><strong>Feels planted</strong></td><td>"Tippy but quick" ←→ "Planted and steady"</td><td><code>BWL, T</code></td><td>The GM light — and a ceiling, since too much GM is a violent roll.</td></tr>
+        <tr><td><strong>Bottom shape</strong></td><td>"Flat and simple" ←→ "Vee, softer landing"</td><td><code>beta_mid, beta_len</code></td><td>Slam comfort against panel twist and sheet count.</td></tr>
+        <tr><td><strong>Keel line</strong></td><td>"Tracks straight" ←→ "Turns easily"</td><td><code>rocker</code></td><td>Directional stability; small drag effect.</td></tr>
+        <tr><td><strong>Stern</strong></td><td>"Tucked and quiet" ←→ "Carries weight aft"</td><td><code>r_transom, x_mb</code></td><td>Where the battery can sit without burying the transom.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="stack" style="margin-top:20px">
+    <div class="bind refuse">
+      <span class="lbl">The wave-piercing bow cannot be drawn, and the repo already knows it</span>
+      <p>There is no stem-rake gene. The form library records the hole by name — <em>"stem rake, bow overhang or a counter stern:
+      <code>LOA == LWL by construction</code>"</em> — and catalogues both <code>wave_piercing_monohull</code> and <code>axe_bow</code> as
+      <strong>not expressible and excluded</strong>. The <code>plumb_stem</code> feature is marked expressible for the wrong reason:
+      the grammar cannot make anything else.</p>
+      <p>So ship <em>Bow attitude</em> across the range the engine can generate, and render the reverse-rake zone as a locked extension
+      labelled <em>"needs a new hull parameter — not buildable yet."</em> Never draw a bow the engine cannot produce; the user will
+      design around it and the export will refuse.</p>
+    </div>
+  </div>
+
+  <div class="wire-shell">
+    <div class="wire-cap"><span>Layout · three zones, 1440 px reference</span><span>desktop</span></div>
+<pre class="wire">┌─────────────────────────────────────────────────────────────────────────────────────────┐
+│ NAVAL-AI   mission 7f3a91c2 🔒        [ Studio ] Reality  Build          ⚙ expert  ◐     │
+├──────────────────┬────────────────────────────────────────────────┬─────────────────────┤
+│ SHAPE            │                                                │ VITALS      11 ms   │
+│                  │                                                │                     │
+│ Bow attitude     │                                                │ ● FLOATS            │
+│ cuts ●───────    │                  ╱▔▔▔▔▔▔▔▔╲                    │   6.0 t  ±1.66      │
+│      ▓▓▓░░░░░    │            ╱▔▔▔▔▔          ▔▔╲                 │                     │
+│ ⚠ buildability   │      ═════════════════════════════  ← waterline│ ● UPRIGHT           │
+│   26.8 mm  ✕     │       ╲______________________╱                 │   GM 0.82 ±0.27     │
+│   ▲ reverse-rake │                                                │   floor 0.45  cat C │
+│     zone locked  │        plywood texture · chine lines ·         │                     │
+│                  │        scarph lines drawn to scale             │ ◆ FREEBOARD         │
+│ Room vs range    │                                                │   0.84  assumed     │
+│ room ────●───    │   ┌──────────────────────────────────────┐     │                     │
+│                  │   │ ◀ ▶ orbit   ⤢ fit   ▦ sections       │     │ ✕ BUILDABLE         │
+│ Feels planted    │   └──────────────────────────────────────┘     │   MOULD route       │
+│      ───●────    │                                                │   26.8 mm  bar 5.0  │
+│                  ├────────────────────────────────────────────────┤                     │
+│ Bottom shape     │  STATIONS   ▏ ▏ ▏ ▏ ▏ ▏ ▏ ▏ ▏ ▏ ▏ ▏ ▏ ▏        │ ▲ SOLAR DAY         │
+│ flat ●───────    │  ╲__╱ ╲__╱ ╲__╱ ╲___╱ ╲___╱ ╲___╱ ╲___╱        │   ≥14.9 nm/day      │
+│  🔒 rounded bilge│  0    1    2    3     4     5     6            │                     │
+│     can't be cut ├────────────────────────────────────────────────┤ ▨ MOTION IN CHOP    │
+│     from flat ply│  SHEETS  ▤▤▤▤▤▤▤▤▤▤  35 of 2440×1220           │   not measured      │
+│                  │          utilisation 76.8%                     │                     │
+│ Keel line        │                                                │ ─────────────────── │
+│      ──●─────    │                                                │ ▷ CAPSIZE CHECK     │
+│                  │                                                │   takes ~1 s        │
+│ Stern            │                                                │   [ run it → ]      │
+│      ────●───    │                                                │                     │
+│                  │                                                │ MASS ACCOUNTED      │
+│ ─── ON DECK ───  │                                                │ ████████░░░░░ 45%   │
+│ ☐ stbd platform  │                                                │ 3298 kg unaccounted │
+└──────────────────┴────────────────────────────────────────────────┴─────────────────────┘
+   280 px                        fluid                                     320 px</pre>
+  </div>
+
+  <div class="stack">
+    <h3>Component behaviour</h3>
+    <div class="tbl-shell">
+      <table>
+        <thead><tr><th>Component</th><th>Behaviour</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Behavioural slider</strong></td>
+            <td>Fires on every <code>input</code> event, <strong>no debounce</strong>. <code>evaluate()</code> measures <strong>11.35 ms</strong>
+            warm, and there is a CI-enforced 50 ms ceiling on it plus a <code>&lt;100 ms</code> gate on every widget — so the budget is
+            defended by tests, not by hope. Track ends are the <em>policy-compiled</em> bounds, so illegal is undraggable. A faint
+            <strong>ghost track</strong> past each end shows the ungoverned range with the reason on hover: it teaches instead of
+            blocking silently.</td></tr>
+          <tr><td><strong>Two-rate render loop</strong></td>
+            <td>The key architectural call, and the measurements make it easy: <code>panel_mesh()</code> is <strong>1.66 ms</strong> — live
+            at 60 fps alongside the physics. <code>closed_mesh()</code> is <strong>49.8 ms</strong> — regenerate on <code>change</code>, not
+            during drag. <code>unroll.hull_panels()</code> is <strong>869 ms</strong> — export-time only, never in the loop. So: draw the
+            fast mesh while dragging, settle to the fine one on release, and unroll only when the user asks to build.</td></tr>
+          <tr><td><strong>Buildability meter</strong></td>
+            <td>Sits <em>directly beneath the sliders that break it</em>. Amber as refold error climbs, red when the hull leaves the kit
+            corner. This placement is the entire point: <strong>3° of flare alone</strong> moves refold error from ~4.7 mm to
+            <strong>26.8 mm</strong> against a 5 mm bar. The user has to feel that in the same gesture that causes it, or they will meet
+            it as a wall in Phase 4.</td></tr>
+          <tr><td><strong>Locked slider</strong></td>
+            <td><em>Bottom shape</em> carries a padlock at the rounded-bilge end with the reason inline. It is not greyed out — it still
+            moves across its legal span. This is the compiled box made visible: the policy clipped <code>roundness</code> to exactly
+            <code>[0, 0]</code>, and the padlock is that fact.</td></tr>
+          <tr><td><strong>Capsize check</strong></td>
+            <td>A deliberate, explicit action — <strong>not</strong> a live light — because the GZ curve floats the hull at 16 heels from
+            0–60° by bisection and costs about <strong>a second</strong>. It returns real large-angle stability: maximum righting arm,
+            the <em>angle of vanishing stability</em>, area under the curve to 30°, and deck-edge immersion. Present it as
+            <em>"we heeled her over — here's where she stops coming back"</em>, with the assumptions listed (watertight to the sheer,
+            trim held fixed, no declared downflooding openings).</td></tr>
+          <tr><td><strong>Feature toggles</strong></td>
+            <td>Deck features are <strong>mass objects</strong>, not hull modifications — see the caveat below, which is sharper than it
+            first appears.</td></tr>
+          <tr><td><strong>Expert switch</strong></td>
+            <td>Swaps the six behavioural sliders for the raw sixteen from <code>GET /bounds</code>. Same evaluation, same constraint rows,
+            no second code path. This is what makes the abstraction trustworthy rather than a wall.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="stack" style="margin-top:20px">
+    <div class="bind refuse">
+      <span class="lbl">The starboard platform — two blockers, and one is not the one you'd guess</span>
+      <p><strong>Geometry:</strong> the manufacturing model emits shell parts at <code>qty = 2</code>, port and starboard mirrored.
+      An asymmetric hull feature breaks that at the panel level, and the arrangement module has no path into nesting at all.</p>
+      <p><strong>Physics — the real one:</strong> the brief says the toggle should "instantly recalculate the asymmetrical weight balance."
+      <strong>It cannot.</strong> <code>PayloadSpec</code> has <em>no transverse coordinate</em>, so <code>tcg</code> is identically zero in
+      production and <code>list</code> is always exactly 0°. Certification says so out loud, recording asymmetric payload as
+      <em>"refused: not representable."</em> Ship the platform as a deck object that is visible and carries mass fore/aft, and state
+      plainly that its athwartships effect is not yet modelled. A toggle that silently reports 0° of list is worse than one that admits
+      it cannot see sideways.</p>
+    </div>
+  </div>
+</section>
+
+<!-- 03 -->
+<section>
+  <div class="sec-head"><span class="sec-num">03</span><h2>Reality Check</h2></div>
+  <div class="stack col">
+    <p class="eyebrow">Eight constraint rows, three human questions</p>
+    <p>The inequality vector has exactly eight rows — <code>freeboard · gm · bend_radius · trim · list · lcb · proportions · rules</code> —
+    and that is the complete set of things this platform can fail a design on. Do not invent a ninth. Group them under the questions a
+    builder actually asks, in the order the fear arrives.</p>
+  </div>
+
+  <div class="cards">
+    <div class="card">
+      <span class="eyebrow">Question one</span>
+      <h4>Will it float and stay upright?</h4>
+      <p><code>freeboard · gm · trim · list</code></p>
+      <p>Largest, top, always visible. Plus the capsize check on demand.</p>
+    </div>
+    <div class="card">
+      <span class="eyebrow">Question two</span>
+      <h4>Can I actually build this?</h4>
+      <p><code>bend_radius · proportions</code></p>
+      <p>Plus the refold meter that decides kit versus mould. Mirrored into the studio rail.</p>
+    </div>
+    <div class="card">
+      <span class="eyebrow">Question three</span>
+      <h4>Is it legal, and what if I sell it?</h4>
+      <p><code>rules · lcb</code></p>
+      <p>ISO 12215 scantlings, RCD routing. An assessment aid — never a certification claim.</p>
+    </div>
+  </div>
+
+  <div class="wire-shell" style="margin-top:26px">
+    <div class="wire-cap"><span>Panel · Reality Check, expanded</span><span>also serves as the 320 px studio rail</span></div>
+<pre class="wire">┌─────────────────────────────────────────────────────────────────────────────────────────┐
+│  REALITY CHECK          hull 4c81 · mission 7f3a91c2 🔒        recomputed 11 ms ago      │
+├─────────────────────────────────────────────────────────────────────────────────────────┤
+│  WILL IT FLOAT AND STAY UPRIGHT?                                              ● 3  ▨ 1   │
+│  ┌──────────────────┬──────────────────┬──────────────────┬──────────────────┐          │
+│  │ ◆ FREEBOARD      │ ● STABILITY      │ ● TRIM           │ ▨ LIST           │          │
+│  │   0.84 m         │   GM 0.82 m      │   +0.4° bow up   │   not modelled   │          │
+│  │   assumed ±0.02  │   measured ±0.27 │   measured       │   we can't see   │          │
+│  │   floor 0.45     │   floor 0.45 C   │   limit ±2.0°    │   sideways yet   │          │
+│  │   ▓▓▓▓▓▓▓▓░░ 87% │   ▓▓▓▓▓▓▓░░░ 71% │   ▓▓░░░░░░░░ 20% │   ▨▨▨▨▨▨▨▨▨▨     │          │
+│  └──────────────────┴──────────────────┴──────────────────┴──────────────────┘          │
+│      ↑ headroom to the limit. Full bar = at the limit.                                  │
+│                                                                                         │
+│   ┌─────────────────────────────────────────────────────────────────────────┐           │
+│   │ ▷ WILL SHE COME BACK UP?                                    ~1 second   │           │
+│   │   Heels her from 0 to 60° and finds where the righting stops.           │           │
+│   │   Assumes watertight to the sheer, fixed trim, no open hatches.         │           │
+│   │                                             [ run the capsize check → ] │           │
+│   └─────────────────────────────────────────────────────────────────────────┘           │
+│                                                                                         │
+│  ─────────────────────────────────────────────────────────────────────────────────────  │
+│  WHERE THE WEIGHT SITS                       drag fore and aft — the waterline follows  │
+│        ╱▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔╲                                                       │
+│   ════════════════════════════════════   design waterline                               │
+│    ▔╲___[▤ battery 1000]___[☺ 510]___╱     ▲ LCB   △ LCG   2.1 cm apart                 │
+│                                                                                         │
+│   ┌───────────────────────────────────────────────────────────────────────────┐         │
+│   │ MASS ACCOUNTED FOR                                                        │         │
+│   │ structure 987 │ outfit 550 │ payload 800 │ battery 225 │ panels 139       │         │
+│   │ ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒       │         │
+│   │ 45% accounted                    ▒ 3298 kg NOT YET ACCOUNTED FOR          │         │
+│   │ Every check above rests on this. Treat them as provisional until it       │         │
+│   │ closes. We will not hide it in a margin.                                  │         │
+│   └───────────────────────────────────────────────────────────────────────────┘         │
+│                                                                                         │
+│  ─────────────────────────────────────────────────────────────────────────────────────  │
+│  A DAY ON SOLAR                                             cruise 6 kn · Fn 0.25 ✓     │
+│   kWh  ┤                          ╱▔▔▔▔▔╲                                               │
+│    12  ┤                     ╱▔▔▔▔       ▔▔▔▔╲          ▲ generated  10.2              │
+│     8  ┤ ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁╱▔▔                    ▔▔▔╲▁▁▁  ▼ used at 6 kn                  │
+│     4  ┤ ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░    ≥ 487 Wh/nm ±86               │
+│     0  ┼──────┬───────┬───────┬───────┬───────┬───────                                  │
+│        00     04      08      12      16      20     24                                 │
+│   ▲ About 14.9 nm a day of motoring — and that's a LOWER bound, so the real            │
+│     figure is likely worse, not better.                                                 │
+│   ◆ The generation curve is a flat daily average, not a real sun. Its ±25% is           │
+│     a number we typed, not one we measured. Treat the shape as illustrative.            │
+│                                                                                         │
+│  ─────────────────────────────────────────────────────────────────────────────────────  │
+│  ▨ HOW SHE'LL RIDE IN A 1 m CHOP                                      NOT MEASURED      │
+│  ┌───────────────────────────────────────────────────────────────────────────┐          │
+│  │ ▨▨▨▨▨▨▨▨▨▨▨▨▨▨▨▨▨▨▨▨▨▨▨▨▨▨▨▨▨▨▨▨▨▨▨▨▨▨▨▨▨▨▨▨▨▨▨▨▨▨▨▨▨▨▨▨▨▨▨▨▨▨▨▨▨         │          │
+│  │ We have the sea state (Black Sea inshore, Hs 1.0 m, Tp 4.5 s) and we can  │          │
+│  │ compute how she heaves. Those two are not yet connected, so we are not    │          │
+│  │ going to draw you a score.                                                │          │
+│  │ Nothing here predicts bow slamming or deck wetness at all.                │          │
+│  │                                       ┌────────────────────────────┐      │          │
+│  │                                       │  Queue a heave run (L2) →  │      │          │
+│  │                                       └────────────────────────────┘      │          │
+│  └───────────────────────────────────────────────────────────────────────────┘          │
+│                                                                                         │
+│  ⚠ HOW MUCH TO TRUST THIS                                                               │
+│  Our drag model is a thin-ship theory validated against a 230 m container ship.          │
+│  Yours is a hard-chine plywood boat. Below 11.0 knots we're inside its range;             │
+│  above that we will stop giving you a number rather than guess.  [ what we tested → ]   │
+└─────────────────────────────────────────────────────────────────────────────────────────┘</pre>
+  </div>
+
+  <div class="stack">
+    <h3>Component behaviour</h3>
+    <div class="tbl-shell">
+      <table>
+        <thead><tr><th>Component</th><th>Behaviour</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Constraint light</strong></td>
+            <td>Not a dot — a <strong>headroom bar</strong> with the limit printed. A bar says <em>how close</em>, which is what links a
+            slider to its consequence. Colour is never the only channel: ● measured, ◆ assumed, ▲ lower-bound, ▨ absent, plus text.
+            <code>list</code> renders in the <em>absent</em> register, not as a passing 0°.</td></tr>
+          <tr><td><strong>Waterline attitude</strong></td>
+            <td>The hull in the viewport <em>is</em> the trim indicator. The backend solves sinkage and trim <strong>simultaneously</strong> —
+            a damped 2-D Newton warm-started from the level float, which is what keeps it inside the 50 ms budget. Move weight, the boat
+            settles to a new attitude, live. The numeric readout confirms; it does not lead.</td></tr>
+          <tr><td><strong>Mass-closure bar</strong></td>
+            <td><strong>Non-negotiable.</strong> A baseline resolves 45% of displacement to named items and leaves <strong>3298 kg
+            unaccounted</strong>. Every stability light above is computed on that estimate. Four confident green lights without this bar
+            beneath them would be the exact dishonesty the platform exists to prevent. Unresolved mass is <em>listed</em>, never absorbed.</td></tr>
+          <tr><td><strong>Power balance</strong></td>
+            <td>A <strong>24-hour band</strong>, not a dial — a dial implies a steady state, and solar is a day shape. The builder's real
+            question is whether they end the day up or down. Draw is properly propagated (σ from resistance and drivetrain in quadrature);
+            <strong>generation is not</strong> — it is a flat daily average with a typed ±25%. Say so in the caption, in the user's words.
+            There is no state-of-charge model, so never animate a battery filling and emptying: that would imply a simulation that
+            does not exist.</td></tr>
+          <tr><td><strong>Froude guard</strong></td>
+            <td>The drag model is valid to <strong>Fn 0.45</strong>. Past it the result is badged invalid and its uncertainty inflates to
+            the size of the answer — the model disowning itself. Semi-displacement and planing are <em>refused by name</em>; there is no
+            Savitsky-class model in the tree. So the speed control carries a hard stop with the reason, and the gauge shows
+            <strong>REFUSED</strong>, never a number. For a 16 m hull that ceiling is 11.0 knots; at your 6-knot cruise
+            (Fn 0.25) you are comfortably inside it.</td></tr>
+          <tr><td><strong>Chop tile</strong></td>
+            <td><strong>Renders as absent</strong> — and the honest copy is better than a flat "not supported", because the parts genuinely
+            exist: the sea-state preset for Black Sea inshore is <em>literally</em> a 1 m chop, and heave response can be computed. They
+            are not wired together, and slamming pressure is uncalibrated by a factor of four. This tile is the one that proves the others
+            are telling the truth.</td></tr>
+          <tr><td><strong>Provenance strip</strong></td>
+            <td>Persistent, quiet, at the foot. One sentence naming what the physics was checked against and where the user sits relative
+            to it. Links to the evidence rather than restating it.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="bind note" style="margin-top:22px">
+    <span class="lbl">The one backend change that unlocks the most UX</span>
+    <p>Phase 3's headline interaction — drag a battery, watch the waterline — is <strong>90% built and blocked by a seam</strong>.
+    The equilibrium solver, the mass aggregate with quadrature sigma, and even an arrangement-side producer of positioned mass items all
+    exist and are tested. They cannot reach each other: <code>evaluate()</code> takes no item list and builds one internally from
+    hard-coded position fractions, with the battery pinned at <code>0.45 × LWL</code>. Add an <code>items:</code> parameter plus a
+    transverse coordinate — on the order of thirty lines — and both the drag interaction and the <code>list</code> light become real.</p>
+  </div>
+</section>
+
+<!-- 04 -->
+<section>
+  <div class="sec-head"><span class="sec-num">04</span><h2>Builder's Output</h2></div>
+  <div class="stack col">
+    <p class="eyebrow">From design tool to build project</p>
+    <p>The interface changes character. Sliders disappear. And it opens not with a download button but with a <strong>routing
+    verdict</strong>, because the backend already makes one: every hull is classified <em>sheet-kit</em> or <em>mould</em>, and the DXF
+    exporter <strong>raises rather than writing a file</strong> when the panels do not re-fold to the hull within 5 mm.</p>
+    <p>That refusal is a first-class outcome and must be met <em>before</em> the user reaches for a download.</p>
+  </div>
+
+  <div class="wire-shell">
+    <div class="wire-cap"><span>Screen · Build, kit route</span><span>gated download</span></div>
+<pre class="wire">┌─────────────────────────────────────────────────────────────────────────────────────────┐
+│ NAVAL-AI   mission 7f3a91c2 🔒        Studio  Reality  [ Build ]              ⚙  ◐       │
+├──────────────────┬──────────────────────────────────────────────────┬───────────────────┤
+│ BUILD STAGES     │  NESTED SHEETS            2440 × 1220 · 15 mm    │ YOUR PACKAGE      │
+│                  │  ┌────────────────────┐ ┌────────────────────┐   │                   │
+│ ● Cut files      │  │ ╱▔▔▔▔▔╲   ┌──────┐ │ │ ╲▁▁▁▁▁╱   ┌─────┐ │   │ ● Cut files       │
+│ ○ Materials      │  │ │ B-1  │  │ D-3  │ │ │ │ B-2  │  │ F-1 │ │   │   14 DXF, mm      │
+│ ○ Assembly       │  │ ╲_____╱   └──────┘ │ │ ╱▔▔▔▔▔╲   └─────┘ │   │   re-parsed ✓     │
+│ ○ Legal          │  │  ┌────┐  ┌───────┐ │ │  ┌────┐ ┌───────┐ │   │                   │
+│                  │  │  │T-1 │  │ S-2   │ │ │  │T-2 │ │ S-3   │ │   │ ● Materials       │
+│ ─────────────    │  │  └────┘  └───────┘ │ │  └────┘ └───────┘ │   │   35 sheets       │
+│ ROUTE            │  └────────────────────┘ └────────────────────┘   │   epoxy 118 kg    │
+│ ● SHEET KIT      │        sheet 1 · 81%          sheet 2 · 74%      │   ⚠ 3 lines short │
+│   flat panels,   │  ◀  1  2  3  4  5 ... 35  ▶                      │                   │
+│   stitched and   │                                                  │ ◆ Assembly        │
+│   glued          │  ┌────────────────────────────────────────────┐  │   sequence only   │
+│                  │  │ UTILISATION      76.8%                     │  │   no manual yet   │
+│ ─────────────    │  │ ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▒▒▒▒▒▒▒▒▒   │  │                   │
+│ CHECKS           │  │ A shop wastes 5–10% on a production run.   │  │ ● Legal           │
+│                  │  │ You're at 23.2% — normal for a one-off.    │  │   own-use route   │
+│ ● every panel    │  │ Sheet count is counted off THIS layout,    │  │                   │
+│   present   14/14│  │ not estimated from area.                   │  │ ┌───────────────┐ │
+│ ● re-folds to    │  └────────────────────────────────────────────┘  │ │ Download ZIP  │ │
+│   hull   4.7 mm  │                                                  │ │      ↓        │ │
+│   bar    5.0 mm  │  ┌────────────────────────────────────────────┐  │ └───────────────┘ │
+│ ● units declared │  │ ⚠ THREE THINGS ARE NOT IN THIS BOX         │  │  1 of 4 stages    │
+│   mm, in-file    │  │   glass cloth · fasteners · copper wire    │  │  still short      │
+│ ● thickness from │  │   Named, not hidden in a margin. Buy them  │  │                   │
+│   ISO 12215-5,   │  │   off the assembly notes for now.          │  │                   │
+│   derived not    │  └────────────────────────────────────────────┘  │                   │
+│   typed          │                                                  │                   │
+└──────────────────┴──────────────────────────────────────────────────┴───────────────────┘</pre>
+  </div>
+
+  <div class="stack" style="margin-top:8px">
+    <h3>The refusal screen — the one that earns the product its credibility</h3>
+    <p class="col">Reached whenever refold error exceeds the bar, which on current measurements is <strong>most interesting hulls</strong>.
+    It must not read as an error. It is a routing decision, and there is a real boat at the end of both branches.</p>
+  </div>
+
+  <div class="wire-shell">
+    <div class="wire-cap"><span>Screen · Build, mould route</span><span>refold 26.8 mm vs 5.0 mm bar</span></div>
+<pre class="wire">┌─────────────────────────────────────────────────────────────────────────────────────────┐
+│                                                                                         │
+│   ▲  THIS HULL IS A MOULD BUILD, NOT A FLAT-PACK KIT                                    │
+│                                                                                         │
+│   Your panels won't lie flat. Forced onto a sheet and bent back to shape they            │
+│   miss the hull by 26.8 mm — the bar is 5 mm. Cut this as a kit and the seams            │
+│   won't close.                                                                          │
+│                                                                                         │
+│   WHAT DID IT                        each of these fights flat plywood                  │
+│   ┌───────────────────────────────────────────────────────────────────────┐             │
+│   │  flare 3.0°       ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓  +22.1 mm         │             │
+│   │  forefoot 0.35    ▓▓▓▓▓▓▓▓▓▓                          +6.4 mm         │             │
+│   │  deadrise warp    ▓▓▓                                 +1.1 mm         │             │
+│   └───────────────────────────────────────────────────────────────────────┘             │
+│                                                                                         │
+│   ┌──────────────────────────────────┐   ┌──────────────────────────────────┐           │
+│   │  TAKE ME BACK TO THE KIT         │   │  BUILD IT OVER A MOULD           │           │
+│   │                                  │   │                                  │           │
+│   │  Flare → 0, forefoot → 0.        │   │  Frames and battens, then sheet   │           │
+│   │  Costs you 0.4 kn and some       │   │  it. More work, more skill,       │           │
+│   │  interior volume. Preview the    │   │  any shape you like.              │           │
+│   │  changed boat before accepting.  │   │  Cut files: frames + patterns.    │           │
+│   │        [ preview → ]             │   │        [ continue → ]            │           │
+│   └──────────────────────────────────┘   └──────────────────────────────────┘           │
+│                                                                                         │
+│   We are not going to give you a DXF that produces a boat you cannot close up.          │
+└─────────────────────────────────────────────────────────────────────────────────────────┘</pre>
+  </div>
+
+  <div class="stack">
+    <h3>Component behaviour</h3>
+    <div class="tbl-shell">
+      <table>
+        <thead><tr><th>Component</th><th>Behaviour</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Route verdict</strong></td>
+            <td>First on the screen, before any artefact. Kit or mould, with the number and the bar. Never a silent fallback, never a
+            download that turns out to be useless.</td></tr>
+          <tr><td><strong>Blame bars</strong></td>
+            <td>The refusal ranks <em>which slider</em> cost how many millimetres and offers a one-tap return to the kit corner —
+            flare 0, forefoot 0, deadrise warp within about 8° — with the cost stated in knots and interior volume, previewed before it is
+            accepted. A refusal that tells you what to change is guidance; one that does not is a wall.</td></tr>
+          <tr><td><strong>Download gate</strong></td>
+            <td>The ZIP unlocks only when the round trip passes: every panel present, panels re-fold within the bar, the DXF re-parses,
+            units are declared in the file, and thickness was <em>derived</em> from the ISO scantling rule rather than typed. Each check is
+            visible and individually explained — a checklist the builder can read, not a disabled button. This is enforceable server-side,
+            not a UI promise: the exporter already raises.</td></tr>
+          <tr><td><strong>Nesting canvas</strong></td>
+            <td>Pan/zoom sheets, part labels, per-sheet and overall utilisation. Sheet count is <strong>counted off the layout</strong>,
+            never estimated from area — and the copy says which kind of number it is, because the builder is about to buy plywood with it.
+            Separate bins per thickness: you cannot cut a 21 mm bottom from a 15 mm sheet.</td></tr>
+          <tr><td><strong>Two BOMs, separately closed</strong></td>
+            <td>The structural kit derives from geometry; systems (motor, batteries, solar) form a second list with its own closure.
+            Each shows <strong>mass closure</strong> and <strong>cost closure</strong> as measured fractions. Missing lines are
+            <em>named</em> — today that is glass cloth, fasteners and copper stitching wire, none of which the BOM engine emits, and epoxy
+            is a single 1.4 kg/m² scalar with no split between fillets, coats and sheathing. A low closure number is a finding, displayed.</td></tr>
+          <tr><td><strong>Assembly stage</strong></td>
+            <td>Honest but thin: a sequence derived from sheet assignment. Stitch-hole spacing, wire placement and puzzle joints do not
+            exist in the backend, and the stage says so rather than illustrating a process the file does not encode. Scarph joints
+            <em>are</em> modelled — as material allowance and split location, not as cut taper — and the note must distinguish the two,
+            because a builder cutting to the drawn line would get it wrong.</td></tr>
+          <tr><td><strong>Legal stage</strong></td>
+            <td>Not a checkbox to skip. Full screen, plain language, clause text verbatim: building for your own use puts you outside the
+            Recreational Craft Directive <strong>for five years</strong> from putting it into service, and selling inside that window
+            triggers post-construction assessment by a notified body — the most expensive moment to need one. If routing lands on
+            <em>notified body required</em>, the release <strong>refuses to emit</strong>. Framed throughout as an assessment aid that
+            cites clauses and routes work, and is not legal advice.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- 05 -->
+<section>
+  <div class="sec-head"><span class="sec-num">05</span><h2>Responsive, and one honest amputation</h2></div>
+  <div class="stack col">
+    <ul>
+      <li><strong>≥1280 px — full studio.</strong> Three zones as drawn. This is where design happens.</li>
+      <li><strong>768–1279 px — viewport first.</strong> Shape and vitals become bottom sheets over a full-bleed 3D view, one open at a
+        time. The buildability meter stays pinned to the shape sheet; separating it from the sliders defeats its purpose.</li>
+      <li><strong>&lt;768 px — no studio.</strong> Phones get the Mission Builder, a read-only design viewer, the full Reality Check and
+        the Build dashboard including download. <strong>The sliders are not offered.</strong> Nobody lofts a boat on a phone, and a
+        degraded control surface at that size produces hulls someone then has to unpick on a laptop. Say it plainly:
+        <em>"Shaping needs a bigger screen — here's what you've drawn so far."</em></li>
+    </ul>
+    <p>Accessibility falls out of the honesty contract rather than being bolted on: state is carried in shape and text as well as colour
+    (● measured, ◆ assumed, ▲ lower-bound, ▨ absent); numbers use tabular figures so columns align; sliders are keyboard-operable with
+    arrow steps matched to each parameter's real resolution; and the viewport publishes a live text summary of the current hull for
+    screen readers.</p>
+  </div>
+</section>
+
+<!-- 06 -->
+<section style="border-bottom:0">
+  <div class="sec-head"><span class="sec-num">06</span><h2>What is bindable today</h2></div>
+  <div class="stack col">
+    <p>This blueprint is deliberately constrained to what the backend can honour. The ledger:</p>
+  </div>
+
+  <div class="tbl-shell">
+    <table>
+      <thead><tr><th>Capability the UX needs</th><th>Status</th><th>Design consequence</th></tr></thead>
+      <tbody>
+        <tr><td>Live evaluation under one frame</td><td><span class="chip pass"><span class="dot pass"></span>11.4 ms</span></td><td>Sliders evaluate every frame. CI defends the budget.</td></tr>
+        <tr><td>Live 3D mesh during drag</td><td><span class="chip pass"><span class="dot pass"></span>1.66 ms</span></td><td>Fast mesh live; fine mesh (49.8 ms) on release.</td></tr>
+        <tr><td>Quantities with tier + sigma + basis</td><td><span class="chip pass"><span class="dot pass"></span>built</span></td><td>QuantityBadge is bindable as designed.</td></tr>
+        <tr><td>Policy-compiled slider bounds</td><td><span class="chip pass"><span class="dot pass"></span>built</span></td><td>Envelope screen and ghost tracks are real.</td></tr>
+        <tr><td>Solved sinkage + trim</td><td><span class="chip pass"><span class="dot pass"></span>built</span></td><td>The waterline follows weight, live.</td></tr>
+        <tr><td>GZ curve, AVS, capsize</td><td><span class="chip pass"><span class="dot pass"></span>~1 s</span></td><td>Click-to-compute, not a live light.</td></tr>
+        <tr><td>Solar vs. draw</td><td><span class="chip warn"><span class="dot warn"></span>value yes, σ no</span></td><td>Ships with the caption saying generation σ is typed, not measured.</td></tr>
+        <tr><td>Resistance, Fn ≤ 0.45</td><td><span class="chip pass"><span class="dot pass"></span>self-policing</span></td><td>Speed control hard-stops; above it the gauge reads REFUSED.</td></tr>
+        <tr><td>Nesting, DXF, scantlings, RCD routing</td><td><span class="chip pass"><span class="dot pass"></span>built</span></td><td>Download gate and legal stage are enforceable server-side.</td></tr>
+        <tr><td>Developable unwrap + refold meter</td><td><span class="chip warn"><span class="dot warn"></span>built, failing</span></td><td>Route verdict and refusal become <em>core flow</em>, not edge case.</td></tr>
+        <tr><td>Mission parsing of the example brief</td><td><span class="chip warn"><span class="dot warn"></span>partial, silent</span></td><td>Mandatory read-back step; air draft declared unrepresentable.</td></tr>
+        <tr><td>Transverse CG → the <code>list</code> light</td><td><span class="chip fail"><span class="dot fail"></span>absent</span></td><td>Renders as absent. Platform toggle cannot claim a heel effect.</td></tr>
+        <tr><td>Per-item mass placement</td><td><span class="chip fail"><span class="dot fail"></span>seam missing</span></td><td>Only one payload lump is draggable until <code>evaluate()</code> takes items.</td></tr>
+        <tr><td>Stem rake / reverse bow</td><td><span class="chip fail"><span class="dot fail"></span>absent by design</span></td><td>Bow slider ships short; the locked zone is labelled.</td></tr>
+        <tr><td>Motion in a chop, slamming, deck wetness</td><td><span class="chip unk"><span class="dot unk"></span>parts only</span></td><td>Tile renders absent and offers the L2 route. No fabricated score.</td></tr>
+        <tr><td>Planing / semi-displacement drag</td><td><span class="chip fail"><span class="dot fail"></span>refused by name</span></td><td>Not a gap to paper over — a hard stop with an explanation.</td></tr>
+        <tr><td>Cloth, fasteners, wire; assembly manual</td><td><span class="chip fail"><span class="dot fail"></span>absent</span></td><td>Named as missing on their own stages.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="bind note" style="margin-top:26px">
+    <span class="lbl">The through-line</span>
+    <p>Four screens, one idea: <strong>the interface hides the mathematics and refuses to hide the uncertainty.</strong>
+    A builder never sees a prismatic coefficient. They do see that 3298 kg is unaccounted for, that the drag model was validated on a ship
+    nothing like theirs, that nobody has predicted how their bow behaves in a chop, that we cannot see sideways yet, and that their hull
+    wants a mould rather than a flat-pack. Hiding any of those would make a smoother demo and a worse boat — and this platform's whole
+    thesis is that a failing check is information, never something to soften.</p>
+  </div>
+</section>
+
+</main>
+
+<footer class="wrap">
+  <p>Naval-AI builder UX blueprint · drafted 2026-08-21 against <code>ui/server.py</code>, <code>navalai/grammar.py</code>,
+  <code>navalai/evaluate.py</code>, <code>navalai/hydrostatics.py</code>, <code>navalai/energy.py</code>, <code>navalai/resistance.py</code>,
+  <code>navalai/seakeeping.py</code>, <code>navalai/unroll.py</code>, <code>navalai/engineer.py</code>, <code>navalai/policy/</code>.
+  Latencies re-measured at draft time on this machine; gate figures from <code>data/gate-ledger.json</code>. Re-verify before quoting.</p>
+</footer>

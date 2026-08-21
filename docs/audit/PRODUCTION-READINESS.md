@@ -316,3 +316,107 @@ the ladder validated.
 MANUFACTURING side is one solver short.** Everything upstream of the cut file
 is measured, badged and fenced. The cut file itself is geometry that does not
 yet close, and as of today it says so instead of shipping.
+
+
+## A correction to this session's own report on `rulings="strakes"`
+
+I measured `hull_panels(hull, rulings="strakes")` at **8231.9 mm** against
+`"developable"`'s 221.5 mm on the same hull, with an overflow warning out of
+`numpy.linalg`, and reported it as an unrecorded defect — "37x worse than the
+family its own docstring presents as the better one". **That characterisation
+is wrong and is withdrawn.**
+
+`hull_panels`'s one-line summary says strakes exist because "a single family
+cannot span the panel", which reads as an improvement. The FULL docstring on
+`strake_pairings` says the opposite in capitals:
+
+> MEASURED 2026-08-12 — THIS DOES NOT WORK YET, AND IT IS RECORDED RATHER THAN
+> SHIPPED. […] Worse than the fitted pairing in five of six, and it clears the
+> bar in none.
+
+It even carries the diagnosis (`_branch_pairing`'s monotone clamp binds at up
+to half the stations inside a segment, destroying planarity exactly where the
+panel needed it) and the reason it is kept: "this mode exists to be measured,
+not adopted". My number is CONSISTENT with that recorded state, not a new
+finding.
+
+**The lesson is the one this repository already has**, and I hit it again: I
+read the SUMMARY of an artefact and not the artefact. `docs/LESSONS.md` records
+it as "A summariser that truncates is a receipt that lies"; here nothing
+truncated anything — I simply stopped at the short docstring one call up.
+
+What IS unrecorded and stands: the `numpy.linalg` **overflow** on this hull.
+The recorded strakes figures span 112–868 mm; 8231.9 mm with an arithmetic
+overflow is a different failure mode from "worse than the alternative", and it
+belongs in that docstring's table if the mode is ever revisited.
+
+---
+
+# GATE 6D IS CLOSABLE — the existence proof, and what it costs (2026-08-21)
+
+## A seaworthy hull that unrolls under the bar EXISTS in this grammar
+
+Found by a dedicated (1+1)-ES over the GOVERNED box, minimising refold subject
+to the full ladder passing, and then **independently re-measured**:
+
+    bottom-stbd      4.932 mm
+    topside-stbd     4.952 mm      <- WORST, against the 5 mm bar: PASS
+    ndev_frac        0.0091
+    ladder ok        True, violations NONE (under the reference constitution)
+    GM              +2.545 m       displacement 6000 kg (mission target)
+    L/B              2.54          flare -0.58 deg      roundness 0
+
+So Gate 6D is **not** a physics impossibility and **not** an unroller defect.
+The grammar contains boats that are simultaneously seaworthy and cuttable.
+
+## The first answer was wrong, and the way it was wrong is the finding
+
+An unconstrained refold search reached **3.900 mm** — and that hull has
+**GM = -0.35 m**. It capsizes. L/B 5.1, D 2.12 m: narrow and deep means little
+transverse curvature, which is developability-friendly and stability-poor.
+
+**Developability wants narrow and flat; stability wants beam.** Gate 6D is a
+TRADE between two things the product needs at once, which is why neither "fix
+the solver" nor "add a bound" was ever going to be the whole answer.
+
+## And the trade is expensive — stated, not buried
+
+Against the lowest-energy (unverified) hull from the same governed mission:
+
+    quantity        lowest-energy hull    verified-buildable hull
+    refold                   221.5 mm                   4.952 mm
+    ply sheets                     59                        121
+    build hours                  1825                       3679
+    Wh/NM                         412                        595
+
+The buildable boat is beamier, roughly twice the build, and 44 % thirstier.
+That is a PRODUCT decision, not a defect.
+
+## Why the search never finds it, and what is actually owed
+
+NSGA-II's objectives and constraints contain **no buildability term**, so a
+larger budget searches harder for the same thing. The fix is STEERING, and the
+cost question is settled:
+
+| candidate | cost / hull | corr with refold | usable? |
+|---|---|---|---|
+| `unroll.refold_surface_deviation_mm` | **2301 ms** | 1.000 (it IS the meter) | **no** — 8561x `grammar.check`; 3.3 h for a pop-64 x 80-gen run |
+| `Hull.panel_twist_rate()` (L0) | **0.02 ms** | **+0.089** (Spearman +0.224) | **NO — it does not separate.** 0 of 30 governed hulls under 5 mm, and the cheapest-twist hull refolds at 43.4 mm while the 5th-cheapest is at 1274 mm |
+| `shell_complexity(...).non_developable_frac` | **1.8 ms** | **+0.783** | **YES** — ~9 s across a whole NSGA-II run |
+
+**The L0 developability number is not a buildability predictor**, and that is
+worth having measured: it is the obvious thing to reach for, it is free, and
+it is wrong. A criterion that does not separate is not a criterion.
+
+## Shipped now, at the boundary
+
+`scripts/design_kit.py` verifies the AUTHORITATIVE meter on the front (64
+members x 2.3 s = ~147 s, paid once) and delivers a hull whose panels are
+MEASURED to close, or refuses and says by how much. `export_dxf` refuses over
+the bar and stamps its verdict into the file. So nothing unbuildable can leave
+the system today, even though the search cannot yet aim at buildability.
+
+**Owed:** the `non_developable_frac` steering row, appended by the constitution
+when `construction = sheet-developable`. Note the contract it must respect —
+`policy.rows_for` is a READER of a finished evaluation and measures nothing
+itself, so the quantity has to reach `Evaluation` first.
