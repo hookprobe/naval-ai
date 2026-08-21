@@ -158,3 +158,94 @@ plainly rather than substituting a family that is either the wrong shape
 (DSYHS: round bilge) or the wrong speed (NSS: planing). The honest position
 is that chine physics at Fn 0.26 is currently unvalidated, and the ladder
 should say so rather than imply otherwise.
+
+---
+
+# 2E FORENSIC HUNT — the gap is REAL, and there is a physical reason for it
+
+**Operator directive, 2026-08-21:** do not accept "no published series fills
+the gap" until a targeted hunt has been run and every candidate ranked. Run.
+
+## The ranked candidates
+
+| family | hard chine? | tested range | overlaps our Fn 0.26 / FnV 0.61? | data obtainable? |
+|---|---|---|---|---|
+| **DSYHS** | **no** — round-bilge canoe body | Fn 0.089–1.150 | **YES** | **YES — acquired, publisher MD5** |
+| **USCG + TUNS** | **yes** | **FnV 0.6–3.5** | **MARGINAL — our FnV is 0.609/0.621, the very bottom edge** | regression only (open); raw in SNAME Trans. 2006, paywalled |
+| Naples NSS | yes, developable-for-plywood | Fr 0.5–1.6 | no | no (Elsevier) |
+| NTUA double-chine | yes | Fn 0.5–0.9 | no | no (ResearchGate only) |
+| VWS hard-chine catamaran '89 | yes | high speed | no | no |
+| Fridsma | yes | planing | no | partial |
+| Series 62 / 65 | yes | planing | no | partial |
+| NPL / Series 64 | no — round bilge | Fn 0.2–1.2 | yes | partial |
+
+## THE PATTERN, AND IT IS THE ANSWER
+
+Read the "tested range" column. **Every hard-chine series starts at roughly
+Fn 0.5 or FnV 0.6.** Every series that reaches down to Fn 0.26 is
+**round-bilge**. The two conditions never co-occur.
+
+That is not a gap in the search — it is a fact about why people build hard
+chines. **A chine is normally chosen to generate dynamic lift**, so a
+hard-chine model gets towed at planing speeds because that is what it is
+for. Nobody tows a hard-chine hull at 5 knots, because nobody builds one for
+5 knots —
+
+**except us.** This product chooses a chine for BUILDABILITY: developable
+plywood panels a person can cut and stitch, at displacement speed. That
+combination — hard chine, Fn ~0.26, chosen for construction cost rather than
+lift — is precisely the corner of the design space the experimental
+literature skips.
+
+**So the gap is real, it is explainable, and it will not be closed by
+searching harder.**
+
+## The one lead worth money
+
+**USCG + TUNS.** Its volumetric Froude range (0.6–3.5) touches our design
+point at the bottom edge: our 10 m at 5 kn is **FnV 0.609**, our 6 m at 4 kn
+is **0.621**. The USCG series is four models from the 47 ft Motor Lifeboat
+with warped bottoms, deadrise 16.6–22.5 deg. The regression is open access
+(Polish Maritime Research); the underlying model data sit in SNAME
+Transactions 2006 behind a paywall. **If the raw offsets and resistance
+tables can be obtained, this is the only found family that both has a chine
+and reaches our speed.** It is one marginal point, not a validation set — but
+it is the only door not yet closed.
+
+## Consequence: 2E splits into two claims
+
+Recording them as one row is what let a solver benchmark be read as physical
+validation, and the same mistake must not be repeated here:
+
+| | status |
+|---|---|
+| **2E-solver** — the mesher and solver handle a chined hull without dying | **GREEN** (25/25 own hulls meshed, 24/25 smoke-converged) |
+| **2E-physics** — ΔR_chine at Fn ≈ 0.26 is validated against experiment | **RED — no experiment exists** |
+
+## What 2C does and does NOT mean
+
+**Corrected wording, 2026-08-21.** DSYHS validates a **displacement-hull
+hydrodynamic regime**, not our hulls. Decomposing:
+
+    R_T = R_F + R_form + R_wave + R_chine
+
+DSYHS gives real experimental evidence for **R_F** (median 90.4% of measured
+total reproduced) and, through its round-bilge geometry, for R_form and
+R_wave. It says **nothing about R_chine**. The unvalidated quantity is
+precisely
+
+    ΔR_chine = R_hard-chine − R_equivalent-round-bilge   at Fn ≈ 0.26
+
+## The next move, given the literature is empty
+
+Since no experiment exists, **isolate the unknown rather than substitute for
+it** (operator's proposal, adopted): generate Hull A (hard chine) and Hull B
+(smoothed round-bilge equivalent) holding L, displacement, LCB, waterplane
+area, wetted area and Cp fixed, and run both at Fn 0.20/0.23/0.26/0.30/0.35.
+ΔC_T between them **does not validate anything** — it QUANTIFIES exactly what
+the missing experiment would have to measure, and turns "chine physics is
+unvalidated" into a number with an error bar attached to it.
+
+That is scientifically cleaner than comparing two unrelated hulls, and it is
+the honest use of a solver whose numerics are anchored (2A, 2C, 2D) and whose
+geometry class is not.
