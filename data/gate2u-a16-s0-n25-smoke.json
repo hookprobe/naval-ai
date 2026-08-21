@@ -1,0 +1,269 @@
+{
+  "_README": "SMOKE-CONVERGENCE campaign (Gate 2U's 'converges' half). 200 LTS iterations per hull via run-case.sh SMOKE_ONLY, classified by post.smoke_verdict. NOT a settled-drag measurement and not a resistance number -- it answers only 'does this mesh begin to solve, or is it pathological', which checkMesh is measured blind to.",
+  "population_id": "a16/s0/n25",
+  "genome_arity": 16,
+  "seed": 0,
+  "split": "dev",
+  "domain": "SYMMETRIC half-domain (write_resistance_case symmetric=True)",
+  "not_comparable_to": "data/gate2u-a16-s0-n25-mesh.json, which writes FULL-domain cases (mesh_robustness.py has no symmetric flag). Both rates read 96.0% and that is a COINCIDENCE: the failing hulls are DIFFERENT (mesh h011, smoke h013), and h011 meshes clean symmetric (0 wrongly-oriented, skew 3.769) while failing full-domain (26 wrongly-oriented, skew 11.301) at the same derived n_layers=7. Do not add or compare these percentages.",
+  "n": 25,
+  "promoted": 24,
+  "smoke_rate_pct": 96.0,
+  "iterations": 200,
+  "scale": 1.0,
+  "speed": 2.57,
+  "np": 10,
+  "regime": "LTS",
+  "rows": [
+    {
+      "hull": 0,
+      "verdict": "promoted",
+      "iterations_seen": 200,
+      "min_tau": 1.18741e-05,
+      "max_skewness": "7.13822",
+      "wrong_oriented": "0",
+      "n_layers": "7",
+      "layers_achieved": "6.24"
+    },
+    {
+      "hull": 1,
+      "verdict": "promoted",
+      "iterations_seen": 200,
+      "min_tau": 3.24987e-05,
+      "max_skewness": "2.89689",
+      "wrong_oriented": "0",
+      "n_layers": "7",
+      "layers_achieved": "6.93"
+    },
+    {
+      "hull": 2,
+      "verdict": "promoted",
+      "iterations_seen": 200,
+      "min_tau": 1.34847e-05,
+      "max_skewness": "2.97749",
+      "wrong_oriented": "0",
+      "n_layers": "7",
+      "layers_achieved": "5.83"
+    },
+    {
+      "hull": 3,
+      "verdict": "promoted",
+      "iterations_seen": 200,
+      "min_tau": 1.06959e-05,
+      "max_skewness": "4.30145",
+      "wrong_oriented": "0",
+      "n_layers": "7",
+      "layers_achieved": "5.02"
+    },
+    {
+      "hull": 4,
+      "verdict": "promoted",
+      "iterations_seen": 200,
+      "min_tau": 4.95203e-05,
+      "max_skewness": "2.65106",
+      "wrong_oriented": "0",
+      "n_layers": "7",
+      "layers_achieved": "6.89"
+    },
+    {
+      "hull": 5,
+      "verdict": "promoted",
+      "iterations_seen": 200,
+      "min_tau": 2.85899e-05,
+      "max_skewness": "7.11195",
+      "wrong_oriented": "0",
+      "n_layers": "7",
+      "layers_achieved": "6.45"
+    },
+    {
+      "hull": 6,
+      "verdict": "promoted",
+      "iterations_seen": 200,
+      "min_tau": 1.42119e-05,
+      "max_skewness": "2.15177",
+      "wrong_oriented": "0",
+      "n_layers": "7",
+      "layers_achieved": "6.97"
+    },
+    {
+      "hull": 7,
+      "verdict": "promoted",
+      "iterations_seen": 200,
+      "min_tau": 1.71499e-05,
+      "max_skewness": "4.16071",
+      "wrong_oriented": "0",
+      "n_layers": "7",
+      "layers_achieved": "5.56"
+    },
+    {
+      "hull": 8,
+      "verdict": "promoted",
+      "iterations_seen": 200,
+      "min_tau": 2.43282e-05,
+      "max_skewness": "7.35404",
+      "wrong_oriented": "0",
+      "n_layers": "7",
+      "layers_achieved": "6.72"
+    },
+    {
+      "hull": 9,
+      "verdict": "promoted",
+      "iterations_seen": 200,
+      "min_tau": 1.1811e-05,
+      "max_skewness": "7.74408",
+      "wrong_oriented": "0",
+      "n_layers": "7",
+      "layers_achieved": "5.6"
+    },
+    {
+      "hull": 10,
+      "verdict": "promoted",
+      "iterations_seen": 200,
+      "min_tau": 1.78302e-05,
+      "max_skewness": "2.97471",
+      "wrong_oriented": "0",
+      "n_layers": "7",
+      "layers_achieved": "6.45"
+    },
+    {
+      "hull": 11,
+      "verdict": "promoted",
+      "iterations_seen": 200,
+      "min_tau": 1.18034e-05,
+      "max_skewness": "3.76889",
+      "wrong_oriented": "0",
+      "n_layers": "7",
+      "layers_achieved": "4.5"
+    },
+    {
+      "hull": 12,
+      "verdict": "promoted",
+      "iterations_seen": 200,
+      "min_tau": 1.92891e-05,
+      "max_skewness": "3.14135",
+      "wrong_oriented": "0",
+      "n_layers": "7",
+      "layers_achieved": "5.71"
+    },
+    {
+      "hull": 13,
+      "verdict": "refused-tau",
+      "iterations_seen": 47,
+      "min_tau": 7.7107e-13,
+      "max_skewness": "4.7623",
+      "wrong_oriented": "0",
+      "n_layers": "7",
+      "layers_achieved": "5"
+    },
+    {
+      "hull": 14,
+      "verdict": "promoted",
+      "iterations_seen": 200,
+      "min_tau": 1.94205e-05,
+      "max_skewness": "3.17831",
+      "wrong_oriented": "0",
+      "n_layers": "7",
+      "layers_achieved": "6.35"
+    },
+    {
+      "hull": 15,
+      "verdict": "promoted",
+      "iterations_seen": 200,
+      "min_tau": 3.73112e-05,
+      "max_skewness": "3.5083",
+      "wrong_oriented": "0",
+      "n_layers": "7",
+      "layers_achieved": "3.81"
+    },
+    {
+      "hull": 16,
+      "verdict": "promoted",
+      "iterations_seen": 200,
+      "min_tau": 1.6467e-05,
+      "max_skewness": "2.9976",
+      "wrong_oriented": "0",
+      "n_layers": "7",
+      "layers_achieved": "6.02"
+    },
+    {
+      "hull": 17,
+      "verdict": "promoted",
+      "iterations_seen": 200,
+      "min_tau": 1.65411e-05,
+      "max_skewness": "4.05297",
+      "wrong_oriented": "0",
+      "n_layers": "7",
+      "layers_achieved": "5.5"
+    },
+    {
+      "hull": 18,
+      "verdict": "promoted",
+      "iterations_seen": 200,
+      "min_tau": 2.81366e-05,
+      "max_skewness": "7.17275",
+      "wrong_oriented": "0",
+      "n_layers": "7",
+      "layers_achieved": "6.19"
+    },
+    {
+      "hull": 19,
+      "verdict": "promoted",
+      "iterations_seen": 200,
+      "min_tau": 2.02899e-05,
+      "max_skewness": "7.31367",
+      "wrong_oriented": "0",
+      "n_layers": "7",
+      "layers_achieved": "6.54"
+    },
+    {
+      "hull": 20,
+      "verdict": "promoted",
+      "iterations_seen": 200,
+      "min_tau": 1.52024e-05,
+      "max_skewness": "4.62651",
+      "wrong_oriented": "0",
+      "n_layers": "7",
+      "layers_achieved": "5.53"
+    },
+    {
+      "hull": 21,
+      "verdict": "promoted",
+      "iterations_seen": 200,
+      "min_tau": 8.09246e-06,
+      "max_skewness": "2.26666",
+      "wrong_oriented": "0",
+      "n_layers": "7",
+      "layers_achieved": "6.89"
+    },
+    {
+      "hull": 22,
+      "verdict": "promoted",
+      "iterations_seen": 200,
+      "min_tau": 2.89964e-05,
+      "max_skewness": "5.52146",
+      "wrong_oriented": "0",
+      "n_layers": "7",
+      "layers_achieved": "5.14"
+    },
+    {
+      "hull": 23,
+      "verdict": "promoted",
+      "iterations_seen": 200,
+      "min_tau": 4.09207e-05,
+      "max_skewness": "3.67628",
+      "wrong_oriented": "0",
+      "n_layers": "7",
+      "layers_achieved": "6.7"
+    },
+    {
+      "hull": 24,
+      "verdict": "promoted",
+      "iterations_seen": 200,
+      "min_tau": 1.64712e-05,
+      "max_skewness": "3.54636",
+      "wrong_oriented": "0",
+      "n_layers": "7",
+      "layers_achieved": "6.73"
+    }
+  ]
+}
