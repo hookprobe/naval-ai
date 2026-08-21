@@ -708,8 +708,14 @@ footer{padding:44px 0 66px; color:var(--ink-3); font-size:.85rem}
     family, where one grid is a number and a family is a verdict. A shortfall that falls under refinement is measurement; one that rises
     is geometry, and only the second is a reason to change the boat. <code>unroll.refold_convergence()</code> now returns
     PASSES / REFINING / NON_DEVELOPABLE / REFUSED on exactly that test.</p>
-    <p>This also answers the question the repo left open — whether the grammar admits a sub-bar hull at all. <strong>It does:</strong>
-    flare 0, forefoot 0, no deadrise warp, hard chine reaches 1.5 mm. The kit route is real, and the UI should route on the trend.</p>
+    <p>This also bears on the question the repo left open — whether the grammar admits a sub-bar hull at all. <strong>It does</strong>, and
+    the stronger answer came from a parallel search the same day: a hull measuring <strong>4.952 mm at the ladder's own 41 stations</strong>
+    with the full ladder passing and GM <strong>+2.545 m</strong>. The kit route is real.</p>
+    <p><strong>But it is a trade, and the trade is what the UI must show.</strong> Developability wants narrow and flat; stability wants
+    beam. An <em>unconstrained</em> refold search reached 3.900 mm on a hull with GM −0.35 m — it capsizes. Against the lowest-energy hull
+    from the same brief, the buildable one costs <strong>59 → 121 plywood sheets, 1825 → 3679 build hours, 412 → 595 Wh/nm</strong>.
+    That is a product decision for the builder to make with their eyes open, not a defect to hide behind a one-tap "fix it" button — which
+    is why the screen below now shows both boats and their bill.</p>
   </div>
 
   <div class="stack" style="margin-top:26px">
@@ -736,13 +742,18 @@ footer{padding:44px 0 66px; color:var(--ink-3); font-size:.85rem}
 │   └───────────────────────────────────────────────────────────────────────┘             │
 │                                                                                         │
 │   ┌──────────────────────────────────┐   ┌──────────────────────────────────┐           │
-│   │  TAKE ME BACK TO THE KIT         │   │  BUILD IT OVER A MOULD           │           │
+│   │  MAKE IT CUTTABLE                │   │  BUILD IT OVER A MOULD           │           │
 │   │                                  │   │                                  │           │
-│   │  Flare → 0, forefoot → 0.        │   │  Frames and battens, then sheet   │           │
-│   │  Costs you 0.4 kn and some       │   │  it. More work, more skill,       │           │
-│   │  interior volume. Preview the    │   │  any shape you like.              │           │
-│   │  changed boat before accepting.  │   │  Cut files: frames + patterns.    │           │
-│   │        [ preview → ]             │   │        [ continue → ]            │           │
+│   │  Flatter and beamier. We have a  │   │  Frames and battens, then sheet   │           │
+│   │  hull that cuts at 4.95 mm and   │   │  it. More work, more skill,       │           │
+│   │  is MORE stable (GM +2.55 m).    │   │  any shape you like.              │           │
+│   │                                  │   │  Cut files: frames + patterns.    │           │
+│   │  But it is a real trade:         │   │                                  │           │
+│   │    plywood   59 →  121 sheets    │   │                                  │           │
+│   │    build   1825 → 3679 hours     │   │                                  │           │
+│   │    energy   412 →  595 Wh/nm     │   │                                  │           │
+│   │  Twice the build, 44% thirstier. │   │                                  │           │
+│   │        [ see both → ]            │   │        [ continue → ]            │           │
 │   └──────────────────────────────────┘   └──────────────────────────────────┘           │
 │                                                                                         │
 │   We are not going to give you a DXF that produces a boat you cannot close up.          │
