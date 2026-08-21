@@ -106,3 +106,6 @@ full-suite-2.log
 full-suite-3.log
 full-suite-final.log
 full-suite-eod.log
+# DSYHS source spreadsheets: re-downloadable from 4TU with published MD5s
+# (see benchmarks/dsyhs.py). The EXTRACTED dsyhs_modelscale.json is tracked.
+data/refdata/dsyhs/*.xlsx
