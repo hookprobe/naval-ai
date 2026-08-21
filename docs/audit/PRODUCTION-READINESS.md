@@ -465,3 +465,29 @@ failure in this session: not a wrong measurement, but a search pointed at one.
   (the family costs several times more per step) but CONFIRMS every candidate
   on the family before returning it, and says so when the coarse count was
   flattering.
+
+## The DEFAULT path, re-measured on the family (2026-08-21)
+
+"0 of 7 cuttable on the default path" was first measured at n=41 — the very
+count shown above to be an unreliable instrument. It could have been an
+artefact in EITHER direction, so it was re-run with `refold_convergence`:
+
+    #0  (194.18,  82.66, 295.38)  NON_DEVELOPABLE
+    #1  (221.52, 105.83, 232.89)  NON_DEVELOPABLE
+    #2  (193.01,  81.18, 294.10)  NON_DEVELOPABLE
+    #3  (200.70, 105.11,  61.99)  REFINING
+    #4  (120.32,  80.32, 321.25)  NON_DEVELOPABLE
+    #5  (122.48, 296.17, 324.84)  NON_DEVELOPABLE
+    #6  (215.67, 206.25,  62.09)  REFINING
+    ------------------------------------------------
+    cuttable on the DEFAULT governed front: 0 / 7
+
+**The figure stands, and now on the right instrument.** Five are genuinely
+doubly curved; two are still falling at n=161 but are two orders of magnitude
+over the 5 mm bar, so neither is a near miss. Gate 6D stays RED and the kit
+route depends on the search job (`docs/BUILD-PLAN.md` §PU, item PU-3).
+
+Worth stating plainly because it is the shape of the whole problem: the
+optimiser is not *nearly* producing buildable hulls and losing them to a
+measurement. It is not producing them at all, because nothing in its
+objectives or constraints asks for one.
