@@ -486,3 +486,131 @@ def slam_pressure_band(deadrise_a_deg: float, deadrise_b_deg: float,
     a = slam_pressure(deadrise_a_deg, v_entry, rho)
     b = slam_pressure(deadrise_b_deg, v_entry, rho)
     return (min(a, b), max(a, b))
+
+
+# ---------------------------------------------------------------------------
+# ADDED RESISTANCE IN WAVES (gap F1)
+#
+# A product validated only in calm water is not validated for a mission. Every
+# resistance number this tree produces is a CALM-WATER number, so a boat sized
+# on it has no margin for the sea it was specified to work in.
+#
+# WHAT IS IMPLEMENTED, AND WHAT IS NOT. This is STAwave-1, the ITTC/ISO 15016
+# short-wave correlation for the added resistance of a ship in HEAD SEAS:
+#
+#     R_AWL = (1/16) * rho * g * H_S^2 * B * sqrt(B / L_BWL)
+#
+# with L_BWL the waterline length of the bow region. It is a CORRELATION, not
+# a radiated-energy or far-field drift calculation: it carries no RAO, no
+# spectrum and no heading dependence, and it is derived for the regime where
+# the ship's own motions are SMALL — short waves relative to the hull, where
+# added resistance is dominated by reflection at the bow rather than by
+# radiated energy from heave and pitch.
+#
+# ITS BASIS IS 'approx' IN `rules/review.py`'s SENSE. This project holds no
+# citable copy of ISO 15016 or the ITTC procedure, so the coefficient 1/16 and
+# the sqrt(B/L_BWL) form are reproduced from the standard's widely-published
+# shape and cannot be checked here against the text. That is stated rather
+# than implied, and it is why `basis` travels with the number.
+#
+# THE HONEST LIMIT, AND WHY THERE IS NO HEADING SWEEP DRESSED AS PHYSICS.
+# STAwave-1 is a head-sea formula. There is no defensible way to bend it to
+# bow, beam or following seas without a method this tree does not hold, so
+# `added_resistance_sweep` REFUSES every heading but head seas BY NAME instead
+# of returning a number with an invented cosine in it. A refusal that says
+# which method is missing is worth more than a curve nobody can defend.
+# ---------------------------------------------------------------------------
+
+#: Head seas, in `waves.encounter_omega`'s convention (180 deg = waves on the
+#: bow). The one heading STAwave-1 is derived for.
+HEAD_SEAS_DEG = 180.0
+
+#: Above this wavelength-to-length ratio the ship's own heave and pitch stop
+#: being small and reflection stops dominating, which is the assumption
+#: STAwave-1 rests on. Widely quoted for the short-wave regime; 'approx' here
+#: for the same reason the coefficient is.
+STAWAVE1_MAX_LAMBDA_OVER_LPP = 0.5
+
+
+def added_resistance_stawave1(hs_m: float, beam_m: float, l_bwl_m: float,
+                              rho: float | None = None,
+                              g: float | None = None) -> dict:
+    """Mean added resistance in HEAD SEAS [N], with its basis and domain.
+
+    Returns a dict rather than a float so the number cannot travel without
+    the tier and the assumption it rests on — honesty rule 1.
+    """
+    # THE FLUID AND GRAVITY COME FROM constants.py, never from a default
+    # typed here. The AST single-source fence caught exactly that on the
+    # first draft of this function: 1025.0 and 9.80665 as parameter defaults,
+    # which is four densities and three viscosities all over again.
+    from .constants import G_STANDARD, RHO_SEA_HOLTROP
+    rho = RHO_SEA_HOLTROP if rho is None else rho
+    g = G_STANDARD if g is None else g
+    for name, v in (("hs_m", hs_m), ("beam_m", beam_m), ("l_bwl_m", l_bwl_m),
+                    ("rho", rho), ("g", g)):
+        if not (isinstance(v, (int, float)) and math.isfinite(v) and v > 0.0):
+            raise ValueError(
+                f"added_resistance_stawave1: {name} = {v!r} is not a positive "
+                f"finite number; an unmeasurable input is refused, never "
+                f"defaulted")
+    r = (1.0 / 16.0) * rho * g * (hs_m ** 2) * beam_m * math.sqrt(
+        beam_m / l_bwl_m)
+    return {
+        "r_added_n": float(r),
+        "heading_deg": HEAD_SEAS_DEG,
+        "tier": "EMPIRICAL",
+        "basis": (
+            "STAwave-1 (ITTC / ISO 15016) short-wave head-sea correlation, "
+            "R_AWL = rho*g*H_S^2*B*sqrt(B/L_BWL)/16. A CORRELATION, not a "
+            "drift-force calculation: no RAO, no spectrum, no heading term. "
+            "Coefficient reproduced from the standard's published form; this "
+            "tree holds no citable copy, so the basis is 'approx'."),
+        "domain": (
+            f"head seas only ({HEAD_SEAS_DEG:g} deg) and the SHORT-WAVE "
+            f"regime where the ship's own motions are small "
+            f"(lambda/Lpp <~ {STAWAVE1_MAX_LAMBDA_OVER_LPP}). Outside it the "
+            f"radiated-energy contribution this formula omits is not small."),
+        "inputs": {"hs_m": float(hs_m), "beam_m": float(beam_m),
+                   "l_bwl_m": float(l_bwl_m), "rho": float(rho),
+                   "g": float(g)},
+    }
+
+
+def added_resistance_sweep(hs_m: float, beam_m: float, l_bwl_m: float,
+                           headings_deg=(180.0, 135.0, 90.0, 45.0, 0.0),
+                           rho: float | None = None,
+                           g: float | None = None) -> dict:
+    """Added resistance across a HEADING SWEEP — answered where a method
+    exists, REFUSED BY NAME where none does.
+
+    The sweep is the shape a mission needs (a boat does not only meet head
+    seas), and the refusals are the honest content of it: this tree holds one
+    head-sea correlation and nothing for oblique or following seas. Returning
+    a smooth curve here would mean inventing a heading dependence, which is
+    the failure this repository has spent its history recording.
+    """
+    out: dict = {"headings": {}, "answered": 0, "refused": 0}
+    for mu in headings_deg:
+        key = f"{float(mu):g}"
+        if abs(float(mu) - HEAD_SEAS_DEG) < 1e-9:
+            out["headings"][key] = added_resistance_stawave1(
+                hs_m, beam_m, l_bwl_m, rho, g)
+            out["answered"] += 1
+        else:
+            out["headings"][key] = {
+                "r_added_n": None,
+                "heading_deg": float(mu),
+                "tier": "UNMEASURED",
+                "refused": (
+                    f"no method in this tree covers {float(mu):g} deg. "
+                    f"STAwave-1 is a HEAD-SEA correlation and carries no "
+                    f"heading term; bending it with a cosine would be an "
+                    f"invented dependence, not a model. What is owed is a "
+                    f"drift-force method (Maruo/Salvesen far-field, or "
+                    f"Gerritsma-Beukelman radiated energy off the strip "
+                    f"damping) — and Tokyo-2015 KCS Case 2.10 data to judge "
+                    f"it against, which this tree does not hold either."),
+            }
+            out["refused"] += 1
+    return out

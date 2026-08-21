@@ -837,3 +837,68 @@ def test_multihull_clauses_a_b_are_measured_and_the_verdict_stays_open():
     assert "not declared" in joined and "mission.windage" in joined
     with pytest.raises(ValueError, match="n_hulls > 1"):
         H.multihull_gz_assessment(h, 2800.0, 0.9)     # monohull refused
+
+
+def test_added_resistance_in_waves_exists_and_REFUSES_what_it_cannot_model():
+    """Gap F1, CRITICAL. Every resistance number this tree produced was a
+    CALM-WATER number, so a boat sized on it carried no margin for the sea it
+    was specified to work in.
+
+    What landed is STAwave-1 — the ITTC/ISO 15016 short-wave HEAD-SEA
+    correlation, R_AWL = rho*g*H_S^2*B*sqrt(B/L_BWL)/16. It is a correlation,
+    not a drift-force calculation: no RAO, no spectrum, no heading term.
+
+    THE REFUSALS ARE THE CONTENT OF THE SWEEP. A boat does not only meet head
+    seas, so the sweep is the shape a mission needs — but this tree holds one
+    head-sea formula and nothing for oblique or following seas. Bending it
+    with a cosine would be an invented heading dependence, which is the
+    failure mode this repository has spent its history recording. So every
+    other heading is refused BY NAME, and the refusal says which method is
+    owed (Maruo/Salvesen far-field, or Gerritsma-Beukelman radiated energy)
+    and that the KCS Case 2.10 data to judge it against is not held either.
+    """
+    import pytest
+
+    from navalai.seakeeping import (HEAD_SEAS_DEG, added_resistance_stawave1,
+                                    added_resistance_sweep)
+
+    r = added_resistance_stawave1(hs_m=2.0, beam_m=3.2, l_bwl_m=10.0)
+    assert r["r_added_n"] > 0.0
+    assert r["heading_deg"] == HEAD_SEAS_DEG
+    assert r["tier"] == "EMPIRICAL", "a correlation must not badge as derived"
+    assert "approx" in r["basis"], (
+        "the basis must say the coefficient cannot be checked against the "
+        "standard's text here")
+    assert "lambda/Lpp" in r["domain"], "the validity domain must be stated"
+
+    # IT SCALES AS THE PHYSICS SAYS: quadratic in wave height, linear in beam
+    a = added_resistance_stawave1(hs_m=1.0, beam_m=3.2, l_bwl_m=10.0)
+    b = added_resistance_stawave1(hs_m=2.0, beam_m=3.2, l_bwl_m=10.0)
+    assert b["r_added_n"] == pytest.approx(4.0 * a["r_added_n"], rel=1e-12)
+    wide = added_resistance_stawave1(hs_m=1.0, beam_m=6.4, l_bwl_m=10.0)
+    # B * sqrt(B) = B^1.5, so doubling the beam multiplies by 2^1.5
+    assert wide["r_added_n"] == pytest.approx(
+        (2.0 ** 1.5) * a["r_added_n"], rel=1e-12)
+
+    # AN UNMEASURABLE INPUT IS REFUSED, NEVER DEFAULTED
+    for bad in ({"hs_m": 0.0}, {"hs_m": float("nan")}, {"beam_m": -1.0},
+                {"l_bwl_m": 0.0}):
+        kw = {"hs_m": 2.0, "beam_m": 3.2, "l_bwl_m": 10.0, **bad}
+        with pytest.raises(ValueError):
+            added_resistance_stawave1(**kw)
+
+    # THE SWEEP ANSWERS HEAD SEAS AND REFUSES THE REST, BY NAME
+    s = added_resistance_sweep(2.0, 3.2, 10.0)
+    assert s["answered"] == 1 and s["refused"] >= 3
+    head = s["headings"][f"{HEAD_SEAS_DEG:g}"]
+    assert head["r_added_n"] == pytest.approx(r["r_added_n"], rel=1e-12)
+    for key, entry in s["headings"].items():
+        if float(key) == HEAD_SEAS_DEG:
+            continue
+        assert entry["r_added_n"] is None, (
+            f"{key} deg returned a number from a head-sea correlation")
+        assert entry["tier"] == "UNMEASURED", (
+            "an unanswered heading must never read as a measurement")
+        assert "no method in this tree covers" in entry["refused"]
+        assert "Case 2.10" in entry["refused"], (
+            "the refusal must name the acceptance data that is also owed")
