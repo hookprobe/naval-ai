@@ -556,3 +556,47 @@ gone: after the seed fix, seed 23's sweep found a BETTER start than seed 11
 (6.3 mm against 7.3 mm) and still failed where seed 11 reached 2.31 mm. The
 local search is now the variance source, and keeping the top-K sweep candidates
 instead of the single best is the obvious next lever.
+
+## THE SIZE ENVELOPE, MEASURED (2026-08-22)
+
+m12 (12 m / 9 t) refused after 137345 draws with a best of 341.7 mm, which
+looked like a developability limit. It is not. A uniform sweep of 20000 draws
+inside the GOVERNED box at each size, refold scored at n=161:
+
+    mission        ladder-valid / 20000   best refold   clear the 5 mm bar
+    6 m  / 1.4 t          177                 2.8 mm            4
+    8 m  / 3 t             56                 3.2 mm            2
+    10 m / 6 t             24                21.2 mm            0
+    12 m / 9 t              0                  —                0
+
+**At 12 m NOTHING passes the ladder** — not "nothing buildable", nothing VALID.
+The mission is near-infeasible under the reference constitution before
+developability is asked a single question. Feasible density falls roughly 7x
+per 2 m of length: 177 -> 56 -> 24 -> <1 in 20000.
+
+## AND THIS IS WHY THE REFINEMENT STAGE EXISTS
+
+Read the 10 m row against what the lane actually delivered. ZERO of 20000
+random draws clear the bar at 10 m, and the lane has produced 1.92 mm and
+2.31 mm hulls there. So the buildable region at 10 m is REAL and RARER THAN
+1 IN 20000 — random sampling cannot find it, and directed refinement can.
+
+That retires "the search is flaky" as an explanation. A 2-of-5 hit rate is not
+a broken implementation; it is the honest yield of a directed search into a
+region that sparse, and the number belongs in the product's specification
+rather than in a bug report. It also says where effort pays: not more budget
+for the sweep — which is sampling a space where the answer statistically is not
+— but better descent from the basins the sweep does find.
+
+## WHAT THE PRODUCT MAY CLAIM
+
+    6-8 m    buildable hulls are findable by sampling alone (4 and 2 per 20000)
+    10 m     findable ONLY by refinement; 1.92 / 2.31 mm delivered, ~2 of 5 runs
+    12 m     the LADDER is the binding constraint, not the sheet. Requiring
+             9 t at 6 kn with 4 crew and 60 kWh inside a category-C box leaves
+             essentially no feasible hull to develop.
+
+The 12 m answer is a MISSION problem and must be reported as one. Telling a
+customer "your boat cannot be built from plywood" would be false; the truth is
+that this displacement, speed and crew combination has no compliant hull, and
+relaxing any of them reopens it.
