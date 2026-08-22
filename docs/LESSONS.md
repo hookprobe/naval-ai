@@ -414,3 +414,39 @@ queries that were run. State it as one — with the queries — or do not state 
 The positive claims in the same document were held to a far higher bar: DSYHS
 became evidence when the data was ACQUIRED and MD5-verified, not when the
 series was named. Absence deserved the same rigour and did not get it.
+
+## A WALL-CLOCK BUDGET MAKES A SEEDED RUN IRREPRODUCIBLE (2026-08-22)
+
+`scripts/design_kit.py`'s refinement stage ran `while time.time() - t0 <
+budget_s`. Everything else about it was deterministic: the seed sweep drew a
+fixed 35000 candidates and returned a byte-identical best (7.3 mm) on every
+attempt, the rng was seeded from the CLI seed, and the basin-restart fired zero
+times. The same seed still returned **2.31 mm, 2.31 mm, then 8.00 mm**.
+
+Nothing in the algorithm differed. The STEP COUNT did, because the loop is
+bounded by wall-clock and the machine had a CFD campaign on it. A fixed rng
+seed does not reproduce a run whose iteration count depends on load.
+
+**The damage is to the EXPERIMENT, not the product.** A reliability A/B was run
+twice against a "2 of 5" baseline, and the comparison was between two different
+experiments: the change under test was confounded with however many steps each
+run happened to get. Any success rate quoted from a wall-clock budget is partly
+a statement about what else the box was doing.
+
+So:
+
+- a user-facing budget in SECONDS is right — someone wants a bounded wait;
+- an EXPERIMENT must bound the same loop in STEPS, or it measures the machine.
+
+`--refine-steps` exists for that, and wall-clock stays the default.
+
+**The general form, and this repository keeps finding it in other clothes:**
+an instrument that looks like it measures the thing, and partly measures how
+the measurement was taken. The same session produced two others — an 87%
+"settled" rate from comparing the wrong pair of averaging windows (the correct
+pair gives 18.8%), and a Gate 2U ledger whose own `verify` command counted
+RAN-TO-BUDGET (83.3%) while the watermark was the SETTLED rate (17.6%). In all
+three the machinery was sound and the instrument was not.
+
+Before quoting a rate, ask what would change it besides the thing it is
+supposed to be measuring.
