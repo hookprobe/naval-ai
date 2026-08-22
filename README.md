@@ -197,7 +197,7 @@ different Gate 2M numbers came to circulate at once (gap J1).
 | Gate 6P | the product surface: scope guards refuse what does not govern, and the mission contract binds | `tests/test_gapfix_product.py` (28 tests) |
 | Gate L | one limit, one home; scantling derived from the rule | `tests/test_limits_single_source.py` (22 tests) |
 | Gate L2 | numeric literals are categorised, not banned: an AST fence that catches a physical constant in any expression position | `tests/test_constpolicy.py` (43 tests) |
-| Gate 6M | manufacturing back end: nesting, BOM, developability controls, export receipt (refold onto the hull: Gate 6D) | `tests/test_manufacturing.py` (45 tests) |
+| Gate 6M | manufacturing back end: nesting, BOM, developability controls, export receipt (refold onto the hull: Gate 6D) | `tests/test_manufacturing.py` (46 tests) |
 | Gate R3 | the ladder is climbable: L2 escalation, monotone tier promotion, honest refusal of L3 | `tests/test_ladder.py` (8 tests) |
 | Gate S | the MDO spine: one terminal state per genome, append-only archive, legal-transition graph, unmeasured metric refused | `tests/test_pipeline.py` (48 tests) |
 | Gate SG | the gap queue: findings are work items, not prose | `tests/test_gaps.py` (23 tests) |
