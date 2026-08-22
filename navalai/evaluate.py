@@ -278,6 +278,20 @@ class Evaluation:
     # into INFEASIBLE_G with a named violation rather than a pass.
     non_developable_frac: float = float("nan")
     unaccounted_frac: float = 0.0   # displacement with no declared position
+    # HOW MUCH GM THE UNACCOUNTED MASS'S ASSUMED HEIGHT IS WORTH, in metres of
+    # GM per metre the lump is moved. MEASURED 2026-08-22 and it is why this
+    # field exists: on the delivered 6 t kit, `unaccounted` is 2430 kg — 40.5%
+    # of the displacement — placed at `provisional.vcg_m`, i.e. assumed to sit
+    # exactly at the centroid of the other 60%. Its `sigma_kg` is 0.5*gap, a
+    # MASS uncertainty that does reach GM's sigma. Its POSITION carries no
+    # uncertainty at all, and moving it +-0.60 m moves GM by -+0.243 m —
+    # comparable to the whole propagated GM sigma of 0.288 m.
+    #
+    # On that hull it changes nothing: GM 2.15 m against a 0.45 m floor. On a
+    # hull near its floor it decides the verdict, which is exactly when nobody
+    # should be reading an assumption as a measurement. 0.0 means no
+    # unaccounted mass, not "no sensitivity".
+    gm_per_m_of_unaccounted: float = 0.0
     # LWL is a GRAMMAR INPUT, not a computed result: it is sitting in `params`
     # before a single line of physics runs, so it is carried on EVERY return
     # path — including the L0 refusal, where it used to stay at the 0.0 default
@@ -820,6 +834,23 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
             trim_refusal = str(e)
     gm_m = gm(hs, kg) - fsc
     gm_l_m = gm_long(hs, kg)
+
+    # WHAT THE UNACCOUNTED MASS'S ASSUMED HEIGHT IS WORTH, in metres of GM per
+    # metre. Re-aggregates the SAME items with that one lump moved 1 m and
+    # reads the GM difference; it does NOT re-float, because the hull's
+    # displacement and therefore KM are unchanged by moving a mass vertically.
+    # Cheap (one aggregate, one gm) and it turns an assumption into a number a
+    # caller can badge instead of inherit.
+    gm_per_m_unacc = 0.0
+    if unaccounted_frac > 0.0:
+        try:
+            moved = [it if it.id != "unaccounted"
+                     else replace(it, z_m=it.z_m + 1.0) for it in agg.items]
+            gm_moved = gm(hs, aggregate(moved).vcg_above_keel(t_design)) - fsc
+            if is_real_finite(gm_moved) and is_real_finite(gm_m):
+                gm_per_m_unacc = float(gm_moved - gm_m)
+        except Exception:                                       # noqa: BLE001
+            gm_per_m_unacc = 0.0
     # List from a transverse offset: tan(phi) = TCG / GM. Zero while every item
     # sits on centreline, non-zero as soon as an arrangement is asymmetric.
     heel = (math.degrees(math.atan(agg.tcg_m / gm_m))
@@ -1429,6 +1460,7 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
         weights=wb, masses=agg, gm_m=gm_m, gm_l_m=gm_l_m,
         trim_deg=trim, list_deg=heel, resistance=res, energy=en, g=g,
         ply_thickness_m=t_ply, unaccounted_frac=unaccounted_frac,
+        gm_per_m_of_unaccounted=gm_per_m_unacc,
         hull_lwl_m=float(p["LWL"]), rules=rules_rep, params=np.asarray(params),
         non_developable_frac=_non_developable_frac(hull),
         eval_ms=(time.perf_counter() - t0) * 1e3, badges=badges,

@@ -1709,3 +1709,58 @@ def test_a_refold_verdict_is_a_FAMILY_and_the_cut_file_gate_uses_it():
         parts_b += split_panel(pan, PLY_THICKNESS_M)
     with _pytest.raises(ValueError, match="NON_DEVELOPABLE"):
         export_dxf(nest(parts_b), "/dev/null", hull=hull_bad)
+
+
+def test_the_bom_lists_what_a_stitch_and_glue_boat_is_actually_made_of():
+    """MEASURED 2026-08-22 on a kit this lane actually delivered.
+
+    The BOM carried 120 lines of marine ply and 21 of laminated timber AND
+    NOTHING ELSE. No glass tape, no copper stitching wire, no epoxy line —
+    `epoxy_kg` existed as a scalar on the report and never became a
+    purchasable row.
+
+    A builder handed that BOM cannot buy the boat. Stitch-and-glue IS the tape
+    and the wire; the plywood is only the part that gets cut. A bill of
+    materials missing the material the method is named after is not a bill of
+    materials.
+
+    Quantities are DERIVED from `_seam_length_m` — the hull's own keel, chine,
+    sheer, bulkhead and transom girths, integrated on `edge_curves` because a
+    spline through the 41 stations is 94.95 mm off on the sheer — so a hull
+    with more bulkheads buys more tape without anyone editing a number.
+    """
+    import numpy as np
+
+    from navalai import engineer, unroll
+    from navalai.engineer import assess
+    from navalai.geometry import Hull
+
+    d = _kit_corner_params()
+    hull = Hull(np.array([d[n] for n in unroll.grammar.NAMES], float))
+    rep = assess(hull, wl=0.0)
+
+    by_part = {b.part: b for b in rep.bom}
+    for want in ("glass-tape", "stitching-wire", "epoxy"):
+        assert want in by_part, (
+            f"{want!r} is absent from the BOM — the boat cannot be bought")
+        line = by_part[want]
+        assert line.sheet is None, f"{want} is not a sheet good"
+        assert line.note, f"{want} must carry its derivation"
+
+    # The seam length is the hull's, not a constant.
+    seams = engineer._seam_length_m(hull, rep.bulkheads)
+    assert set(seams) == {"keel", "chine", "sheer", "bulkheads", "transom"}
+    total = sum(seams.values())
+    assert total > 0.0
+    # every seam scales with the boat: a longer hull has a longer chine
+    longer = dict(d)
+    longer["LWL"] = d["LWL"] * 1.5
+    hull2 = Hull(np.array([longer[n] for n in unroll.grammar.NAMES], float))
+    seams2 = engineer._seam_length_m(hull2, rep.bulkheads)
+    assert seams2["chine"] > seams["chine"] * 1.2, (
+        "seam length must follow the geometry, not be a declared constant")
+
+    # ONE epoxy number. The line and the report field are the same product,
+    # never two estimates — this codebase's recurring defect.
+    assert f"{rep.epoxy_kg:.0f} kg" in by_part["epoxy"].note or \
+        abs(engineer.EPOXY_KG_PER_M2 * rep.panel_area_m2 - rep.epoxy_kg) < 1.0

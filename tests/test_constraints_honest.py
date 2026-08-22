@@ -777,3 +777,68 @@ def test_target_sampled_and_delivered_cp_are_three_named_numbers():
     ev2 = evaluate(reference_params(), MissionSpec())
     assert ev2.targets["cp_target"] is None
     assert ev2.targets["cp_conformant"] is None
+
+
+def test_the_assumed_height_of_the_unaccounted_mass_is_a_declared_number():
+    """MEASURED 2026-08-22 on a kit the lane delivered.
+
+    `evaluate` balances the mission's displacement target against the modelled
+    budget with a synthetic `unaccounted` item — on the 6 t reference kit that
+    is 2430 kg, **40.5% of the displacement**. It is placed at
+    `provisional.vcg_m`: assumed to sit exactly at the centroid of the other
+    60%. That is the least-informative choice and defensible as one.
+
+    Its `sigma_kg` is 0.5*gap, a MASS uncertainty, and that does reach GM's
+    sigma. Its POSITION carried no uncertainty at all — and moving it +-0.60 m
+    moves GM by -+0.243 m, comparable to the entire propagated GM sigma of
+    0.288 m. So 40% of the boat sat at an assumed height whose consequence was
+    nowhere on the record.
+
+    On that hull it decides nothing: GM 2.15 m against a 0.45 m floor. On a
+    hull near its floor it decides the verdict, and that is precisely when an
+    assumption must not be read as a measurement.
+
+    THE INVARIANT: moving a mass vertically does not change displacement, so KM
+    is unchanged and dGM/dz is exactly -(that mass's fraction of the total).
+    The receipt must equal -unaccounted_frac, which is what makes it checkable
+    rather than merely plausible.
+    """
+    import numpy as np
+
+    from navalai.evaluate import evaluate
+    from navalai.mission import MissionSpec
+
+    x = mid_params()
+    ev = evaluate(x, MissionSpec())
+    assert ev.unaccounted_frac > 0.0, (
+        "this fixture must carry unaccounted mass for the test to mean anything")
+
+    # dGM/dz == -(fraction of total mass), to the tolerance of one re-aggregate
+    assert ev.gm_per_m_of_unaccounted == pytest.approx(
+        -ev.unaccounted_frac, abs=1e-3), (
+        ev.gm_per_m_of_unaccounted, -ev.unaccounted_frac)
+
+    # and it is REPORTED, not merely computed: a caller must be able to badge
+    # the stability tiles provisional while this stands.
+    assert ev.gm_per_m_of_unaccounted < 0.0, (
+        "raising the unaccounted mass must LOWER GM; a positive sensitivity "
+        "would mean the lever is inverted")
+
+
+def test_no_unaccounted_mass_means_no_sensitivity_not_a_missing_one():
+    """0.0 must mean "there is none", never "it was not measured".
+
+    The companion to the test above: a design whose declared items already
+    exceed the mission target has no `unaccounted` item, and the receipt is
+    then genuinely zero rather than absent.
+    """
+    import numpy as np
+
+    from navalai.evaluate import evaluate
+    from navalai.mission import MissionSpec
+
+    # A tiny displacement target: the modelled budget alone overshoots it, so
+    # no gap item is created.
+    ev = evaluate(mid_params(), MissionSpec(displacement_target_kg=1.0))
+    assert ev.unaccounted_frac == 0.0
+    assert ev.gm_per_m_of_unaccounted == 0.0

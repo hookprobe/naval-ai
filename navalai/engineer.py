@@ -37,6 +37,7 @@ scarph flanges on every joint are cut.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, replace
 
 import numpy as np
@@ -50,6 +51,58 @@ from .unroll import (hull_panels, min_strakes, nest, rect_parts,
                      split_panel)
 
 EPOXY_KG_PER_M2 = 1.4             # sheathing + fillets + coats, approx
+
+# ---------------------------------------------------------------------------
+# STITCH-AND-GLUE CONSUMABLES
+#
+# MEASURED 2026-08-22, on a kit this lane actually delivered: the BOM carried
+# 120 lines of marine ply and 21 of laminated timber AND NOTHING ELSE. No glass
+# tape, no stitching wire, no epoxy line — `epoxy_kg` existed as a scalar on
+# the report and never became a purchasable row. A builder handed that BOM
+# cannot buy the boat: stitch-and-glue IS the tape and the wire, and the
+# plywood is only the part that gets cut.
+#
+# Every constant below is `approx` amateur ply-epoxy practice, declared here
+# and nowhere else, and every QUANTITY is DERIVED from the hull's own seam
+# length rather than typed. What that buys: a hull with more bulkheads or a
+# longer chine gets more tape without anyone editing a number.
+TAPE_WIDTH_M = 0.100              # 100 mm biaxial tape, the common stock width
+TAPE_LAYERS_PER_SEAM = 2          # one inside over the fillet, one outside
+GLASS_AREAL_KG_PER_M2 = 0.300     # 300 g/m^2 tape
+STITCH_PITCH_M = 0.150            # a copper stitch every 150 mm of seam
+STITCH_WIRE_M_PER_STITCH = 0.12   # a 120 mm loop, twisted and later removed
+
+
+def _seam_length_m(hull: Hull, bulkheads: int) -> dict[str, float]:
+    """Taped seam length, by seam, from the hull's own edge curves.
+
+    The joints a stitch-and-glue boat is MADE of: the two bottom panels meet
+    at the keel, each bottom meets its topside at the chine, each topside meets
+    the deck at the sheer, and every bulkhead and the transom is taped round
+    its girth. Arc lengths are integrated along `edge_curves`, which is the
+    analytic form — `unroll` records that a spline through the 41 stations is
+    94.95 mm off on the sheer, so a seam length taken from the station sample
+    would be wrong in the same way.
+    """
+    keel, chine, sheer = (np.asarray(c, float) for c in hull.edge_curves())
+
+    def arc(c: np.ndarray) -> float:
+        return float(np.sum(np.linalg.norm(np.diff(c, axis=0), axis=1)))
+
+    lwl = float(hull.x[-1] - hull.x[0])
+    girths = []
+    for xv in np.linspace(0.0, lwl, bulkheads + 2)[1:-1]:
+        sec = np.asarray(hull._section_at(float(xv)), dtype=float)
+        girths.append(2.0 * arc(sec))          # both halves of the section
+    transom = 2.0 * float(np.hypot(hull.y_sheer[0],
+                                   hull.z_sheer[0] - hull.z_keel[0]))
+    return {
+        "keel": arc(keel),                     # one centreline seam
+        "chine": 2.0 * arc(chine),             # port + starboard
+        "sheer": 2.0 * arc(sheer),             # deck joint, both sides
+        "bulkheads": float(sum(girths)),
+        "transom": transom,
+    }
 HOURS_PER_M2 = 15.0               # amateur build, approx
 BULKHEAD_SPACING_M = 1.4
 FRAME_WEB_M = 0.10                # laminated ring-frame web depth, approx
@@ -308,6 +361,47 @@ def assess(hull: Hull, wl: float = 0.0,
                 area_m2=p.area_m2() + p.scarph_m2,
                 source_panel=p.source_panel, sheet=sheet_of.get(label),
                 note=note))
+
+    # ---- STITCH-AND-GLUE CONSUMABLES, derived from the seam length -------
+    # NOT sheet goods and NOT optional: these are what the method IS. Emitted
+    # as purchasable lines because a scalar on the report is not something a
+    # builder can order. Quantities derive from `_seam_length_m`, so a hull
+    # with more bulkheads buys more tape without anyone editing a number.
+    seams = _seam_length_m(hull, bulkheads)
+    seam_m = float(sum(seams.values()))
+    seam_note = ", ".join(f"{k} {v:.1f} m" for k, v in seams.items())
+
+    tape_m = seam_m * TAPE_LAYERS_PER_SEAM
+    tape_area = tape_m * TAPE_WIDTH_M
+    bom.append(BomLine(
+        part="glass-tape", qty=1, material="biaxial glass tape",
+        thickness_mm=0.0, area_m2=round(tape_area, 3),
+        source_panel="seams", sheet=None,
+        note=(f"{tape_m:.1f} m of {TAPE_WIDTH_M * 1e3:.0f} mm tape "
+              f"({TAPE_LAYERS_PER_SEAM} layers over {seam_m:.1f} m of seam: "
+              f"{seam_note}), {tape_area * GLASS_AREAL_KG_PER_M2:.1f} kg at "
+              f"{GLASS_AREAL_KG_PER_M2 * 1e3:.0f} g/m^2 — approx, amateur "
+              f"ply-epoxy practice")))
+
+    stitches = int(math.ceil(seam_m / STITCH_PITCH_M))
+    bom.append(BomLine(
+        part="stitching-wire", qty=1, material="copper wire",
+        thickness_mm=0.0, area_m2=0.0, source_panel="seams", sheet=None,
+        note=(f"{stitches} stitches at {STITCH_PITCH_M * 1e3:.0f} mm pitch = "
+              f"{stitches * STITCH_WIRE_M_PER_STITCH:.0f} m of wire; twisted "
+              f"then removed after the fillets cure — approx")))
+
+    # ONE epoxy number, not two. `epoxy_kg` on the report and this line are the
+    # SAME product of EPOXY_KG_PER_M2 and `area`; a second estimate here would
+    # be the defect this codebase keeps finding.
+    bom.append(BomLine(
+        part="epoxy", qty=1, material="epoxy resin + hardener",
+        thickness_mm=0.0, area_m2=round(area, 2), source_panel="whole boat",
+        sheet=None,
+        note=(f"{EPOXY_KG_PER_M2 * area:.0f} kg over {area:.1f} m^2 at "
+              f"{EPOXY_KG_PER_M2} kg/m^2 — sheathing, fillets and coats "
+              f"TOGETHER, approx. The same number the report carries as "
+              f"epoxy_kg, not a second estimate")))
 
     # Frames are NOT sheet goods. Counting a 2.5 x 1.0 m blank per ring frame
     # would inflate the sheet count with a fiction; they are laminated timber

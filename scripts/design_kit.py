@@ -207,6 +207,9 @@ def main(argv=None) -> int:
     ap.add_argument("--refine-s", type=float, default=900.0,
                     help="seconds of buildability refinement when no "
                          "front member unrolls within the bar")
+    ap.add_argument("--no-escalate", action="store_true",
+                    help="refuse an empty front instead of retrying "
+                         "at a larger budget (diagnostic)")
     ap.add_argument("--no-refine", action="store_true",
                     help="skip refinement and report the refusal")
     ap.add_argument("--ungoverned", action="store_true",
@@ -243,10 +246,36 @@ def main(argv=None) -> int:
     print(f"\nNSGA-II under the box (pop {a.pop} x {a.gens} gens) ...")
     res = pareto_front(m, pop=a.pop, gens=a.gens, seed=a.seed, policy=policy)
     X = np.atleast_2d(res.X)
+    # AN EMPTY FRONT IS A BUDGET SYMPTOM BEFORE IT IS A VERDICT, so escalate
+    # once before refusing. MEASURED 2026-08-22 on the 6 m / 1400 kg / cat D
+    # dayboat, where the feasible region is 0.8% of the governed box (32 of
+    # 4000 draws pass the full ladder — `gm` and `rules` bind, a small boat is
+    # tender against category D's 0.35 m GM floor):
+    #
+    #     pop  24 x  20 gens =    480 evals -> front   0   <- the old default
+    #     pop  48 x  40 gens =   1920 evals -> front  17
+    #     pop  64 x  80 gens =   5120 evals -> front  29
+    #     pop  96 x 120 gens =  11520 evals -> front  96
+    #
+    # At 0.8% density a 24-member initial population is all-infeasible with
+    # probability ~0.82, so NSGA-II never gets a foothold and reports an empty
+    # front for a mission that has 96 answers. Refusing there told the user
+    # their boat is impossible when the truth was that the search was too
+    # small — the same shape as the roundness episode, one level up.
+    if X.size == 0 and not a.no_escalate:
+        big_pop, big_gens = max(a.pop * 2, 48), max(a.gens * 4, 80)
+        print(f"  empty front at pop {a.pop} x {a.gens} — ESCALATING to "
+              f"pop {big_pop} x {big_gens} before refusing")
+        res = pareto_front(m, pop=big_pop, gens=big_gens, seed=a.seed,
+                           policy=policy)
+        X = np.atleast_2d(res.X)
     if X.size == 0:
-        print("EMPTY FRONT — no design satisfied the constraints. This is a "
-              "REFUSAL, not a kit. Raise --pop/--gens before concluding the "
-              "space is empty (see this module's docstring).")
+        print("EMPTY FRONT after escalation — no design satisfied the "
+              "constraints. This is a REFUSAL, not a kit. The binding rows "
+              "are worth reading before concluding the mission is "
+              "impossible: a tender small craft usually fails `gm` against "
+              "its category floor, which is a MISSION problem (more beam, "
+              "less height) and not a search one.")
         return 2
     scored = [(evaluate(x, m, policy=policy), x) for x in X]
     scored = [(ev, x) for ev, x in scored if ev.ok and ev.energy]
