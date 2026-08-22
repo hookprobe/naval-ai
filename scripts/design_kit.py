@@ -97,7 +97,8 @@ POP, GENS = 64, 80
 _REFINE_STATIONS = max(unroll.REFOLD_COUNTS)
 
 
-def _refine(x0, mission, policy, box, budget_s, seed, max_steps=0):
+def _refine(x0, mission, policy, box, budget_s, seed, max_steps=0,
+            no_restart=False):
     """(1+1)-ES on the AUTHORITATIVE refold meter, subject to the full ladder.
 
     Lexicographic: feasibility first, then refold. A step that breaks the
@@ -345,7 +346,7 @@ def _refine(x0, mission, policy, box, budget_s, seed, max_steps=0):
             # the baseline and reported "top-K does not help" about a mechanism
             # that never ran. A step count does not depend on what a step costs.
             if (stall >= STALL_STEPS and len(pool) > 1
-                    and restarts < MAX_RESTARTS):
+                    and restarts < MAX_RESTARTS and not no_restart):
                 pool.pop(0)
                 best, bx = pool[0]
                 sigma, stall = 0.10, 0
@@ -371,6 +372,8 @@ def main(argv=None) -> int:
                          "user wants a bounded wait; an EXPERIMENT must "
                          "use steps, or the step count varies with machine "
                          "load and a fixed seed stops reproducing")
+    ap.add_argument("--no-restart", action="store_true",
+                    help="disable the basin restart — THE CONTROL ARM. A restart-vs-no-restart comparison is only valid when both arms share a STEP budget; the original 2-of-5 baseline was measured on wall-clock, whose step count varies with machine load")
     ap.add_argument("--no-escalate", action="store_true",
                     help="refuse an empty front instead of retrying "
                          "at a larger budget (diagnostic)")
@@ -514,7 +517,8 @@ def main(argv=None) -> int:
               f"{a.refine_s:.0f} s ...")
         seed_ev, seed_x = min(scored, key=lambda t: t[0].energy.wh_per_nm)
         got, refine_best, refine_x = _refine(
-            seed_x, m, policy, box, a.refine_s, a.seed, a.refine_steps)
+            seed_x, m, policy, box, a.refine_s, a.seed, a.refine_steps,
+            a.no_restart)
         if got is not None:
             x, ev, worst_ok = got
             verified = [(ev, x, worst_ok)]
