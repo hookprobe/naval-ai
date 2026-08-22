@@ -98,7 +98,7 @@ _REFINE_STATIONS = max(unroll.REFOLD_COUNTS)
 
 
 def _refine(x0, mission, policy, box, budget_s, seed, max_steps=0,
-            no_restart=False):
+):
     """(1+1)-ES on the AUTHORITATIVE refold meter, subject to the full ladder.
 
     Lexicographic: feasibility first, then refold. A step that breaks the
@@ -216,57 +216,30 @@ def _refine(x0, mission, policy, box, budget_s, seed, max_steps=0,
     sweep_draws = 35000
     sweep_s = min(0.6 * budget_s, 900.0)
     n_sweep = 0
-    # KEEP THE TOP FEW BASINS, NOT THE TOP ONE. MEASURED 2026-08-22 over five
-    # seeds on the flagship mission at a fixed budget: 2 of 5 delivered, and
-    # THE SEED DID NOT PREDICT WHICH.
+    # NO BASIN RESTART. It was built, measured over three arms at a fixed
+    # 280-step budget on five seeds, and it LOSES:
     #
-    #     seed   sweep best   outcome
-    #       11      7.3 mm    2.31 mm
-    #       23      6.3 mm    FAILED     <- the best start of all five
-    #       37     24.8 mm    FAILED
-    #       51      9.2 mm    4.59 mm    <- a worse start
-    #       67      9.9 mm    FAILED
+    #     seed   no restart   capped restart   uncapped
+    #       11     2.31 ok        refused        11.1
+    #       23     5.9           3.88 ok         3.88 ok
+    #       37     8.8           5.9            26.8
+    #       51     4.59 ok       8.9            24.9
+    #       67     5.2          14.8            11.6
+    #            ---------      ---------      ---------
+    #              2 of 5        1 of 5         1 of 5
     #
-    # Once the seed phase was made load-independent the LOCAL SEARCH became the
-    # variance source: one starting point decided the run, and the basin that
-    # looks best at the sweep is not the basin that descends. The sweep already
-    # evaluates 35000 candidates, so keeping the best few costs nothing and
-    # gives the ES somewhere to go when it stalls.
-    pool: list = []
-    POOL_K = 5
-    # ~40 non-improving steps is ~4 min at n=161: long enough not to abandon a
-    # live basin, short enough to leave a dead one inside a 25-minute budget.
-    STALL_STEPS = 40
-    # AT MOST ONE RESTART, and the reason is arithmetic rather than taste.
+    # It kills two boats to rescue one. The idea was sound — escape a basin
+    # that is dead — but a 40-step silence cannot tell a DEAD basin from a SLOW
+    # one, and getting that wrong costs more than getting it right saves. Seeds
+    # 11 and 51 were descending perfectly well and were dragged out of it.
     #
-    # A restart splits the remaining step budget. With 280 steps and a 40-step
-    # stall rule, an unbounded restart chain fragments the run into ~40-70 step
-    # pieces, and NONE of them is long enough to descend: MEASURED over five
-    # seeds, every seed that restarted three or four times FAILED, including
-    # two that had DELIVERED BOATS on a single basin —
-    #
-    #     seed 11   2.31 mm -> 11.1 mm   (3 restarts)
-    #     seed 51   4.59 mm -> 24.9 mm   (3 restarts)
-    #     seed 37   failed  -> 26.8 mm   (4 restarts, pool exhausted)
-    #
-    # while the one seed that IMPROVED used exactly one —
-    #
-    #     seed 23   failed  ->  3.88 mm  (1 restart)
-    #
-    # The mechanism only ever had one job: escape a basin that is genuinely
-    # dead. Doing it once buys that; doing it repeatedly trades a whole budget
-    # for a sequence of budgets too small to be worth anything, and a 40-step
-    # silence cannot reliably tell a dead basin from a slow one.
-    MAX_RESTARTS = 1
-    restarts = 0
+    # Recorded rather than deleted silently so it is not reinvented: the
+    # missing piece is a stall test that measures whether the basin is still
+    # yielding, not merely whether it has been quiet.
     while n_sweep < sweep_draws and time.time() - t0 < sweep_s:
         cand = lo + rng.random(len(lo)) * width
         s_ = score(cand)
         n_sweep += 1
-        if s_[0] == 0.0 and s_[1] < 1e5:
-            pool.append((s_, cand))
-            pool.sort(key=lambda t: t[0])
-            del pool[POOL_K:]
         if s_ < best:
             best, bx = s_, cand
     print(f"    seed sweep: {n_sweep} draws"
@@ -317,7 +290,7 @@ def _refine(x0, mission, policy, box, budget_s, seed, max_steps=0,
     #
     # Wall-clock stays the DEFAULT because a user wants a bounded wait; a step
     # budget is what an experiment must use.
-    sigma, stall = 0.10, 0
+    sigma = 0.10
     steps = 0
     while ((steps < max_steps) if max_steps else
            (time.time() - t0 < budget_s)):
@@ -325,34 +298,12 @@ def _refine(x0, mission, policy, box, budget_s, seed, max_steps=0,
         cand = np.clip(bx + rng.normal(0, sigma, len(lo)) * width, lo, hi)
         s = score(cand)
         if s < best:
-            best, bx, sigma, stall = s, cand, min(sigma * 1.2, 0.25), 0
+            best, bx, sigma = s, cand, min(sigma * 1.2, 0.25)
             got = accept(bx)
             if got is not None:
                 return got, best, bx
         else:
             sigma = max(sigma * 0.995, 0.004)
-            stall += 1
-            # STALLED: N consecutive steps with no improvement. Restart from the
-            # next basin the sweep found rather than spend the rest of the
-            # budget inside a dead one.
-            #
-            # COUNTED, NOT INFERRED FROM SIGMA. The first version triggered on
-            # `sigma <= 0.0041`, and MEASURED that needs 637 consecutive
-            # non-improving steps — sixty minutes of it — inside a
-            # twenty-five-minute budget. After a FULL budget of pure
-            # non-improvement sigma reaches 0.0262, six times the threshold. It
-            # could not fire, and the log confirmed it fired zero times: the
-            # pool was collected and never used, so the A/B would have measured
-            # the baseline and reported "top-K does not help" about a mechanism
-            # that never ran. A step count does not depend on what a step costs.
-            if (stall >= STALL_STEPS and len(pool) > 1
-                    and restarts < MAX_RESTARTS and not no_restart):
-                pool.pop(0)
-                best, bx = pool[0]
-                sigma, stall = 0.10, 0
-                restarts += 1
-                print(f"    stalled — restarting from the next sweep basin "
-                      f"({best[1]:.2f} mm) — the one restart this run gets")
     return None, best, bx
 
 
@@ -372,8 +323,6 @@ def main(argv=None) -> int:
                          "user wants a bounded wait; an EXPERIMENT must "
                          "use steps, or the step count varies with machine "
                          "load and a fixed seed stops reproducing")
-    ap.add_argument("--no-restart", action="store_true",
-                    help="disable the basin restart — THE CONTROL ARM. A restart-vs-no-restart comparison is only valid when both arms share a STEP budget; the original 2-of-5 baseline was measured on wall-clock, whose step count varies with machine load")
     ap.add_argument("--no-escalate", action="store_true",
                     help="refuse an empty front instead of retrying "
                          "at a larger budget (diagnostic)")
@@ -517,8 +466,7 @@ def main(argv=None) -> int:
               f"{a.refine_s:.0f} s ...")
         seed_ev, seed_x = min(scored, key=lambda t: t[0].energy.wh_per_nm)
         got, refine_best, refine_x = _refine(
-            seed_x, m, policy, box, a.refine_s, a.seed, a.refine_steps,
-            a.no_restart)
+            seed_x, m, policy, box, a.refine_s, a.seed, a.refine_steps)
         if got is not None:
             x, ev, worst_ok = got
             verified = [(ev, x, worst_ok)]
