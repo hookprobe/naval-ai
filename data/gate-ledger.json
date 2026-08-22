@@ -69,13 +69,13 @@
   "Gate 2U": {
     "metric": "% of a random valid-hull batch that meshes AND CONVERGES unattended, one rung per hull. CONVERGES is settled_drag's verdict, not 'ran to budget'. Two sub-rates, because they are different claims: RAN-TO-BUDGET 88.2% (15/17) and SETTLED 17.6% (3/17, i.e. 3 of the 15 runners).",
     "watermark": 17.6,
-    "units": "percent of the batch that MESHED AND SOLVED (why=='ok'), N=18, _MAX_LAYERS=10 — the PRE-FIX configuration. NOT a mesh-clean rate; the mesh-clean rate on the same rows is 7/20 = 35.0%",
+    "units": "percent of the batch that MESHED AND SETTLED — settled_drag's verdict, components discipline (total AND pressure AND viscous each inside the 5% drift bar). N=17, _MAX_LAYERS=10, the PRE-FIX configuration. The mesh-clean rate on the same rows is 7/20 = 35.0%. CORRECTED 2026-08-22: this field previously read \"percent of the batch that MESHED AND SOLVED (why=='ok'), N=18\" — a DIFFERENT quantity. why=='ok' is 15/18 = 83.3% on the same rows, so the label described the watermark as 4.7x better than it is. The watermark was always the SETTLED rate the `metric` field describes; only this label was wrong.",
     "better_is": "up",
     "bar": ">= 95% of 200 hulls (NavalArchAI-BuildPlan.md Phase 2)",
     "measured_utc": "2026-08-20",
     "measured_on": "N=17 of a 25-hull draw, seed 0, 16-PARAMETER genome, speed 2.0 m/s, scale 1.0, np=10, LTS 2000 iterations. Per-row stl_sha256; rows in data/gate2u-16gene-solve.json; RAW force histories in data/force-histories/ (19 cases, merged via post.forces_path) so the verdict is auditable and re-scorable. Mesh-only half N=25 in gate2u-16gene-mesh.json. Stopped at N=17 by an operator power decision; h017's partial excluded, not scored as failure.",
     "owner": "cfd-engineer",
-    "verify": "python scripts/mesh_robustness.py --n 25 --seed 0 --np 10 --solve 2 --json /tmp/g2u_verify.json   (then count why=='ok'; WITHOUT --solve classify() can never return 'ok' and the count is 0)",
+    "verify": "RE-DERIVE THE WATERMARK from the raw histories, which is where the settled verdict lives: score data/force-histories/g2u_h*.csv with the components rule — total AND pressure AND viscous, last window against the PREVIOUS window, normalised by the total's mean, against post.DRIFT_TOL — giving 3 of 16 scorable = 18.8%, which reproduces the 3/17 = 17.6% watermark (N differs: 16 CSVs are scorable, 17 hulls were run). CORRECTED 2026-08-22: this field previously read \"python scripts/mesh_robustness.py --n 25 --seed 0 --np 10 --solve 2 --json /tmp/g2u_verify.json (then count why=='ok')\". That counts RAN-TO-BUDGET and reproduces 83.3%, NOT this entry's watermark — anyone following it would have read a 4.7x improvement that never happened. That command is still how to take a NEW measurement on the current code; it is not how to reproduce this one. CAVEAT: the CSVs carry no case metadata, so only the DRIFT half of settled_drag's verdict is reproducible from them, not the flow-through half.",
     "review_by": "2026-09-06",
     "why_red": [
       "BLOCK 1 (2026-08-20) RETIRED BOTH MESH FAILURES: h011 and h012 mesh CLEAN at",
