@@ -872,10 +872,18 @@ def test_solar_generation_is_badged_as_unmeasured_not_left_unbadged():
         "solar generation must be badged; an unbadged quantity is the one a "
         "basis-coloured UI renders as confident")
     _tier, _sigma, basis = ev.badges["solar_kwh_day"]
-    assert basis == SIGMA_PLACEHOLDER, (
-        f"solar generation is a product of three sigma-less constants, so its "
-        f"basis must be {SIGMA_PLACEHOLDER!r} — declaring the absence — and "
-        f"never a propagated or measured one; got {basis!r}")
+    # "assumed", NOT SIGMA_PLACEHOLDER, and the difference is the point. That
+    # constant means propagation was ATTEMPTED and found no input sigma, which
+    # `tests/test_phase1.py` calls a defect at this call site and refuses. Solar
+    # generation is a product of three DECLARED CONSTANTS with no propagation
+    # attempted — which is what "assumed" means in this vocabulary. A first
+    # version of this test asserted the louder label and the phase-1 fence
+    # caught it.
+    assert basis == "assumed", (
+        f"solar generation is a product of three sigma-less declared "
+        f"constants, so its basis is 'assumed' — never measured, never "
+        f"propagated, and not SIGMA_PLACEHOLDER either; got {basis!r}")
+    assert basis != SIGMA_PLACEHOLDER
 
     # The things DOWNSTREAM of it keep their propagated bounds: declaring the
     # generation unmeasured must not quietly downgrade what was propagatable.

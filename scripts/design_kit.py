@@ -124,6 +124,31 @@ def _refine(x0, mission, policy, box, budget_s, seed, max_steps=0):
                 viol = sum(max(0.0, min(v, 1e3))
                            for v in (ev.g or {}).values())
                 return (viol if viol > 0 else 1.0, 1e6)
+            # SCORED ON THE FINEST COUNT, AND THE FAMILY IS THE DEFENCE.
+            #
+            # MEASURED 2026-08-22: a single count is gameable AT ANY COUNT. The
+            # score moved from n=41 to n=161 to kill the sagitta exploit, and
+            # the search promptly found a new one — a hull reading 38.86 /
+            # 39.58 / 2.23 / 40.04 mm at 41 / 81 / 161 / 321. About 40 mm
+            # everywhere except the single count being optimised.
+            #
+            # THE OBVIOUS FIX DOES NOT WORK, and it was tried and measured
+            # rather than reasoned about: scoring the WORST of (41, 161) would
+            # make acceptance unreachable, because n=41 reads high for GOOD
+            # hulls by design — that is the polyline sagitta. Every hull this
+            # lane has actually delivered scores 10.9-18.4 mm on worst-of-two
+            # against a 5 mm gate:
+            #
+            #     m06  family (13.5, 6.01, 3.09)  PASSES -> worst-of-two 13.50
+            #     m08  family (18.4, 1.79, 1.47)  PASSES -> worst-of-two 18.40
+            #     s11  family (10.93, 9.52, 2.31) PASSES -> worst-of-two 10.93
+            #
+            # So the defence stays where it already was and where it already
+            # works: `accept` confirms every candidate on the FAMILY, which
+            # refused the exploit above before it could be stamped. The cost is
+            # a wasted budget when the search chases a resonance — a
+            # performance problem, not a wrong answer, and the near-miss file
+            # now records what it chased.
             h = Hull(x, n_stations=_REFINE_STATIONS)
             r = max(float(np.max(unroll.refold_surface_deviation_mm(h, pan)))
                     for pan in unroll.hull_panels(h))
@@ -148,7 +173,18 @@ def _refine(x0, mission, policy, box, budget_s, seed, max_steps=0):
         try:
             return unroll.refold_convergence(grammar.named(x),
                                              bar_mm=REFOLD_BAR_MM)
-        except Exception:
+        except Exception as exc:                                # noqa: BLE001
+            # SAY SO. MEASURED 2026-08-22: this returned a bare None and
+            # `accept` prints its reason only when the verdict is not None, so
+            # a candidate that REACHED 2.2 mm against a 5 mm bar was refused
+            # with no rejection line, no reason and no trace — the run simply
+            # ended saying "no member unrolls within 5 mm" while the search had
+            # found one. An error rendering as a decision, for the third time
+            # in this file today.
+            print(f"    family check FAILED on a {best[1]:.2f} mm candidate: "
+                  f"{type(exc).__name__}: {exc} — this is an ERROR, not a "
+                  f"verdict, and the candidate is neither accepted nor "
+                  f"honestly refused")
             return None
 
     t0 = time.time()
@@ -200,6 +236,28 @@ def _refine(x0, mission, policy, box, budget_s, seed, max_steps=0):
     # ~40 non-improving steps is ~4 min at n=161: long enough not to abandon a
     # live basin, short enough to leave a dead one inside a 25-minute budget.
     STALL_STEPS = 40
+    # AT MOST ONE RESTART, and the reason is arithmetic rather than taste.
+    #
+    # A restart splits the remaining step budget. With 280 steps and a 40-step
+    # stall rule, an unbounded restart chain fragments the run into ~40-70 step
+    # pieces, and NONE of them is long enough to descend: MEASURED over five
+    # seeds, every seed that restarted three or four times FAILED, including
+    # two that had DELIVERED BOATS on a single basin —
+    #
+    #     seed 11   2.31 mm -> 11.1 mm   (3 restarts)
+    #     seed 51   4.59 mm -> 24.9 mm   (3 restarts)
+    #     seed 37   failed  -> 26.8 mm   (4 restarts, pool exhausted)
+    #
+    # while the one seed that IMPROVED used exactly one —
+    #
+    #     seed 23   failed  ->  3.88 mm  (1 restart)
+    #
+    # The mechanism only ever had one job: escape a basin that is genuinely
+    # dead. Doing it once buys that; doing it repeatedly trades a whole budget
+    # for a sequence of budgets too small to be worth anything, and a 40-step
+    # silence cannot reliably tell a dead basin from a slow one.
+    MAX_RESTARTS = 1
+    restarts = 0
     while n_sweep < sweep_draws and time.time() - t0 < sweep_s:
         cand = lo + rng.random(len(lo)) * width
         s_ = score(cand)
@@ -239,7 +297,7 @@ def _refine(x0, mission, policy, box, budget_s, seed, max_steps=0):
 
     got = accept(bx)
     if got is not None:
-        return got, best
+        return got, best, bx
 
     # STEP-BOUNDED, NOT WALL-CLOCK BOUNDED, when a step budget is given.
     #
@@ -269,7 +327,7 @@ def _refine(x0, mission, policy, box, budget_s, seed, max_steps=0):
             best, bx, sigma, stall = s, cand, min(sigma * 1.2, 0.25), 0
             got = accept(bx)
             if got is not None:
-                return got, best
+                return got, best, bx
         else:
             sigma = max(sigma * 0.995, 0.004)
             stall += 1
@@ -286,13 +344,15 @@ def _refine(x0, mission, policy, box, budget_s, seed, max_steps=0):
             # pool was collected and never used, so the A/B would have measured
             # the baseline and reported "top-K does not help" about a mechanism
             # that never ran. A step count does not depend on what a step costs.
-            if stall >= STALL_STEPS and len(pool) > 1:
+            if (stall >= STALL_STEPS and len(pool) > 1
+                    and restarts < MAX_RESTARTS):
                 pool.pop(0)
                 best, bx = pool[0]
                 sigma, stall = 0.10, 0
+                restarts += 1
                 print(f"    stalled — restarting from the next sweep basin "
-                      f"({best[1]:.2f} mm), {len(pool) - 1} left after this")
-    return None, best
+                      f"({best[1]:.2f} mm) — the one restart this run gets")
+    return None, best, bx
 
 
 def main(argv=None) -> int:
@@ -410,6 +470,7 @@ def main(argv=None) -> int:
     verified = []
     refined = False
     refine_best = None
+    refine_x = None
     best_miss = (float("inf"), None)
     for e, xx in scored:
         try:
@@ -452,8 +513,8 @@ def main(argv=None) -> int:
               f"REFINING on the authoritative meter for up to "
               f"{a.refine_s:.0f} s ...")
         seed_ev, seed_x = min(scored, key=lambda t: t[0].energy.wh_per_nm)
-        got, refine_best = _refine(seed_x, m, policy, box,
-                                   a.refine_s, a.seed, a.refine_steps)
+        got, refine_best, refine_x = _refine(
+            seed_x, m, policy, box, a.refine_s, a.seed, a.refine_steps)
         if got is not None:
             x, ev, worst_ok = got
             verified = [(ev, x, worst_ok)]
@@ -471,6 +532,26 @@ def main(argv=None) -> int:
         reached = (refine_best[1] if refine_best is not None
                    and refine_best[0] == 0.0 and refine_best[1] < 1e5
                    else None)
+        # HAND BACK THE NEAR MISS. A refusal that keeps its best hull to itself
+        # cannot be investigated: MEASURED 2026-08-22, a run reported "the
+        # refinement reached 2.2 mm" against a 5 mm bar and then discarded the
+        # hull, so the reason it was refused anyway could not be reproduced
+        # without re-running the whole search. The closest candidate is the
+        # single most useful artefact a failed run has.
+        if refine_best is not None and refine_best[0] == 0.0 \
+                and refine_best[1] < 1e5 and refine_x is not None:
+            import json as _json
+            (out / "near_miss.json").write_text(_json.dumps({
+                "why": "refused — kept for inspection, NOT a deliverable",
+                "refold_mm_at_finest": float(refine_best[1]),
+                "bar_mm": float(REFOLD_BAR_MM),
+                "params": [float(v) for v in refine_x],
+                "named": {k: float(v) for k, v in
+                          grammar.named(refine_x).items()},
+            }, indent=1))
+            print(f"  near miss saved -> {out}/near_miss.json "
+                  f"({refine_best[1]:.2f} mm) — inspect it rather than "
+                  f"re-running the search")
         print(f"  NO MEMBER unrolls within {REFOLD_BAR_MM:.0f} mm. "
               f"Front's best {best_miss[0]:.1f} mm"
               + (f"; the refinement reached {reached:.1f} mm"

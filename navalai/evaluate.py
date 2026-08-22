@@ -1351,16 +1351,23 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
         # there is nothing to propagate and INVENTING one is the defect the
         # `range_solar_nm_day` comment above already refuses to commit.
         #
-        # So this declares the ABSENCE instead. `SIGMA_PLACEHOLDER` is the
-        # module's own "no input sigma was supplied — DO NOT USE", and the
-        # magnitude below is the same placeholder fraction `energy` already
-        # uses for exactly this situation — it is NOT a measurement of the
-        # spread, and the basis string is what a reader and a badge must act
-        # on. A summer figure at 45N is also a BEST CASE presented as an
+        # So it is badged "assumed", and the distinction matters — a first
+        # attempt used SIGMA_PLACEHOLDER and tests/test_phase1.py refused it,
+        # correctly. That constant means "no input sigma was supplied — DO NOT
+        # USE": propagation was ATTEMPTED and found nothing, which the fence
+        # calls a defect at this call site. Solar generation is not that. It is
+        # a product of three DECLARED CONSTANTS and nobody attempted to
+        # propagate anything, which is precisely what `assumed` means here and
+        # in the badge vocabulary the UI colours on. Reaching for the louder
+        # label mis-stated which kind of not-knowing this is.
+        #
+        # The magnitude is therefore DECORATION and the basis says so. Note too
+        # that 4.2 kWh/m^2/day at 45N in SUMMER is a BEST CASE presented as an
         # average: the same array in a Danube winter makes a fraction of it,
         # and nothing in the model knows the season.
-        "solar_kwh_day": ("L1", en.solar_kwh_day * WH_PER_NM_PLACEHOLDER_SIGMA_FRAC,
-                          SIGMA_PLACEHOLDER),
+        "solar_kwh_day": ("L1",
+                          en.solar_kwh_day * WH_PER_NM_PLACEHOLDER_SIGMA_FRAC,
+                          "assumed"),
     }
     # WHICH resistance method answered, and why the other one did not (gap
     # E1b). Not in `values` below: it is a method receipt, not a quantity, and
