@@ -491,3 +491,68 @@ Worth stating plainly because it is the shape of the whole problem: the
 optimiser is not *nearly* producing buildable hulls and losing them to a
 measurement. It is not producing them at all, because nothing in its
 objectives or constraints asks for one.
+
+---
+
+# THE 2026-08-22 CAMPAIGN — what running it four ways found
+
+An operator-granted 30-hour window, spent on simulation and validation rather
+than on reading the code. Two campaigns ran throughout: a Gate 2U
+re-measurement on the shipped configuration, and a repeatability sweep of the
+kit lane across four missions.
+
+**The sweep is what earned its keep.** The lane had delivered ONE buildable
+boat, which looked like a working product. Running four missions found two
+failures with completely different causes, and a third defect surfaced only
+because a fifth run repeated a mission that had already succeeded.
+
+## Nine defects, and what they have in common
+
+| # | defect | why it mattered |
+|---|---|---|
+| 1 | BOM had no tape, wire or epoxy LINE | stitch-and-glue IS the tape; a builder could not buy the boat |
+| 2 | 40% of displacement at an assumed height, no declared consequence | moving it ±0.60 m moves GM ∓0.243 m, ≈ the whole propagated sigma |
+| 3 | empty front reported as an impossible mission | the region is 0.8% dense; pop 24 seeds it ~18% of the time |
+| 4 | `solar_kwh_day` served UNBADGED | a basis-coloured UI renders an unbadged number as measured |
+| 5 | acceptance test trapped in the ES improvement branch | REFUSED a mission while holding a 1.5 mm answer |
+| 6 | Gate 2U's own `verify` reproduced 83.3%, not its 17.6% watermark | anyone re-measuring would read a 4.7x improvement that never happened |
+| 7 | ledger `units` mislabelled the watermark's quantity | same entry, same shape |
+| 8 | an `AttributeError` served as `source: refused` | "refused" is an HONEST state here; a crash inherited its credibility |
+| 9 | seed sweep counted SECONDS | 35% fewer draws under load -> 29.9 mm instead of 7.3 mm -> a refusal instead of a boat |
+
+**Not one was a physics error.** The unroller is exact on developables
+(cylinder 0.0000 mm). The KG conversion was always right in the product path.
+Viscous drag settles on all 16 archived hulls. What failed, every time, was the
+layer that REPORTS — and specifically the places where "we cannot answer" and
+"here is an answer" look identical.
+
+## Two failures that were NOT the same
+
+- **m10 (10 m / 6 t) — a load artefact.** Delivered 1.92 mm at 3000 s on a
+  quiet machine; refused at 1500 s under a concurrent CFD campaign. Same seed.
+  Fixed (defect 9), and confirmed by re-running under the same load: the
+  draw-counted sweep found 7.3 mm again — the quiet machine's figure — and the
+  lane delivered 2.31 mm.
+- **m12 (12 m / 9 t) — possibly the envelope.** 137345 draws, no time cap, best
+  341.7 mm. That is not budget starvation. It is the first evidence that
+  DEVELOPABILITY MAY DEGRADE WITH SIZE: a bigger, fuller hull needs beam and
+  depth, and flat sheet takes less of both. If a size trend confirms it, the
+  honest output is a PRODUCT ENVELOPE — "sheet-ply kits work up to about X
+  metres" — beside the RCD length ceiling, not a bug to keep hunting.
+
+## What the lane actually is
+
+Not a deterministic pipeline. A **stochastic search with a budget-dependent
+success rate**, and the claim has to carry both numbers. Delivered so far:
+
+    m06  6 m / 1.4 t   3.09 mm   family (13.5, 6.01, 3.09)  PASSES
+    m08  8 m / 3 t     1.47 mm   family (18.4, 1.79, 1.47)  PASSES
+    m10  10 m / 6 t    1.92 mm   family (17.07, 6.6, 1.92)  PASSES
+    m10  10 m / 6 t    2.31 mm   (repeat, different seed)   PASSES
+
+Every one falls under refinement, which is the signature of a coarse-count
+artefact clearing rather than curvature. And the variance has MOVED rather than
+gone: after the seed fix, seed 23's sweep found a BETTER start than seed 11
+(6.3 mm against 7.3 mm) and still failed where seed 11 reached 2.31 mm. The
+local search is now the variance source, and keeping the top-K sweep candidates
+instead of the single best is the obvious next lever.
