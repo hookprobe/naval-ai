@@ -179,10 +179,35 @@ def _refine(x0, mission, policy, box, budget_s, seed):
     sweep_draws = 35000
     sweep_s = min(0.6 * budget_s, 900.0)
     n_sweep = 0
+    # KEEP THE TOP FEW BASINS, NOT THE TOP ONE. MEASURED 2026-08-22 over five
+    # seeds on the flagship mission at a fixed budget: 2 of 5 delivered, and
+    # THE SEED DID NOT PREDICT WHICH.
+    #
+    #     seed   sweep best   outcome
+    #       11      7.3 mm    2.31 mm
+    #       23      6.3 mm    FAILED     <- the best start of all five
+    #       37     24.8 mm    FAILED
+    #       51      9.2 mm    4.59 mm    <- a worse start
+    #       67      9.9 mm    FAILED
+    #
+    # Once the seed phase was made load-independent the LOCAL SEARCH became the
+    # variance source: one starting point decided the run, and the basin that
+    # looks best at the sweep is not the basin that descends. The sweep already
+    # evaluates 35000 candidates, so keeping the best few costs nothing and
+    # gives the ES somewhere to go when it stalls.
+    pool: list = []
+    POOL_K = 5
+    # ~40 non-improving steps is ~4 min at n=161: long enough not to abandon a
+    # live basin, short enough to leave a dead one inside a 25-minute budget.
+    STALL_STEPS = 40
     while n_sweep < sweep_draws and time.time() - t0 < sweep_s:
         cand = lo + rng.random(len(lo)) * width
         s_ = score(cand)
         n_sweep += 1
+        if s_[0] == 0.0 and s_[1] < 1e5:
+            pool.append((s_, cand))
+            pool.sort(key=lambda t: t[0])
+            del pool[POOL_K:]
         if s_ < best:
             best, bx = s_, cand
     print(f"    seed sweep: {n_sweep} draws"
@@ -214,20 +239,40 @@ def _refine(x0, mission, policy, box, budget_s, seed):
 
     got = accept(bx)
     if got is not None:
-        return got
+        return got, best
 
-    sigma = 0.10
+    sigma, stall = 0.10, 0
     while time.time() - t0 < budget_s:
         cand = np.clip(bx + rng.normal(0, sigma, len(lo)) * width, lo, hi)
         s = score(cand)
         if s < best:
-            best, bx, sigma = s, cand, min(sigma * 1.2, 0.25)
+            best, bx, sigma, stall = s, cand, min(sigma * 1.2, 0.25), 0
             got = accept(bx)
             if got is not None:
-                return got
+                return got, best
         else:
             sigma = max(sigma * 0.995, 0.004)
-    return None
+            stall += 1
+            # STALLED: N consecutive steps with no improvement. Restart from the
+            # next basin the sweep found rather than spend the rest of the
+            # budget inside a dead one.
+            #
+            # COUNTED, NOT INFERRED FROM SIGMA. The first version triggered on
+            # `sigma <= 0.0041`, and MEASURED that needs 637 consecutive
+            # non-improving steps — sixty minutes of it — inside a
+            # twenty-five-minute budget. After a FULL budget of pure
+            # non-improvement sigma reaches 0.0262, six times the threshold. It
+            # could not fire, and the log confirmed it fired zero times: the
+            # pool was collected and never used, so the A/B would have measured
+            # the baseline and reported "top-K does not help" about a mechanism
+            # that never ran. A step count does not depend on what a step costs.
+            if stall >= STALL_STEPS and len(pool) > 1:
+                pool.pop(0)
+                best, bx = pool[0]
+                sigma, stall = 0.10, 0
+                print(f"    stalled — restarting from the next sweep basin "
+                      f"({best[1]:.2f} mm), {len(pool) - 1} left after this")
+    return None, best
 
 
 def main(argv=None) -> int:
@@ -338,6 +383,7 @@ def main(argv=None) -> int:
           f"member(s) (~{2.3 * len(scored):.0f} s) ...")
     verified = []
     refined = False
+    refine_best = None
     best_miss = (float("inf"), None)
     for e, xx in scored:
         try:
@@ -380,7 +426,8 @@ def main(argv=None) -> int:
               f"REFINING on the authoritative meter for up to "
               f"{a.refine_s:.0f} s ...")
         seed_ev, seed_x = min(scored, key=lambda t: t[0].energy.wh_per_nm)
-        got = _refine(seed_x, m, policy, box, a.refine_s, a.seed)
+        got, refine_best = _refine(seed_x, m, policy, box,
+                                   a.refine_s, a.seed)
         if got is not None:
             x, ev, worst_ok = got
             verified = [(ev, x, worst_ok)]
@@ -388,8 +435,21 @@ def main(argv=None) -> int:
             print(f"  REFINED to {worst_ok:.2f} mm — buildable, ladder-valid")
 
     if not verified:
-        print(f"  NO MEMBER of the front unrolls within {REFOLD_BAR_MM:.0f} mm."
-              f" Best was {best_miss[0]:.1f} mm.")
+        # REPORT WHAT THE SEARCH REACHED, NOT WHAT THE FRONT HAD. MEASURED
+        # 2026-08-22 in the reliability sweep: this line printed the FRONT's
+        # best -- computed before refinement ever ran -- so a run whose ES had
+        # reached 6.3 mm against a 5 mm bar reported "Best was 80.1 mm". A
+        # reader would conclude the search was 16x away when it was within
+        # 1.3x, and would go looking for a different hull instead of a longer
+        # budget.
+        reached = (refine_best[1] if refine_best is not None
+                   and refine_best[0] == 0.0 and refine_best[1] < 1e5
+                   else None)
+        print(f"  NO MEMBER unrolls within {REFOLD_BAR_MM:.0f} mm. "
+              f"Front's best {best_miss[0]:.1f} mm"
+              + (f"; the refinement reached {reached:.1f} mm"
+                 if reached is not None else
+                 "; the refinement found nothing feasible") + ".")
         print("  REFUSED — this is Gate 6D, and a cut file is not produced.")
         # AND DO NOT SAY "RAISE THE BUDGET". That was this script's first
         # message here and it is WRONG: NSGA-II's objectives and constraints
