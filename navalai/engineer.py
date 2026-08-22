@@ -73,6 +73,74 @@ STITCH_PITCH_M = 0.150            # a copper stitch every 150 mm of seam
 STITCH_WIRE_M_PER_STITCH = 0.12   # a 120 mm loop, twisted and later removed
 
 
+def assembly_sequence(rep: "EngineerReport",
+                      seams: dict[str, float]) -> tuple[dict, ...]:
+    """The ORDER the parts go together, derived from the parts themselves.
+
+    `docs/BUILDER-UX.html` lists "assembly manual" as ABSENT and the build
+    package the operator specified ends in an assembly sequence. A kit that
+    ships 45 numbered plywood parts and no order of operations is a pile of
+    plywood.
+
+    WHAT THIS IS AND IS NOT. It is the ORDER, with the parts and consumables
+    each step consumes read off the BOM this same report produced — so a hull
+    with eight bulkheads gets eight in step 2 without anyone editing a list.
+    It is NOT technique, NOT a schedule, and NOT certification: stitch-and-glue
+    practice varies by builder and none of it is in this repository's evidence
+    base. Every step is `basis="practice"`, the weakest word this codebase has,
+    and the hours come from `build_hours` — one number, apportioned, never a
+    second estimate.
+
+    The ORDER itself is forced by the method rather than chosen: panels cannot
+    be stitched before they are cut, fillets cannot go in before the shell is
+    stitched to shape, tape cannot go over an uncured fillet, and the deck
+    closes the box that the bulkheads have to be reachable inside.
+    """
+    by_src: dict[str, int] = {}
+    for b in rep.bom:
+        by_src[b.source_panel] = by_src.get(b.source_panel, 0) + b.qty
+    hull_parts = sum(v for k, v in by_src.items()
+                     if k.startswith(("bottom", "topside")))
+    seam_m = float(sum(seams.values()))
+
+    # The hour split is a PROPORTION of `build_hours`, not new numbers: cutting
+    # and fairing dominate an amateur ply build, and the shares below are
+    # practice figures declared here and nowhere else.
+    shares = (0.30, 0.08, 0.17, 0.20, 0.10, 0.15)
+    h = rep.build_hours
+    steps = [
+        ("cut and label every part",
+         f"{sum(by_src.values())} pieces over {rep.ply_sheets} sheets; the "
+         f"nest is the cut file, and each part carries its layer name",
+         "the DXF; ply"),
+        ("erect the bulkheads and transom on a strongback",
+         f"{rep.bulkheads} bulkheads + transom; they are the moulds the shell "
+         f"is stitched around and must be reachable from inside afterwards",
+         "bulkhead-*, transom"),
+        ("stitch the shell",
+         f"{hull_parts} hull pieces wired at {STITCH_PITCH_M * 1e3:.0f} mm "
+         f"pitch over {seam_m:.0f} m of seam (keel {seams['keel']:.1f} m, "
+         f"chine {seams['chine']:.1f} m); scarph the strake joints first",
+         "bottom-*, topside-*, stitching-wire"),
+        ("fillet the seams inside, then tape",
+         f"thickened epoxy fillets, then {TAPE_LAYERS_PER_SEAM} layers of "
+         f"{TAPE_WIDTH_M * 1e3:.0f} mm tape; the wire comes out once the "
+         f"fillets have cured",
+         "epoxy, glass-tape"),
+        ("frames and deck",
+         f"{rep.frames} laminated ring frames, then the deck closes the box",
+         "frame-*, deck"),
+        ("sheathe and coat",
+         f"outside seams taped and the hull coated; {rep.epoxy_kg:.0f} kg of "
+         f"epoxy covers sheathing, fillets and coats TOGETHER",
+         "epoxy, glass-tape"),
+    ]
+    return tuple(
+        {"step": i, "do": what, "detail": detail, "consumes": consumes,
+         "hours": round(h * frac), "basis": "practice"}
+        for i, ((what, detail, consumes), frac) in enumerate(zip(steps, shares), 1))
+
+
 def _seam_length_m(hull: Hull, bulkheads: int) -> dict[str, float]:
     """Taped seam length, by seam, from the hull's own edge curves.
 
@@ -163,6 +231,10 @@ class EngineerReport:
     # by construction.
     layout: object | None = None
     parts: tuple = ()
+    # The order of operations, derived from the parts above. See
+    # `assembly_sequence`: it is practice, not certification, and every step
+    # says so in its own `basis`.
+    assembly: tuple = ()
 
 
 # Extra strake counts tried beyond the minimum. MEASURED on the reference
@@ -425,7 +497,7 @@ def assess(hull: Hull, wl: float = 0.0,
     deck_tiles = sum(1 for p in fixed if p.source_panel == "deck")
     panels = 2 * 2 + 1 + deck_tiles + bulkheads + frames
     hours = HOURS_PER_M2 * area * (1.0 + 0.015 * panels)
-    return EngineerReport(
+    rep_ = EngineerReport(
         panel_count=int(panels), bulkheads=bulkheads, frames=frames,
         panel_area_m2=round(area, 1), ply_sheets=layout.sheets,
         epoxy_kg=round(EPOXY_KG_PER_M2 * area, 1),
@@ -440,3 +512,6 @@ def assess(hull: Hull, wl: float = 0.0,
         bottom_thickness_mm=round(t_bottom * 1e3, 1),
         layout=layout, parts=tuple(parts),
     )
+    # The ORDER, derived from the parts just counted. Attached last because it
+    # READS the finished report -- one BOM, one nest, one sequence over them.
+    return replace(rep_, assembly=assembly_sequence(rep_, seams))

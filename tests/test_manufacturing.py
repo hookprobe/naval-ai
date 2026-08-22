@@ -1764,3 +1764,58 @@ def test_the_bom_lists_what_a_stitch_and_glue_boat_is_actually_made_of():
     # never two estimates — this codebase's recurring defect.
     assert f"{rep.epoxy_kg:.0f} kg" in by_part["epoxy"].note or \
         abs(engineer.EPOXY_KG_PER_M2 * rep.panel_area_m2 - rep.epoxy_kg) < 1.0
+
+
+def test_the_kit_ships_an_order_of_operations_not_just_a_pile_of_plywood():
+    """`docs/BUILDER-UX.html` lists "assembly manual" as ABSENT, and the build
+    package the operator specified ends in an assembly sequence. A kit that
+    ships tens of numbered plywood parts and no order of operations is a pile
+    of plywood.
+
+    WHAT IS FENCED HERE is that the sequence is DERIVED and HONEST, not that
+    the advice is good:
+
+      * every quantity in it is read off the BOM and the seam length this same
+        report produced, so a hull with more bulkheads gets more of them in
+        step 2 without anyone editing a list;
+      * the hours are an apportionment of `build_hours` and sum to it — one
+        number, never a second estimate, which is this codebase's recurring
+        defect;
+      * every step is basis="practice", the weakest word available, because
+        stitch-and-glue technique is nowhere in this repository's evidence
+        base. It is the ORDER, which the method forces, not the technique.
+    """
+    import numpy as np
+
+    from navalai import unroll
+    from navalai.engineer import assess
+    from navalai.geometry import Hull
+
+    d = _kit_corner_params()
+    hull = Hull(np.array([d[n] for n in unroll.grammar.NAMES], float))
+    rep = assess(hull, wl=0.0)
+
+    assert rep.assembly, "the kit must carry an order of operations"
+    steps = rep.assembly
+    assert [s["step"] for s in steps] == list(range(1, len(steps) + 1))
+
+    # NOT certification, and it says so on every step.
+    assert all(s["basis"] == "practice" for s in steps)
+
+    # ONE hours number, apportioned — not a second estimate.
+    assert sum(s["hours"] for s in steps) == pytest.approx(
+        rep.build_hours, abs=len(steps)), (
+        "the step hours must apportion build_hours, never re-estimate it")
+
+    # The counts come from the parts, so they follow the boat.
+    joined = " ".join(s["detail"] for s in steps)
+    assert str(rep.bulkheads) in joined
+    assert str(rep.frames) in joined
+    assert str(rep.ply_sheets) in joined
+
+    # Order is forced by the method: stitch before fillet, fillet before deck.
+    order = [s["do"] for s in steps]
+    stitch = next(i for i, o in enumerate(order) if "stitch" in o)
+    fillet = next(i for i, o in enumerate(order) if "fillet" in o)
+    deck = next(i for i, o in enumerate(order) if "deck" in o)
+    assert stitch < fillet < deck, order
