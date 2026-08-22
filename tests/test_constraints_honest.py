@@ -842,3 +842,43 @@ def test_no_unaccounted_mass_means_no_sensitivity_not_a_missing_one():
     ev = evaluate(mid_params(), MissionSpec(displacement_target_kg=1.0))
     assert ev.unaccounted_frac == 0.0
     assert ev.gm_per_m_of_unaccounted == 0.0
+
+
+def test_solar_generation_is_badged_as_unmeasured_not_left_unbadged():
+    """MEASURED 2026-08-22. `solar_kwh_day` had NO BADGE AT ALL.
+
+    Every quantity DERIVED from it carried a band — `range_solar_nm_day`,
+    `wh_per_nm` — while the generation estimate feeding them had no entry in
+    `badges`. This product's stated rule is that a UI colours on `basis`, so an
+    unbadged number has nothing to colour on and reads as a measurement. It is
+    a product of three BARE declared constants in `EnergySpec`:
+    solar_yield_kwh_m2_day 4.2 ("Danube ~45N summer average"), panel_packing
+    0.55 and panel_eff 0.21, none of which carries a sigma.
+
+    The fix is NOT to invent a spread — `range_solar_nm_day`'s own comment
+    refuses that in as many words, and it is right. It is to DECLARE THE
+    ABSENCE, with the module's own `SIGMA_PLACEHOLDER` ("no input sigma was
+    supplied — DO NOT USE"), so the number can never be served under a badge
+    that does not say so.
+    """
+    from navalai.energy import SIGMA_PLACEHOLDER, SIGMA_PROPAGATED_LOWER_BOUND
+    from navalai.evaluate import evaluate
+    from navalai.mission import MissionSpec
+
+    ev = evaluate(mid_params(), MissionSpec())
+    assert ev.energy is not None
+
+    assert "solar_kwh_day" in (ev.badges or {}), (
+        "solar generation must be badged; an unbadged quantity is the one a "
+        "basis-coloured UI renders as confident")
+    _tier, _sigma, basis = ev.badges["solar_kwh_day"]
+    assert basis == SIGMA_PLACEHOLDER, (
+        f"solar generation is a product of three sigma-less constants, so its "
+        f"basis must be {SIGMA_PLACEHOLDER!r} — declaring the absence — and "
+        f"never a propagated or measured one; got {basis!r}")
+
+    # The things DOWNSTREAM of it keep their propagated bounds: declaring the
+    # generation unmeasured must not quietly downgrade what was propagatable.
+    assert ev.badges["range_solar_nm_day"][2] == SIGMA_PROPAGATED_LOWER_BOUND
+    assert ev.badges["wh_per_nm"][2] != SIGMA_PLACEHOLDER or \
+        ev.resistance.uncertainty == 0.0

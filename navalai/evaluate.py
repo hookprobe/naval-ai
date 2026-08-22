@@ -36,7 +36,9 @@ from pathlib import Path
 import numpy as np
 
 from . import db, grammar
-from .energy import (SIGMA_PROPAGATED_LOWER_BOUND, EnergyReport, WeightBudget,
+from .energy import (SIGMA_PLACEHOLDER, SIGMA_PROPAGATED_LOWER_BOUND,
+                     WH_PER_NM_PLACEHOLDER_SIGMA_FRAC, EnergyReport,
+                     WeightBudget,
                      energy_report, shell_area_m2, weight_budget, weight_items)
 from .geometry import RHO_WATER, Hull
 from .holtrop import envelope_violations as holtrop_envelope_violations
@@ -1336,6 +1338,29 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
             abs(en.range_solar_nm_day)
             * (en.sigma_wh_per_nm / max(abs(en.wh_per_nm), 1e-9)),
             SIGMA_PROPAGATED_LOWER_BOUND),
+        # SOLAR GENERATION ITSELF WAS SERVED WITH NO BADGE AT ALL, which is
+        # worse than a wide one. Every quantity DERIVED from it carries a band
+        # -- `range_solar_nm_day` above, `wh_per_nm` -- while the generation
+        # estimate that feeds them had no entry here, so a reader (and a UI
+        # colouring on `basis`, which is this product's stated rule) had
+        # nothing to distinguish it from a measurement. It read as fact.
+        #
+        # It is a product of THREE bare declared constants in `EnergySpec`:
+        # solar_yield_kwh_m2_day 4.2 ("Danube ~45N summer average"),
+        # panel_packing 0.55 and panel_eff 0.21. None carries a sigma, so
+        # there is nothing to propagate and INVENTING one is the defect the
+        # `range_solar_nm_day` comment above already refuses to commit.
+        #
+        # So this declares the ABSENCE instead. `SIGMA_PLACEHOLDER` is the
+        # module's own "no input sigma was supplied — DO NOT USE", and the
+        # magnitude below is the same placeholder fraction `energy` already
+        # uses for exactly this situation — it is NOT a measurement of the
+        # spread, and the basis string is what a reader and a badge must act
+        # on. A summer figure at 45N is also a BEST CASE presented as an
+        # average: the same array in a Danube winter makes a fraction of it,
+        # and nothing in the model knows the season.
+        "solar_kwh_day": ("L1", en.solar_kwh_day * WH_PER_NM_PLACEHOLDER_SIGMA_FRAC,
+                          SIGMA_PLACEHOLDER),
     }
     # WHICH resistance method answered, and why the other one did not (gap
     # E1b). Not in `values` below: it is a method receipt, not a quantity, and
@@ -1354,7 +1379,8 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
               # that reaches zero produces an inf that must not leave wearing
               # a plain L1.
               "freeboard": hs.freeboard_min,
-              "range_solar_nm_day": en.range_solar_nm_day}
+              "range_solar_nm_day": en.range_solar_nm_day,
+              "solar_kwh_day": en.solar_kwh_day}
     for name, val in values.items():
         tier_b, sigma, basis = badges[name]
         bad = []

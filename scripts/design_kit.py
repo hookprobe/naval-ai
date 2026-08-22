@@ -174,24 +174,43 @@ def _refine(x0, mission, policy, box, budget_s, seed):
             best, bx = s_, cand
     print(f"    seed sweep: {n_sweep} draws, best "
           f"{'infeasible' if best[0] > 0 else f'{best[1]:.1f} mm'}")
+
+    def accept(x):
+        """Is this candidate feasible, under the bar, AND family-confirmed?
+
+        MEASURED 2026-08-22 and this function exists because it was not one.
+        The acceptance test used to live INSIDE the ES's improvement branch
+        (`if s < best:`), so a candidate found by the SEED SWEEP was never
+        tested: if no mutation subsequently beat it, the loop simply ran to the
+        end of its budget and returned None. On the 8 m / 3 t mission the sweep
+        found a hull at **1.5 mm** against a 5 mm bar and the lane REFUSED the
+        mission, printing "the search does not aim at buildability" while
+        holding the answer.
+        """
+        if best[0] != 0.0 or best[1] > REFOLD_BAR_MM:
+            return None
+        conv = verdict_of(x)
+        if conv is not None and conv.verdict == "PASSES":
+            return x, evaluate(x, mission, policy=policy), float(conv.finest_mm)
+        if conv is not None:
+            print(f"    n={_REFINE_STATIONS} said {best[1]:.2f} mm but the "
+                  f"family {tuple(round(v, 2) for v in conv.worst_mm)} is "
+                  f"{conv.verdict} — rejected, continuing")
+        return None
+
+    got = accept(bx)
+    if got is not None:
+        return got
+
     sigma = 0.10
     while time.time() - t0 < budget_s:
         cand = np.clip(bx + rng.normal(0, sigma, len(lo)) * width, lo, hi)
         s = score(cand)
         if s < best:
             best, bx, sigma = s, cand, min(sigma * 1.2, 0.25)
-            if best[0] == 0.0 and best[1] <= REFOLD_BAR_MM:
-                # Cheap score says buildable. CONFIRM ON THE FAMILY before
-                # believing it, and keep searching if the trend says the
-                # coarse count was flattering.
-                conv = verdict_of(bx)
-                if conv is not None and conv.verdict == "PASSES":
-                    return (bx, evaluate(bx, mission, policy=policy),
-                            float(conv.finest_mm))
-                if conv is not None:
-                    print(f"    n=41 said {best[1]:.2f} mm but the family "
-                          f"{tuple(round(v, 2) for v in conv.worst_mm)} is "
-                          f"{conv.verdict} — rejected, continuing")
+            got = accept(bx)
+            if got is not None:
+                return got
         else:
             sigma = max(sigma * 0.995, 0.004)
     return None
