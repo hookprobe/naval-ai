@@ -97,7 +97,7 @@ POP, GENS = 64, 80
 _REFINE_STATIONS = max(unroll.REFOLD_COUNTS)
 
 
-def _refine(x0, mission, policy, box, budget_s, seed):
+def _refine(x0, mission, policy, box, budget_s, seed, max_steps=0):
     """(1+1)-ES on the AUTHORITATIVE refold meter, subject to the full ladder.
 
     Lexicographic: feasibility first, then refold. A step that breaks the
@@ -241,8 +241,28 @@ def _refine(x0, mission, policy, box, budget_s, seed):
     if got is not None:
         return got, best
 
+    # STEP-BOUNDED, NOT WALL-CLOCK BOUNDED, when a step budget is given.
+    #
+    # MEASURED 2026-08-22 and it invalidated an A/B I had already run twice.
+    # `while time.time() - t0 < budget_s` makes the number of ES steps depend
+    # on machine load, so a FIXED rng seed does NOT reproduce a run: seed 11
+    # delivered 2.31 mm twice and 8.00 mm on a third attempt with a
+    # byte-identical seed sweep (35000 draws, best 7.3 mm both times) and the
+    # restart firing zero times. Nothing in the algorithm differed. The step
+    # COUNT did.
+    #
+    # That makes "2 of 5 against k of 5" a comparison of two different
+    # experiments — the change under test is confounded with however many steps
+    # each run happened to get. Any reliability number quoted from a wall-clock
+    # budget is a statement about the machine as much as the search.
+    #
+    # Wall-clock stays the DEFAULT because a user wants a bounded wait; a step
+    # budget is what an experiment must use.
     sigma, stall = 0.10, 0
-    while time.time() - t0 < budget_s:
+    steps = 0
+    while ((steps < max_steps) if max_steps else
+           (time.time() - t0 < budget_s)):
+        steps += 1
         cand = np.clip(bx + rng.normal(0, sigma, len(lo)) * width, lo, hi)
         s = score(cand)
         if s < best:
@@ -285,6 +305,12 @@ def main(argv=None) -> int:
     ap.add_argument("--refine-s", type=float, default=900.0,
                     help="seconds of buildability refinement when no "
                          "front member unrolls within the bar")
+    ap.add_argument("--refine-steps", type=int, default=0,
+                    help="bound the refinement by ES STEPS instead of "
+                         "seconds. Wall-clock is the default because a "
+                         "user wants a bounded wait; an EXPERIMENT must "
+                         "use steps, or the step count varies with machine "
+                         "load and a fixed seed stops reproducing")
     ap.add_argument("--no-escalate", action="store_true",
                     help="refuse an empty front instead of retrying "
                          "at a larger budget (diagnostic)")
@@ -427,7 +453,7 @@ def main(argv=None) -> int:
               f"{a.refine_s:.0f} s ...")
         seed_ev, seed_x = min(scored, key=lambda t: t[0].energy.wh_per_nm)
         got, refine_best = _refine(seed_x, m, policy, box,
-                                   a.refine_s, a.seed)
+                                   a.refine_s, a.seed, a.refine_steps)
         if got is not None:
             x, ev, worst_ok = got
             verified = [(ev, x, worst_ok)]
