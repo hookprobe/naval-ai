@@ -164,16 +164,30 @@ def _refine(x0, mission, policy, box, budget_s, seed):
     # its whole budget walking. Cheapest fix by far: sweep the box first on the
     # lexicographic score and start from the best point found, so the ES begins
     # inside the right basin instead of proving it can walk.
-    sweep_s = min(0.35 * budget_s, 300.0)
+    # A DRAW TARGET WITH A TIME CEILING, not a pure time box. MEASURED
+    # 2026-08-22: the same 300 s sweep on the same mission did 35086 draws on a
+    # quiet machine and 22958 under a concurrent CFD campaign — 35% fewer — and
+    # the best it found went from 7.3 mm to 29.9 mm. The lane then delivered a
+    # 1.92 mm boat in the first case and REFUSED THE MISSION in the second.
+    #
+    # Search quality became a function of machine load, which is the wrong
+    # thing to make load-dependent: the same request answered differently
+    # depending on what else the box happened to be doing. Draws are the unit
+    # of search here, so the sweep now counts them, and the time cap is a
+    # CEILING that keeps a loaded machine from spending the whole budget
+    # seeding rather than a target it silently falls short of.
+    sweep_draws = 35000
+    sweep_s = min(0.6 * budget_s, 900.0)
     n_sweep = 0
-    while time.time() - t0 < sweep_s:
+    while n_sweep < sweep_draws and time.time() - t0 < sweep_s:
         cand = lo + rng.random(len(lo)) * width
         s_ = score(cand)
         n_sweep += 1
         if s_ < best:
             best, bx = s_, cand
-    print(f"    seed sweep: {n_sweep} draws, best "
-          f"{'infeasible' if best[0] > 0 else f'{best[1]:.1f} mm'}")
+    print(f"    seed sweep: {n_sweep} draws"
+          f"{'' if n_sweep >= sweep_draws else f' (TIME-CAPPED short of {sweep_draws})'}"
+          f", best {'infeasible' if best[0] > 0 else f'{best[1]:.1f} mm'}")
 
     def accept(x):
         """Is this candidate feasible, under the bar, AND family-confirmed?
