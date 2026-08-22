@@ -448,10 +448,29 @@ def refold_payload(body: dict) -> dict:
     from navalai import unroll
     params = body.get("params", {})
     counts = tuple(int(c) for c in (body.get("counts") or (41, 81, 161)))
+    # A MALFORMED REQUEST IS A 400, NOT A REFUSAL. MEASURED 2026-08-22: posting
+    # `{"params": [...]}` (a list, where every other route on this surface
+    # expects the named dict `_vector` takes) came back as
+    #     {"source": "refused", "reason": "'list' object has no attribute 'items'"}
+    # An AttributeError served as a principled refusal is the worst shape this
+    # surface can produce: "refused" is a FIRST-CLASS honest state here — it
+    # renders as a declared absence, the thing this whole page exists to do
+    # instead of drawing a fake gauge — so a crash wearing that badge reads as
+    # "we considered your hull and declined". Every sibling route returned a
+    # clean 400 on the same body.
+    #
+    # `refused` is reserved for what the PHYSICS declines. A caller error is
+    # the caller's, and it says so.
+    if not isinstance(params, dict):
+        raise ValueError(
+            f"params must be an object of named grammar parameters "
+            f"(e.g. {{\"LWL\": 10.5}}), got {type(params).__name__}")
     t0 = time.perf_counter()
     try:
         rc = unroll.refold_convergence(_vector(params), counts=counts)
-    except Exception as exc:                                    # noqa: BLE001
+    except (ValueError, KeyError, ArithmeticError) as exc:
+        # The unroller's OWN refusals — a radiused bilge, a degenerate panel —
+        # which are physics answers and belong in `refused`.
         return {"source": "refused", "reason": str(exc),
                 "elapsed_ms": round((time.perf_counter() - t0) * 1e3, 1)}
     d = _jsonable(rc)
