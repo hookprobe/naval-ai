@@ -39,7 +39,7 @@ import numpy as np
 from . import db, grammar
 from .evaluate import evaluate, sample_valid
 from .mission import MissionSpec
-from .surrogate import GP, OODRefusal
+from .surrogate import GP, CoKriging, OODRefusal
 
 
 # ---------------------------------------------------------------------------
@@ -715,6 +715,62 @@ HARD_MIN_COVERAGE_2SIGMA = 0.80
 # tight bar would block honest models on machine weather. 3x is a regression
 # detector, not a benchmark.
 WALL_CLOCK_TOL = 3.0
+
+
+#: The fewest REAL high-fidelity rows a co-kriging delta-GP may be fitted from.
+#: A floor, NOT a sufficiency claim: the genome is 16-dimensional and no small
+#: number of points is "enough" there. It exists so that fitting on three
+#: solved cases is a REFUSAL with a number attached rather than a model nobody
+#: questions, and it is deliberately the same shape as `retrain`'s own
+#: "need >= 20" guard on the L1 tier.
+MIN_HF_ROWS = 10
+
+
+def fit_cokriging(prov: db.Provenance, quantity: str = "resistance_N",
+                  hi_tier: str = "L3", lo_tier: str = "L1",
+                  min_hf: int = MIN_HF_ROWS):
+    """Kennedy-O'Hagan co-kriging from REAL provenance rows, or a refusal.
+
+    GAP I1, and the reason it stayed open. The gap asks that co-kriging be
+    fitted from "REAL high-fidelity provenance rows (a tier above L1) rather
+    than the synthetic Forrester pair". `CoKriging` has existed in
+    `surrogate.py` throughout and had NO production caller: `retrain` reads
+    `training_matrix("L1", ...)` and nothing in this package ever read a tier
+    above it, because nothing ever WROTE one — a solved RANS campaign produced
+    force histories on disk and no provenance row.
+
+    `scripts/ingest_cfd_campaign.py` closes that half. This is the other:
+    a fit that uses the tier when it is there and REFUSES, by name and with a
+    count, when it is not.
+
+    WHY A REFUSAL IS THE HONEST ANSWER TODAY. MEASURED 2026-08-22 on the
+    completed Gate 2U campaign: of 25 solved hulls, 23 were scorable and FIVE
+    settled. Five points in a 16-dimensional genome is not a delta-GP, it is an
+    interpolation of noise wearing a covariance function — and the tier exists
+    precisely to CORRECT the cheap model, so a bad correction is worse than
+    none. `settled_drag`'s components rule is what "real" means here: an
+    unsettled drag is the number the solver happened to be passing through when
+    the budget ran out.
+
+    Returns the fitted `CoKriging`. Raises `ValueError` naming the shortfall.
+    """
+    Xh, yh = prov.training_matrix(hi_tier, quantity)
+    Xl, yl = prov.training_matrix(lo_tier, quantity)
+    if len(yh) < min_hf:
+        raise ValueError(
+            f"co-kriging REFUSED: {len(yh)} real {hi_tier} row(s) for "
+            f"{quantity!r}, need >= {min_hf}. The genome is "
+            f"{grammar.N_PARAMS}-dimensional and a delta-GP fitted on "
+            f"{len(yh)} points would be interpolating noise at the tier whose "
+            f"job is to CORRECT the cheap model. Run more of the campaign — "
+            f"only SETTLED cases count, and on the 2026-08-22 batch that was "
+            f"5 of 23 scorable.")
+    if len(yl) < min_hf:
+        raise ValueError(
+            f"co-kriging REFUSED: {len(yl)} {lo_tier} row(s), need >= "
+            f"{min_hf}. The low-fidelity tier is the cheap half of the pair "
+            f"and cannot be the sparse one.")
+    return CoKriging.fit(Xl, yl, Xh, yh)
 
 
 def retrain(prov: db.Provenance, mission: MissionSpec,

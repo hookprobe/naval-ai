@@ -1061,3 +1061,66 @@ def test_min_dist_is_a_euclidean_norm_and_does_not_bind_per_axis_in_15d():
 
     doc = batch_infill.__doc__
     assert "EUCLIDEAN" in doc and "per axis" in doc
+
+
+def test_cokriging_reads_a_real_high_fidelity_tier_or_refuses_with_a_count():
+    """GAP I1, and the reason it stayed open for so long.
+
+    The gap asks that co-kriging be fitted from REAL high-fidelity provenance
+    rows "rather than the synthetic Forrester pair". `CoKriging` has existed in
+    surrogate.py throughout with NO production caller: `flywheel.retrain` reads
+    `training_matrix("L1", ...)` and nothing in the package ever read a tier
+    above it — because nothing ever WROTE one. A solved RANS campaign left
+    force histories on disk and produced no provenance row, so the tier the
+    gap is about did not exist to be read.
+
+    Both halves are fenced here:
+
+      * `fit_cokriging` READS the high tier and refuses BY NAME with a COUNT
+        when it is too thin — not silently, not by falling back to the cheap
+        model, and not by fitting anyway;
+      * the floor is a floor, not a sufficiency claim. MEASURED 2026-08-22 on
+        the completed Gate 2U campaign, 5 of 23 scorable cases SETTLED, and
+        five points in a 16-dimensional genome is an interpolation of noise at
+        the tier whose entire job is to CORRECT the cheap model.
+    """
+    import numpy as np
+    import pytest as _pytest
+
+    from navalai import db
+    from navalai.flywheel import MIN_HF_ROWS, fit_cokriging
+
+    prov = db.Provenance(":memory:")
+    rng = np.random.default_rng(0)
+
+    def _add(tier, k):
+        for _ in range(k):
+            x = np.array(grammar.LOW, float) + rng.random(grammar.N_PARAMS) * (
+                np.array(grammar.HIGH, float) - np.array(grammar.LOW, float))
+            hid = prov.add_hull(x)
+            prov.add_result(hid, tier, "s", "v", "resistance_N",
+                            float(rng.uniform(100, 900)), uncertainty=1.0)
+
+    # No high tier at all: the state this repository was actually in.
+    _add("L1", 30)
+    with _pytest.raises(ValueError, match="0 real L3 row"):
+        fit_cokriging(prov)
+
+    # A thin high tier still refuses, and says HOW thin.
+    _add("L3", MIN_HF_ROWS - 1)
+    with _pytest.raises(ValueError, match=f"{MIN_HF_ROWS - 1} real L3 row"):
+        fit_cokriging(prov)
+
+    # Enough rows and it fits — the refusal is a threshold, not a wall.
+    _add("L3", 1)
+    model = fit_cokriging(prov)
+    assert model is not None
+    assert hasattr(model, "rho")
+
+    # And the LOW tier cannot be the sparse one: co-kriging's cheap half being
+    # thinner than its expensive half is a misconfiguration, not a model.
+    thin = db.Provenance(":memory:")
+    prov2, prov = prov, thin
+    _add("L1", 2); _add("L3", MIN_HF_ROWS + 2)
+    with _pytest.raises(ValueError, match="cannot be the sparse one"):
+        fit_cokriging(prov)
