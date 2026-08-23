@@ -598,6 +598,14 @@ export async function hull(host) {
         + `${mesh.faces.length} faces`;
       drawRight();
     } catch (e) {
+      // THE STAGE REPORTS ITS OWN FAILURE. Until 2026-08-23 this line was the
+      // only evidence a request had failed, and it is 11px of mono text under
+      // a canvas -- so a 400 from /api/mesh read as an empty screen. See
+      // docs/audit/I13-SESSION-2026-08-23.md: a participant lost a session to
+      // exactly this, in two browsers, with the cause sitting in the response
+      // body the whole time.
+      if (my !== gen) return;
+      vp.setError(e.message);
       foot.textContent = "refresh failed: " + e.message;
     }
   }

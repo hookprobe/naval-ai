@@ -1,0 +1,241 @@
+diff --git a/navalai/geometry.py b/navalai/geometry.py
+index e133233..ea2039e 100644
+--- a/navalai/geometry.py
++++ b/navalai/geometry.py
+@@ -192,11 +192,15 @@ def _shape_moments(p: float) -> tuple[float, float]:
+     return q / (q + 1.0), 0.5 - 1.0 / ((q + 1.0) * (q + 2.0))
+ 
+ 
+-def _sac_terms(L: float, xm: float, R: float, pf: float, pa: float):
++def _sac_terms(L: float, xm: float, R: float, pf: float, pa: float,
++               W: float = 0.0):
+     """Closed-form 0th and 1st moments of a(x).
+ 
+     a(x) = R + (1-R) h(x/xm; pa)               for x <  xm
+-    a(x) = 1 - h((x-xm)/(L-xm); pf)            for x >= xm
++    a(x) = 1 - (1-W) h((x-xm)/(L-xm); pf)      for x >= xm
++
++    R is the transom fullness and W the STEM fullness; W = 0 is a pointed bow
++    and reproduces this kernel's behaviour before `r_stem` existed.
+ 
+     S = int a dx and M = int x a dx, both exact. Cp = S / L and the
+     longitudinal centre of buoyancy is M / S, so the two design targets are
+@@ -206,15 +210,22 @@ def _sac_terms(L: float, xm: float, R: float, pf: float, pa: float):
+     lf = L - xm
+     h1a, h2a = _shape_moments(pa)
+     h1f, h2f = _shape_moments(pf)
+-    S = xm * (R + (1.0 - R) * h1a) + lf * (1.0 - h1f)
++    # `W` is the STEM fullness — the forward mirror of the transom's `R`. The
++    # SAC ends at W*A_mid instead of at zero, so a pram/scow bow carries area,
++    # and therefore BEAM, to the stem. Substituting g = 1 - W for the bare
++    # 1.0 that multiplied each shape term reduces to the previous algebra
++    # EXACTLY at W = 0, which is the historical pointed bow.
++    g = 1.0 - W
++    S = xm * (R + (1.0 - R) * h1a) + lf * (1.0 - g * h1f)
+     M = (xm * xm * (0.5 * R + (1.0 - R) * h2a)
+-         + lf * (xm * (1.0 - h1f) + lf * (0.5 - h2f)))
++         + lf * (xm * (1.0 - g * h1f) + lf * (0.5 - g * h2f)))
+     return S, M
+ 
+ 
+ @lru_cache(maxsize=8192)
+ def sac_exponents(lwl: float, x_mb: float, r_transom: float,
+-                  cp: float, lcb_pct: float) -> tuple[float, float]:
++                  cp: float, lcb_pct: float,
++                  r_stem: float = 0.0) -> tuple[float, float]:
+     """Solve the SAC shape exponents (pf, pa) for a target (Cp, LCB).
+ 
+     Returns (pf, pa). Raises `GeometryError` when the target lies outside what
+@@ -243,18 +254,19 @@ def sac_exponents(lwl: float, x_mb: float, r_transom: float,
+     `_require_finite`.
+     """
+     for _nm, _v in (("LWL", lwl), ("x_mb", x_mb), ("r_transom", r_transom),
+-                    ("Cp", cp), ("lcb", lcb_pct)):
++                    ("Cp", cp), ("lcb", lcb_pct), ("r_stem", r_stem)):
+         if not math.isfinite(float(_v)):
+             raise GeometryError(
+                 f"finite: NaN/inf in parameter vector — {_nm} is {float(_v)}")
+     L = float(lwl)
+     xm = float(x_mb) * L
+     R = float(r_transom)
++    W = float(r_stem)
+     S_t = float(cp) * L
+     x_t = L * (0.5 + float(lcb_pct) / 100.0)
+ 
+     def S_of(pf: float, pa: float) -> float:
+-        return _sac_terms(L, xm, R, pf, pa)[0]
++        return _sac_terms(L, xm, R, pf, pa, W)[0]
+ 
+     def pf_for(pa: float) -> float | None:
+         lo, hi = SAC_P_MIN, SAC_P_MAX
+@@ -297,7 +309,7 @@ def sac_exponents(lwl: float, x_mb: float, r_transom: float,
+         pf = pf_for(pa)
+         if pf is None:                       # numerical edge of the interval
+             pf = SAC_P_MIN if pa < 0.5 * (pa_lo + pa_hi) else SAC_P_MAX
+-        S, M = _sac_terms(L, xm, R, pf, pa)
++        S, M = _sac_terms(L, xm, R, pf, pa, W)
+         return M - x_t * S
+ 
+     r_lo, r_hi = lcb_res(pa_lo), lcb_res(pa_hi)
+@@ -325,12 +337,28 @@ def sac_ordinate(params: np.ndarray, x: np.ndarray) -> np.ndarray:
+     p = grammar.named(params)
+     L, xm = p["LWL"], p["x_mb"] * p["LWL"]
+     R = p["r_transom"]
++    # A BARGE HAS A BOW, NOT A POINT. Until 2026-08-23 the forward branch ended
++    # at a hardcoded a(L) = 0 with no gene behind it, while the aft branch
++    # ended at r_transom. Because `_stations` SOLVES the chine half-breadth
++    # from the sectional area, an area driven to zero drags the BEAM to zero
++    # with it — so every hull this grammar could draw came to a point forward.
++    #
++    # MEASURED before this gene existed, on a 16.0 x 4.0 m inland liveaboard
++    # (docs/research/HOUSEBOAT-16M.md): across a 393-member sweep of every
++    # fullness gene the grammar held >= 90% of maximum beam over at most 39%
++    # of the waterline, reaching 68% of a rectangle's deck area. A houseboat
++    # is a rectangle that floats. The shortfall was not something a user could
++    # slide their way out of, and the surface never said so — it returned a
++    # fast pointed hull to someone who asked for a floating apartment.
++    #
++    # `.get` with 0.0 keeps a 16-gene vector working unchanged.
++    W = p.get("r_stem", 0.0)
+     pf, pa = sac_exponents(p["LWL"], p["x_mb"], p["r_transom"],
+-                           p["Cp"], p["lcb"])
++                           p["Cp"], p["lcb"], W)
+     x = np.asarray(x, dtype=float)
+     a = np.empty_like(x)
+     fwd = x >= xm
+-    a[fwd] = 1.0 - _shape((x[fwd] - xm) / (L - xm), pf)
++    a[fwd] = 1.0 - (1.0 - W) * _shape((x[fwd] - xm) / (L - xm), pf)
+     aft = ~fwd
+     a[aft] = R + (1.0 - R) * _shape(x[aft] / xm, pa)
+     return np.clip(a, 0.0, 1.0)
+diff --git a/navalai/grammar.py b/navalai/grammar.py
+index 8ee5edf..abcb8f8 100644
+--- a/navalai/grammar.py
++++ b/navalai/grammar.py
+@@ -272,7 +272,14 @@ PARAMS = [
+     ("lcb",        "%", -LCB_BAND_PCT_LWL, LCB_BAND_PCT_LWL,
+      "TARGET LCB, % LWL forward of midships"),
+     ("x_mb",       "-",   0.40, 0.68, "max-AREA station / LWL"),
+-    ("r_transom",  "-",   0.05, 0.50, "transom sectional area / max sectional "
++    # CEILING 0.50 -> 0.92, 2026-08-23. The old ceiling made a full transom
++    # UNREACHABLE BY CONSTRUCTION — the stern section could never exceed half
++    # the midship area, so a barge stern was not a hull this grammar drew
++    # badly, it was one it could not draw at all. MEASURED at the old ceiling
++    # on a 16.0 x 4.0 m liveaboard: the most beam reachable at the transom was
++    # 1.96 m of 4.00 m. Not 1.0, because a(0) = 1 would put the maximum-area
++    # station ON the transom and `x_mb`'s own floor of 0.40 says otherwise.
++    ("r_transom",  "-",   0.05, 0.92, "transom sectional area / max sectional "
+                                       "area"),
+     ("beta_mid",   "deg", 0.0, 25.0, "deadrise at midship"),
+     ("beta_bow",   "deg", 2.0, 50.0, "deadrise at forward stations"),
+@@ -283,6 +290,16 @@ PARAMS = [
+     ("forefoot",   "-",   0.0,  1.0, "keel rise at stem / T"),
+     ("flare",      "deg", -5.0, 25.0, "topside flare angle"),
+     ("sheer_rise", "-",   0.0,  0.5, "bow sheer rise / D"),
++    # THE GENE THAT MAKES A HOUSEBOAT POSSIBLE, added 2026-08-23. See
++    # `geometry.sac_ordinate` for the mechanism and the measurement: with the
++    # stem pinned at zero area the grammar could hold >= 90% of maximum beam
++    # over at most 39% of the waterline. APPENDED rather than inserted, so
++    # every existing index in LOW/HIGH/NAMES is unchanged, and the floor 0.0
++    # IS the historical pointed bow — bit-identical to it, which
++    # `tests/test_barge_bow.py` pins against the reference hull.
++    ("r_stem",     "-",   0.0,  0.85, "STEM sectional area / max sectional "
++                                      "area — 0 is a pointed bow, high is a "
++                                      "pram/scow bow carrying beam forward"),
+ ]
+ 
+ N_PARAMS = len(PARAMS)
+@@ -567,5 +584,45 @@ def named(x: np.ndarray) -> dict[str, float]:
+     return {n: float(val) for n, val in zip(NAMES, np.asarray(x, dtype=float))}
+ 
+ 
++# Genes a caller may OMIT, and the value that leaves the geometry unchanged.
++#
++# This is a narrow allowance, not a defaults table. `r_stem` was appended on
++# 2026-08-23 and its floor 0.0 reproduces the pointed bow this kernel drew
++# before it existed, bit for bit — so every genome dict written before that
++# date still describes exactly the hull it always did. Without this, adding a
++# gene silently breaks every literal genome in the tree (MEASURED: it broke
++# `formcheck._vec` and with it `certify`, on import).
++#
++# A gene belongs here ONLY if some value of it is provably a no-op. Anything
++# else must be supplied, because a default that CHANGES the hull is a hull
++# nobody chose.
++POST_HOC_DEFAULTS: dict[str, float] = {"r_stem": 0.0}
++
++
+ def vector(d: dict[str, float]) -> np.ndarray:
+-    return np.array([d[n] for n in NAMES], dtype=float)
++    """A genome vector from a name -> value mapping.
++
++    A MISSING gene raises, EXCEPT the ones in `POST_HOC_DEFAULTS`. An UNKNOWN
++    key also raises, and that clause is not decoration: until 2026-08-23 this
++    function silently DISCARDED any key it did not recognise, so when the E5
++    recalibration removed `l_pmb` every caller still passing it went on
++    running and quietly got a different hull. It produced at least one false
++    measurement — three `l_pmb` settings "giving identical beam", when in
++    truth not one of them was ever applied. A missing key raised while an
++    unknown key vanished; both are now errors.
++    """
++    missing = [n for n in NAMES if n not in d and n not in POST_HOC_DEFAULTS]
++    if missing:
++        raise KeyError(
++            f"genome is missing {missing}; it has {sorted(d)}. Only "
++            f"{sorted(POST_HOC_DEFAULTS)} may be omitted, and only because "
++            f"their default leaves the geometry unchanged.")
++    unknown = [k for k in d if k not in NAMES]
++    if unknown:
++        raise KeyError(
++            f"genome carries {unknown}, which {'is' if len(unknown) == 1 else 'are'} "
++            f"not {'a gene' if len(unknown) == 1 else 'genes'} in this grammar. "
++            f"Known genes: {NAMES}. (Silently dropping these is how a removed "
++            f"gene went on being 'set' for hours after it stopped existing.)")
++    return np.array([d.get(n, POST_HOC_DEFAULTS.get(n, 0.0)) for n in NAMES],
++                    dtype=float)
+diff --git a/navalai/limits.py b/navalai/limits.py
+index 08630bd..ac3dee1 100644
+--- a/navalai/limits.py
++++ b/navalai/limits.py
+@@ -773,11 +773,37 @@ def prismatic_target(fn: float) -> float:
+     raise AssertionError("unreachable: PRISMATIC_BY_FROUDE is not monotone")
+ 
+ 
+-# The span of the table above, as the `Cp` gene's declared bounds. Written here
+-# so the gene cannot be bounded somewhere the target function can reach — or,
+-# worse, somewhere it cannot, which would make the acceptance bar unreachable
+-# by construction at one end of the speed range.
+-CP_GENE_BOUNDS = (PRISMATIC_BY_FROUDE[0][1], PRISMATIC_BY_FROUDE[-1][1])
++# THE CEILING IS DELIBERATELY ABOVE THE TABLE, and that is a design decision
++# rather than a drift. 2026-08-23.
++#
++# The floor is still the table's, so the gene cannot go finer than any speed
++# asks for. The CEILING is not, and the reason is that the table answers a
++# different question from the one the gene has to span: `prismatic_target` is
++# the RESISTANCE-optimal Cp at a Froude number, and a houseboat is not a
++# resistance-optimal object. It is a rectangle that floats, and its owner will
++# trade knots for floor area every time.
++#
++# MEASURED, and this is why the number moved. A 16.0 x 4.0 m inland liveaboard
++# with the full ends a barge needs (r_transom 0.92, r_stem 0.70) has a
++# REACHABLE Cp range of 0.831 .. 0.979 — the SAC of a box simply has that much
++# prismatic. Against the old ceiling of 0.710 the kernel refused outright:
++#
++#     sac: Cp 0.7100 unreachable at x_mb 0.550, r_transom 0.920
++#
++# So the barge was not a hull the grammar drew badly; it was one the CP GENE
++# forbade, and the refusal named a Cp the designer had not chosen. Three
++# separate bounds each independently prevented a houseboat (this one, the
++# transom ceiling, and the absent stem gene) and all three have moved.
++#
++# WHAT DOES NOT CHANGE: `prismatic_target` is still the one relation, still
++# the acceptance bar, and a hull above the table still MISSES it — `certify`
++# reports "delivered Cp NNN misses the mission target NNN beyond tolerance"
++# and grades the design MARGINAL. That is the correct outcome: the trade is
++# declared and measured, not hidden. There is no prismatic row in
++# `evaluate.CONSTRAINT_NAMES`, so this widens what may be PROPOSED without
++# softening anything that is enforced.
++BARGE_CP_CEILING = 0.95
++CP_GENE_BOUNDS = (PRISMATIC_BY_FROUDE[0][1], BARGE_CP_CEILING)
+ 
+ 
+ # GM CEILING as a fraction of waterline beam. GM has always had a floor (the

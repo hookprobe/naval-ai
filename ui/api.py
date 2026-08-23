@@ -260,6 +260,108 @@ def _refold_bar() -> float:
 # envelope — the compiled parameter box
 # ---------------------------------------------------------------------------
 
+# THE BOX MIDPOINT IS NOT A HULL, AND SHIPPING IT AS ONE BLANKED THE STUDIO.
+#
+# MEASURED 2026-08-23, in the I13 usability session
+# (docs/audit/I13-SESSION-2026-08-23.md). The studio seeded a fresh project
+# with the MIDPOINT of the compiled box, and for the reference constitution
+# that genome DOES NOT BUILD:
+#
+#     roundness pinned 0.0 (hard chine) and T capped 1.10 -> T_mid 0.557 m,
+#     with beta_bow_mid 36.0 deg and Cp_mid 0.617
+#     -> GeometryError: section: area 0.9334 m^2 unreachable at x = 8.330 m
+#
+# `mesh_payload` let that propagate, `do_POST` turned it into 400, and the
+# viewport drew nothing. EVERY user opening Hull Studio on a fresh project hit
+# it — the DEFAULT state of the product, not an edge case. The participant saw
+# a blank screen in two browsers with no message anywhere.
+#
+# A midpoint is an arithmetic fact about an interval; feasibility is a fact
+# about the SAC kernel and the section solver, and nothing was checking that
+# the two agreed. So the seed is now VERIFIED TO BUILD before it is served,
+# and the repair that made it build is REPORTED rather than applied silently —
+# a seed that quietly differs from the box midpoint would be the same class of
+# defect one layer down.
+#
+# The relaxation order is physical, not arbitrary: bow deadrise first (36 deg
+# on a hard-chine hull at 0.56 m draft is what starves the forward sections of
+# area), then the SAC fullness, then draft, then the warp length, then the
+# max-area station. MEASURED: beta_bow at 25% toward its floor repairs the
+# reference box on its own.
+_SEED_RELAX = (
+    ("beta_bow", "low"),    # bow deadrise: the usual cause of a starved section
+    ("Cp", "low"),          # a less full SAC asks for less area everywhere
+    ("T", "high"),          # a deeper section can carry the area asked of it
+    ("beta_len", "low"),    # warp the deadrise over less of the hull
+    ("x_mb", "low"),        # move the max-area station forward
+)
+_SEED_FRACTIONS = (0.25, 0.5, 0.75, 1.0)
+
+
+def _builds(genome: dict) -> bool:
+    """Does the section solver actually produce this hull?"""
+    from navalai.geometry import GeometryError
+    try:
+        _hull(genome)
+        return True
+    except GeometryError:
+        return False
+    except Exception:                                           # noqa: BLE001
+        return False
+
+
+def feasible_seed(names, low, high) -> tuple[dict | None, list[dict]]:
+    """A genome inside the box that BUILDS, plus what had to move to get one.
+
+    Returns `(seed, repairs)`. `seed` is None when nothing inside the box
+    builds — an honest refusal the surface can render, and a real finding about
+    the constitution rather than a blank canvas.
+    """
+    lo = {n: float(low[i]) for i, n in enumerate(names)}
+    hi = {n: float(high[i]) for i, n in enumerate(names)}
+    mid = {n: (lo[n] + hi[n]) / 2.0 for n in names}
+    if _builds(mid):
+        return mid, []
+
+    for gene, edge in _SEED_RELAX:
+        if gene not in mid:
+            continue
+        target = lo[gene] if edge == "low" else hi[gene]
+        for frac in _SEED_FRACTIONS:
+            trial = dict(mid)
+            trial[gene] = mid[gene] + frac * (target - mid[gene])
+            if _builds(trial):
+                return trial, [{
+                    "param": gene, "was": mid[gene], "now": trial[gene],
+                    "why": ("the box midpoint does not build: the section "
+                            "solver cannot reach the area the SAC asks for. "
+                            f"{gene} was moved toward its {edge} bound until "
+                            "the hull existed."),
+                }]
+
+    # Nothing single-gene worked. Fall back to a bounded deterministic search
+    # inside the box before refusing.
+    rng = np.random.default_rng(0)
+    lo_v = np.array([lo[n] for n in names], float)
+    hi_v = np.array([hi[n] for n in names], float)
+    for _ in range(400):
+        draw = lo_v + rng.random(len(names)) * (hi_v - lo_v)
+        trial = {n: float(draw[i]) for i, n in enumerate(names)}
+        if _builds(trial):
+            return trial, [{
+                "param": "*", "was": float("nan"), "now": float("nan"),
+                "why": ("no single-parameter relaxation of the box midpoint "
+                        "builds; this seed came from a bounded search inside "
+                        "the same box."),
+            }]
+    return None, [{
+        "param": "*", "was": float("nan"), "now": float("nan"),
+        "why": ("NO genome inside this box builds. The constitution and the "
+                "geometry kernel disagree, and that is a defect in one of "
+                "them — not a hull you can draw."),
+    }]
+
+
 def envelope_payload(body: dict) -> dict:
     """The governance kernel's box, and every move that made it.
 
@@ -283,6 +385,7 @@ def envelope_payload(body: dict) -> dict:
         now = float(box.high[i] - box.low[i])
         if base > 0:
             shrink *= max(now / base, 1e-9)
+    _seed, _repairs = feasible_seed(names, box.low, box.high)
     return {
         "source": "measured",
         "category": cat,
@@ -294,6 +397,7 @@ def envelope_payload(body: dict) -> dict:
         "edits": [{"param": e.param, "edge": e.edge, "was": float(e.was),
                    "now": float(e.now), "source": e.source}
                   for e in box.edits],
+        "seed": _seed, "seed_repairs": _repairs,
         "rows": list(cp.rows),
         "all_row_names": list(P.ROW_NAMES),
         "disclaimer": cp.disclaimer,

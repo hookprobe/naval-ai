@@ -29,6 +29,7 @@ export class Viewport {
     this.yaw = -0.62; this.pitch = 0.36; this.zoom = 1;
     this.sections = null;
     this.stale = false;        // true while showing the fast mesh
+    this.error = null;         // a refusal from the backend, DRAWN not hidden
     this._drag = null;
     canvas.addEventListener("pointerdown", e => {
       this._drag = { x: e.clientX, y: e.clientY };
@@ -54,11 +55,25 @@ export class Viewport {
 
   setMesh(m, opts = {}) {
     this.mesh = m;
+    this.error = null;
     this.stale = !!opts.stale;
     if (opts.wl !== undefined) this.wl = opts.wl;
     if (opts.trim !== undefined) this.trim = opts.trim || 0;
     this.draw();
   }
+  /* A FAILED MESH IS DRAWN, NOT SWALLOWED.
+   *
+   * MEASURED 2026-08-23 in the I13 usability session
+   * (docs/audit/I13-SESSION-2026-08-23.md): POST /api/mesh returned 400 on
+   * every request, and the ONLY place that said so was one line of small mono
+   * text under the canvas whose resting value is an em dash. The participant
+   * saw an empty stage in two browsers, asked "was it supposed to be like
+   * this?", and the session was lost there. The observer needed source-reading
+   * and curl to find a cause the server already knew and had put in the
+   * response body.
+   *
+   * So the refusal goes where the hull would have been. */
+  setError(msg) { this.error = msg || null; this.draw(); }
   setSections(s) { this.sections = s; this.draw(); }
   setMode(m) { this.mode = m; this.draw(); }
 
@@ -82,6 +97,7 @@ export class Viewport {
     g.clearRect(0, 0, w, h);
     g.fillStyle = this._css("--sunk"); g.fillRect(0, 0, w, h);
     this._grid(g, w, h);
+    if (this.error) { this._drawError(g, w, h); return; }
     if (!this.mesh) {
       g.fillStyle = this._css("--ink-3");
       g.font = "12px ui-monospace, monospace";
@@ -95,6 +111,30 @@ export class Viewport {
       g.font = "10px ui-monospace, monospace";
       g.fillText("FAST MESH · settling", 12, h - 12);
     }
+  }
+
+  _drawError(g, w, h) {
+    const pad = 22, maxw = Math.max(120, w - pad * 2);
+    g.fillStyle = this._css("--fail");
+    g.font = "600 13px ui-monospace, monospace";
+    g.fillText("THIS HULL COULD NOT BE DRAWN", pad, pad + 14);
+    g.fillStyle = this._css("--ink-2");
+    g.font = "12px ui-monospace, monospace";
+    // wrap the backend's own words; it already said what is wrong
+    const words = String(this.error).split(/\s+/);
+    let line = "", y = pad + 40;
+    for (const word of words) {
+      const trial = line ? line + " " + word : word;
+      if (g.measureText(trial).width > maxw && line) {
+        g.fillText(line, pad, y); y += 17; line = word;
+      } else line = trial;
+      if (y > h - 34) break;
+    }
+    if (line && y <= h - 34) { g.fillText(line, pad, y); y += 17; }
+    g.fillStyle = this._css("--ink-3");
+    g.font = "11px ui-monospace, monospace";
+    g.fillText("the geometry kernel refused these numbers — change a slider",
+               pad, Math.min(h - 14, y + 10));
   }
 
   _grid(g, w, h) {

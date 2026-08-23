@@ -1,0 +1,40 @@
+{
+ "n": 10000,
+ "draws": 10000,
+ "watertight": 10000,
+ "developable": 8863,
+ "plausible": 9988,
+ "pathologies": {
+  "WAVY-PLAN": 12
+ },
+ "bounds": {
+  "length": [
+   6.0,
+   12.0
+  ],
+  "beam_top": [
+   0.6,
+   1.2
+  ],
+  "beam_bottom": [
+   0.2,
+   0.6
+  ],
+  "depth": [
+   0.8,
+   1.5
+  ],
+  "bow_rocker": [
+   0.2,
+   0.6
+  ],
+  "stern_rocker": [
+   0.05,
+   0.3
+  ],
+  "draft_frac": [
+   0.25,
+   0.55
+  ]
+ }
+}

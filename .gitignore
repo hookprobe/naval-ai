@@ -131,3 +131,8 @@ data/campaigns/kit/
 # histories; the DB is the index built over them.
 data/provenance.db
 data/provenance.db-journal
+
+# Regenerable from scripts/build_plywood_catamaran_corpus.py (parameters + seed).
+# 5 MB of derived labels; summary.json carries the measured rates.
+data/plywood_catamaran/labels.csv
+data/plywood_catamaran/stls/
