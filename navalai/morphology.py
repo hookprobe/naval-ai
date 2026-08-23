@@ -58,6 +58,16 @@ class HullOffsets:
     z_sheer: np.ndarray
     label: str = ""
     n_gaps: int = 0            # stations whose keel/sheer had to be interpolated
+    # THE CHINE, WHEN THE SOURCE KNOWS IT. Deadrise is the angle of the BOTTOM
+    # panel — keel point to chine — and it CANNOT be recovered by sampling a
+    # station in z: a flat bottom is horizontal, so it occupies a single
+    # waterline and the rows above it describe the topside. MEASURED before
+    # this field existed: `deadrise_mid_deg` tracked the `beta_mid` gene
+    # exactly over 5-25 deg and returned **80 deg for a flat bottom (0 deg)**,
+    # reading the flare instead. A search then "optimised" deadrise to 65 deg
+    # on a hull whose bottom gene was 0.0. NaN where the source cannot say.
+    y_chine: np.ndarray | None = None
+    z_chine: np.ndarray | None = None
 
     @property
     def lwl(self) -> float:
@@ -137,7 +147,9 @@ def from_hull(hull, nz: int = 41) -> HullOffsets:
         inside = (z >= pz[0]) & (z <= pz[-1])
         y[i, inside] = np.interp(z[inside], pz, py)
     return HullOffsets(x=x, z=z, y=y, z_keel=zk, z_sheer=zs,
-                       label=getattr(hull, "label", ""))
+                       label=getattr(hull, "label", ""),
+                       y_chine=np.asarray(hull.y_chine, float),
+                       z_chine=np.asarray(hull.z_chine, float))
 
 
 # ---------------------------------------------------------------------------
@@ -260,13 +272,29 @@ def describe(o: HullOffsets) -> Descriptors:
         sf = A / np.maximum(2.0 * B * T, 1e-9)
     section_fullness_mean = float(np.nanmean(np.where(np.isfinite(sf), sf, np.nan)))
 
-    # deadrise from the lowest two waterlines that exist at each station
+    # DEADRISE IS THE ANGLE OF THE BOTTOM PANEL: keel point to chine.
     dead = np.full(len(x), np.nan)
-    for i in range(len(x)):
-        col = o.y[i]
-        good = np.where(~np.isnan(col))[0]
-        if good.size >= 2:
+    if o.y_chine is not None and o.z_chine is not None:
+        yc = np.asarray(o.y_chine, float)
+        zc = np.asarray(o.z_chine, float)
+        rise = zc - np.asarray(o.z_keel, float)
+        with np.errstate(invalid="ignore", divide="ignore"):
+            dead = np.degrees(np.arctan2(rise, np.where(yc > 1e-9, yc, np.nan)))
+    else:
+        # No chine declared (a published offsets table gives none). Fall back to
+        # the lowest waterlines and ACCEPT the limitation: on a flat-bottomed
+        # section this reads the topside, so it is refused rather than reported
+        # when the keel row is already near full width.
+        for i in range(len(x)):
+            col = o.y[i]
+            good = np.where(~np.isnan(col))[0]
+            if good.size < 3:
+                continue
             j0, j1 = good[0], good[min(good.size - 1, 2)]
+            lower = col[good[: max(3, good.size // 2)]]
+            widest = float(np.nanmax(lower)) if lower.size else 0.0
+            if widest > 1e-9 and col[j0] / widest > 0.90:
+                continue          # flat bottom: not resolvable from a z-grid
             dy = col[j1] - col[j0]
             dz = o.z[j1] - o.z[j0]
             if dy > 1e-9:
