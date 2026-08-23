@@ -1,0 +1,170 @@
+"""Gate test for the 16 m x 4 m inland liveaboard probe.
+
+MOTIVATING INCIDENT (2026-08-23, docs/research/HOUSEBOAT-16M.md). A prose brief
+-- 16 x 4 x 3 m, 3 t, 100 kWh, 15 kW, 7-12 kn, full liveaboard -- was put
+through the whole product for the first time at a size and a hull form no SKU
+had exercised. Four numbers in it are refused by the physics and three product
+defects were found on the way. This file pins the ones that are cheap to check
+so they cannot regress silently.
+
+It does NOT re-derive the design; `scripts/houseboat_16m.py` owns that. It pins
+the REFUSALS, because a refusal that quietly becomes an acceptance is the
+failure mode this repository keeps finding in its own history.
+"""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+import numpy as np
+import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+
+from navalai import grammar
+from navalai.evaluate import evaluate
+from navalai.geometry import Hull
+from navalai.mission import Manning, parse_mission
+from navalai.translate import parse_mission as _pm  # same symbol; import parity
+
+import houseboat_16m as HB
+
+
+def test_the_briefs_three_tonnes_is_refused_on_proportions():
+    """3 t on a 16 x 4 m hull is B/T ~18.5 against a ceiling of 12.0.
+
+    MEASURED: it BUILDS (draft 0.217 m) and is refused by the band, at L0 and
+    again at L1. An earlier form of this probe reported it as geometrically
+    UNREACHABLE; that was true of a hull with l_pmb 0.30 and not of the brief,
+    which is why the assertion here is on the BAND and not on buildability.
+    """
+    T, _ = HB.design_draft_for(HB.AS_ASKED_KG)
+    b_over_t = HB.BWL_M / T
+    ceiling = grammar.B_OVER_T_BAND[1]
+    assert b_over_t > ceiling, (
+        f"3 t now gives B/T {b_over_t:.2f}, inside the {ceiling} ceiling -- "
+        "the brief's displacement stopped being refused; re-measure")
+
+    x = grammar.vector(HB.base_genome(T))
+    assert not grammar.check(x).ok, "the L0 gate accepted a B/T of 18.5"
+    ev = evaluate(x, HB.make_mission(HB.AS_ASKED_KG, "3 t probe"),
+                  rho=HB.RHO_FRESH)
+    assert not ev.ok
+    assert any("B/T" in v for v in ev.violations), ev.violations
+
+
+def test_the_corrected_design_passes_the_whole_ladder():
+    """14 t on the same envelope: L0, L1 and every constraint row."""
+    T, disp = HB.design_draft_for(HB.CORRECTED_KG)
+    assert abs(disp - HB.CORRECTED_KG) < 50.0
+    assert HB.BWL_M / T <= grammar.B_OVER_T_BAND[1]
+
+    x = grammar.vector(HB.base_genome(T))
+    assert grammar.check(x).ok
+    ev = evaluate(x, HB.make_mission(HB.CORRECTED_KG, "16 m liveaboard"),
+                  rho=HB.RHO_FRESH)
+    assert ev.ok, ev.violations
+    assert ev.tier == "L1"
+    for name, val in ev.g.items():
+        assert val is not None and val <= 0.0, f"{name} = {val}"
+
+
+def test_twelve_knots_is_outside_the_resistance_model():
+    """The brief's upper speed is past FN_MICHELL_MAX, and is REPORTED as such.
+
+    The bar is not that 12 kn is slow to reach -- it is that the L1 model does
+    not stand behind the number, and a consumer must see `valid=False` rather
+    than a confident figure.
+    """
+    T, _ = HB.design_draft_for(HB.CORRECTED_KG)
+    x = grammar.vector(HB.base_genome(T))
+    hull = Hull(x)
+    mission = HB.make_mission(HB.CORRECTED_KG, "speed probe")
+    ev = evaluate(x, mission, rho=HB.RHO_FRESH)
+
+    slow = HB.power_at(hull, ev, mission.energy, HB.CRUISE_KN)
+    fast = HB.power_at(hull, ev, mission.energy, HB.DASH_KN)
+    assert slow["model_valid"], "7 kn should be inside the model"
+    assert not fast["model_valid"], "12 kn should be refused by the model"
+    assert slow["within_15kw"], (
+        f"7 kn needs {slow['electrical_kw']:.1f} kW against the 15 kW installed")
+    assert not fast["within_15kw"]
+
+
+def test_the_installed_fifteen_kilowatts_reaches_the_cruise_speed():
+    """MEASURED 7.78 kn on 15 kW. The bar is the brief's 7 kn, with margin."""
+    T, _ = HB.design_draft_for(HB.CORRECTED_KG)
+    x = grammar.vector(HB.base_genome(T))
+    mission = HB.make_mission(HB.CORRECTED_KG, "power probe")
+    ev = evaluate(x, mission, rho=HB.RHO_FRESH)
+    v = HB.max_speed_on(Hull(x), ev, mission.energy, HB.MOTOR_KW)
+    assert v >= HB.CRUISE_KN, f"only {v:.2f} kn on {HB.MOTOR_KW} kW"
+
+
+def test_the_accommodation_passes_the_l0a_arrangement_gate():
+    """Living room, kitchen, bathroom, cabin and terrace, checked by L0-A."""
+    from navalai.arrangement import Function, check_l0a
+
+    T, _ = HB.design_draft_for(HB.CORRECTED_KG)
+    x = grammar.vector(HB.base_genome(T))
+    ev = evaluate(x, HB.make_mission(HB.CORRECTED_KG, "layout probe"),
+                  rho=HB.RHO_FRESH)
+    arr, _trunk = HB.houseboat_layout(Hull(x), ev)
+    rep = check_l0a(arr)
+    assert rep.ok, [str(m) for m in rep.messages]
+
+    got = {s.function for s in arr.spaces}
+    for need in (Function.SALOON, Function.GALLEY, Function.HEAD,
+                 Function.BERTH):
+        assert need in got, f"the brief asked for {need.value}"
+
+
+# ---------------------------------------------------------------------------
+# The two product defects the probe found in the mission front end. These are
+# EXPECTED-FAILURE pins: they assert the CURRENT broken behaviour so that the
+# fix trips them and they get deleted, rather than sitting undetected.
+# See docs/research/HOUSEBOAT-16M.md sections 5 and 6.
+# ---------------------------------------------------------------------------
+
+def test_prose_saying_river_still_fails_to_trigger_the_estrin_wire():
+    """DEFECT (HOUSEBOAT-16M section 5). Delete this test when it is fixed.
+
+    `evaluate` consults ES-TRIN on the tokens river|canal|lake|inland in
+    `mission.waters`, but `parse_mission` writes the design CATEGORY LETTER
+    there. So a brief that says "river" produces waters="D" and the inland
+    rules do NOT run, while the DEFAULT "river+coastal" does run them.
+    """
+    m = parse_mission("16 m liveaboard houseboat, inland river and canal "
+                      "cruising, 4 crew")
+    fires = any(t in str(m.waters).lower()
+                for t in ("river", "canal", "lake", "inland"))
+    assert not fires, (
+        "parse_mission now preserves the waters tokens -- the ES-TRIN wire is "
+        "reachable from prose. FIX CONFIRMED: delete this test and "
+        "HOUSEBOAT-16M section 5.")
+
+
+def test_manning_is_still_not_parsed_from_prose():
+    """DEFECT (HOUSEBOAT-16M section 6). Delete this test when it is fixed."""
+    assert parse_mission("16 m liveaboard houseboat").vessel.manning \
+        is Manning.CREWED, (
+        "manning is now parsed. FIX CONFIRMED: delete this test and "
+        "HOUSEBOAT-16M section 6.")
+    assert parse_mission("uncrewed survey boat 8 m").vessel.manning \
+        is Manning.CREWED
+
+
+def test_energyspec_still_has_no_motor_power_field():
+    """DEFECT (HOUSEBOAT-16M section 3). Delete this test when it is fixed.
+
+    Nothing in the ladder checks that the installed power reaches the mission's
+    cruise speed, because the installed power cannot be declared to it.
+    """
+    from navalai.energy import EnergySpec
+
+    fields = set(EnergySpec.__dataclass_fields__)
+    assert not (fields & {"motor_kw", "motor_power_w", "rated_power_kw"}), (
+        "EnergySpec now carries a motor rating. FIX CONFIRMED: add a "
+        "constraint row asserting installed power reaches cruise_speed_kn, "
+        "then delete this test and HOUSEBOAT-16M section 3.")

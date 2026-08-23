@@ -185,6 +185,19 @@ GATES = [
     # The row that judges the rows. It was deliberately NOT registered when it
     # was written — "the gate checking the gates is not itself a gate" — which
     # was backwards: it is the one whose disappearance would be least noticed.
+    # THE SHAPE GATES. Added 2026-08-23 after this ladder certified a hull that
+    # was, in the STL, a rectangular plank: displacement, Cp, Cb, LCB, GM,
+    # freeboard, scantlings, all eight constraint rows, seven of seven rule
+    # findings and the arrangement gate all passed, and no gate read SHAPE.
+    # A numerically valid object is not necessarily a valid boat hull.
+    Gate("Gate MORPH", "morphological plausibility: a hull must LOOK like a "
+         "boat, judged on descriptors measured against 58 published hulls "
+         "(89-92% of L0-valid generated hulls fail; 0 of 58 real ones do)",
+         suite="tests/test_morphology.py"),
+    Gate("Gate UI-SEED", "the studio's default genome BUILDS before it is "
+         "served, and a refused mesh is PAINTED in the viewport rather than "
+         "leaving a blank stage with the reason in the response body",
+         suite="tests/test_ui_seed_builds.py"),
     Gate("Gate 0G", "the ladder cannot be talked into passing",
          "tests/test_gate_integrity.py"),
     # Gate 0G's sibling, split out for the reason Gate 1H was: the ladder should
