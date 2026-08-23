@@ -180,7 +180,7 @@ different Gate 2M numbers came to circulate at once (gap J1).
 | Gate 2 | Capytaine BEM (Hulme anchor) | `tests/test_phase2.py` (18 tests) |
 | Gate 2R | CFD reference parity + GCI honesty | `tests/test_cfd_reference_parity.py` (100 tests) |
 | Gate 2P | slamming pressure is measurable: a bow patch that partitions the hull, a function object that refuses to point at nothing, and a Wagner C_p guarded at both limits | `tests/test_slamming.py` (14 tests) |
-| Gate 3 | surrogate spine: GP + co-kriging rho, OOD refusal, batched-EI infill + the held-out across-seed error bar | `tests/test_phase3.py` (24 tests) |
+| Gate 3 | surrogate spine: GP + co-kriging rho, OOD refusal, batched-EI infill + the held-out across-seed error bar | `tests/test_phase3.py` (25 tests) |
 | Gate 4 | generative + slider p95<100ms (raw feasibility: Gate 4F) | `tests/test_phase4.py` (27 tests) |
 | Gate 4U | the builder surface's honesty contract: every payload declares its source, no NaN on the wire, one home per absence, the kit/mould route reads the refold TREND, KG from the keel plane, Fn > 0.45 refused by name, and no gate verdict without a suite run | `tests/test_ui_surface.py` (15 tests) |
 | Gate 5 | mission translation + LLM seam | `tests/test_phase5.py` (13 tests) |

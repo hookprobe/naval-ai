@@ -117,3 +117,12 @@ data/refdata/dsyhs/*.xlsx
 # cherry-pick. The campaign JSON beside them is NOT an artifact — it is the
 # measurement, and it is tracked exactly as data/gate2u-16gene-solve.json is.
 data/campaigns/kit/
+
+# The provenance DB is REGENERABLE, not evidence. Its L3 rows come from
+# `scripts/ingest_cfd_campaign.py` over runs/ + the tracked campaign JSON, and
+# its L1 rows from `evaluate` over the same population — so tracking it would
+# be a second copy of numbers that already have a home, and a binary one that
+# conflicts on every write. The EVIDENCE is data/campaigns/*.json and the force
+# histories; the DB is the index built over them.
+data/provenance.db
+data/provenance.db-journal
