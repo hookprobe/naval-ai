@@ -1,0 +1,39 @@
+{
+  "id": "fridsma_b20_lb6",
+  "source_Cp": 0.9684109070620212,
+  "genome_Cp_ceiling": 0.71,
+  "as_published": {
+    "status": "REFUSED",
+    "refusal": "sac: Cp 0.9684 unreachable at x_mb 0.540, r_transom 0.275 with exponents in [-6.0, 8.0]",
+    "is_pass": false
+  },
+  "nearest_expressible": {
+    "is_pass": false,
+    "why": "Cp was CLAMPED to what the kernel can build; the source value is not represented",
+    "Cp_clamped_to": 0.7737449212603679,
+    "Cp_source": 0.9684109070620212,
+    "Cp_shortfall": 0.19466598580165329,
+    "geom_rms_m": 0.05432637050056432,
+    "geom_rms_pct_halfbeam": 10.865274100112863,
+    "geom_max_m": 0.2389473228089898,
+    "measured_back_Cp": 0.7737314593496557,
+    "genome": {
+      "LWL": 6.0,
+      "BWL": 1.0,
+      "T": 0.195784525,
+      "D": 0.625,
+      "Cp": 0.7737449212603679,
+      "lcb": -1.5224477262482699,
+      "x_mb": 0.5646899542071683,
+      "r_transom": 0.42906786975650124,
+      "beta_mid": 11.384022057506945,
+      "beta_bow": 18.325041618533188,
+      "beta_len": 0.4525657981363794,
+      "roundness": 0.9999811050548254,
+      "rocker": 0.4596805127021468,
+      "forefoot": 0.6948115004267928,
+      "flare": 10.324230249314265,
+      "sheer_rise": 0.3586894938543926
+    }
+  }
+}

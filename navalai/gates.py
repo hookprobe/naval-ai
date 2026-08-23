@@ -306,6 +306,35 @@ GATES = [
          "manufacturing in ABSOLUTE m^2 — never in a ratio an optimiser can "
          "inflate", "tests/test_buildability.py"),
     Gate("Gate 0", "grammar/geometry/DB", "tests/test_phase0.py"),
+    # Gate 0 asks the kernel about hulls the kernel invented -- `vector(named(x))`
+    # on a sampled genome is self-consistency, and a wrong kernel is
+    # self-consistent too. E5 is the row that hands it a hull somebody else
+    # drew, in a towing tank, and asks it to come back. It reads committed
+    # offset tables, so it needs neither OpenCASCADE nor the 16 MB geometry
+    # release to run.
+    Gate("Gate 0E5", "the geometry kernel against REAL PUBLISHED hulls: "
+         "offsets from three independent source families round-trip through "
+         "the genome, and the SHAPE residual is reported, not just the six "
+         "scalars", "tests/test_e5_real_hulls.py"),
+    # E5's sibling, and separate on purpose. E5 is green over published
+    # ROUND-BILGE families; this one asks the question the product actually
+    # depends on, because a plywood boat is hard-chine by construction and a
+    # chine is a slope discontinuity that no integral in E5 can see. It is
+    # RED, with the reason recorded as three measured numbers.
+    Gate("Gate 0E5C", "the hard-chine EVIDENCE: published hard-chine geometry "
+         "is acquired, is PUBLISHED_PARAMETRIC rather than traced off a "
+         "drawing, carries a real chine, and every refusal is recorded with "
+         "its reason", "tests/test_e5_hard_chine.py"),
+    # THE CAPABILITY CLAUSE IS NOT IN THAT SUITE, and this is Gate 4F's shape
+    # exactly: the suite above PASSES — the evidence really was acquired and
+    # really is recorded honestly — while the thing the product needs is
+    # MISSED. Splitting them is what stops a green suite being quoted as a
+    # capability. See data/gate-ledger.json and docs/gates/E5-CHINE.md.
+    Gate("Gate 0E5C-CAP", "the hard-chine CAPABILITY: 2 of 7 published series "
+         "are expressible. No parallel middle body (Cp ceiling 0.848 against "
+         "a real 0.95-0.97), no aft deadrise warp (beta_len <= 0.60, so "
+         "warped series miss by 8-9 deg), beta_mid capped at 25 deg",
+         status=Verdict.RED),
     Gate("Gate 1", "L1 physics + Wigley anchor + <50ms", "tests/test_phase1.py"),
     # Gate 1's own bar names Holtrop-Mennen, and `grep -rin holtrop` used to hit
     # the plan document and nothing else while Gate 1 printed GREEN. Split out

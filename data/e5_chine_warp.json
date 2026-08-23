@@ -1,0 +1,157 @@
+{
+  "tolerance_deg": 1.0,
+  "stations": [
+    0.0,
+    0.5,
+    0.75
+  ],
+  "results": {
+    "series62_clement_blount_1963": {
+      "published_deg": [
+        12.5,
+        13.0,
+        19.2
+      ],
+      "fitted_deg": [
+        12.5,
+        13.0,
+        19.2
+      ],
+      "max_err_deg": 0.0,
+      "rms_err_deg": 0.0,
+      "genes": {
+        "beta_mid": 12.5,
+        "beta_bow": 32.47879791291076,
+        "beta_len": 0.5939637307166254
+      },
+      "expressible": true,
+      "kind": "monohedral"
+    },
+    "keuning_gerritsma_1982": {
+      "published_deg": [
+        25.0,
+        26.0,
+        30.7
+      ],
+      "fitted_deg": [
+        24.99999999999924,
+        25.46884577467639,
+        30.743360739797865
+      ],
+      "max_err_deg": 0.5311542253236112,
+      "rms_err_deg": 0.3076821762982833,
+      "genes": {
+        "beta_mid": 24.99999999999924,
+        "beta_bow": 41.878447888388756,
+        "beta_len": 0.599999999999957
+      },
+      "expressible": true,
+      "kind": "monohedral"
+    },
+    "keuning_alii_1993": {
+      "published_deg": [
+        30.0,
+        31.2,
+        35.8
+      ],
+      "fitted_deg": [
+        24.99999999987776,
+        25.694444444321874,
+        33.5069444443353
+      ],
+      "max_err_deg": 5.505555555678125,
+      "rms_err_deg": 4.493300411325191,
+      "genes": {
+        "beta_mid": 24.99999999987776,
+        "beta_bow": 49.999999999924654,
+        "beta_len": 0.599999999999859
+      },
+      "expressible": false,
+      "kind": "monohedral deep-V"
+    },
+    "taunton_alii_2010": {
+      "published_deg": [
+        22.5,
+        22.5,
+        35.3
+      ],
+      "fitted_deg": [
+        23.142037519930362,
+        23.888092033263362,
+        32.281205308280164
+      ],
+      "max_err_deg": 3.018794691719833,
+      "rms_err_deg": 1.953811067338514,
+      "genes": {
+        "beta_mid": 23.142037519930362,
+        "beta_bow": 49.999999999988844,
+        "beta_len": 0.5999999999998424
+      },
+      "expressible": false,
+      "kind": "monohedral"
+    },
+    "uscg_kowalyshyn_metcalf_2006": {
+      "published_deg": [
+        16.6,
+        22.5,
+        34.4
+      ],
+      "fitted_deg": [
+        20.414097558172827,
+        21.23592818151848,
+        30.481522694536096
+      ],
+      "max_err_deg": 3.9184773054639024,
+      "rms_err_deg": 3.240354000155679,
+      "genes": {
+        "beta_mid": 20.414097558172827,
+        "beta_bow": 49.999999999915815,
+        "beta_len": 0.5999999999973649
+      },
+      "expressible": false,
+      "kind": "part-warped"
+    },
+    "ntua_grigoropoulos_loukakis": {
+      "published_deg": [
+        10.0,
+        22.5,
+        38.0
+      ],
+      "fitted_deg": [
+        18.63922462950769,
+        19.510357278672586,
+        29.31059958186902
+      ],
+      "max_err_deg": 8.68940041813098,
+      "rms_err_deg": 7.2819375953311845,
+      "genes": {
+        "beta_mid": 18.63922462950769,
+        "beta_bow": 49.99999999975716,
+        "beta_len": 0.5999999999994008
+      },
+      "expressible": false,
+      "kind": "warped, double chine"
+    },
+    "nss_deluca_pensa_2017": {
+      "published_deg": [
+        13.2,
+        22.3,
+        38.5
+      ],
+      "fitted_deg": [
+        20.04037258913975,
+        20.872584461554666,
+        30.23496802728719
+      ],
+      "max_err_deg": 8.265031972712809,
+      "rms_err_deg": 6.248705620302886,
+      "genes": {
+        "beta_mid": 20.04037258913975,
+        "beta_bow": 49.99999999972718,
+        "beta_len": 0.5999999999926894
+      },
+      "expressible": false,
+      "kind": "warped"
+    }
+  }
+}

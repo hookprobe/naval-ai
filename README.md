@@ -172,6 +172,9 @@ different Gate 2M numbers came to circulate at once (gap J1).
 | Gate PV-B | vessel-conditional proportion bands, the sourced size box, and the multihull stability refusal | `tests/test_vessel_bands.py` (20 tests) |
 | Gate 0B | buildability metrics are PROXIES that refuse rather than default, are grid-converged by a measured residual, and price manufacturing in ABSOLUTE m^2 — never in a ratio an optimiser can inflate | `tests/test_buildability.py` (11 tests) |
 | Gate 0 | grammar/geometry/DB | `tests/test_phase0.py` (16 tests) |
+| Gate 0E5 | the geometry kernel against REAL PUBLISHED hulls: offsets from three independent source families round-trip through the genome, and the SHAPE residual is reported, not just the six scalars | `tests/test_e5_real_hulls.py` (276 tests) |
+| Gate 0E5C | the hard-chine EVIDENCE: published hard-chine geometry is acquired, is PUBLISHED_PARAMETRIC rather than traced off a drawing, carries a real chine, and every refusal is recorded with its reason | `tests/test_e5_hard_chine.py` (24 tests) |
+| Gate 0E5C-CAP | the hard-chine CAPABILITY: 2 of 7 published series are expressible. No parallel middle body (Cp ceiling 0.848 against a real 0.95-0.97), no aft deadrise warp (beta_len <= 0.60, so warped series miss by 8-9 deg), beta_mid capped at 25 deg | **RED** — `data/gate-ledger.json` |
 | Gate 1 | L1 physics + Wigley anchor + <50ms | `tests/test_phase1.py` (35 tests) |
 | Gate 1H | Holtrop-Mennen vs the 1982 worked example | `tests/test_holtrop.py` (57 tests) |
 | Gate 1C | the constraint vector: complete, ordered, finite, and no undefined state reported as ideal | `tests/test_constraints_honest.py` (23 tests) |

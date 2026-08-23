@@ -972,10 +972,20 @@ CHECKS: tuple[Check, ...] = (
                   and lacks_code("navalai/grammar.py", r'_rel\("flare\.fold"')
                   and has_code("tests/test_constraints_honest.py",
                                r"the live relational count moved to")),
-    Check("E5", "a round-trip of 12+ KNOWN (public-CAD) hulls exists, not just "
-                "vector(named(x)) on one hand-picked vector",
-          lambda: has_code("tests/test_phase0.py",
-                      r"known_hulls|PUBLIC_HULLS|reference_hulls")),
+    # THE PREDICATE ASKS THE ARTIFACTS, NOT A NAME IN A FILE. It used to look
+    # for the identifier `known_hulls` in tests/test_phase0.py, which any
+    # session could have satisfied by naming a list after it. E5 is a corpus:
+    # what makes it true is that committed offset tables exist, that they came
+    # from more than one publisher, and that a gate re-measures the round-trip
+    # rather than reciting it.
+    Check("E5", "a round-trip of 12+ KNOWN published hulls exists, from 3+ "
+                "independent source families, with committed offsets and a "
+                "SHAPE residual -- not just vector(named(x)) on one "
+                "hand-picked vector",
+          lambda: has_code("tests/test_e5_real_hulls.py",
+                           r"test_the_geometric_residual_is_re_measured")
+                  and has_code("benchmarks/e5_sources.py", r"FAMILIES")
+                  and _e5_corpus_is_real()),
     Check("E6", "grammar.check uses the honest max-twist metric "
                 "(Hull.panel_twist_rate) rather than the mean-twist proxy",
           lambda: has_code("navalai/grammar.py", r"panel_twist_rate")),
@@ -1729,6 +1739,29 @@ def committed_only(rows: list[Row]) -> list[Row]:
             else Row(r.source_id, OPEN, r.evidence + "  [evidence is "
                      "uncommitted work in flight; not closed]")
             for r in rows]
+
+
+
+def _e5_corpus_is_real() -> bool:
+    """12+ COMPLETE hulls from 3+ families, with offsets actually on disk.
+
+    Counted from the ledger and cross-checked against the fixture directory,
+    so a ledger row whose offsets were never committed does not count. A
+    hull without a published depth is PARTIAL and is not counted here.
+    """
+    import json
+    led = _ROOT / "data" / "e5_real_hulls.json"
+    fix = _ROOT / "tests" / "e5_real_hulls"
+    if not led.exists():
+        return False
+    try:
+        rows = json.loads(led.read_text())
+    except Exception:                                        # noqa: BLE001
+        return False
+    ok = [r for r in rows
+          if r.get("complete_six")
+          and (fix / r["hull_id"] / "source_offsets.csv").exists()]
+    return len(ok) >= 12 and len({r["source_family"] for r in rows}) >= 3
 
 
 def main(argv: list[str] | None = None) -> int:

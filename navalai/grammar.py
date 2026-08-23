@@ -232,9 +232,16 @@ PARAMS = [
     # before the L/B floor of 2.2 above LWL 13.2 m, so a 24 m x 9 m barge is
     # not expressible. Nothing in this tree sources one and the product line
     # does not want one; the defect was at the NARROW end.
+    # THE DESCRIPTION SAID "at the max-area station" AND THE CODE DOES NOT.
+    # Corrected 2026-08-23 from Gate 0E5, which found it by encoding real
+    # published hulls: MEASURED over eight sampled genomes, the generated
+    # hull's MAXIMUM waterline half-breadth equals the commanded BWL/2
+    # (2.5555 vs 2.5555, 2.1446 vs 2.1446, 1.8256 vs 1.8256, ...), while the
+    # half-breadth at `x_mb` falls short by up to 0.2% and the station of
+    # maximum beam sits as far aft as 0.65 L. Reading a real hull's beam
+    # into this gene under the OLD description cost 2.5% of beam.
     ("BWL",        "m",   _BWL_FLOOR, _BWL_CEILING,
-     "beam ON THE DESIGN WATERLINE at the "
-                                     "max-area station"),
+     "MAXIMUM beam on the design waterline"),
     # T floor: DERIVED as BWL_low / (the largest B/T ceiling over all roles),
     # on the same rule and with the same disclaimer. T ceiling: the largest
     # draft `formlib.DRAWN_DIMENSION_RANGES` draws (2.0 m, "large monohull") —
@@ -245,8 +252,15 @@ PARAMS = [
     # D floor: DERIVED as T_low + MIN_FREEBOARD_ABS_M — the shallowest depth at
     # which ANY hull can clear `freeboard.abs`, so a shallower bound would
     # enclose only hulls this gate already refuses. D ceiling UNCHANGED at 3.0.
+    # "midship" HERE MEANS `x_mb`, NOT MID-LENGTH, and the two differ on
+    # every hull whose max-area station is not at 0.5 L (the gene spans
+    # [0.40, 0.68]). `station_geometry` holds the sheer flat at freeboard
+    # `fb = D - T` aft of `x_mb` and raises it forward, and the keel is
+    # deepest at `x_mb`, so D is realised there EXACTLY. Measuring it at
+    # mid-length instead cost a systematic +0.5% to +1.3% across the Gate
+    # 0E5 corpus, same sign on every hull.
     ("D",          "m",   _D_FLOOR, 3.0,
-     "depth, keel to sheer at midship"),
+     "depth, keel to sheer AT THE MAX-AREA STATION x_mb"),
     # Cp and lcb are DESIGN TARGETS, and both are bounded from `limits.py`
     # rather than by a literal here: `CP_GENE_BOUNDS` is the span of the
     # Froude-number prismatic table (`limits.prismatic_target`), so the gene

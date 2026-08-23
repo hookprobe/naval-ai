@@ -1,0 +1,197 @@
+{
+  "fridsma_b10_lb5": {
+    "id": "fridsma_b10_lb5",
+    "source_Cp": 0.9528094707479527,
+    "genome_Cp_ceiling": 0.71,
+    "as_published": {
+      "status": "REFUSED",
+      "refusal": "sac: Cp 0.9528 unreachable at x_mb 0.540, r_transom 0.275 with exponents in [-6.0, 8.0]",
+      "is_pass": false
+    },
+    "nearest_expressible": {
+      "is_pass": false,
+      "why": "Cp was CLAMPED to what the kernel can build; the source value is not represented",
+      "Cp_clamped_to": 0.7714111998390762,
+      "Cp_source": 0.9528094707479527,
+      "Cp_shortfall": 0.1813982709088765,
+      "geom_rms_m": 0.05190143298975587,
+      "geom_rms_pct_halfbeam": 10.380286597951175,
+      "geom_max_m": 0.320894278510095,
+      "measured_back_Cp": 0.7714244685570077,
+      "genome": {
+        "LWL": 5.0,
+        "BWL": 1.0,
+        "T": 0.172022366,
+        "D": 0.625,
+        "Cp": 0.7714111998390762,
+        "lcb": -2.2545956556704017,
+        "x_mb": 0.4497771562589698,
+        "r_transom": 0.38935165598582094,
+        "beta_mid": 1.4515324915986039,
+        "beta_bow": 16.868713770805385,
+        "beta_len": 0.5632428586564869,
+        "roundness": 0.9349757024576283,
+        "rocker": 0.599957818876042,
+        "forefoot": 0.6128395230481612,
+        "flare": 5.0109905456589345,
+        "sheer_rise": 0.23726389686577143
+      }
+    }
+  },
+  "fridsma_b20_lb4": {
+    "id": "fridsma_b20_lb4",
+    "source_Cp": 0.9506909163131474,
+    "genome_Cp_ceiling": 0.71,
+    "as_published": {
+      "status": "REFUSED",
+      "refusal": "sac: Cp 0.9507 unreachable at x_mb 0.540, r_transom 0.275 with exponents in [-6.0, 8.0]",
+      "is_pass": false
+    },
+    "nearest_expressible": {
+      "is_pass": false,
+      "why": "Cp was CLAMPED to what the kernel can build; the source value is not represented",
+      "Cp_clamped_to": 0.8394573832306378,
+      "Cp_source": 0.9506909163131474,
+      "Cp_shortfall": 0.1112335330825096,
+      "geom_rms_m": 0.040881060299758146,
+      "geom_rms_pct_halfbeam": 8.176212059951629,
+      "geom_max_m": 0.2585379776206978,
+      "measured_back_Cp": 0.8394441623120128,
+      "genome": {
+        "LWL": 4.0,
+        "BWL": 1.0,
+        "T": 0.251029473,
+        "D": 0.625,
+        "Cp": 0.8394573832306378,
+        "lcb": -2.321040309150085,
+        "x_mb": 0.4046904670745096,
+        "r_transom": 0.4999410845808799,
+        "beta_mid": 12.994648379922301,
+        "beta_bow": 45.56835727651238,
+        "beta_len": 0.31678833629979075,
+        "roundness": 0.9611800695060473,
+        "rocker": 0.39701938982185875,
+        "forefoot": 0.15934383389095227,
+        "flare": 2.7705491742864687,
+        "sheer_rise": 0.26751848456542904
+      }
+    }
+  },
+  "fridsma_b20_lb5": {
+    "id": "fridsma_b20_lb5",
+    "source_Cp": 0.9613292659147261,
+    "genome_Cp_ceiling": 0.71,
+    "as_published": {
+      "status": "REFUSED",
+      "refusal": "sac: Cp 0.9613 unreachable at x_mb 0.540, r_transom 0.275 with exponents in [-6.0, 8.0]",
+      "is_pass": false
+    },
+    "nearest_expressible": {
+      "is_pass": false,
+      "why": "Cp was CLAMPED to what the kernel can build; the source value is not represented",
+      "Cp_clamped_to": 0.8012335726527452,
+      "Cp_source": 0.9613292659147261,
+      "Cp_shortfall": 0.16009569326198092,
+      "geom_rms_m": 0.04250820000452323,
+      "geom_rms_pct_halfbeam": 8.501640000904647,
+      "geom_max_m": 0.3218180015706586,
+      "measured_back_Cp": 0.8012231987253078,
+      "genome": {
+        "LWL": 5.0,
+        "BWL": 1.0,
+        "T": 0.217637269,
+        "D": 0.625,
+        "Cp": 0.8012335726527452,
+        "lcb": -1.846321237071189,
+        "x_mb": 0.4369333723384651,
+        "r_transom": 0.29638900522638445,
+        "beta_mid": 13.270132829391104,
+        "beta_bow": 22.368642557373,
+        "beta_len": 0.5740273964869489,
+        "roundness": 0.9963675570858317,
+        "rocker": 0.5509601081544351,
+        "forefoot": 0.5723409161541574,
+        "flare": 2.785148272098386,
+        "sheer_rise": 0.25042188160680734
+      }
+    }
+  },
+  "fridsma_b20_lb6": {
+    "id": "fridsma_b20_lb6",
+    "source_Cp": 0.9684109070620212,
+    "genome_Cp_ceiling": 0.71,
+    "as_published": {
+      "status": "REFUSED",
+      "refusal": "sac: Cp 0.9684 unreachable at x_mb 0.540, r_transom 0.275 with exponents in [-6.0, 8.0]",
+      "is_pass": false
+    },
+    "nearest_expressible": {
+      "is_pass": false,
+      "why": "Cp was CLAMPED to what the kernel can build; the source value is not represented",
+      "Cp_clamped_to": 0.7737449212603679,
+      "Cp_source": 0.9684109070620212,
+      "Cp_shortfall": 0.19466598580165329,
+      "geom_rms_m": 0.05432637050056432,
+      "geom_rms_pct_halfbeam": 10.865274100112863,
+      "geom_max_m": 0.2389473228089898,
+      "measured_back_Cp": 0.7737314593496557,
+      "genome": {
+        "LWL": 6.0,
+        "BWL": 1.0,
+        "T": 0.195784525,
+        "D": 0.625,
+        "Cp": 0.7737449212603679,
+        "lcb": -1.5224477262482699,
+        "x_mb": 0.5646899542071683,
+        "r_transom": 0.42906786975650124,
+        "beta_mid": 11.384022057506945,
+        "beta_bow": 18.325041618533188,
+        "beta_len": 0.4525657981363794,
+        "roundness": 0.9999811050548254,
+        "rocker": 0.4596805127021468,
+        "forefoot": 0.6948115004267928,
+        "flare": 10.324230249314265,
+        "sheer_rise": 0.3586894938543926
+      }
+    }
+  },
+  "fridsma_b30_lb5": {
+    "id": "fridsma_b30_lb5",
+    "source_Cp": 0.9705156785451894,
+    "genome_Cp_ceiling": 0.71,
+    "as_published": {
+      "status": "REFUSED",
+      "refusal": "sac: Cp 0.9705 unreachable at x_mb 0.540, r_transom 0.275 with exponents in [-6.0, 8.0]",
+      "is_pass": false
+    },
+    "nearest_expressible": {
+      "is_pass": false,
+      "why": "Cp was CLAMPED to what the kernel can build; the source value is not represented",
+      "Cp_clamped_to": 0.8427806297832829,
+      "Cp_source": 0.9705156785451894,
+      "Cp_shortfall": 0.12773504876190644,
+      "geom_rms_m": 0.04312792233025126,
+      "geom_rms_pct_halfbeam": 8.625584466050253,
+      "geom_max_m": 0.18221318550814955,
+      "measured_back_Cp": 0.8428205117905168,
+      "genome": {
+        "LWL": 5.0,
+        "BWL": 0.9317717488956161,
+        "T": 0.268979369,
+        "D": 0.625,
+        "Cp": 0.8427806297832829,
+        "lcb": -1.4118125222330136,
+        "x_mb": 0.45526865870623245,
+        "r_transom": 0.4240125227205315,
+        "beta_mid": 24.159673285775792,
+        "beta_bow": 47.156300765564254,
+        "beta_len": 0.2797311583538464,
+        "roundness": 0.9829998579448611,
+        "rocker": 0.39457270540286177,
+        "forefoot": 0.22456894732685484,
+        "flare": 12.6288721788619,
+        "sheer_rise": 0.10617912095994195
+      }
+    }
+  }
+}
