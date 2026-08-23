@@ -246,6 +246,7 @@ def describe(o: HullOffsets) -> Descriptors:
     sac_smoothness = float(np.sqrt(np.mean(d2 ** 2)))
 
     # -- plan
+    _inset = max(1, int(round(0.025 * (len(b) - 1))))
     ibk = int(np.argmax(B))
     beam_peak_x = float(xf[ibk])
     beam_carried = float(np.mean(b >= 0.90))
@@ -268,8 +269,17 @@ def describe(o: HullOffsets) -> Descriptors:
     Dmax = float(depth.max()) if depth.size else 1.0
     mid = ipk
     midship_fullness = _safe(A[mid], 2.0 * B[mid] * T, 0.0)
+    # THE FLOOR MUST BE RELATIVE, NOT ABSOLUTE. MEASURED: scaling a hull by
+    # 7.3x moved `section_fullness_mean` by 2.3% while the other 32 descriptors
+    # were unchanged to 1e-16 — because `np.maximum(..., 1e-9)` compares a
+    # DIMENSIONAL quantity (2*B*T, in m^2) against a fixed number, so it clamps
+    # at one size and not at another. The descriptor set has to be scale-free
+    # or a 10 m corpus cannot calibrate a 200 m hull, which is exactly what the
+    # ShipD corpus is (every hull normalised to LOA 10).
+    _box = 2.0 * B * T
+    _floor = 1e-9 * max(float(np.nanmax(_box)) if _box.size else 1.0, 1e-30)
     with np.errstate(invalid="ignore", divide="ignore"):
-        sf = A / np.maximum(2.0 * B * T, 1e-9)
+        sf = A / np.maximum(_box, _floor)
     section_fullness_mean = float(np.nanmean(np.where(np.isfinite(sf), sf, np.nan)))
 
     # DEADRISE IS THE ANGLE OF THE BOTTOM PANEL: keel point to chine.
@@ -298,7 +308,15 @@ def describe(o: HullOffsets) -> Descriptors:
             dy = col[j1] - col[j0]
             dz = o.z[j1] - o.z[j0]
             if dy > 1e-9:
-                dead[i] = math.degrees(math.atan2(dz, dy))
+                ang = math.degrees(math.atan2(dz, dy))
+                # A BOTTOM PANEL AT MORE THAN 60 DEG IS A TOPSIDE. Without a
+                # declared chine the estimator walks up from the keel row and,
+                # on a flared hard-chine section, walks straight past the
+                # knuckle onto the flare: MEASURED 75.0 deg on a dory-flared
+                # plywood demihull whose bottom is very nearly flat. Refusing
+                # is correct — the alternative is a corpus of confident wrong
+                # deadrise, and a search will happily optimise it.
+                dead[i] = ang if ang <= 60.0 else float("nan")
     dmid = float(np.nanmedian(dead[len(dead) // 3: 2 * len(dead) // 3]))
     dbow = float(np.nanmedian(dead[-max(2, len(dead) // 6):]))
     drange = float(np.nanmax(dead) - np.nanmin(dead)) if np.isfinite(dead).any() else 0.0
@@ -311,7 +329,14 @@ def describe(o: HullOffsets) -> Descriptors:
         bow_taper=bow_taper, stern_taper=stern_taper,
         sac_smoothness=sac_smoothness,
         beam_peak_x=beam_peak_x, beam_carried=beam_carried,
-        beam_transom=float(b[0]), beam_stem=float(b[-1]),
+        # MEASURED AT A 2.5% INSET, NOT AT THE EXTREME STATION. A closed hull
+        # section degenerates to a POINT at its own extremity, so reading beam
+        # exactly at x[0] measures the sampling grid, not the boat. MEASURED:
+        # 300 of 300 ShipD hulls returned beam_transom = 0.000, which made the
+        # learned band degenerate (0.000..0.000) and scored every real transom
+        # as infinitely wrong. The inset is what a draughtsman would call
+        # station 1 rather than the after perpendicular.
+        beam_transom=float(b[_inset]), beam_stem=float(b[-1 - _inset]),
         waterline_convexity=waterline_convexity, plan_waist=plan_waist,
         midship_fullness=midship_fullness,
         section_fullness_mean=section_fullness_mean,
@@ -556,49 +581,153 @@ def from_mesh(mesh, n_stations: int = 41, nz: int = 41,
     """Any watertight triangle mesh -> the common offsets table.
 
     THE THIRD DOOR INTO THE SAME REPRESENTATION. `from_hull` admits this
-    project's own generator and `load_offsets_csv` admits a published table;
-    this admits geometry from anywhere else — a CadQuery loft, an IGES import,
-    a downloaded STL — so that external hulls can be described and judged by
-    exactly the same descriptors the bands were measured on.
+    project's own generator and `load_offsets_csv` a published table; this
+    admits geometry from anywhere else — a CadQuery loft, an IGES import, a
+    downloaded STL — so external hulls are judged by the same descriptors the
+    bands were measured on.
+
+    IT SLICES; IT DOES NOT BIN VERTICES. The first version binned vertices onto
+    the station x waterline grid, which works only when the mesh is finely
+    triangulated. MEASURED on a CadQuery ruled loft — exactly the case this
+    function exists for — the solid carries 22 faces and ~14 distinct vertices,
+    so 39 of 41 grid rows at the midship station were EMPTY, every immersed
+    integral came out zero, and a 10,000-hull corpus was written with
+    Cp = Cb = 0.0000 on every row. The descriptors were not wrong about the
+    hulls; they were reading an empty grid.
 
     `axis` is the LONGITUDINAL index and `up` the VERTICAL index of the mesh's
-    coordinate frame; the remaining index is taken as half-breadth. They are
-    parameters rather than assumptions because every source disagrees: this
-    kernel is (x fwd, y stbd, z up), while a CadQuery loft extruded along its
-    workplane normal arrives as (beam, depth, length).
+    frame; the remaining index is half-breadth. Parameters, not assumptions,
+    because every source disagrees: this kernel is (x fwd, y stbd, z up) while
+    a CadQuery loft arrives as (beam, depth, length).
     """
     import numpy as _np
 
     v = _np.asarray(mesh.vertices, float)
     side = ({0, 1, 2} - {axis, up}).pop()
-    xs, zs, ys = v[:, axis], v[:, up], v[:, side]
-
-    x = _np.linspace(float(xs.min()), float(xs.max()), n_stations)
-    z = _np.linspace(float(zs.min()), float(zs.max()), nz)
+    x = _np.linspace(float(v[:, axis].min()), float(v[:, axis].max()), n_stations)
+    z = _np.linspace(float(v[:, up].min()), float(v[:, up].max()), nz)
     y = _np.full((n_stations, nz), _np.nan)
     zk = _np.full(n_stations, _np.nan)
     zsh = _np.full(n_stations, _np.nan)
 
-    # Bin the surface points by station, then by height, and take the widest
-    # half-breadth in each cell. A binned read of a closed surface is enough for
-    # DESCRIPTORS (which are all normalised aggregates) and avoids depending on
-    # a section/plane intersection that fails on degenerate slivers -- and the
-    # bow of a developable hull is deliberately a sliver.
-    dx = (x[-1] - x[0]) / max(1, n_stations - 1)
-    dz = (z[-1] - z[0]) / max(1, nz - 1)
-    si = _np.clip(((xs - x[0]) / dx).round().astype(int), 0, n_stations - 1)
-    zi = _np.clip(((zs - z[0]) / dz).round().astype(int), 0, nz - 1)
-    ay = _np.abs(ys)
-    for k in range(len(v)):
-        i, j = si[k], zi[k]
-        if _np.isnan(y[i, j]) or ay[k] > y[i, j]:
-            y[i, j] = ay[k]
-    for i in range(n_stations):
-        col = _np.where(~_np.isnan(y[i]))[0]
-        if col.size:
-            zk[i], zsh[i] = z[col[0]], z[col[-1]]
+    normal = _np.zeros(3)
+    normal[axis] = 1.0
+    eps = ((x[-1] - x[0]) * 1e-3) or 1e-6
+    dz = float(z[1] - z[0]) if len(z) > 1 else 1.0
+    for i, xi in enumerate(x):
+        org = _np.zeros(3)
+        # nudge the end planes inboard: a slice exactly ON a cap is degenerate
+        org[axis] = float(min(max(xi, x[0] + eps), x[-1] - eps))
+        try:
+            sec = mesh.section(plane_origin=org, plane_normal=normal)
+        except Exception:                                       # noqa: BLE001
+            sec = None
+        if sec is None or len(getattr(sec, "vertices", ())) < 3:
+            continue
+        pts = _np.asarray(sec.vertices, float)
+        pz, py = pts[:, up], _np.abs(pts[:, side])
+        zk[i], zsh[i] = float(pz.min()), float(pz.max())
+        order = _np.argsort(pz)
+        pz_s, py_s = pz[order], py[order]
+        inside = (z >= pz.min() - 1e-9) & (z <= pz.max() + 1e-9)
+        for j in _np.where(inside)[0]:
+            near = _np.abs(pz_s - z[j]) <= 0.75 * dz
+            y[i, j] = float(py_s[near].max()) if near.any() \
+                else float(_np.interp(z[j], pz_s, py_s))
+
     good = ~_np.isnan(zk)
     if good.sum() >= 2:
         zk[~good] = _np.interp(x[~good], x[good], zk[good])
         zsh[~good] = _np.interp(x[~good], x[good], zsh[good])
     return HullOffsets(x=x, z=z, y=y, z_keel=zk, z_sheer=zsh, label=label)
+
+
+# ---------------------------------------------------------------------------
+# THE LEARNED MANIFOLD. Bands measured over 30,000 ShipD hulls (19,256 of them
+# morphologically plausible) and VENDORED to data/shipd_morphology_bands.json.
+#
+# `navalai/` never imports ShipD: the upstream repo declares no licence, needs a
+# local numpy-2.x patch to run at all, and a band that moves when someone
+# re-clones a research repo is not a band. What is read here is OUR measurement
+# of it. See scripts/build_shipd_corpus.py.
+#
+# THE CRITIC AND THE MANIFOLD ANSWER DIFFERENT QUESTIONS, and conflating them
+# would lose both. `critique` asks IS THIS A BOAT — its bars are calibrated for
+# ZERO false positives on 58 published hulls, so they are deliberately loose.
+# `manifold_score` asks IS THIS LIKE THE HULLS PEOPLE ACTUALLY DRAW — a
+# continuous distance from the plausible band, which is what a search can
+# descend. A hull can pass the critic and still sit far outside the manifold;
+# the 2026-08-23 houseboat did exactly that, at beam_carried 0.293 against a
+# plausible band of 0.415-0.829.
+# ---------------------------------------------------------------------------
+
+_MANIFOLD_PATH = ("data/shipd_morphology_bands.json",)
+_MANIFOLD_CACHE: dict | None = None
+
+# Descriptors the manifold is scored on. Deliberately NOT all 33: several are
+# constant across the corpus (`plan_waist`, `sac_transom`) and would contribute
+# only noise, and the raw proportions are already gated by `critique`.
+MANIFOLD_KEYS = ("beam_carried", "waterline_convexity", "cp", "cb",
+                 "pmb_frac", "section_fullness_mean", "beam_transom",
+                 "deadrise_mid_deg", "l_over_b", "b_over_t")
+
+
+def manifold_bands(path: str | None = None) -> dict:
+    """The vendored plausible-only bands, or {} when the file is absent.
+
+    Absent is an honest state, not an error: the bands are a measurement this
+    repository carries, and a caller that cannot find them must be able to say
+    so rather than silently score against nothing.
+    """
+    global _MANIFOLD_CACHE
+    if _MANIFOLD_CACHE is not None and path is None:
+        return _MANIFOLD_CACHE
+    import json
+    from pathlib import Path
+
+    for p in ([path] if path else _MANIFOLD_PATH):
+        f = Path(p)
+        if not f.is_absolute():
+            f = Path(__file__).resolve().parents[1] / p
+        if f.exists():
+            data = json.loads(f.read_text())
+            bands = data.get("bands_plausible_only", {})
+            if path is None:
+                _MANIFOLD_CACHE = bands
+            return bands
+    return {}
+
+
+def manifold_score(d: Descriptors, bands: dict | None = None) -> tuple[float, dict]:
+    """How far inside the learned manifold this hull sits: 1.0 = fully inside.
+
+    Returns `(score, per_descriptor)`. Each descriptor contributes 1.0 when it
+    lies within the plausible band and decays with its distance OUTSIDE,
+    normalised by the band's own width — so a descriptor with a wide band is
+    not punished for a deviation that a narrow one would be.
+    """
+    bands = manifold_bands() if bands is None else bands
+    if not bands:
+        return float("nan"), {}
+    parts: dict[str, float] = {}
+    for k in MANIFOLD_KEYS:
+        b = bands.get(k)
+        v = getattr(d, k, float("nan"))
+        if not b or not math.isfinite(v) or not all(math.isfinite(x) for x in b):
+            continue
+        lo, hi = float(b[0]), float(b[1])
+        # A ZERO-WIDTH BAND CANNOT DISCRIMINATE, so it is DROPPED rather than
+        # scored. MEASURED: `beam_transom` came back 0.000..0.000 over 30,000
+        # hulls (a sampling artefact, since fixed) and every real hull scored
+        # 0.0 against it — one of ten descriptors contributing pure noise to
+        # the manifold score. Refusing to score an unmeasurable band is the
+        # same rule this module applies everywhere else.
+        if (hi - lo) <= 1e-9:
+            continue
+        width = hi - lo
+        if lo <= v <= hi:
+            parts[k] = 1.0
+        else:
+            out = (lo - v) if v < lo else (v - hi)
+            parts[k] = float(max(0.0, 1.0 - out / width))
+    return (float(np.mean(list(parts.values()))) if parts else float("nan")), parts

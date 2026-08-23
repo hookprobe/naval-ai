@@ -136,3 +136,8 @@ data/provenance.db-journal
 # 5 MB of derived labels; summary.json carries the measured rates.
 data/plywood_catamaran/labels.csv
 data/plywood_catamaran/stls/
+
+# 36 MB of per-hull descriptor rows, regenerable by
+# scripts/build_shipd_corpus.py --seed 0. The BANDS are committed.
+data/shipd_morphology.json
+downloads/shipd/
