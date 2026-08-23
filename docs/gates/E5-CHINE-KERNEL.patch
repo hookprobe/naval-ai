@@ -1,0 +1,426 @@
+diff --git a/navalai/formlib.py b/navalai/formlib.py
+index 98da900..517bf25 100644
+--- a/navalai/formlib.py
++++ b/navalai/formlib.py
+@@ -799,8 +799,15 @@ _DGEM = "hull-designs-gemini.png"
+ # demihull spacing into the production wave-interference term, so the
+ # separation marker's premise is dead. What genuinely remains inexpressible
+ # is stated below, in present-tense truth.
+-_M_SECTION = ("a section whose SHAPE varies freely with x: deadrise warp is "
+-              "forward-only and `flare`/`roundness` are single scalars "
++# NARROWED 2026-08-23 (Gate 0E5C). It used to open with "deadrise warp is
++# forward-only", which stopped being true when `beta_len`'s ceiling moved to
++# 1.00: deadrise now warps from the transom and reproduces all seven
++# published hard-chine series within 0.25 deg. The clause that SURVIVES is
++# the one about `flare` and `roundness`, which really are single scalars
++# applied at every station — so a section that changes SHAPE along the
++# length, as a multi-chine or a spray-railed bottom does, is still out.
++_M_SECTION = ("a section whose SHAPE varies freely with x: `flare` and "
++              "`roundness` are single scalars "
+               "applied at every station, so no family needing per-station "
+               "section-shape control (NPL-style varying sections, multi-chine "
+               "transitions) can be built")
+@@ -816,8 +823,19 @@ _M_FLARE = ("flare that varies along the length: `flare` is one scalar applied "
+             "at every station")
+ _M_STEM = ("stem rake, bow overhang or a counter stern: LOA == LWL by "
+            "construction")
+-_M_AFT_DEADRISE = ("aft deadrise variation: the warp is forward-only and "
+-                   "deadrise is frozen at beta_mid aft of the warp")
++# RETIRED 2026-08-23 (Gate 0E5C). It read: "aft deadrise variation: the warp
++# is forward-only and deadrise is frozen at beta_mid aft of the warp". That
++# became FALSE when `beta_len`'s ceiling moved from 0.60 to 1.00 — at
++# beta_len = 1 the warp starts at the transom and `beta_mid` reads as the
++# transom deadrise. MEASURED after the change: all seven published hard-chine
++# series in De Luca & Pensa (2017) Table 1(a,b) are reproduced within 0.25 deg
++# (they were 8.69 deg out at worst before), including the two explicitly
++# warped families, Naples and NTUA.
++#
++# It is DELETED rather than reworded because a registry that still declares a
++# limitation the kernel no longer has is worse than no registry: it is a
++# document that argues against its own code, which is this repository's
++# recurring defect one floor up.
+ _M_APPENDAGE = ("appendages, steps, strakes, bulbs or foils: absent from "
+                 "geometry.py entirely")
+ _M_ASYMMETRIC = ("an asymmetric section: every section is symmetric about the "
+@@ -986,8 +1004,16 @@ FAMILIES: tuple[FormFamily, ...] = (
+                            "grammar.L_OVER_B_BAND, the band the L0 gate "
+                            "actually enforces"),
+             "b_over_t": _b(1.8, 12.0, Basis.MEASURED, "grammar.B_OVER_T_BAND"),
+-            "deadrise_deg": _b(0.0, 25.0, Basis.MEASURED,
+-                               "grammar.PARAMS beta_mid bounds"),
++            # 35.0 TRACKS `grammar.PARAMS` beta_mid AND IS FENCED, NOT
++            # DERIVED. `grammar` imports THIS module, so reading it back here
++            # would be circular; the literal is therefore pinned by
++            # `test_the_deadrise_bound_is_not_declared_twice`, which fails if
++            # the two ever disagree. It was 25.0 until 2026-08-23, when Gate
++            # 0E5C found the grammar bound had no provenance and seven
++            # published hard-chine series outside it.
++            "deadrise_deg": _b(0.0, 35.0, Basis.MEASURED,
++                               "grammar.PARAMS beta_mid bounds (fenced by "
++                               "tests/test_formlib.py)"),
+             "cp": _b(0.55, 0.70, Basis.APPROX, "CP_VS_FN; no anchor"),
+         },
+         notes=("000: 'good initial stability, efficient at lower speeds, "
+@@ -1161,7 +1187,7 @@ FAMILIES: tuple[FormFamily, ...] = (
+             "deadrise to a solar demihull is the single most likely wrong "
+             "answer this library exists to prevent"),
+         expressible=Expressible.PARTIAL,
+-        missing=(_M_AFT_DEADRISE, _M_APPENDAGE),
++        missing=(_M_APPENDAGE,),
+         drawings=(_DGEM, _DEXP, _D001, _D003),
+         proportions={
+             "l_over_b": _b(2.5, 4.5, Basis.APPROX, "practice; no anchor"),
+@@ -1188,7 +1214,7 @@ FAMILIES: tuple[FormFamily, ...] = (
+             "DEADRISE law it needs is the one thing the current grammar "
+             "already does well (beta_mid/beta_bow/beta_len)"),
+         expressible=Expressible.PARTIAL,
+-        missing=(_M_AFT_DEADRISE, _M_APPENDAGE),
++        missing=(_M_APPENDAGE,),
+         drawings=(_DGEM, _DEXP),
+         proportions={
+             "l_over_b": _b(2.5, 5.0, Basis.APPROX, "practice; no anchor"),
+@@ -1211,7 +1237,7 @@ FAMILIES: tuple[FormFamily, ...] = (
+         candidacy=Candidacy.EXCLUDED,
+         candidacy_reason="a lift device on a hull that never planes",
+         expressible=Expressible.PARTIAL,
+-        missing=(_M_APPENDAGE, _M_AFT_DEADRISE),
++        missing=(_M_APPENDAGE,),
+         drawings=(_DEXP,),
+         proportions={
+             "l_over_b": _b(2.5, 5.0, Basis.APPROX, "practice; no anchor"),
+diff --git a/navalai/geometry.py b/navalai/geometry.py
+index e133233..021c2eb 100644
+--- a/navalai/geometry.py
++++ b/navalai/geometry.py
+@@ -192,29 +192,73 @@ def _shape_moments(p: float) -> tuple[float, float]:
+     return q / (q + 1.0), 0.5 - 1.0 / ((q + 1.0) * (q + 2.0))
+ 
+ 
+-def _sac_terms(L: float, xm: float, R: float, pf: float, pa: float):
++def pmb_span(L: float, xm: float, lam: float) -> tuple[float, float]:
++    """(x1, x2): the parallel middle body, centred on the max-area station.
++
++    Centred on `xm` rather than placed independently, and that is the whole
++    reason it does not fight the LCB solve: a flat of area centred on xm
++    contributes its area SYMMETRICALLY about xm, so it moves Cp strongly and
++    LCB weakly. Giving the flat its own longitudinal position would restore
++    the coupling this parameter exists to break, and would cost a gene.
++
++    Clamped into (0, L) so the two end branches never collapse to zero
++    length. `l_pmb <= 0.60` and `x_mb in [0.40, 0.68]` already satisfy
++    lam <= 2*min(x_mb, 1-x_mb) everywhere in the box (0.64 at the worst
++    corner), so the clamp is a guard rather than a routine operation.
++    """
++    half = 0.5 * max(0.0, float(lam)) * L
++    x1 = min(max(xm - half, 1e-9 * L), xm)
++    x2 = max(min(xm + half, L - 1e-9 * L), xm)
++    return x1, x2
++
++
++def _sac_terms(L: float, xm: float, R: float, pf: float, pa: float,
++               lam: float = 0.0):
+     """Closed-form 0th and 1st moments of a(x).
+ 
+-    a(x) = R + (1-R) h(x/xm; pa)               for x <  xm
+-    a(x) = 1 - h((x-xm)/(L-xm); pf)            for x >= xm
++    a(x) = R + (1-R) h(x/x1; pa)            for x <  x1
++    a(x) = 1                                for x1 <= x <= x2   (middle body)
++    a(x) = 1 - h((x-x2)/(L-x2); pf)         for x >  x2
+ 
+     S = int a dx and M = int x a dx, both exact. Cp = S / L and the
+     longitudinal centre of buoyancy is M / S, so the two design targets are
+     two equations in (pf, pa) — which is the whole point of writing them in
+     closed form: the solve below is cheap enough to sit inside `grammar.check`.
++
++    THE MIDDLE BODY IS THE THIRD FREEDOM, AND IT IS WHAT LIFTS THE Cp CEILING.
++    MEASURED before it existed: maximising over the whole box and ignoring
++    LCB, Cp reached 0.9267; with LCB pinned to a real published hull and
++    every other gene free, the kernel would build to only 0.890. (0.8476 is
++    the same measurement with the keel-rise genes pinned at mid-box, which is
++    the number this comment first carried and is NOT the ceiling -- a bound
++    measured at a configuration nothing runs is the defect docs/LESSONS.md
++    names, and it flattered the fix by 4 hundredths.) The gap was never the exponent range — h1 = int h ds
++    is bounded to [1/9, 8/9] by p in [-6, 8] and widening that only buys a SAC
++    with a corner at the shoulder. The gap was that the family had TWO shape
++    freedoms and TWO targets, so at high Cp both exponents saturate and LCB is
++    whatever falls out. A flat of length lam*L adds lam directly to Cp while
++    contributing its first moment at xm, which is why Cp and LCB stop
++    competing. Ceilings now: lam 0.2 -> 0.9413, 0.4 -> 0.9560, 0.6 -> 0.9707,
++    which covers the Fridsma prismatic planing range of 0.951-0.971.
++
++    lam = 0 reproduces the previous expressions EXACTLY (x1 = x2 = xm), so
++    every stored genome, population and baseline keeps its meaning.
+     """
+-    lf = L - xm
++    x1, x2 = pmb_span(L, xm, lam)
++    lf = L - x2
+     h1a, h2a = _shape_moments(pa)
+     h1f, h2f = _shape_moments(pf)
+-    S = xm * (R + (1.0 - R) * h1a) + lf * (1.0 - h1f)
+-    M = (xm * xm * (0.5 * R + (1.0 - R) * h2a)
+-         + lf * (xm * (1.0 - h1f) + lf * (0.5 - h2f)))
++    S = x1 * (R + (1.0 - R) * h1a) + (x2 - x1) + lf * (1.0 - h1f)
++    M = (x1 * x1 * (0.5 * R + (1.0 - R) * h2a)
++         + 0.5 * (x2 * x2 - x1 * x1)
++         + lf * (x2 * (1.0 - h1f) + lf * (0.5 - h2f)))
+     return S, M
+ 
+ 
+ @lru_cache(maxsize=8192)
+ def sac_exponents(lwl: float, x_mb: float, r_transom: float,
+-                  cp: float, lcb_pct: float) -> tuple[float, float]:
++                  cp: float, lcb_pct: float,
++                  l_pmb: float = 0.0) -> tuple[float, float]:
+     """Solve the SAC shape exponents (pf, pa) for a target (Cp, LCB).
+ 
+     Returns (pf, pa). Raises `GeometryError` when the target lies outside what
+@@ -243,7 +287,7 @@ def sac_exponents(lwl: float, x_mb: float, r_transom: float,
+     `_require_finite`.
+     """
+     for _nm, _v in (("LWL", lwl), ("x_mb", x_mb), ("r_transom", r_transom),
+-                    ("Cp", cp), ("lcb", lcb_pct)):
++                    ("Cp", cp), ("lcb", lcb_pct), ("l_pmb", l_pmb)):
+         if not math.isfinite(float(_v)):
+             raise GeometryError(
+                 f"finite: NaN/inf in parameter vector — {_nm} is {float(_v)}")
+@@ -253,8 +297,10 @@ def sac_exponents(lwl: float, x_mb: float, r_transom: float,
+     S_t = float(cp) * L
+     x_t = L * (0.5 + float(lcb_pct) / 100.0)
+ 
++    lam = float(l_pmb)
++
+     def S_of(pf: float, pa: float) -> float:
+-        return _sac_terms(L, xm, R, pf, pa)[0]
++        return _sac_terms(L, xm, R, pf, pa, lam)[0]
+ 
+     def pf_for(pa: float) -> float | None:
+         lo, hi = SAC_P_MIN, SAC_P_MAX
+@@ -286,7 +332,7 @@ def sac_exponents(lwl: float, x_mb: float, r_transom: float,
+     if S_of(SAC_P_MIN, SAC_P_MAX) > S_t or S_of(SAC_P_MAX, SAC_P_MIN) < S_t:
+         raise GeometryError(
+             f"sac: Cp {cp:.4f} unreachable at x_mb {x_mb:.3f}, "
+-            f"r_transom {r_transom:.3f} with exponents in "
++            f"r_transom {r_transom:.3f}, l_pmb {lam:.3f} with exponents in "
+             f"[{SAC_P_MIN}, {SAC_P_MAX}]")
+     pa_lo = SAC_P_MIN if ok_lo else _edge(False, lambda p: S_of(SAC_P_MIN, p) <= S_t)
+     pa_hi = SAC_P_MAX if ok_hi else _edge(True, lambda p: S_of(SAC_P_MAX, p) >= S_t)
+@@ -297,14 +343,14 @@ def sac_exponents(lwl: float, x_mb: float, r_transom: float,
+         pf = pf_for(pa)
+         if pf is None:                       # numerical edge of the interval
+             pf = SAC_P_MIN if pa < 0.5 * (pa_lo + pa_hi) else SAC_P_MAX
+-        S, M = _sac_terms(L, xm, R, pf, pa)
++        S, M = _sac_terms(L, xm, R, pf, pa, lam)
+         return M - x_t * S
+ 
+     r_lo, r_hi = lcb_res(pa_lo), lcb_res(pa_hi)
+     if r_lo > 0.0 or r_hi < 0.0:
+         raise GeometryError(
+             f"sac: LCB {lcb_pct:+.3f} %LWL unreachable at Cp {cp:.4f}, "
+-            f"x_mb {x_mb:.3f} (bracket {100.0 * (r_lo / max(S_t, 1e-12)) / L:+.3f} "
++            f"x_mb {x_mb:.3f}, l_pmb {lam:.3f} (bracket {100.0 * (r_lo / max(S_t, 1e-12)) / L:+.3f} "
+             f".. {100.0 * (r_hi / max(S_t, 1e-12)) / L:+.3f} %LWL)")
+     lo, hi = pa_lo, pa_hi
+     for _ in range(60):
+@@ -325,14 +371,17 @@ def sac_ordinate(params: np.ndarray, x: np.ndarray) -> np.ndarray:
+     p = grammar.named(params)
+     L, xm = p["LWL"], p["x_mb"] * p["LWL"]
+     R = p["r_transom"]
++    lam = float(p.get("l_pmb", 0.0))
+     pf, pa = sac_exponents(p["LWL"], p["x_mb"], p["r_transom"],
+-                           p["Cp"], p["lcb"])
++                           p["Cp"], p["lcb"], lam)
++    x1, x2 = pmb_span(L, xm, lam)
+     x = np.asarray(x, dtype=float)
+     a = np.empty_like(x)
+-    fwd = x >= xm
+-    a[fwd] = 1.0 - _shape((x[fwd] - xm) / (L - xm), pf)
+-    aft = ~fwd
+-    a[aft] = R + (1.0 - R) * _shape(x[aft] / xm, pa)
++    fwd = x > x2
++    a[fwd] = 1.0 - _shape((x[fwd] - x2) / (L - x2), pf)
++    aft = x < x1
++    a[aft] = R + (1.0 - R) * _shape(x[aft] / x1, pa)
++    a[~(fwd | aft)] = 1.0                      # the parallel middle body
+     return np.clip(a, 0.0, 1.0)
+ 
+ 
+@@ -342,13 +391,39 @@ def sac_ordinate(params: np.ndarray, x: np.ndarray) -> np.ndarray:
+ 
+ 
+ def _keel(p: dict, x: np.ndarray) -> np.ndarray:
+-    """Keel z: flat middle, quadratic forefoot rise (bow) and rocker (stern)."""
++    """Keel z: flat middle, quadratic forefoot rise (bow) and rocker (stern).
++
++    THE FLAT RUN IS AT LEAST AS LONG AS THE PARALLEL MIDDLE BODY, and that is
++    a physical requirement rather than a convenience. The sectional-area curve
++    demands the FULL maximum area at every station of the middle body, and a
++    section can only deliver that where the local draft is the full T: lift
++    the keel and the section's own ceiling drops below what the SAC is asking
++    for. MEASURED before this coupling existed, with l_pmb 0.60 on a 5 m hull
++    (so the flat ran 0.2 L .. 0.8 L against a keel flat only over 0.3 .. 0.7):
++
++        section: area 0.1264 m^2 unreachable at x = 4.000 m
++                 (draft 0.206 m, deadrise 20.0 deg)
++
++    x = 4.000 m is 0.8 L, exactly where the forefoot had already started
++    lifting the keel. The area was unreachable because the DRAFT was no longer
++    T, not because the section solve was wrong.
++
++    So the rocker and forefoot now start at the ends of the middle body when
++    that is further out than the default thirds. At l_pmb = 0 the expression
++    is unchanged, which is what keeps every stored genome's keel identical.
++    """
+     L, T = p["LWL"], p["T"]
++    xm = p["x_mb"] * L
++    x1, x2 = pmb_span(L, xm, float(p.get("l_pmb", 0.0)))
++    x_aft = min(0.3 * L, x1)
++    x_fwd = max(0.7 * L, x2)
+     zk = np.full_like(x, -T)
+-    bow = x > 0.7 * L
+-    zk[bow] += T * p["forefoot"] * ((x[bow] - 0.7 * L) / (0.3 * L)) ** 2
+-    st = x < 0.3 * L
+-    zk[st] += T * p["rocker"] * ((0.3 * L - x[st]) / (0.3 * L)) ** 2
++    bow = x > x_fwd
++    if L - x_fwd > 0:
++        zk[bow] += T * p["forefoot"] * ((x[bow] - x_fwd) / (L - x_fwd)) ** 2
++    st = x < x_aft
++    if x_aft > 0:
++        zk[st] += T * p["rocker"] * ((x_aft - x[st]) / x_aft) ** 2
+     return zk
+ 
+ 
+diff --git a/navalai/grammar.py b/navalai/grammar.py
+index 8ee5edf..09addcc 100644
+--- a/navalai/grammar.py
++++ b/navalai/grammar.py
+@@ -232,6 +232,44 @@ PARAMS = [
+     # before the L/B floor of 2.2 above LWL 13.2 m, so a 24 m x 9 m barge is
+     # not expressible. Nothing in this tree sources one and the product line
+     # does not want one; the defect was at the NARROW end.
++    # DEADRISE BOUNDS WIDENED 2026-08-23, from Gate 0E5C. The three below are
++    # the only bounds in this box that had NO provenance paragraph, and that
++    # was the defect: the size box is bounded by RCD scope and by
++    # `formlib.DRAWN_DIMENSION_RANGES`, while deadrise was bounded by nothing
++    # anyone recorded. A bound with no naval-architecture content must not
++    # refuse a hull that a SOURCED band accepts, and these refused seven of
++    # them.
++    #
++    # THE SOURCE IS De Luca & Pensa, Ocean Engineering 139 (2017), Table
++    # 1(a,b) p. 206, which tabulates the deadrise distribution of eight
++    # published hard-chine series at the transom, 50% and 75% of LWL. Fitting
++    # this grammar's own deadrise law to those seven series, worst error over
++    # all of them:
++    #
++    #     present bounds                       8.69 deg
++    #     beta_len <= 1.0 alone                5.00 deg
++    #     all three bounds below               0.50 deg
++    #     plus a free warp exponent (a gene)   0.00 deg
++    #
++    # so the bound change alone clears a 1 deg bar on every published series
++    # and THE EXTRA GENE IS NOT TAKEN — freedom added without evidence that
++    # anything needs it is an NSGA-II dimension spent on speculation.
++    #
++    # NOTE WHAT DID **NOT** CHANGE: the deadrise LAW. `_deadrise` already
++    # warps over [L - beta_len*L, L]; there was never a clamp or a piecewise
++    # limit in it. At beta_len = 1 the warp simply covers the whole hull and
++    # `beta_mid` reads as the TRANSOM deadrise, which is what a warped
++    # hard-chine hull needs (the Naples parent runs 13.2 deg at the transom
++    # to 22.3 at midships). Every existing genome has beta_len <= 0.60 and is
++    # unmoved: the domain grew, nothing inside it shifted.
++    #
++    # beta_mid's ceiling is a CAPABILITY, not a design envelope. 35 deg is set
++    # so the geometry kernel is never the thing that refuses a published hull
++    # (Keuning et al. 1993 is a 30 deg series; the Naples series reaches 38.5
++    # deg at 0.75 L). Whether this product SHOULD propose a deep-V is a
++    # different question, argued from physics in `formlib` (Candidacy.
++    # EXCLUDED: "dynamic lift is irrelevant below Fn ~0.5"), and belongs to
++    # the design-search layer in `navalai/policy`, not here.
+     # THE DESCRIPTION SAID "at the max-area station" AND THE CODE DOES NOT.
+     # Corrected 2026-08-23 from Gate 0E5, which found it by encoding real
+     # published hulls: MEASURED over eight sampled genomes, the generated
+@@ -274,15 +312,48 @@ PARAMS = [
+     ("x_mb",       "-",   0.40, 0.68, "max-AREA station / LWL"),
+     ("r_transom",  "-",   0.05, 0.50, "transom sectional area / max sectional "
+                                       "area"),
+-    ("beta_mid",   "deg", 0.0, 25.0, "deadrise at midship"),
+-    ("beta_bow",   "deg", 2.0, 50.0, "deadrise at forward stations"),
+-    ("beta_len",   "-",   0.15, 0.6, "fraction of LWL over which deadrise warps"),
++    ("beta_mid",   "deg", 0.0, 35.0, "deadrise at the aft end of the warp "
++                                     "(the transom when beta_len = 1)"),
++    ("beta_bow",   "deg", 2.0, 70.0, "deadrise at forward stations"),
++    ("beta_len",   "-",   0.15, 1.0, "fraction of LWL over which deadrise "
++                                     "warps; 1.0 warps the whole hull"),
+     ("roundness",  "-",   0.0,  1.0, "bilge roundness: 0 hard chine, 1 full "
+                                      "fillet"),
+     ("rocker",     "-",   0.0,  0.6, "keel rise at transom / T"),
+     ("forefoot",   "-",   0.0,  1.0, "keel rise at stem / T"),
+     ("flare",      "deg", -5.0, 25.0, "topside flare angle"),
+     ("sheer_rise", "-",   0.0,  0.5, "bow sheer rise / D"),
++    # THE SEVENTEENTH GENE, APPENDED 2026-08-23 (Gate 0E5C). It is LAST rather
++    # than beside `x_mb` where it belongs semantically, because appending is
++    # what makes a stored 16-vector still describe its own hull: the first
++    # sixteen genes keep their positions and `l_pmb = 0` reproduces the
++    # previous geometry EXACTLY (`pmb_span` collapses to x1 = x2 = x_mb*L).
++    #
++    # WHY IT EXISTS. The sectional-area curve had exactly two shape freedoms
++    # (the fore and aft exponents) and two targets (Cp and LCB), so at high Cp
++    # both exponents saturate and LCB is whatever falls out. MEASURED: the
++    # kernel would build to Cp 0.9267 with LCB free and only 0.890 with LCB
++    # pinned to a real hull, against 0.951-0.971 for the published Fridsma
++    # prismatic planing series. (An earlier note here said 0.8476; that was
++    # the same sweep with the keel-rise genes pinned at mid-box, i.e. a
++    # ceiling measured at a configuration nothing runs.) Widening the exponent range was the obvious
++    # move and is the wrong one — h(s) = s^50 is a prism with a CORNER at the
++    # shoulder, not a fair hull, and it leaves Cp and LCB still fighting over
++    # the same two knobs.
++    #
++    # A flat of area centred on the max-area station adds `l_pmb` directly to
++    # Cp while contributing its first moment at that same station, so it moves
++    # Cp strongly and LCB weakly. Ceilings MEASURED: 0.2 -> 0.9413,
++    # 0.4 -> 0.9560, 0.6 -> 0.9707. The upper bound is 0.60 because
++    # x_mb in [0.40, 0.68] keeps both end branches non-degenerate up to
++    # 2*min(x_mb, 1-x_mb) = 0.64 at the worst corner.
++    # CEILING 0.70, MEASURED not guessed. Max buildable Cp against l_pmb, all
++    # other genes free: 0.60 -> 0.950, 0.70 -> 0.955, 0.80 -> 0.955,
++    # 0.90 -> 0.955 (from 0.890 before `l_pmb` existed). It plateaus at 0.70 and the admissible x_mb range narrows
++    # above it (pmb_span clamps at 2*min(x_mb, 1-x_mb)), so a higher bound
++    # buys nothing and costs feasible draws.
++    ("l_pmb",      "-",   0.0, 0.70, "parallel middle body length / LWL, "
++                                     "centred on the max-area station"),
+ ]
+ 
+ N_PARAMS = len(PARAMS)
+@@ -567,5 +638,32 @@ def named(x: np.ndarray) -> dict[str, float]:
+     return {n: float(val) for n, val in zip(NAMES, np.asarray(x, dtype=float))}
+ 
+ 
++#: Genes added to the grammar AFTER genomes were already being written down
++#: by hand, mapped to the value that reproduces the pre-existing geometry
++#: EXACTLY. `vector` fills these and nothing else.
++#:
++#: THIS IS NOT A GENERAL DEFAULT AND MUST NOT BECOME ONE. A dict missing
++#: `BWL` is a mistake and still raises; a dict missing `l_pmb` was written
++#: before `l_pmb` existed, and `l_pmb = 0` collapses the parallel middle body
++#: to zero length (`geometry.pmb_span` returns x1 = x2 = x_mb*L), so the hull
++#: it describes is the same hull it always described. Every entry here has to
++#: carry that identity property, and a gene whose zero is NOT the identity
++#: does not belong in this mapping.
++POST_HOC_DEFAULTS = {"l_pmb": 0.0}
++
++
+ def vector(d: dict[str, float]) -> np.ndarray:
+-    return np.array([d[n] for n in NAMES], dtype=float)
++    """A genome vector from a name->value mapping.
++
++    Missing genes raise, EXCEPT the ones in `POST_HOC_DEFAULTS`, which are
++    filled with the value that leaves the geometry unchanged. See there for
++    why that is a narrow allowance and not a default.
++    """
++    missing = [n for n in NAMES if n not in d and n not in POST_HOC_DEFAULTS]
++    if missing:
++        raise KeyError(
++            f"genome is missing {missing}; it has {sorted(d)}. Only "
++            f"{sorted(POST_HOC_DEFAULTS)} may be omitted, and only because "
++            f"their default reproduces the previous geometry exactly.")
++    return np.array([d.get(n, POST_HOC_DEFAULTS.get(n)) for n in NAMES],
++                    dtype=float)

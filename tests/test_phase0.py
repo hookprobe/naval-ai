@@ -67,15 +67,29 @@ def test_the_named_vector_roundtrip_holds_over_a_POPULATION_not_one_vector():
     shows. Exact equality, not allclose: this is a permutation and a lookup,
     not arithmetic, so a rounding here would mean a real defect.
 
-    The public-CAD half of E5 remains open; see KNOWN_HULLS_OWED.
+    The public-CAD half of E5 is no longer open: `tests/test_e5_real_hulls.py`
+    round-trips 53 published hulls from three independent source families
+    through this same encoder. This test keeps its own job, which is the
+    encoder over a whole population rather than the kernel against the world.
     """
-    import json
-    import pathlib as _pl
+    from navalai import population as _P
 
-    pop = _pl.Path("data/populations/a16-s0-n25@d03aa32f45601499a.json")
-    if not pop.exists():
-        pytest.skip("development population manifest not in this checkout")
-    genomes = json.loads(pop.read_text())["genomes"]
+    # RESOLVED THROUGH THE REGISTRY, NOT A HARDCODED FILENAME. It used to name
+    # `a16-s0-n25@d03aa32f45601499a.json` literally, which is a population
+    # identity written down twice: when the grammar went to 17 genes the path
+    # still existed, still loaded, and handed 16-gene vectors to a 17-gene
+    # encoder. The failure was a numpy broadcast error three frames away from
+    # the cause.
+    genomes = None
+    for _path, doc in _P.manifests():
+        spec = (doc.get("spec") or {})
+        if (doc.get("split") == _P.SPLIT_DEV
+                and doc.get("genomes")
+                and spec.get("genome_schema_version") == _P.current_arity()):
+            genomes = doc["genomes"]
+            break
+    if genomes is None:
+        pytest.skip("no development population at this arity in this checkout")
     assert len(genomes) >= 12, (
         f"only {len(genomes)} hulls; E5 asks for at least 12 round-trips")
 

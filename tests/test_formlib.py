@@ -864,3 +864,32 @@ def test_registry_claims_cannot_contradict_the_shipped_kernel_R04f():
     # the 3-point-polyline description died with the P1/P2 kernel
     assert "3-point keel/chine/sheer polyline" not in src, (
         "formlib describes the retired three-point section law as current")
+
+
+def test_the_deadrise_bound_is_not_declared_twice():
+    """`formlib`'s deadrise band must equal `grammar.PARAMS` beta_mid.
+
+    `grammar` imports `formlib`, so formlib cannot read the bound back at
+    module level without a circular import — the literal is therefore FENCED
+    here instead of derived. It was 25.0 in both places until 2026-08-23,
+    when Gate 0E5C found the grammar bound had no provenance and seven
+    published hard-chine series outside it, and moved it to 35. A number
+    declared twice is this repository's recurring defect; this is the fence
+    that stops the second copy drifting.
+    """
+    from navalai import formlib, grammar
+
+    i = grammar.NAMES.index("beta_mid")
+    lo, hi = float(grammar.LOW[i]), float(grammar.HIGH[i])
+    checked = 0
+    for fam in formlib.families():
+        band = fam.proportions.get("deadrise_deg")
+        if band is None or "grammar.PARAMS beta_mid" not in str(band.source):
+            continue
+        assert (band.low, band.high) == (lo, hi), (
+            f"{fam.key}: formlib states deadrise {band.low}..{band.high} and "
+            f"cites grammar.PARAMS beta_mid, which is {lo}..{hi}")
+        checked += 1
+    assert checked >= 1, (
+        "no formlib family cites grammar.PARAMS beta_mid any more — either "
+        "the citation was dropped or this fence is guarding nothing")

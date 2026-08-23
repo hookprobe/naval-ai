@@ -272,13 +272,34 @@ def roundtrip() -> int:
         mid = {n: float(0.5 * (grammar.LOW[i] + grammar.HIGH[i]))
                for i, n in enumerate(grammar.NAMES) if n not in six}
         rec = {"id": hid, "source_Cp": p["Cp"], "genome_Cp_ceiling": box_hi}
+        # AS PUBLISHED: does ANY setting of the free genes build this hull with
+        # all six pinned at the source's own values? That is a SEARCH, not a
+        # point. Building once with the free genes at mid-box was the wrong
+        # question and gave the wrong answer: a prismatic hull needs a long
+        # parallel middle body and no keel rise, and mid-box supplies neither.
         try:
-            geometry.Hull(grammar.vector({**six, **mid}), n_stations=161)
-            rec["as_published"] = {"status": "BUILT"}
+            g, res, six_used, grid, r = fit(src2_for(src, p), seed=11,
+                                            maxiter=60)
+            rec["as_published"] = {
+                "status": "BUILT", "is_pass": True,
+                "geom_rms_m": res["rms_m"],
+                "geom_rms_pct_halfbeam": res["rms_pct_halfbeam"],
+                "geom_max_m": res["max_m"],
+                "genome": {k: float(v) for k, v in grammar.named(g).items()},
+            }
         except Exception as exc:                            # noqa: BLE001
             rec["as_published"] = {"status": "REFUSED",
-                                   "refusal": str(exc),
-                                   "is_pass": False}
+                                   "refusal": str(exc), "is_pass": False}
+
+        if rec["as_published"]["status"] == "BUILT":
+            out[hid] = rec
+            print(f"{hid:20s} as-published BUILT    | Cp {p['Cp']:.4f} | "
+                  f"geom rms "
+                  f"{rec['as_published']['geom_rms_pct_halfbeam']:.2f}% "
+                  f"halfbeam", flush=True)
+            (OUT / hid / "residuals.json").write_text(
+                _json.dumps(rec, indent=2, default=float))
+            continue
 
         # Nearest expressible: Cp clamped, everything else at the source.
         cp_max = _max_buildable_cp(six, mid)
@@ -309,9 +330,9 @@ def roundtrip() -> int:
         out[hid] = rec
         a = rec["as_published"]
         n = rec.get("nearest_expressible", {})
-        print(f"{hid:20s} as-published {a['status']:8s} | Cp source "
-              f"{p['Cp']:.4f} vs ceiling {box_hi:.3f} vs buildable "
-              f"{cp_max:.4f} | nearest rms "
+        print(f"{hid:20s} REFUSED | Cp source {p['Cp']:.4f}, largest the "
+              f"kernel will build at this hull's other five: {cp_max:.4f} "
+              f"| nearest-expressible rms "
               f"{n.get('geom_rms_pct_halfbeam', float('nan')):.2f}% halfbeam",
               flush=True)
         (OUT / hid / "residuals.json").write_text(
@@ -321,16 +342,48 @@ def roundtrip() -> int:
     return 0
 
 
+def src2_for(src: dict, p: dict) -> dict:
+    """The source record unchanged — the six stay the source's own."""
+    out = dict(src)
+    out["particulars"] = dict(p)
+    return out
+
+
 def _max_buildable_cp(six: dict, other: dict) -> float:
-    """The largest Cp the kernel will actually build for this hull."""
+    """The largest Cp the kernel will build AT THIS HULL'S OTHER SIX.
+
+    A GRID SCAN, NOT A BISECTION, and the difference is not pedantry. A
+    parallel middle body gives the family a Cp FLOOR as well as a ceiling —
+    at l_pmb 0.60 on a 5 m hull the feasible band is Cp 0.724 .. 0.966 — so a
+    bisection seeded below the floor walks the wrong way and converges on its
+    own starting point. It reported "0.500" for four hulls, which is the
+    initial bracket and not a property of anything.
+
+    For each candidate Cp the free genes are tried at a handful of
+    configurations a prismatic hull actually needs (a long middle body, no
+    keel rise) rather than at mid-box, because mid-box supplies neither.
+    """
     from navalai import geometry, grammar
-    lo, hi = 0.5, 1.2
-    for _ in range(40):
-        m = 0.5 * (lo + hi)
-        try:
-            geometry.Hull(grammar.vector({**six, **other, "Cp": m}),
-                          n_stations=81)
-            lo = m
-        except Exception:                                   # noqa: BLE001
-            hi = m
-    return lo
+    import numpy as _np
+    best = 0.0
+    for cp in _np.arange(0.60, 1.00, 0.005):
+        ok = False
+        for lam in (0.70, 0.50, 0.30, 0.0):
+            for xmb in (0.40, 0.45, 0.50):
+                for rt in (0.50, 0.35, 0.20):
+                    d = {**other, **six, "Cp": float(cp), "l_pmb": lam,
+                         "x_mb": xmb, "r_transom": rt,
+                         "forefoot": 0.0, "rocker": 0.0}
+                    try:
+                        geometry.Hull(grammar.vector(d), n_stations=81)
+                        ok = True
+                        break
+                    except Exception:                       # noqa: BLE001
+                        continue
+                if ok:
+                    break
+            if ok:
+                break
+        if ok:
+            best = float(cp)
+    return best
