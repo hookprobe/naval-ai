@@ -283,6 +283,16 @@ PARAMS = [
     ("forefoot",   "-",   0.0,  1.0, "keel rise at stem / T"),
     ("flare",      "deg", -5.0, 25.0, "topside flare angle"),
     ("sheer_rise", "-",   0.0,  0.5, "bow sheer rise / D"),
+    # THE RUN, added 2026-08-24. See `geometry._deadrise`: transom deadrise was
+    # always exactly `beta_mid` because only a BOW warp existed, so the run
+    # never flattened -- measured 25.0 deg at the transom on a hull meant to
+    # carry a single inboard propeller. Published practice (Naples Systematic
+    # Series, Table 1) prescribes deadrise at three stations, DECREASING aft:
+    # 13.2 / 22.3 / 38.5 deg. `beta_run` = 0 is the old behaviour, bit-identical.
+    ("beta_transom", "deg", 0.0, 45.0, "deadrise AT the transom; the run "
+                                       "flattens from beta_mid down to this"),
+    ("beta_run",     "-",   0.0,  0.5, "fraction of LWL over which deadrise "
+                                       "warps aft to beta_transom; 0 = none"),
 ]
 
 N_PARAMS = len(PARAMS)
@@ -567,5 +577,29 @@ def named(x: np.ndarray) -> dict[str, float]:
     return {n: float(val) for n, val in zip(NAMES, np.asarray(x, dtype=float))}
 
 
+# Genes a caller may OMIT, and the value that leaves the geometry unchanged.
+# A gene belongs here ONLY if some value of it is provably a no-op: `beta_run`
+# = 0 disables the aft deadrise warp entirely, so every genome written before
+# it existed still describes exactly the hull it always did.
+POST_HOC_DEFAULTS: dict[str, float] = {"beta_transom": 0.0, "beta_run": 0.0}
+
+
 def vector(d: dict[str, float]) -> np.ndarray:
-    return np.array([d[n] for n in NAMES], dtype=float)
+    """A genome vector from a name -> value mapping.
+
+    A MISSING gene raises, except those in `POST_HOC_DEFAULTS`. An UNKNOWN key
+    also raises: until 2026-08-23 this silently DISCARDED unrecognised keys, so
+    when a recalibration removed `l_pmb` every caller still passing it went on
+    running and quietly got a different hull -- and it produced a false
+    measurement that stood for hours.
+    """
+    missing = [n for n in NAMES if n not in d and n not in POST_HOC_DEFAULTS]
+    if missing:
+        raise KeyError(f"genome is missing {missing}; only "
+                       f"{sorted(POST_HOC_DEFAULTS)} may be omitted")
+    unknown = [k for k in d if k not in NAMES]
+    if unknown:
+        raise KeyError(f"genome carries {unknown}, not gene(s) in this "
+                       f"grammar. Known: {NAMES}")
+    return np.array([d.get(n, POST_HOC_DEFAULTS.get(n, 0.0)) for n in NAMES],
+                    dtype=float)

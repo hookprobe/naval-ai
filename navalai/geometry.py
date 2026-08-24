@@ -353,7 +353,28 @@ def _keel(p: dict, x: np.ndarray) -> np.ndarray:
 
 
 def _deadrise(p: dict, x: np.ndarray) -> np.ndarray:
-    """Bottom-panel deadrise [rad], warped toward the bow over beta_len*L."""
+    """Bottom-panel deadrise [rad]: warped toward the bow, and toward the STERN.
+
+    THE AFT WARP EXISTS BECAUSE THE RUN HAS TO FLATTEN, and until 2026-08-24
+    this kernel could not express that. `beta_mid` applied from the transom all
+    the way forward to where the bow warp began, so TRANSOM DEADRISE WAS ALWAYS
+    EXACTLY `beta_mid` — measured 25.0 deg at the transom and 25.2 deg at
+    midships on the same hull, i.e. no run at all.
+
+    Published practice prescribes deadrise at THREE stations and it DECREASES
+    aft (De Luca & Pensa, "The Naples warped hard chine hulls systematic
+    series", Ocean Engineering 139 (2017), Table 1):
+
+        beta_transom 13.2  <  beta_50% 22.3  <  beta_75% 38.5
+
+    A single forward quadratic cannot pass through three prescribed points, so
+    this is a missing LAW, not a missing bound. It also matters mechanically:
+    a single inboard shaft needs a flat run for clean inflow to the propeller
+    and a shallow shaft angle, and 25 deg of vee at the transom gives neither.
+
+    `beta_run` = 0 disables the aft warp and reproduces every hull drawn before
+    this existed, bit for bit.
+    """
     L = p["LWL"]
     beta = np.full_like(x, math.radians(p["beta_mid"]))
     warp0 = L - p["beta_len"] * L
@@ -361,6 +382,12 @@ def _deadrise(p: dict, x: np.ndarray) -> np.ndarray:
     frac = (x[wz] - warp0) / (p["beta_len"] * L)
     beta[wz] += (math.radians(p["beta_bow"])
                  - math.radians(p["beta_mid"])) * frac ** 2
+    run = float(p.get("beta_run", 0.0))
+    if run > 0.0:
+        aft = x < run * L
+        f = (run * L - x[aft]) / (run * L)
+        beta[aft] += (math.radians(float(p.get("beta_transom", p["beta_mid"])))
+                      - math.radians(p["beta_mid"])) * f ** 2
     return beta
 
 
