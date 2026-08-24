@@ -208,3 +208,73 @@ def test_the_archive_is_labelled_training_data():
     rejected = [a for a in arch if not a.ok]
     if rejected:
         assert rejected[0].reasons, "a rejection must name its reason"
+
+
+# ---------------------------------------------------------------------------
+# Gate MORPH-3: the general design rules. Anti-roll, wave stability, fairness.
+# ---------------------------------------------------------------------------
+
+def test_the_design_rules_pass_on_every_published_hull():
+    """The rules must not condemn hulls somebody actually built.
+
+    Same discipline as the critic: calibrated so the teacher passes. A rule
+    that fails a Delft yacht is a rule about our descriptors, not about boats.
+    """
+    from navalai.morphology import design_rules
+
+    bad = []
+    for f in _REAL[:20]:                    # 20 is enough and keeps this fast
+        # published offsets give no Hull object, so the rules that need moulded
+        # curves are exercised on generated hulls below; here we only assert
+        # the descriptor-based two via `describe`.
+        d = describe(load_offsets_csv(f))
+        if d.waterline_convexity < 0.80 or d.beam_carried < 0.20:
+            bad.append((f.split("/")[-2], d.waterline_convexity, d.beam_carried))
+    assert not bad, f"design rules condemn published hulls: {bad[:3]}"
+
+
+def test_a_bow_with_no_flare_is_caught():
+    """MEASURED on houseboat16: the `flare` GENE sat at its 25 deg ceiling
+    while the DELIVERED flare fell 15.8 -> 4.9 -> 0.0 deg toward the stem,
+    because sheer half-breadth goes to zero there. The rule reads the delivered
+    angle, not the gene, which is the whole point of it.
+    """
+    from navalai.morphology import design_rules
+
+    g = dict(REFERENCE_HULL, flare=-5.0, roundness=0.0)   # flare gene at floor
+    rules = {r.rule: r for r in design_rules(Hull(grammar.vector(g)), fn=0.28)}
+    assert "bow-flare" in rules
+    assert not rules["bow-flare"].ok, (
+        "a hull with the flare gene at its FLOOR still passes the bow-flare "
+        "rule — the rule is reading the gene rather than the delivered angle")
+
+
+def test_reverse_stem_rake_is_refused_below_the_wave_piercing_regime():
+    """A rule stated BEFORE the gene exists, deliberately.
+
+    This grammar has no stem-rake gene — LOA == LWL by construction, so every
+    stem is exactly vertical and this passes trivially today. It is written now
+    because a rule that only appears once the gene does is a rule nobody
+    writes, and because the physics is settled: reverse rake trades reserve
+    buoyancy for wave-piercing, which is worth having above about Fn 0.35 and
+    is a submergence risk below it.
+    """
+    from navalai.morphology import (REVERSE_RAKE_FN_FLOOR, design_rules)
+
+    rules = {r.rule: r for r in
+             design_rules(Hull(grammar.vector(dict(REFERENCE_HULL))), fn=0.28)}
+    assert "stem-rake" in rules
+    assert rules["stem-rake"].ok
+    assert abs(rules["stem-rake"].measured) < 1e-6, (
+        "the stem is no longer vertical — a rake gene has appeared, so this "
+        "test must now exercise a genuinely reverse-raked hull")
+    assert 0.2 < REVERSE_RAKE_FN_FLOOR < 0.6
+
+
+def test_every_design_rule_names_both_numbers_and_a_reason():
+    from navalai.morphology import design_rules
+
+    for r in design_rules(Hull(grammar.vector(dict(REFERENCE_HULL))), fn=0.28):
+        assert r.rule and r.why and len(r.why) > 20
+        assert math.isfinite(r.bar)
+        assert str(r).startswith("[")

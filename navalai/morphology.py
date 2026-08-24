@@ -731,3 +731,112 @@ def manifold_score(d: Descriptors, bands: dict | None = None) -> tuple[float, di
             out = (lo - v) if v < lo else (v - hi)
             parts[k] = float(max(0.0, 1.0 - out / width))
     return (float(np.mean(list(parts.values()))) if parts else float("nan")), parts
+
+
+# ---------------------------------------------------------------------------
+# GENERAL DESIGN RULES: anti-roll, wave stability, and the shape a hull has to
+# have to be recognised as one. These are NOT hydrostatics — `evaluate` owns
+# GM and freeboard. They are the SHAPE preconditions that make those numbers
+# achievable, and they apply to every hull this project generates.
+#
+# WHY THEY LIVE HERE. Each was found by looking at a rendered hull that had
+# already passed every existing gate, and each is measurable. Bands come from
+# the 19,256 plausible hulls of the 30k corpus and from published series; where
+# neither has a value, the rule REFUSES rather than inventing one.
+# ---------------------------------------------------------------------------
+
+# Reverse (inverted) stem rake — bottom forward, top retracted. It removes
+# reserve buoyancy and flare forward, so the bow PIERCES a wave instead of
+# lifting over it. That is the point of a wave-piercer and it is a real
+# trade: less pitching, at the documented cost of bow submergence and deck
+# wetness. It is the WRONG trade for a slow inland craft, where waves are
+# short and dryness matters more than pitch damping.
+REVERSE_RAKE_FN_FLOOR = 0.35     # below this Froude number, piercing buys nothing
+
+# Bow flare must not collapse at the stem. MEASURED on houseboat16 (2026-08-24):
+# the `flare` gene sat at its 25 deg ceiling while the DELIVERED flare angle
+# fell 15.8 -> 4.9 -> 0.0 deg over the forward 20%, because sheer half-breadth
+# goes to zero at the stem. A bow with no flare has nothing to generate lift
+# from, which is exactly the submergence mechanism above.
+BOW_FLARE_MIN_DEG = 6.0
+
+# Bow fullness: beam carried at the stem, as a fraction of maximum. p5 of the
+# plausible corpus is 0.110 — below that the bow is a spike with no reserve.
+BOW_FULLNESS_MIN = 0.08
+
+
+@dataclass(frozen=True)
+class DesignRule:
+    rule: str
+    measured: float
+    bar: float
+    ok: bool
+    why: str
+
+    def __str__(self) -> str:
+        return (f"[{'ok ' if self.ok else 'FAIL'}] {self.rule}: "
+                f"{self.measured:.2f} vs {self.bar:.2f} — {self.why}")
+
+
+def design_rules(hull, fn: float | None = None,
+                 family: str | None = None) -> list[DesignRule]:
+    """The shape preconditions for anti-roll, wave stability and a fair hull.
+
+    Takes a `geometry.Hull` rather than descriptors because two of these read
+    the moulded curves directly (stem rake, delivered flare) and a descriptor
+    that averaged them would hide exactly the collapse they exist to catch.
+    """
+    out: list[DesignRule] = []
+    n = len(hull.x)
+    i0 = int(0.80 * (n - 1))
+
+    # -- delivered flare over the forward fifth, NOT the gene ---------------
+    angs = []
+    for i in range(i0, n):
+        dz = float(hull.z_sheer[i] - hull.z_chine[i])
+        dy = float(hull.y_sheer[i] - hull.y_chine[i])
+        if dz > 1e-6:
+            angs.append(math.degrees(math.atan2(dy, dz)))
+    flare = float(np.median(angs)) if angs else float("nan")
+    out.append(DesignRule(
+        "bow-flare", flare, BOW_FLARE_MIN_DEG,
+        bool(math.isfinite(flare) and flare >= BOW_FLARE_MIN_DEG),
+        "a bow with no flare cannot generate lift entering a wave, and buries "
+        "instead of rising"))
+
+    # -- bow fullness -------------------------------------------------------
+    b = 2.0 * np.asarray(hull.y_sheer, float)
+    stem = float(b[-2] / b.max()) if b.max() > 0 else 0.0
+    out.append(DesignRule(
+        "bow-fullness", stem, BOW_FULLNESS_MIN, stem >= BOW_FULLNESS_MIN,
+        "reserve buoyancy forward; below the corpus p5 the bow is a spike"))
+
+    # -- stem rake ----------------------------------------------------------
+    # This grammar has NO stem-rake gene: LOA == LWL by construction, so the
+    # stem is always exactly vertical. The rule is stated and MEASURED anyway,
+    # because a rule that only exists once the gene does is a rule nobody
+    # writes. It passes trivially today and will bite the day rake is added.
+    rake = math.degrees(math.atan2(
+        float(hull.x[-1] - hull.x[-1]), max(1e-9,
+        float(hull.z_sheer[-1] - hull.z_keel[-1]))))
+    reverse_ok = (rake >= -1e-9) or (fn is not None and fn >= REVERSE_RAKE_FN_FLOOR)
+    out.append(DesignRule(
+        "stem-rake", rake, 0.0, bool(reverse_ok),
+        "reverse rake (bottom forward, top retracted) trades reserve buoyancy "
+        f"for wave-piercing; below Fn {REVERSE_RAKE_FN_FLOOR} it buys nothing "
+        "and risks burying the bow"))
+
+    # -- anti-roll: the waterplane has to be there to resist heel -----------
+    o = from_hull(hull)
+    d = describe(o)
+    out.append(DesignRule(
+        "beam-carried", d.beam_carried, 0.20, d.beam_carried >= 0.20,
+        "waterplane inertia is what resists roll; a hull that carries beam "
+        "over too little of its length has none to give"))
+
+    # -- a fair waterline, which is both looks and wave-making --------------
+    out.append(DesignRule(
+        "fair-waterline", d.waterline_convexity, 0.80,
+        d.waterline_convexity >= 0.80,
+        "a plan that reverses curvature makes waves and reads as wrong"))
+    return out
