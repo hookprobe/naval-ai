@@ -469,7 +469,30 @@ def _stations(params: np.ndarray, x: np.ndarray) -> dict:
     a = sac_ordinate(params, x)
     xm_val = p["x_mb"] * L
     env = np.where(x <= xm_val, 1.0, np.maximum(a, 0.0))
-    f = math.tan(math.radians(p["flare"])) * env
+    # FLARE THAT VARIES ALONG THE LENGTH. `formlib` records this as the single
+    # blocker that made `axe_bow` and `wave_piercing_monohull` Expressible.NO:
+    # "flare that varies along the length: `flare` is one scalar applied at
+    # every station". The `env` above tapers flare forward in proportion to the
+    # AREA curve, which is not the same thing — an axe bow needs the flare to
+    # vanish INDEPENDENTLY of how much area the section carries.
+    #
+    # Baltic Workboats state the mechanism plainly: "when the bow becomes
+    # submerged, the top surface of the bow creates increased downforce, which
+    # compensates for the buoyancy of the bow". Flare does the opposite — it
+    # generates lift and reserve buoyancy — so a wave-piercer wants little or
+    # none of it forward while keeping it amidships for dryness.
+    #
+    # `flare_len` = 0 disables the warp and is bit-identical to every hull
+    # drawn before this existed.
+    flare_deg = np.full_like(x, float(p["flare"]))
+    fl_len = float(p.get("flare_len", 0.0))
+    if fl_len > 0.0:
+        w0 = L - fl_len * L
+        wz = x > w0
+        frac = (x[wz] - w0) / (fl_len * L)
+        flare_deg[wz] += (float(p.get("flare_bow", p["flare"]))
+                          - float(p["flare"])) * frac ** 2
+    f = np.tan(np.radians(flare_deg)) * env
     K = 1.0 - m * f
 
     # A_mid from the DESIGN WATERLINE BEAM. `BWL` is the half-breadth of the

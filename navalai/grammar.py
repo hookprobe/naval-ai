@@ -280,7 +280,16 @@ PARAMS = [
     ("roundness",  "-",   0.0,  1.0, "bilge roundness: 0 hard chine, 1 full "
                                      "fillet"),
     ("rocker",     "-",   0.0,  0.6, "keel rise at transom / T"),
-    ("forefoot",   "-",   0.0,  1.0, "keel rise at stem / T"),
+    # FLOOR 0.0 -> -0.45, 2026-08-24. A NEGATIVE forefoot means the keel
+    # DEEPENS toward the stem, and that is the Damen Axe Bow's stated core
+    # mechanism, in their words: "The bow has the greatest draught at the
+    # front, which delays the moment at which the bow lifts out of the water.
+    # If the bow does not lift, there is no chance of it slamming back into the
+    # waves." At a floor of 0.0 the deepest a bow could be was LEVEL with the
+    # midship keel, so the mechanism was unreachable by construction. `_keel`
+    # already handles a negative value correctly; only the bound forbade it.
+    ("forefoot",   "-",  -0.45, 1.0, "keel rise at stem / T; NEGATIVE deepens "
+                                     "the forefoot (axe bow)"),
     ("flare",      "deg", -5.0, 25.0, "topside flare angle"),
     ("sheer_rise", "-",   0.0,  0.5, "bow sheer rise / D"),
     # THE RUN, added 2026-08-24. See `geometry._deadrise`: transom deadrise was
@@ -293,6 +302,16 @@ PARAMS = [
                                        "flattens from beta_mid down to this"),
     ("beta_run",     "-",   0.0,  0.5, "fraction of LWL over which deadrise "
                                        "warps aft to beta_transom; 0 = none"),
+    # FLARE ALONG THE LENGTH, added 2026-08-24. See `geometry._stations`: the
+    # single `flare` scalar is what `formlib` records as the blocker making
+    # axe_bow and wave_piercing_monohull Expressible.NO. `flare_len` = 0 is the
+    # old behaviour, bit-identical.
+    ("flare_bow",  "deg", -15.0, 25.0, "flare angle at the STEM; below zero is "
+                                       "tumblehome, which is what a "
+                                       "wave-piercing bow uses to trade "
+                                       "reserve buoyancy for downforce"),
+    ("flare_len",  "-",     0.0,  0.6, "fraction of LWL over which flare warps "
+                                       "forward to flare_bow; 0 = none"),
 ]
 
 N_PARAMS = len(PARAMS)
@@ -581,7 +600,8 @@ def named(x: np.ndarray) -> dict[str, float]:
 # A gene belongs here ONLY if some value of it is provably a no-op: `beta_run`
 # = 0 disables the aft deadrise warp entirely, so every genome written before
 # it existed still describes exactly the hull it always did.
-POST_HOC_DEFAULTS: dict[str, float] = {"beta_transom": 0.0, "beta_run": 0.0}
+POST_HOC_DEFAULTS: dict[str, float] = {"beta_transom": 0.0, "beta_run": 0.0,
+                                       "flare_bow": 0.0, "flare_len": 0.0}
 
 
 def vector(d: dict[str, float]) -> np.ndarray:

@@ -764,6 +764,13 @@ BOW_FLARE_MIN_DEG = 6.0
 # plausible corpus is 0.110 — below that the bow is a spike with no reserve.
 BOW_FULLNESS_MIN = 0.08
 
+# A wave-piercer inverts the flare rule and must earn it with a deep forefoot.
+# `WAVE_PIERCER_FLARE_MAX_DEG` is a CEILING, not a floor -- the opposite sense
+# of the general rule. `WAVE_PIERCER_FOREFOOT_MIN` is the keel drop from
+# midships to the stem as a fraction of draft: the Damen mechanism, quantified.
+WAVE_PIERCER_FLARE_MAX_DEG = 5.0
+WAVE_PIERCER_FOREFOOT_MIN = 0.15
+
 
 @dataclass(frozen=True)
 class DesignRule:
@@ -789,6 +796,8 @@ def design_rules(hull, fn: float | None = None,
     out: list[DesignRule] = []
     n = len(hull.x)
     i0 = int(0.80 * (n - 1))
+    fam = (family or "").lower()
+    piercer = fam in ("wave_piercer", "axe_bow", "wave_piercing")
 
     # -- delivered flare over the forward fifth, NOT the gene ---------------
     angs = []
@@ -798,18 +807,49 @@ def design_rules(hull, fn: float | None = None,
         if dz > 1e-6:
             angs.append(math.degrees(math.atan2(dy, dz)))
     flare = float(np.median(angs)) if angs else float("nan")
-    out.append(DesignRule(
-        "bow-flare", flare, BOW_FLARE_MIN_DEG,
-        bool(math.isfinite(flare) and flare >= BOW_FLARE_MIN_DEG),
-        "a bow with no flare cannot generate lift entering a wave, and buries "
-        "instead of rising"))
+    if piercer:
+        # A WAVE-PIERCER INVERTS THIS RULE, AND MUST EARN THE INVERSION.
+        # Baltic Workboats: "when the bow becomes submerged, the top surface of
+        # the bow creates increased downforce, which compensates for the
+        # buoyancy of the bow". Flare generates the lift a piercer is trying
+        # NOT to have, so little or none forward is correct here — the general
+        # bar would condemn a Damen Axe Bow outright.
+        #
+        # But the relaxation is not free, or declaring a family would become a
+        # way to bypass review. A piercer must show the mechanism that replaces
+        # flare: DEEPEST DRAUGHT AT THE BOW. Damen, in their own words: "The
+        # bow has the greatest draught at the front, which delays the moment at
+        # which the bow lifts out of the water. If the bow does not lift, there
+        # is no chance of it slamming back into the waves." A hull with neither
+        # flare NOR a deep forefoot is not a wave-piercer; it is a bad bow.
+        out.append(DesignRule(
+            "bow-flare(piercer)", flare, WAVE_PIERCER_FLARE_MAX_DEG,
+            bool(math.isfinite(flare) and flare <= WAVE_PIERCER_FLARE_MAX_DEG),
+            "a wave-piercer wants little or no flare forward; flare makes the "
+            "lift it is designed to avoid"))
+        zk = np.asarray(hull.z_keel, float)
+        drop = float(zk[len(zk) // 2] - zk[-1])       # + means deeper forward
+        T = max(1e-9, float(-zk.min()))
+        out.append(DesignRule(
+            "deep-forefoot(piercer)", drop / T, WAVE_PIERCER_FOREFOOT_MIN,
+            bool(drop / T >= WAVE_PIERCER_FOREFOOT_MIN),
+            "the bow must have the GREATEST draught, or nothing replaces the "
+            "flare it gave up — this is what delays bow emergence and so "
+            "prevents the slam"))
+    else:
+        out.append(DesignRule(
+            "bow-flare", flare, BOW_FLARE_MIN_DEG,
+            bool(math.isfinite(flare) and flare >= BOW_FLARE_MIN_DEG),
+            "a bow with no flare cannot generate lift entering a wave, and "
+            "buries instead of rising"))
 
     # -- bow fullness -------------------------------------------------------
     b = 2.0 * np.asarray(hull.y_sheer, float)
     stem = float(b[-2] / b.max()) if b.max() > 0 else 0.0
-    out.append(DesignRule(
-        "bow-fullness", stem, BOW_FULLNESS_MIN, stem >= BOW_FULLNESS_MIN,
-        "reserve buoyancy forward; below the corpus p5 the bow is a spike"))
+    if not piercer:
+        out.append(DesignRule(
+            "bow-fullness", stem, BOW_FULLNESS_MIN, stem >= BOW_FULLNESS_MIN,
+            "reserve buoyancy forward; below the corpus p5 the bow is a spike"))
 
     # -- stem rake ----------------------------------------------------------
     # This grammar has NO stem-rake gene: LOA == LWL by construction, so the
