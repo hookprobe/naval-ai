@@ -152,11 +152,22 @@ def test_the_ladder_reports_the_sheet_it_actually_built_with():
     from navalai.mission import MissionSpec
 
     m = MissionSpec(displacement_target_kg=6000.0)
-    ev = evaluate(grammar.vector({n: 0.5 * (lo + hi) for n, _u, lo, hi, _d
-                                  in grammar.PARAMS}), m)
+    # THE MIDPOINT OF THE BOX IS TAKEN OVER CORE GENES ONLY. This fixture is
+    # shorthand for "some solvable hull", and at arity 23 the raw midpoint no
+    # longer is one: pmb at its mid (0.275) demands full sectional area held
+    # over a quarter of the length while r_stem's mid (0.475) reshapes the
+    # ends, and the section solve refuses ("area 1.1483 m^2 unreachable at
+    # x = 13.250") — so evaluate() exited at L0 with ply 0.0 and this test
+    # failed for a reason that has nothing to do with its subject. Post-hoc
+    # genes are held at their PROVEN-NO-OP defaults, exactly as
+    # `grammar.sample` holds them (arity-stable sampling) and as
+    # tests/test_constraints_honest.py's _draw_from_the_box does. The
+    # assertion below is untouched.
+    _mid = {n: 0.5 * (lo + hi) for n, _u, lo, hi, _d in grammar.PARAMS}
+    _mid.update(grammar.POST_HOC_DEFAULTS)
+    ev = evaluate(grammar.vector(_mid), m)
     from navalai import grammar as _g
-    _lwl = _g.named(_g.vector({n: 0.5 * (lo + hi) for n, _u, lo, hi, _d
-                               in _g.PARAMS}))["LWL"]
+    _lwl = _g.named(_g.vector(_mid))["LWL"]
     assert ev.ply_thickness_m == select_stock_thickness_m(
         m.displacement_target_kg, float(_lwl))
     assert ev.ply_thickness_m > 0.0
