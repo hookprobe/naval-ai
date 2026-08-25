@@ -141,17 +141,29 @@ def test_the_manifest_carries_the_absences_and_the_real_bars():
 # 3 · EXACTLY EIGHT ROWS. NOT NINE.
 # ---------------------------------------------------------------------------
 
-def test_the_surface_never_invents_a_ninth_constraint_row():
-    """`Evaluation.g` has exactly eight rows and that is the complete set of
-    things this platform can fail a design on. A UI that draws a ninth light is
-    claiming an enforcement that does not exist — and a policy may only APPEND
-    a row, never rewrite one, so the appended names are the constitution's and
-    are named as such."""
+def test_the_surface_never_invents_an_eleventh_constraint_row():
+    """`Evaluation.g` has exactly TEN rows and that is the complete set of
+    things this platform can fail a design on. A UI that draws an eleventh
+    light is claiming an enforcement that does not exist — and a policy may
+    only APPEND a row, never rewrite one, so the appended names are the
+    constitution's and are named as such.
+
+    EIGHT -> TEN, 2026-08-25, and the change is the OWNER'S, not drift: "all
+    boats will have motors, electric motors and solar panels ... naval-ai
+    only designs boats with motors" (stated twice). `motor_power` and
+    `prop_space` joined `CONSTRAINT_NAMES` because houseboat19 passed all
+    eight rows and was still, by inspection, "ok for a paddle boat not for a
+    motor boat" — the stern offered a 0.26 m disc to a thrust wanting
+    0.42 m and nothing here could say so. This fence still does its job: it
+    pins the EXACT set, so the next row must arrive the way these did — as a
+    deliberate product decision recorded in the row's own module — or not at
+    all."""
     import ui.api as api
 
     m = api.manifest_payload()
     assert tuple(m["constraints"]) == CONSTRAINT_NAMES
-    assert len(m["constraints"]) == 8
+    assert len(m["constraints"]) == 10
+    assert CONSTRAINT_NAMES[8:] == ("motor_power", "prop_space")
 
     twin = api.twin_payload({"params": _params()})
     for r in CONSTRAINT_NAMES:

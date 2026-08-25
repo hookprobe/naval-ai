@@ -25,6 +25,22 @@ class EnergySpec:
     prop_efficiency: float = 0.55         # prop x shaft
     motor_efficiency: float = 0.92
     cruise_hours_day: float = 8.0
+    # EVERY NAVAL-AI BOAT HAS AN ELECTRIC MOTOR AND SOLAR PANELS. Owner's
+    # product definition, stated twice on 2026-08-25: "all boats will have
+    # motors, electric motors and solar panels ... naval-ai only designs
+    # boats with motors." So these are not optional extras behind a None:
+    # they default to the ORIGINAL BRIEF's plant (15 kW) and the propulsion
+    # rows in `evaluate.CONSTRAINT_NAMES` are always live. The solar plant
+    # was already unconditional (panel_packing/panel_eff above); this makes
+    # the drive match it.
+    motor_kw: float = 15.0                # installed electric motor power
+    n_props: int = 1                      # discs the thrust is split over
+    prop_tunnel_recess_m: float = 0.0     # tunnel depth above the keel line
+    # How far the propeller may hang BELOW the keel line (conventional shaft
+    # drive behind a skeg). 0.35 m is ordinary practice on a 6-12 m launch;
+    # a SHALLOW-DRAFT mission sets 0.0 and must then buy its disc with
+    # tunnels or extra props — which is precisely the houseboat19 lesson.
+    prop_max_below_keel_m: float = 0.35
 
 
 # structural mass model constants (plywood-epoxy build, Phase 6 refines via ISO 12215)

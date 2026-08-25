@@ -293,7 +293,18 @@ def test_the_policy_rows_constrain_the_front_and_exclude_a_ladder_ok_hull():
     # widened to 12 so the claim rides on more draws, and the floors sit
     # under the measurement with margin for the libm boundary this docstring
     # documents.
-    seeds = tuple(range(1, 13))
+    # BARS RE-BASED 2026-08-25 (Gate PROP), same mechanism a third time: the
+    # constraint vector grew 8 -> 10 (`motor_power`, `prop_space` — the
+    # owner's "naval-ai only designs boats with motors"), and the WIDTH of
+    # the G matrix alone re-draws the trajectory: VERIFIED by neutralising
+    # the two rows to constant -1 (seed 4's ungoverned front is 0 either
+    # way), and by 24 governed draws under this mission showing ZERO
+    # propulsion refusals — feasible-set membership did not change; which
+    # trajectories find it did. MEASURED over seeds 1-20 at this budget:
+    # governed fronts 0,0,0,0,0,0,0,0,11,1,0,0,0,0,0,0,0,11,0,3 — 26
+    # members over 4 non-empty fronts (was 21 over 4 of seeds 1-12).
+    # The scan widens to 20 so the floors sit under a measurement again.
+    seeds = tuple(range(1, 21))
     members = non_empty = 0
     for s in seeds:
         front = pareto_front(m, pop=24, gens=10, seed=s, policy=cp)
@@ -325,8 +336,12 @@ def test_the_policy_rows_constrain_the_front_and_exclude_a_ladder_ok_hull():
     # 15/15 — the witnesses are abundant everywhere a front exists, so the
     # first non-empty front carries the claim and a one-seed lottery cannot
     # erase it.
+    # Witness scan widened 1-5 -> 1-10 in the same 2026-08-25 re-base:
+    # MEASURED ungoverned fronts/witnesses 10/10, 0, 0, 0, 0, 0, 8/8, 4/4,
+    # 0, 6/6 — witnesses are still 100% of every non-empty front, and the
+    # first hit still carries the claim.
     witnesses = []
-    for s in (1, 2, 3, 4, 5):
+    for s in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10):
         witnesses = excluded(pareto_front(m, pop=24, gens=10, seed=s).X)
         if witnesses:
             break
@@ -582,11 +597,17 @@ def test_the_optimizer_records_what_it_searched_R02f(tmp_path):
     from navalai import db
 
     prov = db.Provenance(tmp_path / "prov.sqlite")
-    # pop 16 x 4 MEASURED (2026-08-14): 7 hull rows recorded; at pop 8 x 2
-    # every draw of seed 3 dies at L0 and evaluate() records L1 rows only,
-    # so the count is legitimately zero — that would test the sampler's
-    # luck, not the wiring.
-    pareto_front(MissionSpec(), pop=16, gens=4, seed=3, provenance=prov)
+    # pop 16 x 4 MEASURED (2026-08-14): 7 hull rows recorded on seed 3; at
+    # pop 8 x 2 every draw of seed 3 dies at L0 and evaluate() records L1
+    # rows only, so the count is legitimately zero — that would test the
+    # sampler's luck, not the wiring.
+    # SEED RE-BASED 3 -> 7 (2026-08-25, Gate PROP): the constraint vector
+    # grew 8 -> 10 and the trajectory lottery re-drew — seed 3's draws now
+    # all die before L1, the documented failure mode above, on a run that
+    # writes provenance correctly. MEASURED at this budget: seeds 3-6 record
+    # 0 rows, seed 7 records 5. The subject of this test is the WIRING, so
+    # it rides the seed that exercises it.
+    pareto_front(MissionSpec(), pop=16, gens=4, seed=7, provenance=prov)
     n = prov.con.execute("SELECT COUNT(*) FROM hull").fetchone()[0]
     assert n > 0, "a full NSGA-II run recorded zero hull rows to provenance"
 

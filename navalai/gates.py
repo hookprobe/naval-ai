@@ -190,6 +190,14 @@ GATES = [
     # freeboard, scantlings, all eight constraint rows, seven of seven rule
     # findings and the arrangement gate all passed, and no gate read SHAPE.
     # A numerically valid object is not necessarily a valid boat hull.
+    # THE PADDLE-BOAT GATE. houseboat19 passed every row this runner had and
+    # the owner refused it on sight — the stern offered a 0.26 m disc to a
+    # thrust wanting 0.42 m, and no gate could say so. The owner then made
+    # the scope a product definition ("naval-ai only designs boats with
+    # motors"), so the drive is a design-stage quantity with its own gate.
+    Gate("Gate PROP", "propulsion integration: motor power and prop space "
+         "are constraint rows; transom Froude, bilge-keel span and pitch "
+         "entry are measured reports", "tests/test_propulsion.py"),
     Gate("Gate MORPH", "morphological plausibility: a hull must LOOK like a "
          "boat, judged on descriptors measured against 58 published hulls "
          "(89-92% of L0-valid generated hulls fail; 0 of 58 real ones do)",

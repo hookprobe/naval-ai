@@ -1,0 +1,164 @@
+"""Gate PROP — the drive system is a design-stage quantity.
+
+THE INCIDENT, measured 2026-08-25. houseboat19 (11.9 m governed warped hull,
+`data/exports/houseboat19/genome.json`) passed all eight physics rows, all
+seven design rules, morphology and the compiled policy — and the owner
+rejected it on sight: "this looks ok for a paddle boat not for a motor boat".
+The eye was right and the pipeline had no row that could agree: stern
+immersion 0.33-0.37 m, the 7 kn thrust wanting a 0.42 m disc, transom Froude
+1.42-1.99 against ~2.5 for clean ventilation — none of it measured anywhere.
+The held houseboat16 study had already recorded the root: "15 kW IS NOT
+EXPRESSIBLE — there is no motor-power field anywhere in this codebase."
+
+The owner then made it a product definition, twice: "all boats will have
+motors, electric motors and solar panels ... naval-ai only designs boats
+with motors." So `motor_power` and `prop_space` are PERMANENT members of
+`CONSTRAINT_NAMES` (grown 8 -> 10), not opt-in appendages.
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import numpy as np
+import pytest
+
+from navalai import grammar, propulsion
+from navalai.evaluate import CONSTRAINT_NAMES, evaluate
+from navalai.geometry import Hull
+from navalai.mission import EnergySpec, MissionSpec
+
+_HB19 = Path(__file__).resolve().parents[1] / "data/exports/houseboat19/genome.json"
+
+
+def _hb19_vector():
+    if not _HB19.exists():
+        pytest.skip("houseboat19 genome not on disk (data/exports is a build "
+                    "artifact on some clones)")
+    return grammar.vector(json.loads(_HB19.read_text()))
+
+
+def _mission(**energy):
+    return MissionSpec(name="prop-gate", lwl_hint_m=11.9,
+                       displacement_target_kg=6500.0, cruise_speed_kn=7.0,
+                       design_category="C", crew=4, waters="river+coastal",
+                       energy=EnergySpec(battery_kwh=100.0, **energy))
+
+
+def test_the_propulsion_rows_are_permanent_members_of_the_vector():
+    """Product definition, not a flag: 10 names, the two new ones LAST so
+    every pre-existing row keeps its index (the order fence's contract)."""
+    assert len(CONSTRAINT_NAMES) == 10
+    assert CONSTRAINT_NAMES[:8] == ("freeboard", "gm", "bend_radius", "trim",
+                                    "list", "lcb", "proportions", "rules")
+    assert CONSTRAINT_NAMES[8:] == ("motor_power", "prop_space")
+    assert propulsion.ROWS == ("motor_power", "prop_space")
+
+
+def test_every_boat_has_a_motor_by_default():
+    """`EnergySpec.motor_kw` defaults to the ORIGINAL BRIEF's 15 kW — never
+    None. A None here would resurrect the 'silently dropped' defect the held
+    study measured. The default drive is CONVENTIONAL (prop may hang 0.35 m
+    below the keel behind a skeg); a shallow mission opts INTO 0.0 and pays
+    for its disc with tunnels or props."""
+    spec = EnergySpec()
+    assert spec.motor_kw == 15.0
+    assert spec.n_props == 1
+    assert spec.prop_tunnel_recess_m == 0.0
+    assert spec.prop_max_below_keel_m == 0.35
+
+
+def test_houseboat19_shallow_single_prop_is_refused_for_the_reason_the_owner_saw():
+    """THE PADDLE BOAT, refused by measurement. houseboat19's product point
+    is its 0.55 m draft — hanging a prop 0.35 m below the keel would forfeit
+    it, so the SHALLOW mission (prop_max_below_keel_m = 0) is this hull's
+    honest configuration. There, one un-tunnelled prop at 7 kn needs a
+    0.42 m disc against ~0.26 m of room -> prop_space VIOLATED, and the
+    message names every design lever."""
+    ev = evaluate(_hb19_vector(), _mission(prop_max_below_keel_m=0.0))
+    assert ev.g["prop_space"] > 0.0, (
+        "houseboat19 shallow with a single un-tunnelled prop must violate "
+        "prop_space — this is the measured incident the row exists for")
+    assert not ev.ok
+    msg = " ".join(ev.violations)
+    assert "disc" in msg and "tunnel" in msg
+    # the motor itself is fine — 7.2 kW demand inside 80% of 15 kW — so the
+    # row that fires is the SPACE row, not the power row: the diagnosis is
+    # geometric, exactly as the owner's eye said.
+    assert ev.g["motor_power"] < 0.0
+
+
+def test_a_conventional_shaft_drive_passes_where_shallow_is_refused():
+    """The below-keel hang is the lever that separates the two verdicts on
+    the SAME hull: allow the ordinary 0.35 m and houseboat19's single prop
+    fits. The row distinguishes configurations, not hulls — which is what
+    makes it a design constraint rather than a shape opinion."""
+    ev = evaluate(_hb19_vector(), _mission())      # default: hang allowed
+    assert ev.g["prop_space"] < 0.0, (
+        f"a conventional shaft drive must fit: g={ev.g['prop_space']:+.3f}")
+
+
+def test_the_assessments_twin_tunnel_fix_passes():
+    """The arrangement drawn in motor_integration.png, machine-verified:
+    two props + 0.16 m tunnels at the governed 5 kn -> both rows satisfied."""
+    ms = MissionSpec(name="prop-gate", lwl_hint_m=11.9,
+                     displacement_target_kg=6500.0, cruise_speed_kn=5.0,
+                     design_category="C", crew=4, waters="river+coastal",
+                     energy=EnergySpec(battery_kwh=100.0, n_props=2,
+                                       prop_tunnel_recess_m=0.16,
+                                       prop_max_below_keel_m=0.0))
+    ev = evaluate(_hb19_vector(), ms)
+    assert ev.g["motor_power"] < 0.0 and ev.g["prop_space"] < 0.0
+    assert ev.ok, f"violations: {ev.violations}"
+
+
+def test_a_toy_motor_is_refused_by_the_power_row():
+    """The row must be able to fail on its own axis: 1 kW cannot push 6.5 t
+    at 7 kn (demand ~7 kW), whatever the prop geometry says."""
+    ev = evaluate(_hb19_vector(), _mission(motor_kw=1.0))
+    assert ev.g["motor_power"] > 0.0
+    assert any("continuous rating" in v for v in ev.violations)
+
+
+def test_transom_froude_matches_the_hand_measurement():
+    """The report reproduces the numbers the assessment derived by hand
+    (1.99 at 7 kn on 0.33 m immersion) from the hull's own geometry —
+    within the tolerance of reading the keel at slightly different
+    stations. Fn_T of a DRY transom is +inf: clean by definition."""
+    v = _hb19_vector()
+    hull = Hull(v)
+    ev = evaluate(v, _mission())
+    imm = propulsion.transom_immersion_m(hull, ev.wl)
+    fn = propulsion.transom_froude(7.0 * 0.5144, imm)
+    assert 0.25 <= imm <= 0.45, f"immersion {imm:.3f}"
+    assert 1.6 <= fn <= 2.4, f"Fn_T {fn:.2f} (hand measurement: 1.99)"
+    assert propulsion.transom_froude(3.6, 0.0) == float("inf")
+    assert fn < propulsion.TRANSOM_FN_CLEAN  # the paddle-boat stern, in numbers
+
+
+def test_the_roll_and_pitch_reports_read_the_floated_geometry():
+    """Anti-roll and anti-pitch are REPORT quantities (assessment aid, not
+    rows): the bilge-keel span is the submerged chine — measured 1.00 on
+    houseboat19, chine wet stem to stern — and the pitch report carries the
+    entry angle and the axe forefoot drop."""
+    v = _hb19_vector()
+    hull = Hull(v)
+    ev = evaluate(v, _mission())
+    span = propulsion.wetted_chine_span_frac(hull, ev.wl)
+    assert 0.9 <= span <= 1.0, f"hb19's chine is wet full-length; got {span}"
+    assert span >= propulsion.BILGE_KEEL_MIN_SPAN_FRAC
+    ae, drop = propulsion.pitch_entry_report(hull, ev.wl)
+    assert 5.0 <= ae <= 45.0
+    assert drop > 0.0, ("houseboat19 carries stem_depth 0.21 — the forefoot "
+                        "is deeper than midships (the axe mechanism)")
+
+
+def test_disc_sizing_is_monotone_in_its_levers():
+    """More props -> smaller disc each; a tunnel -> more room; both monotone,
+    so NSGA-II gets a slope, not a cliff."""
+    d1 = propulsion.min_prop_diameter_m(1100.0, 1)
+    d2 = propulsion.min_prop_diameter_m(1100.0, 2)
+    assert d2 < d1
+    assert propulsion.max_prop_diameter_m(0.33, 0.16) > \
+        propulsion.max_prop_diameter_m(0.33, 0.0)
