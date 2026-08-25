@@ -188,6 +188,14 @@ class GP(_Escalates):
     # A field and not a recomputation, because the bounds that produced it are
     # the ones that must judge it.
     ls_at_bound: tuple[tuple[int, str], ...] = field(default=())
+    #: Boolean mask over the FULL input width: which columns actually varied in
+    #: training. Constant columns are dropped before fitting (see `fit`), and
+    #: `_norm` re-applies the mask so callers keep passing full-width vectors.
+    active: np.ndarray | None = field(default=None)
+    #: The value each DROPPED (constant) column held in training, full width.
+    #: Kept so `denormalise` can hand a caller back a vector in the coordinate
+    #: system it passed in, rather than in the reduced one the kernel uses.
+    const_values: np.ndarray | None = field(default=None)
 
     @property
     def prior_var(self) -> float:
@@ -198,7 +206,29 @@ class GP(_Escalates):
             restarts: int = 3, seed: int = 0) -> "GP":
         X = np.atleast_2d(np.asarray(X, float))
         y = np.asarray(y, float)
-        n, d = X.shape
+        n, _d_full = X.shape
+        # A CONSTANT COLUMN IS NOT A DIMENSION. It carries no information, and
+        # an ARD length-scale fitted to it is a free parameter the optimiser
+        # must still search — L-BFGS-B over d+1 hyperparameters in a harder
+        # space, for nothing.
+        #
+        # MEASURED 2026-08-24. `evaluate.sample_valid` holds the post-hoc genes
+        # at their defaults so a seeded population survives an arity change, so
+        # five of the twenty-one columns arrive with EXACTLY zero variance. The
+        # GP's median relative error went to 0.835 for wh_per_nm and 2.018 for
+        # gm — and `scripts/make_baseline.py` then refused to write ANY
+        # quantity, leaving `data/baselines.json` holding nothing but its own
+        # README. Restricting the fit to the columns that actually vary is the
+        # fix; the normaliser already zeroed them, but the optimiser was still
+        # paying for them.
+        _span_full = X.max(0) - X.min(0)
+        active = _span_full > 1e-12
+        if not active.any():                     # degenerate: keep one column
+            active = np.zeros(_d_full, bool)
+            active[0] = True
+        const_full = X.min(0)          # for a constant column this IS its value
+        X = X[:, active]
+        d = int(active.sum())
         x_lo, x_hi = X.min(0), X.max(0)
         span = np.where(x_hi - x_lo < 1e-12, 1.0, x_hi - x_lo)
         Xn = (X - x_lo) / span
@@ -277,7 +307,7 @@ class GP(_Escalates):
             if ls[i] >= ls_hi * (1.0 - _LS_BOUND_REL_TOL)
             or ls[i] <= ls_lo * (1.0 + _LS_BOUND_REL_TOL))
         gp = GP(Xn, y, ls, var0, nugget, mu, c, a, x_lo, span, d_support,
-                at_bound)
+                at_bound, active, const_full)
         if at_bound:
             warnings.warn(gp.saturation_report(), ARDSaturation, stacklevel=2)
         return gp
@@ -312,7 +342,30 @@ class GP(_Escalates):
                   "is not.")
 
     def _norm(self, X: np.ndarray) -> np.ndarray:
-        return (np.atleast_2d(np.asarray(X, float)) - self.x_lo) / self.x_hi
+        Xa = np.atleast_2d(np.asarray(X, float))
+        act = getattr(self, "active", None)
+        if act is not None and Xa.shape[1] == act.size:
+            Xa = Xa[:, act]
+        return (Xa - self.x_lo) / self.x_hi
+
+    def denormalise(self, Xn: np.ndarray) -> np.ndarray:
+        """Normalised ACTIVE rows -> full-width inputs in the caller's units.
+
+        `self.X` holds the reduced, normalised training matrix because that is
+        what the kernel needs. A caller reconstructing training points must not
+        have to know that: MEASURED 2026-08-24, `gp.X * gp.x_hi + gp.x_lo` gave
+        16 columns against a 21-column probe and the vstack raised. Constant
+        columns are restored from the value they held in training, which is
+        exact — that is what made them constant.
+        """
+        Xn = np.atleast_2d(np.asarray(Xn, float))
+        real = Xn * self.x_hi + self.x_lo
+        if self.active is None or self.const_values is None:
+            return real
+        out = np.repeat(np.asarray(self.const_values, float)[None, :],
+                        len(Xn), axis=0)
+        out[:, self.active] = real
+        return out
 
     def predict(self, X: np.ndarray):
         Xn = self._norm(X)

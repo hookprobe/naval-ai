@@ -120,10 +120,23 @@ def test_L0_refuses_a_chine_above_the_design_waterline():
     z=0. With the DWL a first-class curve, the closed-form area the kernel
     solves against does not hold there. Named: chine.submerged, and only it.
     """
+    # THE SWEEP DRAWS THE CORE GENES ONLY, so index 569 keeps naming the same
+    # hull when the genome gains a post-hoc gene. Drawing
+    # `size=(10000, N_PARAMS)` re-shapes the whole array the moment the arity
+    # moves, and "index 569" then names a different boat while still resolving
+    # — the failure mode is a silently different fixture, not an error. The
+    # appended genes take their POST_HOC_DEFAULTS, which are proven no-ops, so
+    # this is the same hull the clause was measured on.
+    core = [i for i, n in enumerate(grammar.NAMES)
+            if n not in grammar.POST_HOC_DEFAULTS]
     rng = np.random.default_rng(42)
-    X = rng.uniform(grammar.LOW, grammar.HIGH,
-                    size=(10000, grammar.N_PARAMS))
-    c = _clauses(X[569])
+    Xc = rng.uniform(grammar.LOW[core], grammar.HIGH[core],
+                     size=(10000, len(core)))
+    x = np.empty(grammar.N_PARAMS)
+    x[core] = Xc[569]
+    for n, v in grammar.POST_HOC_DEFAULTS.items():
+        x[grammar.NAMES.index(n)] = float(v)
+    c = _clauses(x)
     assert set(c) == {"chine.submerged"}, c
 
 

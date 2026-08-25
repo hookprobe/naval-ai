@@ -122,11 +122,29 @@ def test_the_15_gene_banks_are_HISTORY_because_this_tree_cannot_regenerate_them(
     Same defect as a ledger watermark pointing at a deleted run directory
     (gap N6), applied to a population.
     """
-    assert P.current_arity() == 16, (
-        "the grammar arity changed; the population ids in "
-        "navalai/population.py are stale and the banks must be re-labelled")
+    # THE GUARD IS ON THE CLAIM, NOT ON THE ARITY NUMBER. This used to assert
+    # `current_arity() == 16` as a tripwire meaning "the banks must be
+    # re-labelled". That was right while ANY arity change re-drew every
+    # population — but `grammar.sample` and `evaluate.sample_valid` now consume
+    # uniforms only for the CORE genes, so appending a post-hoc gene leaves the
+    # earlier genes' bit-stream untouched. MEASURED 2026-08-24 at arity 21: the
+    # seed-0 draw reproduces the a16/s0/n25 manifest hash EXACTLY over its
+    # first sixteen columns, so the a16 labels are still true.
+    #
+    # What must remain true is the claim itself: a 15-gene bank is HISTORY
+    # because 15 predates the post-hoc mechanism, and a 16-gene bank is
+    # reproducible. Both are asserted directly, and a REMOVED gene is still
+    # unrecoverable.
     assert not P.is_regenerable(15)
     assert P.is_regenerable(16)
+    assert P.is_regenerable(P.current_arity())
+    assert not P.is_regenerable(P.current_arity() + 1), (
+        "an arity ABOVE this tree's means a gene was removed, which changes "
+        "hulls and cannot be regenerated")
+    import navalai.grammar as _g
+    assert all(n in _g.POST_HOC_DEFAULTS for n in _g.NAMES[16:]), (
+        "a gene appended since arity 16 is NOT post-hoc, so the a16 banks are "
+        "no longer reproducible and must be re-labelled")
 
 
 def test_every_gate2u_bank_can_be_told_which_stream_it_belongs_to():

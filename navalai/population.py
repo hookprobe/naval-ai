@@ -103,10 +103,28 @@ def population_id(arity: int, seed, n: int | None = None) -> str:
 def is_regenerable(arity: int) -> bool:
     """Can today's code reproduce this population at all?
 
-    False for every 15-gene bank. A bank that cannot be regenerated may be
-    read as HISTORY and must not be quoted as a current rate.
+    A bank that cannot be regenerated may be read as HISTORY and must not be
+    quoted as a current rate. That is still true of every 15-gene bank.
+
+    IT IS NO LONGER TRUE MERELY BECAUSE THE ARITY DIFFERS. `grammar.sample`
+    and `evaluate.sample_valid` consume uniforms only for the CORE genes -- the
+    ones not in `grammar.POST_HOC_DEFAULTS` -- so appending a post-hoc gene
+    leaves the bit-stream of every earlier gene exactly where it was, and the
+    appended columns take a default that is a proven no-op. MEASURED
+    2026-08-24: at arity 21 the seed-0 draw reproduces the a16/s0/n25 manifest
+    hash EXACTLY over its first sixteen columns.
+
+    So a population is regenerable when its arity is <= this tree's AND every
+    gene appended since is post-hoc. A REMOVED gene (arity above this tree's)
+    is not recoverable and is refused, because dropping a gene changes hulls.
     """
-    return int(arity) == current_arity()
+    a, cur = int(arity), current_arity()
+    if a == cur:
+        return True
+    if a > cur:
+        return False
+    from . import grammar
+    return all(n in grammar.POST_HOC_DEFAULTS for n in grammar.NAMES[a:])
 
 
 def may_tune_on(seed) -> bool:
@@ -251,6 +269,57 @@ def genome_sha256(genomes) -> str:
         rows, separators=(",", ":")).encode("utf-8")).hexdigest()
 
 
+def pinned_genomes(population_id: str, directory=None):
+    """The RECORDED genomes of a pinned population, padded to this arity.
+
+    WHY THIS EXISTS, AND WHY IT IS STRONGER THAN RE-DRAWING.
+
+    A calibration population was previously recovered by re-running
+    `sample_valid(n, mission, seed=...)` and hash-checking the result. That
+    breaks the moment the genome gains a gene: the RNG consumes a different
+    number of dimensions, the draw changes, and the hash mismatches — even
+    though the LABELS in the calibration bank are about specific hulls that
+    have not moved at all.
+
+    MEASURED 2026-08-24: appending `beta_transom`/`beta_run` (18 genes) and
+    then `flare_bow`/`flare_len` (20) invalidated the a16/s0/n25 draw and took
+    `tests/test_admissibility.py` red, while every one of the 25 measured hulls
+    was unchanged — those four genes are in `grammar.POST_HOC_DEFAULTS`
+    precisely because their default is a proven no-op.
+
+    So the population is read from the manifest that pinned it, not
+    regenerated. That is the actual evidence: a hull whose mesh was measured is
+    identified by its GENOME, never by the seed that happened to produce it.
+    Padding uses `POST_HOC_DEFAULTS`, so the padded genome describes the same
+    hull bit for bit — asserted by `tests/test_admissibility.py`.
+    """
+    import numpy as _np
+
+    from . import grammar as _g
+
+    doc = next((d for _p, d in manifests(directory)
+                if d.get("population_id") == population_id), None)
+    if doc is None:
+        raise LookupError(f"no manifest for {population_id}")
+    rows = doc.get("genomes") or []
+    if not rows:
+        raise LookupError(f"manifest {population_id} carries no genomes")
+    width = len(rows[0])
+    if width > _g.N_PARAMS:
+        raise ValueError(
+            f"manifest {population_id} has arity {width}; this tree has "
+            f"{_g.N_PARAMS}. A gene was REMOVED, which is not a no-op and "
+            f"cannot be padded — re-measure the population.")
+    pad = [float(_g.POST_HOC_DEFAULTS[n]) for n in _g.NAMES[width:]]
+    missing = [n for n in _g.NAMES[width:] if n not in _g.POST_HOC_DEFAULTS]
+    if missing:
+        raise ValueError(
+            f"cannot pad {population_id} to this arity: {missing} have no "
+            f"proven no-op default, so the padded genome would be a DIFFERENT "
+            f"hull and the measured labels would not describe it.")
+    return _np.array([list(map(float, r)) + pad for r in rows], dtype=float), doc
+
+
 def domain_version(mission=None) -> str:
     """Fingerprint of the DECLARED sampling domain (see the header note).
 
@@ -372,7 +441,14 @@ def regenerate(spec):
             f"record, not quotable as a rate this tree can reproduce.")
     X, _y = sample_valid(int(spec.size), MissionSpec(), seed=int(spec.seed))
     X = np.asarray(X, dtype=float)
-    if X.shape != (int(spec.size), int(spec.genome_schema_version)):
+    # The draw is made at THIS tree's arity and then narrowed to the arity the
+    # spec recorded. That is exact rather than approximate: the genes appended
+    # since are post-hoc no-ops (asserted by `is_regenerable` above), so the
+    # retained columns are the same numbers the bank was written from.
+    want = int(spec.genome_schema_version)
+    if X.ndim == 2 and want < X.shape[1]:
+        X = X[:, :want]
+    if X.shape != (int(spec.size), want):
         raise UnregenerablePopulation(
             f"{spec.population_id}: the draw returned {X.shape}, not "
             f"({spec.size}, {spec.genome_schema_version})")

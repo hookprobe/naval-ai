@@ -245,6 +245,8 @@ def describe(o: HullOffsets) -> Descriptors:
     d2 = np.gradient(d1, xf)
     sac_smoothness = float(np.sqrt(np.mean(d2 ** 2)))
 
+    _a_inset = max(1, int(round(0.025 * (len(a) - 1))))
+
     # -- plan
     _inset = max(1, int(round(0.025 * (len(b) - 1))))
     ibk = int(np.argmax(B))
@@ -325,7 +327,21 @@ def describe(o: HullOffsets) -> Descriptors:
     return Descriptors(
         sac_peak_x=sac_peak_x, sac_centroid_x=sac_centroid_x,
         entrance_frac=float(1.0 - sac_peak_x), run_frac=sac_peak_x,
-        pmb_frac=pmb, sac_transom=float(a[0]), sac_stem=float(a[-1]),
+        pmb_frac=pmb,
+        # THE SAME 2.5% INSET, AND FOR THE SAME REASON as beam_transom below --
+        # it was applied to the plan and not to the area curve, which left this
+        # pair reading the sampling grid. MEASURED 2026-08-24 across all 53
+        # published hulls in tests/e5_real_hulls: sac_stem was 0.0000 for 53 of
+        # 53, min == p5 == median == max, a band 0.000 wide. Sectional area is
+        # ZERO at a closed hull's own extremity by definition, so at x[-1] this
+        # descriptor could only ever return zero -- for a barge exactly as for
+        # a racing shell. That is the `beam_transom` defect (300 of 300 ShipD
+        # hulls at 0.000) in the curve next door, and it is why a hull whose
+        # bow was a mathematical POINT critiqued ok=True, score=1.000 while
+        # the owner rejected it on sight as "a spearhead rather than a boat".
+        # Neither key is in MANIFOLD_KEYS, so this does not move the vendored
+        # ShipD bands; it makes two dead descriptors measure something.
+        sac_transom=float(a[_a_inset]), sac_stem=float(a[-1 - _a_inset]),
         bow_taper=bow_taper, stern_taper=stern_taper,
         sac_smoothness=sac_smoothness,
         beam_peak_x=beam_peak_x, beam_carried=beam_carried,

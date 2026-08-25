@@ -585,7 +585,13 @@ def test_a_saturated_ard_lengthscale_is_reported_and_not_silently_absorbed():
     for i, _e in gp.ls_at_bound:
         assert f"input {i}" in rep, "the report must name every saturated axis"
     assert "blind" in rep
-    assert f"{len(gp.ls_at_bound)} of {grammar.N_PARAMS}" in rep
+    # THE REPORT COUNTS THE DIMENSIONS THE GP ACTUALLY FITTED. Constant
+    # columns are dropped before fitting (see `GP.fit`), so the denominator is
+    # the ACTIVE width, not the genome's. Asserting `N_PARAMS` here would be
+    # asserting that the GP wastes an ARD lengthscale on a column that never
+    # varied.
+    _fitted = int(gp.active.sum()) if gp.active is not None else grammar.N_PARAMS
+    assert f"{len(gp.ls_at_bound)} of {_fitted}" in rep
 
     # The restricted fit saturates HARDER, and the report tracks it rather than
     # carrying a number written down once.
@@ -599,7 +605,9 @@ def test_a_saturated_ard_lengthscale_is_reported_and_not_silently_absorbed():
     # tracks whatever the fit did — not a particular axis set.
     assert "D" in saturated(gp_r)
     assert all(e == "upper" for _i, e in gp_r.ls_at_bound)
-    assert (f"{len(gp_r.ls_at_bound)} of {grammar.N_PARAMS}"
+    _fitted_r = (int(gp_r.active.sum()) if gp_r.active is not None
+                 else grammar.N_PARAMS)
+    assert (f"{len(gp_r.ls_at_bound)} of {_fitted_r}"
             in gp_r.saturation_report())
     assert len(gp_r.ls_at_bound) > len(gp.ls_at_bound), (
         "the restricted fit no longer saturates harder than the full-box one, "
@@ -1056,7 +1064,23 @@ def test_min_dist_is_a_euclidean_norm_and_does_not_bind_per_axis_in_15d():
     assert min(euclid) > 1.0
 
     # ...and it DOES bind, as a norm, once it is asked for in the right units.
-    assert len(batch_infill(gp, C, float(y.min()), k=5, min_dist=2.0,
+    #
+    # THE RIGHT UNITS DEPEND ON THE DIMENSION, which is this test's own point.
+    # The 15-D table above binds at 2.0. RE-MEASURED 2026-08-24 at 21 genes,
+    # where uniform points in [0,1]^d sit 1.845 apart on average instead of
+    # ~1.6, the same sweep reads:
+    #
+    #     min_dist   k picked
+    #        2.00        5
+    #        2.20        5
+    #        2.40        3      <-- binds here
+    #        2.60        2
+    #
+    # so the threshold is scaled with the box diagonal rather than transcribed.
+    # A hard-coded 2.0 would have gone on passing at 15 genes and silently
+    # stopped testing anything at 21.
+    _bind = 2.4 * (grammar.N_PARAMS / 21.0) ** 0.5
+    assert len(batch_infill(gp, C, float(y.min()), k=5, min_dist=_bind,
                             strict=False)) < 5
 
     doc = batch_infill.__doc__

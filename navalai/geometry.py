@@ -329,10 +329,31 @@ def sac_ordinate(params: np.ndarray, x: np.ndarray) -> np.ndarray:
                            p["Cp"], p["lcb"])
     x = np.asarray(x, dtype=float)
     a = np.empty_like(x)
-    fwd = x >= xm
-    a[fwd] = 1.0 - _shape((x[fwd] - xm) / (L - xm), pf)
-    aft = ~fwd
-    a[aft] = R + (1.0 - R) * _shape(x[aft] / xm, pa)
+    # `r_stem` is the exact mirror of `r_transom`: a FLOOR on sectional area at
+    # the forward end. Before it existed this line was `1.0 - _shape(...)`,
+    # which is exactly 0.0 at x = LWL -- so every hull narrowed to a point at
+    # the stem and the delivered houseboat read as a spearhead. At S = 0.0
+    # `S + (1-S)*v` is bit-identical to `v`, which is what makes appending it
+    # lawful under grammar.POST_HOC_DEFAULTS.
+    S = float(p.get("r_stem", 0.0))
+    # PARALLEL MIDBODY. Before `pmb` existed the two branches met at the single
+    # station `xm`, so a(x) reached 1.0 exactly once and no hull could carry
+    # its section -- see the gene's note in grammar.py. `pmb` opens a flat span
+    # of full area centred on `xm`; each branch then falls away from the END of
+    # that span rather than from its centre. At pmb = 0 the span has zero width
+    # and x0 == x1 == xm, which restores the previous expression exactly.
+    _pmb = float(p.get("pmb", 0.0))
+    half = 0.5 * _pmb * L
+    # The flat top must leave a real entrance and a real run on both sides, so
+    # it is clipped to the room actually available rather than allowed to run
+    # off either end (which would divide by zero in the branch maps below).
+    half = min(half, 0.98 * xm, 0.98 * (L - xm))
+    x0, x1 = xm - half, xm + half
+    a = np.ones_like(x)
+    fwd = x >= x1
+    a[fwd] = S + (1.0 - S) * (1.0 - _shape((x[fwd] - x1) / (L - x1), pf))
+    aft = x <= x0
+    a[aft] = R + (1.0 - R) * _shape(x[aft] / x0, pa)
     return np.clip(a, 0.0, 1.0)
 
 
@@ -346,7 +367,13 @@ def _keel(p: dict, x: np.ndarray) -> np.ndarray:
     L, T = p["LWL"], p["T"]
     zk = np.full_like(x, -T)
     bow = x > 0.7 * L
-    zk[bow] += T * p["forefoot"] * ((x[bow] - 0.7 * L) / (0.3 * L)) ** 2
+    # `forefoot` RAISES the keel toward the stem; `stem_depth` LOWERS it. The
+    # second is the Damen Axe Bow mechanism — greatest draught at the front, so
+    # the bow does not lift and therefore cannot slam back. They are opposite
+    # intents kept as separate genes: a single signed parameter conflated them,
+    # and widening one gene's bound silently re-drew every seeded population.
+    _rise = float(p["forefoot"]) - float(p.get("stem_depth", 0.0))
+    zk[bow] += T * _rise * ((x[bow] - 0.7 * L) / (0.3 * L)) ** 2
     st = x < 0.3 * L
     zk[st] += T * p["rocker"] * ((0.3 * L - x[st]) / (0.3 * L)) ** 2
     return zk

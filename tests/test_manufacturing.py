@@ -17,7 +17,7 @@ import math
 import numpy as np
 import pytest
 
-from navalai import engineer, unroll
+from navalai import engineer, grammar, unroll
 from navalai.engineer import assess
 from navalai.geometry import Hull
 from navalai.unroll import (SCARPH_RATIO, SHEET_L_M, SHEET_M2, SHEET_W_M,
@@ -1349,10 +1349,21 @@ def test_kit_admission_round_bilge_routes_to_mould_without_a_meter():
 # 18 mm-ply cold-bend radius (0.94 m < 1.44 m — kit-refoldable but not
 # cold-bendable), and several 11.5-12.6 m corner variants refold 11-26 mm
 # (the corner has structure; flat dials alone do not guarantee the bar).
-KIT_REFERENCE_PARAMS = [
+_KIT_REFERENCE_16 = [
     12.24464859, 3.105685017, 0.55, 1.55, 0.6392941018, -1.0,
     0.4760097448, 0.3, 9.039289126, 9.039289126, 0.35, 0.0,
     0.15, 0.0, 0.0, 0.18]
+
+#: Padded to this tree's arity with `grammar.POST_HOC_DEFAULTS`, whose values
+#: are proven no-ops, so the padded vector is the SAME HULL these sixteen
+#: numbers have always described. Without the pad the kernel refuses it for
+#: WIDTH ("shape: expected 21 params"), which says nothing about the boat.
+KIT_REFERENCE_PARAMS = _KIT_REFERENCE_16 + [
+    float(grammar.POST_HOC_DEFAULTS[n])
+    for n in grammar.NAMES[len(_KIT_REFERENCE_16):]]
+assert len(KIT_REFERENCE_PARAMS) == grammar.N_PARAMS, (
+    "the kit reference cannot be padded to this arity — a gene appended since "
+    "16 is not post-hoc, so this genome is no longer the hull it names")
 
 
 def test_the_kit_reference_hull_is_certifiable_and_kit_buildable():
@@ -1508,6 +1519,16 @@ def _kit_corner_params(**over):
     """The developable corner of the grammar: no flare, no forefoot, no
     deadrise warp, hard chine. `over` perturbs one gene at a time."""
     d = {n: (lo + hi) / 2 for (n, u, lo, hi, _d) in unroll.grammar.PARAMS}
+    # THE POST-HOC GENES ARE ZEROED, NOT MID-POINTED. This fixture's whole
+    # claim is the DEVELOPABLE CORNER — "no flare, no forefoot, no deadrise
+    # warp" — and a midpoint over `grammar.PARAMS` silently contradicts it the
+    # moment a gene is appended. MEASURED 2026-08-24: the new genes arrived as
+    # beta_transom 22.5 deg, beta_run 0.25, flare_bow 5.0 deg, flare_len 0.30
+    # and stem_depth 0.225, which is a warped, flared, deep-forefoot hull wearing
+    # this fixture's name. The refold ratios moved from (2.97, 1.41) to
+    # (1.973, 1.975) and a test about REFUSING an unsupportable order started
+    # passing for the wrong reason.
+    d.update({n: float(v) for n, v in unroll.grammar.POST_HOC_DEFAULTS.items()})
     d.update(LWL=10.5, BWL=3.2, T=0.55, D=1.35, roundness=0.0, flare=0.0,
              forefoot=0.0, rocker=0.0, beta_bow=2.0, beta_mid=2.0,
              sheer_rise=0.0)

@@ -38,8 +38,56 @@ from scripts.e5_roundtrip import (SIX, TEN, cost, encode,         # noqa: E402
 from scripts.extract_e5_offsets import read_table                 # noqa: E402
 
 FIX = ROOT / "tests" / "e5_real_hulls"
-BOX = [(float(grammar.LOW[grammar.NAMES.index(n)]),
-        float(grammar.HIGH[grammar.NAMES.index(n)])) for n in TEN]
+# THE FIT MAY NOT USE A GENE THE SOURCE HULL DOES NOT HAVE.
+#
+# `forefoot` gained a NEGATIVE floor on 2026-08-24 so that a bow can be the
+# DEEPEST point of the hull -- the Damen Axe Bow mechanism. Every hull in this
+# corpus is a round-bilge sailing yacht, a Series 60 cargo form or a Wigley
+# parabola, and NONE of them has a deepening forefoot. Left free, the fitter
+# immediately used it: dsyhs_24, _26, _28, _32, _35, _37 and others came back
+# with a keel deeper at the bow than at midships, so `T` -- documented as
+# "design draft (keel at midship)" -- no longer equalled the hull's maximum
+# draft, and the scalar round-trip failed by 4e-3 to 9e-3 against a 1e-6 bar.
+#
+# That is not a measurement error to be re-baselined; it is the fitter buying
+# agreement with a feature the published hull does not possess. The E5 fit is
+# therefore clamped to forefoot >= 0. The gene stays free everywhere else,
+# which is where wave-piercing needs it.
+_E5_FLOORS = {"forefoot": 0.0}
+#: And a CEILING on the axe-bow gene, for the same reason: `stem_depth` lowers
+#: the keel toward the stem, so `T` -- documented as "design draft (keel at
+#: midship)" -- stops being the hull's MAXIMUM draft and the scalar round-trip
+#: fails by 4e-3..9e-3 against a 1e-6 bar. MEASURED on dsyhs_29 and _32 among
+#: others. Not a re-baselining candidate: it is the fitter buying agreement
+#: with a feature no published hull in this corpus possesses.
+#: `flare_len` joins it. The flare warp lifts the WATERLINE beam at stations
+#: other than the reference one, so `BWL` -- defined as the half-breadth at
+#: z = 0 at the max-area station, doubled -- stops being the hull's maximum.
+#: MEASURED on series60_4210W: the fit chose flare_bow 24.4 deg over 60% of the
+#: length and the generated hull measured BWL 2.6794 against a commanded
+#: 2.6667, a 1.27e-2 relative deviation against a 4e-3 bar. It buys nothing
+#: either: the E5 median is 7.21% with the warp free and 7.21% with it clamped,
+#: because a round-bilge Delft yacht has no use for a wave-piercer's flare law.
+#: `pmb` joins them, and for the SAME reason stated one more way. A parallel
+#: midbody holds sectional area at its maximum over a SPAN, so "the max-area
+#: station" -- which is where `BWL` is defined -- stops being a single station
+#: and the round-trip measures the beam at whichever member of the flat top it
+#: lands on. MEASURED 2026-08-24 with the gene free: dsyhs_60, _61, _62 and
+#: series60_4210W all failed the 4e-3 BWL bar (series60 commanded 2.666666).
+#: The clamp costs the E5 fit nothing -- these are round-bilge Delft yachts and
+#: a Series 60, fitted against SCALAR particulars that name one beam -- while
+#: the gene stays free everywhere the search actually needs it.
+#: `r_stem` joins them too. It puts sectional AREA at the stem, which moves
+#: both `Cp` and `LCB` -- the two of the six the SAC solver is asked to hit
+#: exactly -- and MEASURED 2026-08-24 the round-trip then missed on dsyhs_62
+#: (Cp 0.5413 commanded), series60_4210W and wigley (lcb). Every hull in this
+#: corpus is a Delft yacht, a Series 60 or a Wigley: all pointed-bow forms for
+#: which r_stem = 0 IS the right fit, so clamping it costs the residual
+#: nothing and keeps E5 measuring the same 21-gene fit it was recorded against.
+_E5_CEILINGS = {"stem_depth": 0.0, "flare_len": 0.0, "pmb": 0.0, "r_stem": 0.0}
+BOX = [(max(float(grammar.LOW[grammar.NAMES.index(n)]), _E5_FLOORS.get(n, -1e18)),
+        min(float(grammar.HIGH[grammar.NAMES.index(n)]),
+            _E5_CEILINGS.get(n, 1e18))) for n in TEN]
 
 #: The genome's own box IS the E5 target range -- LWL [2.5, 24] m from RCD
 #: scope, Cp [0.525, 0.710] from the prismatic table, LCB +-3%. A hull outside

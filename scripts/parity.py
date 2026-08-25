@@ -60,6 +60,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from navalai.contract import evaluate_hull                    # noqa: E402
+from navalai import grammar
 from navalai.mission import MissionSpec                       # noqa: E402
 
 #: Relative tolerance below which a difference is attributed to the
@@ -101,14 +102,18 @@ def _cases() -> list[tuple[str, np.ndarray, MissionSpec]]:
 
     # 1. the reference hull the whole repository is pinned against
     from tests.test_phase0 import mid_params
-    out.append(("reference", np.asarray(mid_params(), float), MS()))
+    out.append(("reference", grammar.pad_genome(mid_params()), MS()))
 
     # 2. the kit reference — the first hull that is BOTH certifiable and
     #    sheet-buildable, and therefore the one a product claim rests on
-    out.append(("kit-reference", np.array([
+    # PADDED to this tree's arity. These genomes were written at 16 genes and
+    # are still the same hulls; without the pad the grammar refuses them for
+    # WIDTH and seven of the eight parity cases come back REFUSED, which reads
+    # as a cross-machine disagreement and is nothing of the kind.
+    out.append(("kit-reference", grammar.pad_genome([
         12.24464859, 3.105685017, 0.55, 1.55, 0.6392941018, -1.0,
         0.4760097448, 0.3, 9.039289126, 9.039289126, 0.35, 0.0,
-        0.15, 0.0, 0.0, 0.18], float), MS()))
+        0.15, 0.0, 0.0, 0.18]), MS()))
 
     # 3-6. the size-band coverage hulls and the two named forms, at the
     #      cruise speeds they were generated for. These are the hulls the
@@ -119,7 +124,7 @@ def _cases() -> list[tuple[str, np.ndarray, MissionSpec]]:
         src = list(d.get("bands", {}).items()) + \
             list(d.get("named_forms", {}).items())
         for name, rec in src:
-            g = np.asarray(rec["genome"], float)
+            g = grammar.pad_genome(rec["genome"])
             kn = rec.get("cruise_speed_kn")
             out.append((f"coverage:{name}",
                         g, MS(cruise_speed_kn=kn) if kn else MS()))

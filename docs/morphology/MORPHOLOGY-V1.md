@@ -253,3 +253,114 @@ A hull is not good because hydrostatics, stability, CFD, mesh and constraints
 pass. It must satisfy **engineering validity AND geometric validity AND
 morphological plausibility**, and the system must distinguish **VALID** from
 **PLAUSIBLE** in what it reports.
+
+---
+
+## 2026-08-24 — the SPEARHEAD had a cause, and the critic did not catch it
+
+The owner rejected the delivered `houseboat16.stl` on sight: *"it looks like a
+spearhead rather than a boat and the space at the stern cannot be used, i have
+asked for a 4m width boat"*. That reading was correct and the geometry was
+wrong. Three defects, all measured, all now fenced.
+
+### 1. The grammar had no bow-fullness gene at all
+
+`geometry.sac_ordinate` built its forward branch as `a = 1 - _shape(t, pf)`,
+which is **exactly 0.0 at x = LWL**. The aft branch has carried `r_transom` —
+`a = R + (1-R)·…`, a floor on sectional area — since the kernel was written;
+the forward branch simply never got its mirror. So *every hull this grammar
+could express* narrowed to a mathematical point at the stem. A barge, a
+workboat, a houseboat and an axe bow all carry finite area at the stem; only a
+racing shell does not.
+
+MEASURED on the 16 × 4 m houseboat envelope, sheer beam at the stem:
+
+    r_stem   beam @ stem   beam @ 0.95L   beam @ 0.85L
+     0.00        0.020 m        0.954 m        2.432 m
+     0.15        0.709 m        1.516 m        2.741 m
+     0.30        1.454 m        2.110 m        3.055 m
+     0.45        2.277 m        2.741 m        3.376 m
+
+**20 mm** is the point bow, and it is what the render showed. `r_stem` is now
+the mirror of `r_transom`, appended under `grammar.POST_HOC_DEFAULTS` with
+default 0.0. That default is a *proven* no-op, not an approximate one:
+`S + (1-S)·v == v` for every finite `v` when `S == 0` in IEEE-754, verified
+bit-for-bit over 48 seeded draws by
+`test_r_stem_zero_is_bit_identical_to_the_pointed_bow`. Every pinned population
+and every E5 residual is unchanged.
+
+### 2. `sac_stem` and `sac_transom` were measuring the sampling grid
+
+This is the `beam_transom` defect (300 of 300 ShipD hulls reading 0.000) in the
+curve next door, and it went unnoticed because the 2.5% inset was applied to the
+plan and **not** to the area curve.
+
+MEASURED across all 53 published hulls in `tests/e5_real_hulls/`:
+
+    descriptor     before (at the extreme station)   after (2.5% inset)
+    sac_stem       53 of 53 read 0.0000              min 0.0058  med 0.0130  max 0.0975
+                   min == p5 == med == max           zeros: 0
+    sac_transom    1 of 53 read 0.0000               min 0.0000  med 0.0259  max 0.0975
+
+Sectional area is zero at a closed hull's own extremity *by definition*, so at
+`x[-1]` this descriptor could only ever return zero — for a barge exactly as for
+a spike. A band 0.000 wide cannot discriminate anything, which is why a hull
+whose bow was a mathematical point critiqued **`ok=True, score=1.000`**.
+
+Neither key is in `MANIFOLD_KEYS`, so the fix does **not** move the vendored
+ShipD bands. Regression: **0 of 53** published hulls change verdict.
+
+### 3. STILL OPEN — the inset is an INDEX, so it is not grid-invariant
+
+`_inset = max(1, round(0.025·(len(b)-1)))`. MEASURED: the published corpus
+carries **both 25- and 41-station** files, and `max(1, …)` floors both at index
+1 — which is **4.17%** of length on a 25-station hull and **2.5%** on a
+41-station one. The descriptor therefore depends on the grid it was sampled on,
+which is precisely what a scale-free descriptor must not do.
+
+This is NOT fixed here, deliberately. `beam_transom` **is** in `MANIFOLD_KEYS`,
+so correcting it to a true fixed fraction (by interpolation rather than by
+index) moves the learned bands and requires regenerating the 30,000-hull ShipD
+manifold. That is a measurement, not an edit, and it is owed — recorded here so
+it is not rediscovered a third time.
+
+### 4. The BOW is fixed; the STERN is capped by a bound, and that is measured
+
+With `r_stem` landed, the 16 × 4 m brief was re-searched inside the CURRENT
+gene box (9000 candidates, `grammar.check` + `morphology.critique`):
+
+    beam            before r_stem   after r_stem   the brief
+    at the stem        0.020 m         1.906 m      —
+    maximum            —               3.980 m      4.0 m
+    at the transom     —               2.161 m      ~3.0 m for a usable terrace
+
+The spearhead is GONE and the 4.0 m envelope is respected. The stern is not,
+and the reason is a bound rather than a search failure. MEASURED over 1592
+hulls that pass `check()`:
+
+    transom beam >= 3.0 m :    0 of 1592   (median 1.84 m, best 2.38 m)
+    max beam     <= 4.0 m : 1152 of 1592
+
+`r_transom` is capped at 0.50 and it is a SECTIONAL AREA ratio, so on a 4 m
+boat it caps transom beam near 2.4 m — 60% of maximum beam. A houseboat
+terrace, a landing craft ramp and a canal-boat counter all need more, and none
+of them are reachable from this box. `Cp` is capped at 0.710 by the
+resistance-optimal table for the same reason, and the box ends of a barge reach
+Cp 0.83 at the lowest.
+
+**This is NOT fixed here, and the distinction from `r_stem` is the whole point.**
+`r_stem` was APPENDED, so its default is a proven no-op and no seeded population
+moved. `r_transom` and `Cp` are CORE genes: `sample()` draws a uniform for each,
+so widening either ceiling maps the same random number to a different value and
+silently re-draws every pinned population, every E5 residual and every fixture —
+which is exactly the failure `forefoot`'s floor produced and which the comment
+beside `forefoot` in `grammar.py` records. Landing a true barge form is
+therefore a SEQUENCED change with a re-measured corpus behind it, not an edit to
+two numbers.
+
+The delivered `data/exports/houseboat16/` is the best form the current box
+admits: ladder `ok=True` at tier L1, 0 of 8 constraints violated, morphology
+`ok=True` score 1.00, manifold 0.958, all seven design rules pass, 14.0 t at
+0.392 m draft, GM 1.55 m, 1116 N and 1135 Wh/NM at 7 kn. It is a fair launch
+hull. It is not yet a barge, and the render (`lines.png`) shows why: a lens
+plan, pointed at both ends, with very little parallel middle body.

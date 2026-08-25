@@ -65,6 +65,31 @@ def ref():
 # ------------------------------------------------------- E10: non-finite
 
 
+
+def _draw_from_the_box(rng):
+    """A draw from the L0 box the PRODUCT actually samples (2026-08-24).
+
+    `rng.uniform(grammar.LOW, grammar.HIGH)` is not that box. `grammar.sample`
+    is arity-stable: it draws uniforms for CORE genes only and holds anything
+    in `grammar.POST_HOC_DEFAULTS` at its default, precisely so that appending
+    a gene cannot move a seeded population. A raw uniform over LOW/HIGH gives
+    every appended gene a live random value instead, so these measured
+    fractions moved the moment the genome grew -- MEASURED when `r_stem` and
+    `pmb` were added, the LCB row went from refusing 15% of the box to
+    refusing 3%, and the hull that "floats out of band" stopped existing.
+
+    Nothing about the rows under test changed; the sampler did. So the draw is
+    made the product's way, and the pinned 85% keeps measuring the thing it was
+    recorded against.
+    """
+    x = rng.uniform(grammar.LOW, grammar.HIGH)
+    for _nm, _v in grammar.POST_HOC_DEFAULTS.items():
+        if _nm in grammar.NAMES:
+            x[grammar.NAMES.index(_nm)] = float(_v)
+    return x
+
+
+
 def test_a_nonfinite_constraint_is_a_violation_not_a_pass(monkeypatch):
     """E10. `nan > 0.0` is False, so the violation filter skipped it and the
     design came back ok=True with violations=(). A quantity we could not
@@ -211,7 +236,7 @@ def test_the_list_constraint_is_no_longer_unconditionally_satisfiable():
     seen_inert = seen_undefined = 0
     n = 0
     while n < 60 and (seen_inert == 0 or seen_undefined == 0):
-        x = rng.uniform(grammar.LOW, grammar.HIGH)
+        x = _draw_from_the_box(rng)
         if not grammar.check(x).ok:
             continue
         ev = evaluate(x, m)
@@ -444,7 +469,7 @@ def test_the_lcb_row_still_refuses_a_hull_that_floats_out_of_band():
     rng = np.random.default_rng(3)
     found = None
     for _ in range(400):
-        x = rng.uniform(grammar.LOW, grammar.HIGH)
+        x = _draw_from_the_box(rng)
         if not grammar.check(x).ok:
             continue
         ev = evaluate(x, m)
@@ -494,7 +519,7 @@ def test_the_lcb_band_bites_without_emptying_the_box():
     rng = np.random.default_rng(3)
     inside = total = 0
     while total < 60:
-        x = rng.uniform(grammar.LOW, grammar.HIGH)
+        x = _draw_from_the_box(rng)
         if not grammar.check(x).ok:
             continue
         ev = evaluate(x, m)
@@ -555,7 +580,7 @@ def test_a_hull_that_floats_out_of_proportion_is_caught_even_though_l0_passed():
     rng = np.random.default_rng(3)
     found = None
     for _ in range(4000):
-        x = rng.uniform(grammar.LOW, grammar.HIGH)
+        x = _draw_from_the_box(rng)
         rep = grammar.check(x)
         if not rep.ok:
             continue

@@ -202,7 +202,11 @@ def test_a_deployed_surrogate_has_no_unguarded_array_path(short_hull_model):
     guard, so the wrapper's `predict()` refuses the rows it cannot support and
     names them."""
     model, probe = short_hull_model
-    supported = model.gp.X[:3] * model.gp.x_hi + model.gp.x_lo   # de-normalised
+    # `gp.X` is the REDUCED, normalised training matrix — constant columns
+    # are dropped before fitting — so de-normalising it by hand yields the
+    # KERNEL's width, not the caller's. `denormalise` restores the dropped
+    # columns from the values they held in training.
+    supported = model.gp.denormalise(model.gp.X[:3])
     batch = np.vstack([supported, probe[None, :]])
     with pytest.raises(OODRefusal, match=r"rows \[3\]"):
         model.predict(batch)
@@ -272,7 +276,7 @@ def test_a_surrogate_number_carries_value_tier_and_sigma_in_physical_units(
     `forceCoeffs` came out wrong by exactly 2x.
     """
     model, _probe = short_hull_model
-    inside = model.gp.X[3] * model.gp.x_hi + model.gp.x_lo
+    inside = model.gp.denormalise(model.gp.X[3:4])[0]
     got = model.query(inside)
     assert got["tier"] == "S1" and tier_rank("S1") == -1 < tier_rank("L0")
     assert set(got) == {"value", "tier", "sigma", "quantity"}
@@ -770,7 +774,18 @@ def test_a_mark_measured_on_a_different_benchmark_is_refused(independent,
         F.BENCHMARK_PROBES.clear()
         F.BENCHMARK_PROBES.update(saved)
     assert len(rep2.labels) == len(rep.labels) - 1
-    prior_best = json.loads(bp.read_text())["wh_per_nm"]["best_median_rel_err"]
+    # COMPARE AGAINST THE MARK THE GATE ACTUALLY APPLIES. `flywheel.retrain`
+    # ratchets on the ENSEMBLE median where one is recorded — that is gap T3's
+    # fix, and `flywheel.py` states the reason: seed 21 measured as the MINIMUM
+    # of the eight-seed ensemble on all three quantities, so ratcheting a fresh
+    # draw against it refused 4 of 8 honest seeds on wh_per_nm and 7 of 8 on
+    # gm. Reading `best_median_rel_err` here compares this trap against a bar
+    # the code does not use, which is the same defect one level up: MEASURED
+    # 2026-08-24, best 0.0894 against an ensemble median of 0.1401 on a
+    # distribution whose spread is 4.18x.
+    _prior = json.loads(bp.read_text())["wh_per_nm"]
+    prior_best = _prior.get("ensemble_median_rel_err",
+                            _prior["best_median_rel_err"])
     assert rep2.median_rel_err <= prior_best * 1.25, (
         "the shrunken suite moved the metric outside the tolerance, so the "
         "error gate would have caught it and this trap demonstrates nothing")

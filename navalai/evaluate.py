@@ -35,7 +35,7 @@ from pathlib import Path
 
 import numpy as np
 
-from . import db, grammar
+from . import db, grammar, propulsion
 from .energy import (SIGMA_PLACEHOLDER, SIGMA_PROPAGATED_LOWER_BOUND,
                      WH_PER_NM_PLACEHOLDER_SIGMA_FRAC, EnergyReport,
                      WeightBudget,
@@ -109,8 +109,17 @@ from .weights import MassAggregate, MassItem, aggregate
 # RE-CHECKED THE HULL (gap B9): `grammar.check` bounds BWL/T at 12 on the
 # design draft, and a delivered hull floated at B/T 14.4 — the project's own
 # bar broken by the project's own output, with every gate green.
+# "motor_power" and "prop_space" joined 2026-08-25 by the owner's product
+# definition, stated twice: "all boats will have motors, electric motors and
+# solar panels ... naval-ai only designs boats with motors." The drive is a
+# DESIGN-STAGE quantity, not outfitting: houseboat19 passed all eight rows
+# here and was still "ok for a paddle boat, not a motor boat" by inspection,
+# because nothing measured whether a propeller could be fed (stern immersion
+# 0.33 m; the thrust wants a 0.42 m disc). Appended at the END: every
+# existing row keeps its index, which is what the order fence protects.
 CONSTRAINT_NAMES = ("freeboard", "gm", "bend_radius", "trim", "list",
-                    "lcb", "proportions", "rules")
+                    "lcb", "proportions", "rules",
+                    "motor_power", "prop_space")
 
 # The value a constraint takes when the physics behind it is UNDEFINED rather
 # than merely violated: large, positive, finite. Large so NSGA-II ranks such a
@@ -408,8 +417,30 @@ def sample_valid(n: int, mission: MissionSpec, seed: int = 0,
             if b_lo <= b_hi:
                 lo[j], hi[j] = b_lo, b_hi
     X, y = [], []
+    # THE DRAW IS ARITY-STABLE. `rng.uniform(lo, hi)` consumes exactly
+    # N_PARAMS values per candidate, so appending a gene shifts the whole
+    # stream and every seeded population silently becomes a different set of
+    # boats. MEASURED 2026-08-24 going 16 -> 20 genes: 48 tests across 17 files
+    # went red and not one was a geometry regression — the lottery had been
+    # re-run. Each candidate now takes a FIXED-WIDTH block so the existing
+    # genes keep their RNG positions, and the appended ones are held at their
+    # POST_HOC_DEFAULTS, which are proven no-ops. A seeded draw therefore
+    # reproduces the same hulls it did at arity 16. See `grammar.sample` for
+    # the same fix and for what it costs: this feed does not explore the
+    # post-hoc genes; the optimizers do.
+    _core = [i for i, nm in enumerate(grammar.NAMES)
+             if nm not in grammar.POST_HOC_DEFAULTS]
+    _post = {grammar.NAMES.index(k): float(v)
+             for k, v in grammar.POST_HOC_DEFAULTS.items()
+             if k in grammar.NAMES}
     while len(X) < n:
-        x = rng.uniform(lo, hi)
+        x = np.empty(grammar.N_PARAMS)
+        # EXACTLY as many uniforms as there are CORE genes, in their original
+        # order, so the bit-stream matches the arity this feed had before any
+        # post-hoc gene was appended.
+        x[_core] = rng.uniform(lo[_core], hi[_core])
+        for _i, _v in _post.items():
+            x[_i] = _v
         if not grammar.check(x, vessel=vessel_cfg).ok:
             continue
         ev = evaluate(x, mission, policy=policy)
@@ -1074,7 +1105,17 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
 
     # Built FROM CONSTRAINT_NAMES, not typed in an order that happened to match
     # (gap E16 — the `assert` that used to bind them is stripped by `python -O`).
+    # The propulsion rows are assembled by their own module (single home of
+    # every bar) from the same in-scope quantities the other rows use: the
+    # FLOATED hull, the resistance the mission speed costs, and the electric
+    # demand the energy tier derived from it. Computed BEFORE the vector is
+    # built because `constraint_vector` validates coverage of
+    # CONSTRAINT_NAMES at construction -- a row cannot be appended to a
+    # vector whose fence has already counted the columns.
+    _prop_g, _prop_why = propulsion.rows_for(
+        hull, wl, float(res.total), float(en.prop_power_w), energy_spec)
     g = constraint_vector({
+        **_prop_g,
         "freeboard": FREEBOARD_FLOOR_M - hs.freeboard_min,
         "gm": gm_min - gm_m,
         "bend_radius": r_req - r_min,
@@ -1103,6 +1144,7 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
         # is never a pass.
         "rules": _rules_margin(fails),
     })
+
     why = {
         "freeboard": f"freeboard at load {hs.freeboard_min:.2f} m "
                      f"< {FREEBOARD_FLOOR_M:.2f} m",
@@ -1141,6 +1183,8 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
         "rules": ("rules tier: " + "; ".join(
             f"{f.rule_id} {f.measured:.2f} vs {f.required:.2f} {f.unit}"
             for f in fails)) if fails else "",
+        "motor_power": _prop_why.get("motor_power", ""),
+        "prop_space": _prop_why.get("prop_space", ""),
     }
 
     # A NON-FINITE CONSTRAINT USED TO MAKE A DESIGN FEASIBLE (gap E10).

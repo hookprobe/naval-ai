@@ -99,6 +99,36 @@ def make_generator(X: np.ndarray, kind: str = "gmm", seed: int = 0,
 _BOX_DIAG = float(np.linalg.norm(grammar.HIGH - grammar.LOW))
 
 
+def _pin_post_hoc(X: np.ndarray) -> np.ndarray:
+    """Hold the post-hoc genes at their defaults in any RAW model draw.
+
+    A MODEL CANNOT LEARN A DIMENSION ITS TRAINING DATA NEVER VARIED. The feed
+    (`evaluate.sample_valid`) holds `grammar.POST_HOC_DEFAULTS` fixed so that a
+    seeded population reproduces across an arity change, so those columns
+    arrive with EXACTLY ZERO variance. What comes back out of a fitted
+    covariance is then float noise of order 1e-17 — and three of those genes
+    have a LOW bound of exactly 0.0, so a value of -1e-18 fails the bound check
+    and the hull is refused for a rounding artefact.
+
+    MEASURED 2026-08-24 at arity 21: GMM raw feasibility read 44.0% against a
+    60% floor; pinning the five post-hoc columns returns it to 62.3%. Fitting
+    on the core genes alone and padding scores 63.5%, i.e. the same number —
+    which is the check that this is a rounding fix and not a thumb on the
+    scale.
+
+    The generative model is therefore measured on the space it was actually
+    trained on. When a post-hoc gene gains real variance in the feed, this stops
+    being a no-op and the model will learn it.
+    """
+    if X.ndim != 2 or X.shape[1] != grammar.N_PARAMS:
+        return X
+    out = np.array(X, dtype=float, copy=True)
+    for name, value in grammar.POST_HOC_DEFAULTS.items():
+        if name in grammar.NAMES:
+            out[:, grammar.NAMES.index(name)] = float(value)
+    return out
+
+
 def _project_to_feasible(rows: np.ndarray, X_train: np.ndarray,
                          n_coarse: int = 12, n_bisect: int = 8):
     """Blend each infeasible row toward its nearest training hull, minimally.
@@ -285,6 +315,7 @@ class HullFamilyModel:
         j = rng.choice(len(self.weights), size=n, p=self.weights)
         Z = rng.standard_normal((n, d))
         X = np.array([self.means[jj] + chol[jj] @ z for jj, z in zip(j, Z)])
+        X = _pin_post_hoc(X)
         return np.clip(X, grammar.LOW, grammar.HIGH) if clip else X
 
     def sample(self, n: int, seed: int = 0, max_tries: int = 400) -> np.ndarray:

@@ -280,16 +280,14 @@ PARAMS = [
     ("roundness",  "-",   0.0,  1.0, "bilge roundness: 0 hard chine, 1 full "
                                      "fillet"),
     ("rocker",     "-",   0.0,  0.6, "keel rise at transom / T"),
-    # FLOOR 0.0 -> -0.45, 2026-08-24. A NEGATIVE forefoot means the keel
-    # DEEPENS toward the stem, and that is the Damen Axe Bow's stated core
-    # mechanism, in their words: "The bow has the greatest draught at the
-    # front, which delays the moment at which the bow lifts out of the water.
-    # If the bow does not lift, there is no chance of it slamming back into the
-    # waves." At a floor of 0.0 the deepest a bow could be was LEVEL with the
-    # midship keel, so the mechanism was unreachable by construction. `_keel`
-    # already handles a negative value correctly; only the bound forbade it.
-    ("forefoot",   "-",  -0.45, 1.0, "keel rise at stem / T; NEGATIVE deepens "
-                                     "the forefoot (axe bow)"),
+    # FLOOR STAYS AT 0.0. Widening an existing gene's bound is NOT a no-op:
+    # `rng.uniform(lo, hi)` maps the SAME random number to a different value,
+    # so every seeded population silently changes. MEASURED 2026-08-24 — a
+    # floor of -0.45 was tried first and it moved exactly one gene of the
+    # seed-0 draw (forefoot 0.18271 -> -0.18507) while the other fifteen were
+    # bit-identical, which was enough to break every pinned fixture. The
+    # capability it was reaching for is now `stem_depth`, appended below.
+    ("forefoot",   "-",   0.0,  1.0, "keel RISE at stem / T"),
     ("flare",      "deg", -5.0, 25.0, "topside flare angle"),
     ("sheer_rise", "-",   0.0,  0.5, "bow sheer rise / D"),
     # THE RUN, added 2026-08-24. See `geometry._deadrise`: transom deadrise was
@@ -312,6 +310,73 @@ PARAMS = [
                                        "reserve buoyancy for downforce"),
     ("flare_len",  "-",     0.0,  0.6, "fraction of LWL over which flare warps "
                                        "forward to flare_bow; 0 = none"),
+    # THE AXE BOW'S CORE MECHANISM, as a gene that DEEPENS rather than a
+    # widened one that rises. Damen: "The bow has the greatest draught at the
+    # front, which delays the moment at which the bow lifts out of the water.
+    # If the bow does not lift, there is no chance of it slamming back into
+    # the waves." `forefoot` raises the keel toward the stem; `stem_depth`
+    # lowers it. They are opposite intents and a single signed gene conflated
+    # them -- which is also why widening `forefoot` broke every seeded
+    # population. 0.0 is a no-op and is bit-identical to the hull before this
+    # gene existed.
+    ("stem_depth", "-",     0.0, 0.45, "keel DEEPENING at the stem / T; the "
+                                       "axe-bow mechanism. 0 = none"),
+    # THE BOW HAD NO FULLNESS GENE AT ALL, and that is the SPEARHEAD.
+    # MEASURED 2026-08-24 on the delivered `houseboat16.stl`: the SAC's forward
+    # branch was `a = 1 - _shape(t, pf)`, which is EXACTLY 0.0 at x = LWL, so
+    # every hull this grammar can express narrows to a mathematical POINT at
+    # the stem. The aft branch has carried `r_transom` -- `a = R + (1-R)*...`,
+    # a floor on sectional area -- since the kernel was written; the forward
+    # branch simply never got its mirror. The consequence is not cosmetic: at
+    # BWL 4.0 m on a 16 m houseboat the waterline beam was under 0.15 m for the
+    # forward 1.8 m, which is why the owner's reading of the render ("it looks
+    # like a spearhead ... the space at the stern cannot be used, i have asked
+    # for a 4m width boat") was CORRECT and the geometry was wrong, not the
+    # brief. A barge, a workboat, a houseboat and a wave-piercing axe bow all
+    # carry finite area at the stem; only a racing shell does not.
+    # 0.0 reproduces the hardcoded zero EXACTLY -- `S + (1-S)*v == v` when
+    # S == 0 in IEEE-754 for every finite v -- so this is a lawful post-hoc
+    # append under the `POST_HOC_DEFAULTS` rule and every seeded population is
+    # bit-identical. Verified by `test_r_stem_zero_is_bit_identical`.
+    # CEILING 0.95, NOT r_transom's 0.50. Widening an EXISTING gene's bound is
+    # what broke every seeded population when `forefoot` was tried (see above),
+    # but a POST-HOC gene is different in kind and provably so: `sample()`
+    # draws uniforms for CORE genes only, and a gene in POST_HOC_DEFAULTS is
+    # not in `core`, so no random number is ever consumed for it and its LOW /
+    # HIGH cannot move the bit-stream. The ceiling is therefore free to be set
+    # by the physics rather than by compatibility -- and a barge, a landing
+    # craft or a canal boat carries very nearly full section to the stem.
+    ("r_stem",     "-",     0.0,  0.95, "stem sectional area / max sectional "
+                                        "area; the mirror of r_transom. "
+                                        "0 = a pointed bow"),
+    # PARALLEL MIDBODY -- THE FEATURE THIS GRAMMAR COULD NOT EXPRESS AT ALL.
+    # `sac_ordinate` builds one falling branch forward of `x_mb` and one aft of
+    # it, so a(x) touches 1.0 at EXACTLY ONE STATION. A hull with parallel
+    # midbody has a SAC that is FLAT at 1.0 over a span, and no value of any
+    # gene could produce that -- so every hull this kernel drew was a lens,
+    # tapering from a single maximum in both directions, BY CONSTRUCTION.
+    #
+    # MEASURED 2026-08-24. Best-of-30000 search on the 16 x 4 m brief, filtered
+    # to hulls passing check(), critique() and all seven design rules:
+    # `pmb_frac` 0.098 and `beam_carried` 0.293 -- against a plausible-corpus
+    # band of 0.415-0.829 for beam_carried, and against the 2026-08-23
+    # houseboat that was REJECTED at beam_carried 0.293. The same number: the
+    # search could not do better because the kernel has no lever for it.
+    #
+    # This is the defect behind the owner's reading of every render so far.
+    # `downloads/hull-examples/hull-example-004.png` -- a solar-electric
+    # displacement cruiser at the same 7-12 kn the brief asks for -- labels it
+    # outright: "PARALLEL MIDBODY: MAXIMIZES PRISMATIC", beside "ROUND-BILGE
+    # SECTION" and "FINE ENTRANCE ANGLE (< 12 deg)". We could draw neither the
+    # flat SAC top nor, consequently, the fine entrance that a short entrance
+    # run buys.
+    #
+    # 0.0 collapses the flat span to zero width and reproduces the previous
+    # single-point maximum EXACTLY, so this is a lawful post-hoc append.
+    # Verified bit-for-bit by `test_pmb_zero_is_bit_identical`.
+    ("pmb",        "-",     0.0,  0.55, "PARALLEL MIDBODY: fraction of LWL "
+                                        "over which sectional area is held at "
+                                        "maximum. 0 = a single-station peak"),
 ]
 
 N_PARAMS = len(PARAMS)
@@ -579,11 +644,44 @@ def sample(n: int, rng: np.random.Generator | None = None,
     9.6% as a demihull, against 13.2% in the old, narrower box — the widened
     box costs about 2x the draws and `max_tries` of 200 leaves ~15x of headroom.
     """
+    # THE DRAW IS ARITY-STABLE, AND THAT IS NOT A DETAIL.
+    #
+    # `rng.uniform(LOW, HIGH)` consumes exactly N_PARAMS values per candidate,
+    # so APPENDING A GENE SHIFTS THE ENTIRE STREAM: every population, fixture
+    # and calibration anchor drawn from a seed silently becomes a different set
+    # of boats. MEASURED 2026-08-24, going from 16 genes to 20: 48 tests across
+    # 17 files went red, the first no-rescue admissibility refusal moved from
+    # hull 152 to 110, and NO hull in the first 400 dev draws tripped the
+    # sheer-ridge bar at all. Not one of those was a geometry regression; the
+    # lottery had simply been re-run.
+    #
+    # So each candidate draws a FIXED-WIDTH block and the first N_PARAMS are
+    # used. Genes 0..15 land on the same RNG positions they always did, and the
+    # genes appended since are held at their POST_HOC_DEFAULTS -- which are
+    # proven no-ops -- so a seeded draw reproduces the SAME HULLS it did at
+    # arity 16, bit for bit.
+    #
+    # WHAT THIS COSTS, said plainly: `sample` does NOT explore the post-hoc
+    # genes. It is the legacy population generator, and its job is
+    # reproducibility. The optimizers explore the full box
+    # (`optimize.pareto_front`, `morphology_search.search`), and anything that
+    # needs the new genes must go through them or set the values itself.
     rng = rng or np.random.default_rng(0)
     out = np.empty((n, N_PARAMS))
     got = 0
+    core = [i for i, nm in enumerate(NAMES) if nm not in POST_HOC_DEFAULTS]
+    lo_c, hi_c = LOW[core], HIGH[core]
+    post = {NAMES.index(k): float(v) for k, v in POST_HOC_DEFAULTS.items()
+            if k in NAMES}
     for _ in range(max_tries * n):
-        cand = rng.uniform(LOW, HIGH)
+        cand = np.empty(N_PARAMS)
+        # EXACTLY as many uniforms as there are CORE genes, in their original
+        # order — so the bit-stream is identical to the arity it had before any
+        # post-hoc gene was appended, and a seeded draw reproduces the same
+        # hulls it always did.
+        cand[core] = rng.uniform(lo_c, hi_c)
+        for i, v in post.items():
+            cand[i] = v
         if check(cand, vessel).ok:
             out[got] = cand
             got += 1
@@ -601,7 +699,47 @@ def named(x: np.ndarray) -> dict[str, float]:
 # = 0 disables the aft deadrise warp entirely, so every genome written before
 # it existed still describes exactly the hull it always did.
 POST_HOC_DEFAULTS: dict[str, float] = {"beta_transom": 0.0, "beta_run": 0.0,
-                                       "flare_bow": 0.0, "flare_len": 0.0}
+                                       "flare_bow": 0.0, "flare_len": 0.0,
+                                       "stem_depth": 0.0,
+                                       "r_stem": 0.0, "pmb": 0.0}
+
+
+def pad_genome(g) -> np.ndarray:
+    """Extend a HISTORICAL genome to this tree's arity with no-op defaults.
+
+    Genomes are written down — in fixtures, in `data/`, in receipts, in
+    published records — and they are written at the arity of the day. Every one
+    of those is still a valid hull description, because a gene may only be
+    APPENDED to this grammar if some value of it is a proven no-op (that is what
+    `POST_HOC_DEFAULTS` means). Padding with those values therefore yields the
+    SAME HULL the recorded numbers always described, bit for bit.
+
+    MEASURED 2026-08-24, which is why this is one function and not four
+    copies: going 16 -> 21 genes, a 16-wide genome was refused for WIDTH by
+    `tests/test_contract.py`, `tests/test_manufacturing.py`, `scripts/parity.py`
+    and the population manifests — each reading as "the grammar refused this
+    boat" when nothing about the boat had changed.
+
+    Raises when a gene was REMOVED (the genome is wider than this grammar), or
+    when an appended gene has no proven no-op: both mean the padded vector
+    would be a DIFFERENT hull, and returning one quietly is the defect this
+    helper exists to prevent.
+    """
+    g = np.asarray(g, dtype=float).ravel()
+    if g.size == N_PARAMS:
+        return g
+    if g.size > N_PARAMS:
+        raise ValueError(
+            f"genome has arity {g.size} and this grammar has {N_PARAMS}: a "
+            f"gene was REMOVED, which is not a no-op and cannot be padded")
+    tail = NAMES[g.size:]
+    missing = [n for n in tail if n not in POST_HOC_DEFAULTS]
+    if missing:
+        raise ValueError(
+            f"cannot pad a {g.size}-gene genome to {N_PARAMS}: {missing} have "
+            f"no proven no-op default, so the result would be a different hull")
+    return np.concatenate([g, np.array([float(POST_HOC_DEFAULTS[n])
+                                        for n in tail], dtype=float)])
 
 
 def vector(d: dict[str, float]) -> np.ndarray:

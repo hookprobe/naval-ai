@@ -212,7 +212,12 @@ def test_a_non_finite_gene_is_refused_by_name_not_as_an_unreachable_target():
             assert not rep.ok and rep.violations[0].startswith("finite:"), \
                 (name, bad, rep.violations)
             seen += 1
-    assert seen == 3 * len(grammar.NAMES) == 48
+    # The literal `== 48` used to be chained here. It was 3 x 16 written out a
+    # second time, and it broke the moment the genome gained a gene while the
+    # DERIVED half of the same line stayed true — the number-declared-twice
+    # defect, in an assertion about the genome's own width. The derived form is
+    # the assertion; the literal was a restatement of it.
+    assert seen == 3 * len(grammar.NAMES)
 
     # the same clause on `sac_exponents`, which is reachable WITHOUT a
     # parameter vector and used to answer LWL = NaN with "sac: no exponent
@@ -811,3 +816,160 @@ def test_the_kernel_stays_inside_the_slider_budget():
         evaluate(np.asarray(x, dtype=float), m)
         ts.append((time.perf_counter() - t) * 1e3)
     assert float(np.percentile(ts, 95)) < 100.0, sorted(ts)
+
+
+# --------------------------------------------------------------------------
+# `r_stem`: the gene the SPEARHEAD was missing (2026-08-24).
+# --------------------------------------------------------------------------
+
+
+def test_r_stem_zero_is_bit_identical_to_the_pointed_bow():
+    """A post-hoc gene must be a PROVABLE no-op at its default, not a small one.
+
+    THE INCIDENT. The delivered `houseboat16.stl` was rejected on sight by the
+    owner -- "it looks like a spearhead rather than a boat and the space at the
+    stern cannot be used, i have asked for a 4m width boat" -- and the reading
+    was correct. `sac_ordinate`'s forward branch was `a = 1 - _shape(t, pf)`,
+    which is EXACTLY 0.0 at x = LWL: every hull the grammar could express
+    narrowed to a mathematical POINT at the stem, because the aft branch's
+    `r_transom` area floor had no forward mirror. MEASURED on the 16 x 4 m
+    houseboat envelope, sheer beam at the stem: 0.020 m at r_stem 0.00 against
+    1.454 m at 0.30 and 2.277 m at 0.45.
+
+    `r_stem` is that mirror. It is APPENDED, so `grammar.POST_HOC_DEFAULTS`
+    requires its default to be a no-op -- and not approximately: `S + (1-S)*v`
+    must be BIT-identical to `v` at S = 0.0, or every pinned population and
+    every E5 residual silently moves. This test is the proof, run against the
+    pre-change expression written out longhand rather than against a recorded
+    number, so it cannot rot into a restatement.
+    """
+    assert grammar.POST_HOC_DEFAULTS.get("r_stem") == 0.0
+    rows = 0
+    for seed in range(8):
+        for row in grammar.sample(6, rng=np.random.default_rng(seed)):
+            assert row[grammar.NAMES.index("r_stem")] == 0.0, (
+                "sample() drew a non-default value for a post-hoc gene — "
+                "arity-stable sampling is broken")
+            p = grammar.named(row)
+            L, xm = p["LWL"], p["x_mb"] * p["LWL"]
+            x = np.linspace(0.0, L, 257)
+            pf, pa = geometry.sac_exponents(
+                p["LWL"], p["x_mb"], p["r_transom"], p["Cp"], p["lcb"])
+            # THE PRE-CHANGE EXPRESSION, longhand.
+            ref = np.empty_like(x)
+            fwd = x >= xm
+            ref[fwd] = 1.0 - geometry._shape((x[fwd] - xm) / (L - xm), pf)
+            ref[~fwd] = (p["r_transom"] + (1.0 - p["r_transom"])
+                         * geometry._shape(x[~fwd] / xm, pa))
+            ref = np.clip(ref, 0.0, 1.0)
+            assert np.array_equal(geometry.sac_ordinate(row, x), ref), (
+                f"seed {seed}: r_stem = 0 changed the SAC — the append is not "
+                f"a no-op and every seeded population has moved")
+            rows += 1
+    assert rows == 48
+
+
+def test_r_stem_actually_widens_the_bow():
+    """The no-op above is only half the contract: the gene must also WORK.
+
+    A gene that is a perfect no-op at its default and a no-op everywhere else
+    is a dimension NSGA-II spends evaluations on for nothing — this repo has
+    shipped exactly that defect once (an always-satisfied constraint row). So
+    the widening is measured, monotone, and against the failure it exists to
+    fix: a stem that was 20 mm wide.
+    """
+    L = 15.2
+    base = dict(LWL=L, BWL=4.0, T=0.62, D=1.55, Cp=0.72, lcb=-2.0, x_mb=0.52,
+                r_transom=0.45, beta_mid=2.0, beta_bow=8.0, beta_len=0.35,
+                roundness=0.55, rocker=0.05, forefoot=0.10, flare=6.0,
+                sheer_rise=0.12)
+    base.update(grammar.POST_HOC_DEFAULTS)
+    xs = np.array([0.999 * L])
+    widths = []
+    for rs in (0.0, 0.15, 0.30, 0.45):
+        p = dict(base)
+        p["r_stem"] = rs
+        v = grammar.vector(p)
+        assert geometry.sac_ordinate(v, xs)[0] == pytest.approx(rs, abs=0.01), (
+            "r_stem is defined as stem sectional area / max sectional area, "
+            "so the SAC ordinate AT the stem must equal it")
+        _zk, _yc, _zc, ysh, _zsh = geometry.station_geometry(v, xs)
+        widths.append(2.0 * float(ysh[0]))
+    assert widths[0] < 0.05, (
+        f"the pointed bow is the baseline this gene exists to fix; measured "
+        f"{widths[0]:.3f} m")
+    assert all(b > a for a, b in zip(widths, widths[1:])), (
+        f"r_stem must widen the bow MONOTONICALLY; measured {widths}")
+    assert widths[-1] > 2.0, (
+        f"at r_stem 0.45 a 4.0 m houseboat must have a usable bow; measured "
+        f"{widths[-1]:.3f} m")
+
+
+def test_pmb_zero_is_bit_identical_and_the_gene_creates_parallel_midbody():
+    """The SAC could touch its maximum at exactly ONE station (2026-08-24).
+
+    THE INCIDENT. Every render this project delivered was rejected by the owner
+    as a wedge, and after `r_stem` fixed the pointed bow it was STILL rejected:
+    "you have so many designs of hull in hull examples and yet, you are still
+    producing rubish hulls. check par example hull-example-004.png". That
+    reference — a solar-electric displacement cruiser at the same 7-12 kn the
+    brief asks for — labels its own headline feature "PARALLEL MIDBODY:
+    MAXIMIZES PRISMATIC".
+
+    We could not draw it. `sac_ordinate` built one falling branch forward of
+    `x_mb` and one aft of it, so a(x) reached 1.0 at a single point and the
+    hull tapered from it in both directions BY CONSTRUCTION. MEASURED,
+    best-of-30000 on the 16 x 4 m brief among hulls passing `check`, `critique`
+    and all seven design rules: `beam_carried` 0.293 against a plausible band
+    of 0.415-0.829 — and 0.293 is EXACTLY the figure the rejected 2026-08-23
+    houseboat scored. The search was not failing; the kernel had no lever.
+
+    With `pmb`, the same search reaches `beam_carried` 0.683 and a median of
+    0.463 — inside the band. This test holds both halves: the default is a
+    proven no-op, and the gene demonstrably does the thing it was added for.
+    """
+    assert grammar.POST_HOC_DEFAULTS.get("pmb") == 0.0
+    rows = 0
+    for seed in range(8):
+        for row in grammar.sample(6, rng=np.random.default_rng(seed)):
+            assert row[grammar.NAMES.index("pmb")] == 0.0
+            p = grammar.named(row)
+            L, xm = p["LWL"], p["x_mb"] * p["LWL"]
+            x = np.linspace(0.0, L, 257)
+            pf, pa = geometry.sac_exponents(
+                p["LWL"], p["x_mb"], p["r_transom"], p["Cp"], p["lcb"])
+            ref = np.empty_like(x)
+            fwd = x >= xm
+            ref[fwd] = 1.0 - geometry._shape((x[fwd] - xm) / (L - xm), pf)
+            ref[~fwd] = (p["r_transom"] + (1.0 - p["r_transom"])
+                         * geometry._shape(x[~fwd] / xm, pa))
+            assert np.array_equal(geometry.sac_ordinate(row, x),
+                                  np.clip(ref, 0.0, 1.0)), (
+                f"seed {seed}: pmb = 0 changed the SAC; the append is not a "
+                f"no-op and every seeded population has moved")
+            rows += 1
+    assert rows == 48
+
+    # -- and it must actually FLATTEN the top ------------------------------
+    L = 16.0
+    base = dict(LWL=L, BWL=3.0, T=0.60, D=1.55, Cp=0.69, lcb=-2.0, x_mb=0.48,
+                r_transom=0.40, beta_mid=4.0, beta_bow=18.0, beta_len=0.45,
+                roundness=0.85, rocker=0.03, forefoot=0.05, flare=15.0,
+                sheer_rise=0.42)
+    base.update(grammar.POST_HOC_DEFAULTS)
+    x = np.linspace(0.0, L, 401)
+    flat = []
+    for pmb in (0.0, 0.15, 0.30, 0.45):
+        p = dict(base)
+        p["pmb"] = pmb
+        a = geometry.sac_ordinate(grammar.vector(p), x)
+        # fraction of the length at (essentially) full sectional area
+        flat.append(float(np.mean(a >= 0.999)))
+    assert flat[0] < 0.02, (
+        f"the single-station peak is the baseline this gene exists to fix; "
+        f"measured {flat[0]:.3f} of the length at full area")
+    assert all(b > a for a, b in zip(flat, flat[1:])), (
+        f"pmb must lengthen the parallel midbody MONOTONICALLY; got {flat}")
+    assert flat[-1] > 0.35, (
+        f"at pmb 0.45 a real parallel midbody must appear; measured "
+        f"{flat[-1]:.3f} of the length at full area")

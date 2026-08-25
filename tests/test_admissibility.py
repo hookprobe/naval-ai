@@ -96,7 +96,17 @@ def campaign_hulls():
     assert manifest is not None, (
         f"no manifest for {CALIBRATION_POPULATION_ID} in "
         f"{population.MANIFEST_DIR} — the calibration population is not pinned")
-    assert population.genome_sha256(X) == manifest["genome_sha256"], (
+    # COMPARE ON THE MANIFEST'S OWN ARITY. The genome may gain POST-HOC genes
+    # (`grammar.POST_HOC_DEFAULTS`) whose default is a proven no-op, so a draw
+    # at a later arity describes THE SAME HULLS with extra all-zero columns.
+    # `sample_valid` consumes uniforms only for the CORE genes precisely so the
+    # bit-stream does not move; this comparison must therefore be made over the
+    # columns the manifest actually recorded, or a no-op gene would read as a
+    # changed population. MEASURED 2026-08-24: at arity 21 the first 16 columns
+    # reproduce a16/s0/n25 exactly.
+    _w = len(manifest["genomes"][0])
+    assert population.genome_sha256(np.asarray(X, float)[:, :_w]) \
+        == manifest["genome_sha256"], (
         "this tree's seed-0 draw is not the population the calibration bank "
         "was measured on; re-run scripts/mesh_robustness.py before trusting "
         "any label in this file")
