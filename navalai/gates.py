@@ -202,6 +202,20 @@ GATES = [
          "boat, judged on descriptors measured against 58 published hulls "
          "(89-92% of L0-valid generated hulls fail; 0 of 58 real ones do)",
          suite="tests/test_morphology.py"),
+    # THE FISHING-BOAT GATE. The owner, 2026-08-25: "naval-ai currently
+    # fails to design boats and succeeds at designing fishing boats" — and
+    # the protocol that followed demanded reconstruction of known hulls
+    # from the reference corpus be PROVEN before novel generation is
+    # trusted. data/hull_kb.json is the extracted-feature record of
+    # downloads/hull-examples; the suite pins the measured reconstructions
+    # (cruiser entry <=12 deg with a clean critique; the 24-deg warped
+    # deadrise law; the one-body-to-two topology under the 10-deg
+    # divergence bar) so a grammar change that silently breaks a proven
+    # reconstruction fails loudly.
+    Gate("Gate HULL-KB", "the reference corpus is learned and reconstruction "
+         "is proven: KB citations resolve, and the measured cruiser / "
+         "warped-V / split-topology reconstructions stand",
+         suite="tests/test_hull_kb.py"),
     Gate("Gate UI-SEED", "the studio's default genome BUILDS before it is "
          "served, and a refused mesh is PAINTED in the viewport rather than "
          "leaving a blank stage with the reason in the response body",

@@ -1,0 +1,305 @@
+{
+  "_schema": "hull-kb-v1",
+  "_written": "2026-08-25",
+  "_method": "Every image under downloads/hull-examples was inspected visually (vision-model read, 2026-08-25) and its geometric content transcribed here. downloads/ is GITIGNORED, so this file is the durable record and must stand WITHOUT the images (gap J5's lesson: an analysis that silently depends on a file only one machine has). source_image paths are local-only provenance. Quantities read off a drawing carry sigma_source='drawing'; quantities printed as text on the sheet carry sigma_source='sheet-label'. Nothing here restates a grammar bound or a gate number - those live in navalai/grammar.py and data/gate-ledger.json.",
+  "_expressibility_note": "expressibility verdicts reference the 23-gene grammar at commit 0c1286d and name the blocking mechanism, not a number. They MUST be re-verdicted when the grammar moves (same discipline as formlib.Expressible, whose axe_bow/wave_piercing verdicts went stale on 2026-08-24 when flare_bow/flare_len landed).",
+
+  "taxonomy": {
+    "_derivation": "clustered from the records below, not imposed. Families the corpus actually contains, with the images that attest them.",
+    "displacement_monohull": {
+      "variants": ["slender", "moderate", "full", "round_bilge", "hard_chine_displacement", "twin_keel", "transom_stern", "wineglass_fin_keel"],
+      "attested_by": ["ref-library-sheet", "trawler-triptych", "heyman-42-sections", "amel-50", "orion-49", "helianthus-photos", "solar-slender-cruiser"]
+    },
+    "semi_displacement": {
+      "variants": ["pilot_boat_chines_aft", "panga_dory", "schv_semi_displacement"],
+      "attested_by": ["trawler-triptych", "panga-stepped-cathedral", "vossanen-schv-renders"]
+    },
+    "planing": {
+      "variants": ["deep_v", "modified_v", "shallow_v", "warped_v", "stepped", "tunnel_cathedral", "wedge", "pad", "double_chine"],
+      "attested_by": ["trawler-triptych", "panga-stepped-cathedral", "five-body-plans", "ntua-series-data", "bowrider-photo", "design-explorer-sheet"]
+    },
+    "wave_piercing_axe": {
+      "variants": ["axe_bow_vertical_stem", "reverse_raked_bow", "x_bow", "tulip_bow", "inverted_bow"],
+      "attested_by": ["ref-library-sheet", "axe-swath-sheet", "design-explorer-sheet", "claude-training-sheet"]
+    },
+    "catamaran": {
+      "variants": ["symmetric", "asymmetric_demihull", "slender_solar", "power", "wave_piercing_cat", "tunnel_cat"],
+      "attested_by": ["ref-library-sheet", "cat-tri-sections-sheet", "solar-cat-12m", "solar-cat-16m", "solar-slender-cat"]
+    },
+    "trimaran": {
+      "variants": ["stabilized_monohull_amas", "corsair", "neptune", "folding_ama"],
+      "attested_by": ["ref-library-sheet", "solar-trimaran"]
+    },
+    "special": {
+      "variants": ["swath", "pontoon", "air_cushion", "foil_assisted", "semi_submersible"],
+      "attested_by": ["ref-library-sheet", "axe-swath-sheet", "design-explorer-sheet"]
+    },
+    "hybrid_topology": {
+      "variants": ["axe_bow_to_twin_demihull_stern", "teardrop_integrated_motor_pod"],
+      "attested_by": ["hookprobe-schematic", "hookprobe-plywood", "hookprobe-owner-sketch", "hookprobe-concept-teardrop"],
+      "note": "the owner's design line. Topology-CHANGING transition (one closed section splits into two) - the geometric operation the single-surface genome cannot express; built today by scripts/hookprobe_hull.py outside the genome."
+    }
+  },
+
+  "transition_rules": {
+    "_derivation": "longitudinal behaviours recurring across >=3 independent sources; these are the 'design grammar' the corpus teaches, stated as constructions, not adjectives.",
+    "vertical_to_horizontal": "Bow sections are V/vertical-plane dominated (deep-V entry, axe stem, wave-piercer); stern sections flatten toward horizontal-plane (planing flat, wide transom, wet deck). Deadrise warps continuously bow->stern; the corpus never shows constant deadrise except the prismatic Fridsma-type models. Attested: trawler-triptych semi-displacement ('hard chines aft'), five-body-plans warped variants, hookprobe deep-V->wet-deck, claude-training-sheet 'variable deadrise'.",
+    "teardrop_plan": "Efficient displacement plans read as a water-drop: fine entry (labelled <9-12 deg half-angle on three sheets), max beam at 0.55-0.65 x/L from the bow, gentle taper to a narrower immersed transom (beam_transom/beam_max ~ 0.3-0.7). Attested: solar-slender-cruiser plan, hookprobe-concept plan (max beam ~0.6 L from bow, stern 4 m on 12 m LOA), amel-50 deck plan, orion-49.",
+    "chine_evolution": "A chine is a CURVE with behaviour, not a constant: rises toward the bow, may terminate before the stem or merge into it, hard aft / soft forward is the recurring hybrid. Attested: trawler-triptych ('hard chines aft' with round forward), five-body-plans double-chine, claude-training-sheet chine annotations, bowrider-photo strakes.",
+    "flare_inversion": "Wave-piercer bows carry zero-to-negative flare (tumblehome) above water ('zero flare volume' on axe-swath-sheet) while conventional bows flare outward; flare must vary along the length AND change sign. Attested: axe-swath-sheet, ref-library-sheet axe/wave-piercing cells, research corpus (Damen/Baltic).",
+    "section_field": "A hull is a field of sections evolving under independent longitudinal laws (beam(x), deadrise(x), chine_height(x), flare(x), rocker(x), sheer(x)) - never one section scaled. The spearhead failure is exactly single-curve scaling. Attested: every multi-view sheet; codified from ml-hull-generation.md par.4.",
+    "topology_split": "The hybrid family runs: single closed section (bow) -> progressive widening of a centreline tunnel -> two closed demihull sections + wet deck (stern). Lines EXCHANGE ROLES (houseboat17: centre keel rises into tunnel crown; chines descend into demihull keels). A generator supports this only with an inner section boundary.",
+    "stability_recovery": "Slenderness costs transverse stability; the corpus resolves it four ways: add hulls (cat/tri/amas), spray-rail/lifting-chine (research corpus, Seo), tunnel/cathedral tri-hedral forms, or SWATH platform. Nobody's answer is free (ml-hull-generation.md par.8)."
+  },
+
+  "propulsion_architectures": {
+    "_derivation": "owner protocol 2026-08-25 (docs/research/PROPULSION-INTEGRATION.md par.6): the architecture is chosen WITH the hull topology, and the hull exists to deliver the propulsor a controlled, uniform, low-loss inflow. What the corpus itself attests:",
+    "integrated_motor_pod": "hookprobe-concept-teardrop: pod + propeller faired INTO the stern underbody, rudder behind - the pod is part of the moulded form, not an attachment.",
+    "protected_prop_in_tunnel": "hookprobe-owner-sketch BACK view: propeller inside an arch/tunnel between two skeg/demihull volumes - shallow-water protection + controlled inflow; houseboat17's tunnel emerges from the lines the same way.",
+    "twin_demihull_streams": "hookprobe-schematic: the mono-to-twin split organizes stern flow into two clean propulsion streams - the topology IS the propulsion architecture (protocol par.14).",
+    "conventional_shaft": "heyman-42-sections/orion-49: shaft exit ahead of skeg-hung or spade rudder, prop in the keel-shadow wake - the classical wake-first arrangement.",
+    "outboard_planing": "bowrider-photo: transom-hung drive behind a strake-and-chine-flat planing bottom; the strakes condition the flow that reaches the prop."
+  },
+
+  "records": [
+    {
+      "id": "ref-library-sheet",
+      "source_image": "downloads/hull-examples/hull-example-000.png",
+      "kind": "generated-reference-sheet",
+      "content": "36-cell hull type library with midship section per cell: 10 displacement monohulls (slender/moderate/full/round-bilge/hard-chine/wedge-multichine/twin-keel/transom-stern/axe-bow/wave-piercing), 10 catamarans, 5 trimarans, 6 special (SWATH/pontoon/tunnel/inverted-bow/tulip-bow/air-cushion). Dimension table: small monohull LWL 5-15 m beam 1.5-4.0, large 15-25, cat 6-25 beam 3-10, tri 8-30. Section-shape strip: round-bilge/hard-chine/multi-chine/tunnel/twin-keel/wedge.",
+      "families": ["all"],
+      "value": "taxonomy anchor; per-type speed bands and one-line physics rationales"
+    },
+    {
+      "id": "cat-tri-sections-sheet",
+      "source_image": "downloads/hull-examples/hull-example-001.png",
+      "kind": "generated-schematic",
+      "content": "Symmetric catamaran front sections (demihull L/Bh > 12 labelled, wet-deck clearance dimensioned, deep-V demihulls with spray knuckles), trimaran and planing-hull profiles. Demihull sections drawn as narrow deep-V with flared topsides.",
+      "families": ["catamaran", "trimaran"],
+      "quantities": [{"name": "demihull_slenderness", "value": "L/Bh > 12", "sigma_source": "sheet-label"}]
+    },
+    {
+      "id": "axe-swath-sheet",
+      "source_image": "downloads/hull-examples/hull-example-002.png",
+      "kind": "generated-schematic",
+      "content": "Axe-bow wave-piercing monohull bow sections: slender entrance, ZERO FLARE VOLUME above WL (tumblehome), 'reduced pitching axis'; profile shows stem as deepest point. SWATH: submerged torpedo buoyancy, minimized waterplane, ride-control fins.",
+      "families": ["wave_piercing_axe", "special"],
+      "value": "attests flare-sign inversion and bow-deepest keel as the axe-bow signature"
+    },
+    {
+      "id": "trawler-triptych",
+      "source_image": "downloads/hull-examples/hull-example-003.png",
+      "kind": "generated-schematic",
+      "content": "Three archetypes with profile + midship section: classic displacement trawler (fine entry, round bilge, keel drag), semi-displacement pilot boat (HARD CHINES AFT, round forward - the chine-evolution hybrid), deep-V planing speedboat (constant-looking V with LIFTING STRAKES, chine flat, near-plumb stem).",
+      "families": ["displacement_monohull", "semi_displacement", "planing"],
+      "value": "cleanest statement of the three-regime section evolution and of chines that exist only aft"
+    },
+    {
+      "id": "solar-slender-cruiser",
+      "source_image": "downloads/hull-examples/hull-example-004.png",
+      "kind": "generated-lines-annotated",
+      "content": "Solar-electric displacement cruiser (7-12 kn, Fn 0.2-0.35): profile, waterline plan and three sections. Extreme slenderness; fine entrance labelled <12 deg; round-bilge midship 'semi-circular'; U-shaped bow section; low-volume stern section; parallel midbody labelled; low-drag run with slightly immersed transom; near-plumb stem.",
+      "families": ["displacement_monohull"],
+      "quantities": [
+        {"name": "entrance_half_angle_deg", "value": 12, "op": "<", "sigma_source": "sheet-label"},
+        {"name": "x_max_beam_over_L_from_bow", "value": 0.55, "sigma_source": "drawing"},
+        {"name": "beam_transom_over_max", "value": 0.35, "sigma_source": "drawing"}
+      ],
+      "reconstruction_target": true,
+      "expressibility": "YES - r_stem (plumb stem), pmb (parallel midbody), roundness~1 (round bilge), r_transom (immersed transom); the genome's native regime"
+    },
+    {
+      "id": "solar-slender-cat",
+      "source_image": "downloads/hull-examples/hull-example-005.png",
+      "kind": "generated-lines-annotated",
+      "content": "Solar-electric slender catamaran: highly slender demihulls, fine wave-piercing entrance, wide wet-deck PV platform, tunnel clearance annotated vs 12 kn slamming, parallel midbody, transom stern 'clean release', wave-interference inset.",
+      "families": ["catamaran"],
+      "expressibility": "NO - two moulded surfaces; genome carries one (formlib._M_SECOND_HULL)"
+    },
+    {
+      "id": "solar-trimaran",
+      "source_image": "downloads/hull-examples/hull-example-006.png",
+      "kind": "generated-lines-annotated",
+      "content": "Stabilized-monohull trimaran: extremely slender main hull, small low-drag amas on connection booms, wide solar deck, righting-moment-vs-heel inset showing ama pickup.",
+      "families": ["trimaran"],
+      "expressibility": "NO - same inner/second-surface blocker"
+    },
+    {
+      "id": "panga-stepped-cathedral",
+      "source_image": "downloads/hull-examples/hull-example-007.png",
+      "kind": "generated-schematic",
+      "content": "Panga/modified dory (flat run, moderate rocker, fine entry, high sheer bow); single-step planing hull (constant deep-V deadrise, ventilated step cavity, separation edge); cathedral/tunnel tri-hedral section (centre V + two sponsons + aerodynamic lift tunnels).",
+      "families": ["semi_displacement", "planing"],
+      "expressibility": "panga PARTIAL (rocker+beta laws; dory chine OK); step NO (no step primitive); cathedral NO (multi-lobe section)"
+    },
+    {
+      "id": "solar-cat-12m",
+      "source_image": "downloads/hull-examples/hull-example-008.png",
+      "kind": "generated-lines-annotated",
+      "content": "12 x 4 m solar catamaran: ULTRA-SLENDER ASYMMETRIC demihulls labelled L/Bh 15.3 (flat inner face, curved outer), fine entry <10 deg, tunnel clearance 0.65 m, parallel midbody, PV 35 m2.",
+      "families": ["catamaran"],
+      "quantities": [
+        {"name": "demihull_l_over_bh", "value": 15.3, "sigma_source": "sheet-label"},
+        {"name": "tunnel_clearance_m", "value": 0.65, "sigma_source": "sheet-label"},
+        {"name": "entry_half_angle_deg", "value": 10, "op": "<", "sigma_source": "sheet-label"}
+      ]
+    },
+    {
+      "id": "solar-cat-16m",
+      "source_image": "downloads/hull-examples/hull-example-009.png",
+      "kind": "generated-lines-annotated",
+      "content": "16 x 4.5 m long-range solar catamaran: asymmetric demihulls L/Bh 17.8, entry <9 deg, tunnel clearance 0.8 m, deep immersed transom 'clean flow release at 12 knots', PV 55 m2, power-budget inset.",
+      "families": ["catamaran"],
+      "quantities": [
+        {"name": "demihull_l_over_bh", "value": 17.8, "sigma_source": "sheet-label"},
+        {"name": "tunnel_clearance_m", "value": 0.8, "sigma_source": "sheet-label"},
+        {"name": "entry_half_angle_deg", "value": 9, "op": "<", "sigma_source": "sheet-label"}
+      ]
+    },
+    {
+      "id": "design-explorer-sheet",
+      "source_image": "downloads/hull-examples/hull-designs.png",
+      "kind": "generated-reference-sheet",
+      "content": "38-cell render library with front-section wireframes: displacement row (incl. cutter bow, axe bow), planing row (classic/modified/shallow V, step, tunnel, pad, wedge, cat's-paw, aerodynamic), catamarans (incl. wave-piercing), trimarans (corsair/neptune/tandem/folding/reverse-bow), specialized (SWATH/foil/air-cushion/semi-submersible/pontoon), hybrid-innovative (tulip, X-bow, wave piercer, inverted bow, mortek, asymmetric).",
+      "families": ["all"],
+      "value": "the innovative-forms cells (X-bow, tulip, inverted) are the 'rhetoric change' targets; each is a bow primitive + otherwise conventional aft body"
+    },
+    {
+      "id": "claude-training-sheet",
+      "source_image": "downloads/hull-examples/hull-designs-gemini.png",
+      "kind": "generated-reference-sheet",
+      "content": "14 hull forms drawn as profile + half-breadth/section pairs with station axes (station 0 bow - station 10 stern), explicitly 'for trainable generation': deep-V 24 deg deadrise w/ steps+chines, modified-V 18 deg variable deadrise, stepped twin-step, round-bilge displacement (fair lines), bulbous bow, piercing-bow monohull (fine entry, reduced pitching), axe-bow (VERTICAL STEM), symmetric/asymmetric/wave-piercing cats, stabilized monohull, high-speed tri, SWATH, quadrimaran.",
+      "families": ["all"],
+      "quantities": [
+        {"name": "deep_v_deadrise_deg", "value": 24, "sigma_source": "sheet-label"},
+        {"name": "modified_v_deadrise_deg", "value": 18, "sigma_source": "sheet-label"}
+      ],
+      "reconstruction_target": true,
+      "expressibility": "deep-V 24deg is INSIDE the beta_mid box; warped aft run via beta_run/beta_transom is the unmeasured part (Gate 0E5C-CAP predates those genes)"
+    },
+    {
+      "id": "hookprobe-schematic",
+      "source_image": "downloads/hull-examples/hookprobe-hull.jpg (duplicate: hookprobe-hull02.jpg, +stem-rake label)",
+      "kind": "owner-design-drawing",
+      "content": "AXE-BOW/CATAMARAN HYBRID: isometric + side + three sections. Section A-A (stem): deep narrow V, deepest point of the hull, stem raked AFT 20 deg (reverse bow, LOA at deck < LWL at keel). Section B-B (mid): single round-bilge U with inset deck. Section C-C (stern): TWIN DEMIHULLS bridged by wet deck; transom stern. 'MORPHING TRANSITION ZONE: SINGLE HULL TO TWIN HULL' labelled midships-aft. Side view: keel line rises from deep bow to wet-deck height at transom; waterline continuous.",
+      "families": ["hybrid_topology", "wave_piercing_axe"],
+      "quantities": [{"name": "stem_rake_aft_deg", "value": 20, "sigma_source": "sheet-label"}],
+      "reconstruction_target": true,
+      "expressibility": "NO in-genome (inner boundary + stem rake both missing); reconstructed OUTSIDE the genome by scripts/hookprobe_hull.py"
+    },
+    {
+      "id": "hookprobe-plywood",
+      "source_image": "downloads/hull-examples/hookprobe-hull-plywood.jpg",
+      "kind": "owner-design-drawing",
+      "content": "Same hybrid as hookprobe-schematic rendered as a PLYWOOD BUILD MODEL: developable panels, plywood bulkheads at stations, cantilevered anchor-deck extension at the bow, 18+12 mm panel callouts. Section B-B shows framed egg-crate structure.",
+      "families": ["hybrid_topology"],
+      "value": "proof the owner intends BUILDABLE-BY-ANYONE (flat-panel plywood) versions of the innovative family - buildability is a first-class constraint, not decoration"
+    },
+    {
+      "id": "hookprobe-owner-sketch",
+      "source_image": "downloads/hull-examples/IMG_2804.jpg",
+      "kind": "owner-hand-sketch",
+      "content": "Notebook pen sketch, four views. SIDE: reverse/vertical stem at left with bow the deepest point, motor pod + prop under the forebody, hull bottom rising continuously to a high wide stern, sheer rising aft; waterline drawn. FRONT: deep-V with outrigger legs. BACK: arch/tunnel stern between two skegs with propeller in the tunnel. PLAN: teardrop, max beam ~0.6 L from bow.",
+      "families": ["hybrid_topology"],
+      "value": "the primal design intent: teardrop plan + deepest-forward profile + tunnel stern, drawn before any CAD"
+    },
+    {
+      "id": "hookprobe-concept-teardrop",
+      "source_image": "downloads/hull-examples/hookprobe-concept.jpg",
+      "kind": "owner-design-drawing",
+      "content": "CONCEPT NOVEL HULL, 12 m x 4 m stern: teardrop plan (sharp bow, max beam ~0.6L from bow, full 4 m stern), reverse-sloped side profile (deck length < keel length, 'smooth hydrodynamic taper'), integrated motor pod + propeller under stern, steering rudder aft, front view shows W-section with outriggers, back view arch stern over motor pod. 1:20 scale, composite fiberglass panels.",
+      "families": ["hybrid_topology"],
+      "quantities": [
+        {"name": "loa_m", "value": 12, "sigma_source": "sheet-label"},
+        {"name": "stern_width_m", "value": 4, "sigma_source": "sheet-label"}
+      ],
+      "reconstruction_target": true,
+      "expressibility": "NO in-genome (reverse profile + pod + arch stern); scripts/hookprobe_concept.py builds it outside"
+    },
+    {
+      "id": "five-body-plans",
+      "source_image": "downloads/hull-examples/research-gate/Body-plans-of-five-equivalent-hull-forms.png (+.webp duplicate)",
+      "kind": "published-body-plan",
+      "content": "Five EQUIVALENT hulls as true body plans (fore+aft stations): (a) Series 62 hard-chine planing, (b) Deep-V with constant high deadrise, (c) double chine with wide transom, (d) double chine based on Series 62, (e) rounded bilge. Quantitative section shapes; the same displacement wearing five section laws.",
+      "families": ["planing"],
+      "reconstruction_target": true,
+      "value": "the cleanest quantitative target for M3 tracing: five section laws at fixed displacement"
+    },
+    {
+      "id": "ntua-series-data",
+      "source_image": "downloads/hull-examples/research-gate/The-characteristics-of-the-tested-models-of-the-NTUA-Series.png (+.webp), L-B400.png, Resistance-CG-rise-...png",
+      "kind": "published-series-data",
+      "content": "NTUA double-chine semi-displacement series: model matrix L/B 4.00-7.00, CDL 1.00-4.23; per-model tables of Fn vs CR*10^3, dynamic trim, CG rise; parent-hull pre-planing curves at L/B 5.5. NOT geometry - resistance/attitude data for validating a reconstructed double-chine hull.",
+      "families": ["semi_displacement", "planing"],
+      "value": "acceptance data for a future double-chine reconstruction; complements the e5_chine_warp Naples debt"
+    },
+    {
+      "id": "heyman-42-sections",
+      "source_image": "downloads/hull-examples/hayman layout/PPH-layout-sections-aft-231128-small.jpg, PPH-layout-sections-forward-231128-small.jpg, PPH-elevation-deck-dinghy-231128-small.jpg, PPH-deck-side-view-20231128-small.jpg, PPH-interior-layout-231128-small.jpg",
+      "kind": "professional-lines",
+      "content": "Heyman Yachts 42' Pocket Pilothouse: real construction sections at labelled stations (3500-10000 mm): round-bilge WINEGLASS sections, slack bilge aft opening to broad shallow stern sections, deepening V forward, fin keel (CB keel version 1.48-3.02 m), skeg; elevation shows moderate sheer, near-plumb stem, sugar-scoop transom; deck plan a moderate teardrop.",
+      "families": ["displacement_monohull"],
+      "value": "REAL professional sections with mm stations - ground truth for the round-bilge reconstruction and for section-fairness judgement"
+    },
+    {
+      "id": "amel-50",
+      "source_image": "downloads/hull-examples/hayman layout/FM-AMEL-50-layout-1-1536x1086.jpg (+Layout-2 interior duplicate)",
+      "kind": "professional-ga",
+      "content": "AMEL 50 GA: side profile with metre stations 0-15 (plumb-ish stem, long waterline, moderate freeboard, hard-chine aft topsides visible) and deck plan (teardrop, max beam ~0.6L from bow, broad stern carried to transom - modern cruiser plan).",
+      "families": ["displacement_monohull"],
+      "value": "modern production-yacht proportions with a printed scale"
+    },
+    {
+      "id": "orion-49",
+      "source_image": "downloads/hull-examples/hayman layout/169-7-0-1030x732.png",
+      "kind": "professional-ga",
+      "content": "Satellite Yacht Design ORION 49 GA: LOA 15.05, LWL 13.75, beam 4.50, draft 1.50-3.00 (lifting keel), displacement ~15 t, 75 kW. Profile + two deck plans; slender bow, beam carried aft.",
+      "families": ["displacement_monohull"],
+      "quantities": [
+        {"name": "loa_m", "value": 15.05, "sigma_source": "sheet-label"},
+        {"name": "lwl_m", "value": 13.75, "sigma_source": "sheet-label"},
+        {"name": "beam_m", "value": 4.50, "sigma_source": "sheet-label"}
+      ]
+    },
+    {
+      "id": "vossanen-schv-renders",
+      "source_image": "downloads/hull-examples/hayman layout/8b366f-cfd-project-2.jpg, 5eb5e2-...-isoaft-2.jpg, 956e92-...-isofront-2.jpg",
+      "kind": "professional-cfd-render",
+      "content": "Van Oossanen SCHV (semi-displacement) bare hull at 15 kn with wave pattern: plan view shows teardrop waterline with max beam well aft of mid, fine hollow entry; iso views show hard chine running full length, warped bottom flattening aft, near-vertical stem, immersed transom; Kelvin pattern visible.",
+      "families": ["semi_displacement"],
+      "value": "a modern efficient semi-displacement form photographed from the three angles the visual evaluator needs"
+    },
+    {
+      "id": "helianthus-photos",
+      "source_image": "downloads/hull-examples/world-examples/IMG_2799.jpeg, IMG_2800.jpeg, IMG_2802.jpeg",
+      "kind": "real-world-photo",
+      "content": "'Helianthus', small cruising sailboat on the hard: round-bilge displacement hull; aft view shows slack-bilge canoe body with SKEG and bilge-keel stubs, tunnel-like shadow between supports; bow view shows fine entry with rounded forefoot, moderate flare. Weathered - a real object, not a render.",
+      "families": ["displacement_monohull"]
+    },
+    {
+      "id": "bowrider-photo",
+      "source_image": "downloads/hull-examples/world-examples/IMG_2803.jpeg",
+      "kind": "real-world-photo",
+      "content": "Trailered ~6 m bowrider, bow-on: moderate-V planing hull, hard chine with chine flat, two lifting strakes per side visible, raked stem, flared topsides.",
+      "families": ["planing"]
+    },
+    {
+      "id": "research-pdf-shelf",
+      "source_image": "downloads/hull-examples/bow-research/*.pdf (14), research-gate/*.pdf (11)",
+      "kind": "published-research",
+      "content": "The bow-research shelf behind docs/ml-hull-generation.md par.8 (Damen axe bow, Baltic Workboats downforce bow, Seo 2016 spray rails, SJTU above-waterline bow, Vakilabadi wave-piercing trimaran, generative small-watercraft, JMSE hull-form series) plus research-gate (SSN Naples series PDF, submarine design, high-speed-craft power prediction, NTUA papers). NOT imaged page-by-page here; par.8's table is the digest.",
+      "families": ["wave_piercing_axe", "planing"],
+      "value": "the measured claims behind the wave-piercing thesis; SSN.pdf is the Naples series the e5 corpus owes"
+    }
+  ],
+
+  "reconstruction_protocol": {
+    "order": "reference record -> feature analysis (this file) -> parametric interpretation (genome where expressible, direct lines->sections->loft where not) -> generated hull STL -> multi-view render -> visual + descriptor comparison -> correction loop. Reconstruct BEFORE generating novelty (protocol par.23).",
+    "targets_chosen": [
+      "solar-slender-cruiser (displacement family, IN-genome) - proves image->genes->hull",
+      "claude-training-sheet deep-V 24deg (planing family, in-box deadrise, warp via beta_run) - measures the warped-V residual",
+      "hookprobe-schematic (hybrid topology, OUT-of-genome) - proves the lines->sections->loft path against the owner's drawing"
+    ],
+    "visual_score": "morphology.describe descriptors compared against the record's quantities (entry angle, x of max beam, beam_transom/beam_max, beam_carried) + anti-pattern critique + eyeball of rendered profile/plan/front/perspective against the source image. The critic's family bias (no axe/piercer row in _FAMILY_BAR) is a KNOWN defect - a WAVY-PLAN/SPEARHEAD flag on a deliberate piercer is recorded, not obeyed."
+  }
+}

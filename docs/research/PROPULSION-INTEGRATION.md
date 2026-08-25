@@ -128,3 +128,39 @@ with the motor unplaced, the prop unsized, roll damping unmodelled and the
 transom unchecked — those are exactly the defects the owner spotted by eye
 on houseboat19 ("looks ok for a paddle boat"). The eye found what the
 pipeline does not yet measure; this document is the plan to close that.
+
+## 6. The owner's co-design protocol (2026-08-25) — requirements, mapped
+
+The owner issued a full integration protocol the same day the v1 rows
+landed. Its fundamental rule: **do not design a hull and then install
+propulsion — co-design hull, keel, chines, stern, wake and propulsor**, and
+the objective at the disk is not "water into the propeller" but a
+controlled, uniform, low-loss inflow field. Requirements, mapped to state
+(rows reference §3/§4 rather than restating them):
+
+| protocol requirement | state today | gap |
+|---|---|---|
+| propulsion ARCHITECTURE chosen before hull topology (shaft/pod/tunnel/waterjet/surface-piercing/twin/distributed) | **ABSENT** — `EnergySpec.motor_kw` is a scalar; no architecture enum anywhere | architecture must become a design-stage type that selects bars (§21: prop wants uniform submerged wake; waterjet wants clean pressurised inlet; surface-piercer wants controlled ventilation) |
+| propulsor envelope (disk, shaft line, clearances) shapes the stern | PARTIAL — `prop_space` row v1 (disc vs immersion+tunnel+hang) | no shaft-line/clearance geometry, no propeller-position variable; disc is checked at the transom only |
+| keel line as hydrodynamic control feature (slope/curvature ahead of the disk) | **ABSENT** — `rocker` is one scalar; keel slope at the prop is not a quantity | needs keel-slope-at-disk + local-curvature report before any bar is invented |
+| chine as flow-control geometry; termination vs transom vs tunnel decided by the wake it feeds the propulsor | **ABSENT** — chine runs full-length by construction; no termination gene | ties to the multi-chine section law (BUILD-PLAN PV-4) |
+| no aerated water to the prop (chine spray / transom ventilation / tunnel ventilation paths) | PARTIAL — `transom_fn` reported; nothing traces a spray path | honest state: only CFD can see this; report fields first, bars only after measurement |
+| tunnel = inlet-flow architecture (entrance, contraction, roof, ventilation) | **ABSENT** — `tunnel_recess_m` is a scalar allowance in `max_prop_diameter_m` | the hookprobe/houseboat17 tunnels exist as geometry only in scripts |
+| motor/battery as mass in the hydrostatics loop | PARTIAL — `weights.MassItem` machinery exists; motor mass still in the outfit bucket (§4 note) | the 3 kg/kW re-baselining stays a deliberate change |
+| coupled objective (resistance + propulsion losses + wake quality), configurable weights | **ABSENT** — `optimize.py` objectives are Wh/nm, panel area, GM band | blocked on measuring wake quality at all (below) |
+| propulsion-flow inspection views (underside, prop-plane, wake fraction, vorticity) | **ABSENT** — no prop-plane sampling exists in the CFD post chain | `runs/hb19_7kn` proved the RANS loop runs on real hulls; a `propeller-plane velocity` sample is a post-processing function object away |
+| PropulsionIntegrationScore, separate from the hull score | **ABSENT** | compose from existing report fields first (immersion, disc margin, transom_fn, entry) so the score exists before its CFD terms do — each term carries its tier |
+| wake-first design mode (prop diameter → stern → forward hull) | **ABSENT** — generation runs bow-to-stern from a genome box | needs the architecture enum + prop-position variable first |
+| propulsion-aware LOCAL mutation (identify causal region, mutate it, not the whole genome) | **ABSENT** — NSGA-II mutates globally | `morphology_search`'s repair pattern is the local-mutation skeleton to reuse |
+| causal feature→wake knowledge base (chine termination X ahead of prop → wake result) | **ABSENT** | this is `data/hull_kb.json`'s schema extended with measured CFD outcomes; entries only from measurement, never from the rulebook (honesty rule 1) |
+| validation experiment: variants differing ONLY in propulsion-integration geometry, ranked by measured wake quality | **ABSENT** — and it is the gate for every claim above | the protocol's own closing rule: without this CFD demonstration, no claim that a keel/chine feature "improves propulsion" may be made |
+
+Ordering that follows from the dependencies, not from preference: (1) the
+architecture enum + propulsor envelope as data (no physics yet), (2) the
+report-only keel-slope/chine-termination/tunnel quantities on
+`PropulsionReport`, (3) prop-plane sampling in the OpenFOAM post chain, (4)
+the variant experiment of §24, (5) only then bars, score weights, and the
+causal KB — because a bar written before its quantity is measurable is the
+"unmeasured metric assumed good" defect, and a causal entry written from
+the rulebook instead of a run is the negative-result-about-the-literature
+defect (LESSONS.md 2026-08-21).
