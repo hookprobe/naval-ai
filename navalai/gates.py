@@ -228,6 +228,13 @@ GATES = [
          "3 t is refused naming the family, and the motor-power fix the "
          "old sentinel demanded stays landed",
          suite="tests/test_houseboat_16m.py"),
+    # LEVEL L4 OF THE VALIDITY LADDER, previously unenforced: every
+    # recorded shape incident (plank, spearhead, paddle boat) was found
+    # by a human opening a file downstream of every gate.
+    Gate("Gate G-VISUAL", "the canonical views ship with every deliverable "
+         "and a refused shape is SEEN: fixed cameras, descriptor sheet "
+         "beside the pictures, written on refused hulls too",
+         suite="tests/test_views.py"),
     Gate("Gate UI-SEED", "the studio's default genome BUILDS before it is "
          "served, and a refused mesh is PAINTED in the viewport rather than "
          "leaving a blank stage with the reason in the response body",

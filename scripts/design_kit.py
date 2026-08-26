@@ -550,6 +550,17 @@ def main(argv=None) -> int:
     sha = hull_to_stl(hull, stl, wl=ev.wl)
     print(f"\nSTL: {stl}  sha256 {sha[:16]}…")
 
+    # --- G-VISUAL: the canonical views, ALWAYS (2026-08-27) ----------------
+    # Every recorded shape incident was found by a human opening a file
+    # after delivery; the fixed view set + descriptor sheet now ship WITH
+    # the deliverable so the looking happens before the handoff, and a
+    # refused shape is SEEN, not only read (MORPHOLOGY-V1.md §6).
+    from navalai.views import canonical_views
+    sheet = canonical_views(hull, out / "views", name="hull")
+    print(f"views: {out / 'views'}  critique_ok={sheet['critique_ok']}"
+          + ("" if sheet["critique_ok"] else
+             f"  findings={sheet['findings']}"))
+
     # --- the stitch-and-glue panels ----------------------------------------
     try:
         panels = unroll.hull_panels(hull)
