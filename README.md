@@ -165,6 +165,8 @@ different Gate 2M numbers came to circulate at once (gap J1).
 | Gate PROP | propulsion integration: motor power and prop space are constraint rows; transom Froude, bilge-keel span and pitch entry are measured reports | `tests/test_propulsion.py` (9 tests) |
 | Gate MORPH | morphological plausibility: a hull must LOOK like a boat, judged on descriptors measured against 58 published hulls (89-92% of L0-valid generated hulls fail; 0 of 58 real ones do) | `tests/test_morphology.py` (14 tests) |
 | Gate HULL-KB | the reference corpus is learned and reconstruction is proven: KB citations resolve, and the measured cruiser / warped-V / split-topology reconstructions stand | `tests/test_hull_kb.py` (6 tests) |
+| Gate BARGE | a houseboat is a rectangle: the widened envelope draws it, the frozen DRAW box protects history, and the pointed bow stays reachable | `tests/test_barge_bow.py` (6 tests) |
+| Gate HB16 | the 16 m liveaboard probe's refusals stay refusals: 3 t is refused naming the family, and the motor-power fix the old sentinel demanded stays landed | `tests/test_houseboat_16m.py` (8 tests) |
 | Gate UI-SEED | the studio's default genome BUILDS before it is served, and a refused mesh is PAINTED in the viewport rather than leaving a blank stage with the reason in the response body | `tests/test_ui_seed_builds.py` (8 tests) |
 | Gate 0G | the ladder cannot be talked into passing | `tests/test_gate_integrity.py` (39 tests) |
 | Gate 0R | a missed clause is RED BY RECORD, never prose in a scope | `tests/test_red_by_record.py` (14 tests) |

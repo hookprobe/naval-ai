@@ -216,6 +216,18 @@ GATES = [
          "is proven: KB citations resolve, and the measured cruiser / "
          "warped-V / split-topology reconstructions stand",
          suite="tests/test_hull_kb.py"),
+    # THE HELD BARGE, landed 2026-08-26 with the recalibration event it
+    # waited for (r_transom -> 0.92, Cp -> 0.95): the 16 x 4 m houseboat
+    # carries 88% of its beam and 59.4 m2 of deck where the spearhead
+    # carried 39% and 43.6 m2 — and the DRAW box still holds the
+    # historical ceilings, so no recorded population moved.
+    Gate("Gate BARGE", "a houseboat is a rectangle: the widened envelope "
+         "draws it, the frozen DRAW box protects history, and the pointed "
+         "bow stays reachable", suite="tests/test_barge_bow.py"),
+    Gate("Gate HB16", "the 16 m liveaboard probe's refusals stay refusals: "
+         "3 t is refused naming the family, and the motor-power fix the "
+         "old sentinel demanded stays landed",
+         suite="tests/test_houseboat_16m.py"),
     Gate("Gate UI-SEED", "the studio's default genome BUILDS before it is "
          "served, and a refused mesh is PAINTED in the viewport rather than "
          "leaving a blank stage with the reason in the response body",

@@ -80,9 +80,9 @@ from navalai.geometry import GeometryError, Hull
 from navalai.hydrostatics import solve
 from navalai.mission import Manning, MissionSpec, VesselConfig
 from navalai.reference import REFERENCE_HULL
+from navalai.constants import G_STANDARD, RHO_FRESH
 from navalai.resistance import FN_MICHELL_MAX, total_resistance
 
-RHO_FRESH = 1000.0          # inland river/canal water
 
 LOA_M = 16.0
 LWL_M = 15.2                # 16.0 LOA less a raked stem and an immersed transom
@@ -328,7 +328,7 @@ def max_speed_on(hull: Hull, ev, spec: EnergySpec, cap_kw: float,
     behind would be exactly the "confident wrong answer" this repo keeps
     finding in its own history.
     """
-    v_max_valid = FN_MICHELL_MAX * math.sqrt(9.80665 * ev.hydro.lwl_eff) / 0.514444
+    v_max_valid = FN_MICHELL_MAX * math.sqrt(G_STANDARD * ev.hydro.lwl_eff) / 0.514444
     lo, hi = 1.0, v_max_valid
     if power_at(hull, ev, spec, lo, rho)["electrical_kw"] > cap_kw:
         return float("nan")

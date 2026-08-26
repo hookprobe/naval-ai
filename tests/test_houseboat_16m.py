@@ -31,27 +31,22 @@ from navalai.translate import parse_mission as _pm  # same symbol; import parity
 import houseboat_16m as HB
 
 
-def test_the_briefs_three_tonnes_is_refused_on_proportions():
-    """3 t on a 16 x 4 m hull is B/T ~18.5 against a ceiling of 12.0.
+def test_the_briefs_three_tonnes_is_refused_loudly():
+    """3 t on a 16 x 4 m hull is refused — and the refusal NAMES the family.
 
-    MEASURED: it BUILDS (draft 0.217 m) and is refused by the band, at L0 and
-    again at L1. An earlier form of this probe reported it as geometrically
-    UNREACHABLE; that was true of a hull with l_pmb 0.30 and not of the brief,
-    which is why the assertion here is on the BAND and not on buildability.
+    HISTORY OF THIS PIN, because the refusal has changed shape twice and
+    each change was a measurement: (1) an early probe called it
+    geometrically unreachable, which was true of a hull with l_pmb 0.30 and
+    not of the brief; (2) the held test then pinned "BUILDS at 0.217 m,
+    refused by the B/T band"; (3) RE-MEASURED 2026-08-26 when this landed:
+    the barge genome the probe now draws (Cp 0.92, r_transom 0.92 — the
+    widened envelope this file waited for) displaces MORE at every draft,
+    so 3000 kg falls BELOW the lightest buildable member and
+    `design_draft_for` refuses with `Unreachable`, naming the family and
+    the floor. A stronger refusal than a violated band, and still loud.
     """
-    T, _ = HB.design_draft_for(HB.AS_ASKED_KG)
-    b_over_t = HB.BWL_M / T
-    ceiling = grammar.B_OVER_T_BAND[1]
-    assert b_over_t > ceiling, (
-        f"3 t now gives B/T {b_over_t:.2f}, inside the {ceiling} ceiling -- "
-        "the brief's displacement stopped being refused; re-measure")
-
-    x = grammar.vector(HB.base_genome(T))
-    assert not grammar.check(x).ok, "the L0 gate accepted a B/T of 18.5"
-    ev = evaluate(x, HB.make_mission(HB.AS_ASKED_KG, "3 t probe"),
-                  rho=HB.RHO_FRESH)
-    assert not ev.ok
-    assert any("B/T" in v for v in ev.violations), ev.violations
+    with pytest.raises(HB.Unreachable, match="16.0 x 4.0 m family"):
+        HB.design_draft_for(HB.AS_ASKED_KG)
 
 
 def test_the_corrected_design_passes_the_whole_ladder():
@@ -155,16 +150,15 @@ def test_manning_is_still_not_parsed_from_prose():
         is Manning.CREWED
 
 
-def test_energyspec_still_has_no_motor_power_field():
-    """DEFECT (HOUSEBOAT-16M section 3). Delete this test when it is fixed.
-
-    Nothing in the ladder checks that the installed power reaches the mission's
-    cruise speed, because the installed power cannot be declared to it.
-    """
+def test_the_motor_power_defect_is_fixed_the_way_the_sentinel_demanded():
+    """The sentinel that stood here ("EnergySpec still has no motor power
+    field — delete this test when fixed") FIRED on landing day: commit
+    b01ce4e gave `EnergySpec.motor_kw` a default and made `motor_power` a
+    permanent constraint row. Per the sentinel's own instruction it is
+    deleted; this replaces it with the positive assertion, so the fix
+    cannot silently un-land."""
     from navalai.energy import EnergySpec
+    from navalai.evaluate import CONSTRAINT_NAMES
 
-    fields = set(EnergySpec.__dataclass_fields__)
-    assert not (fields & {"motor_kw", "motor_power_w", "rated_power_kw"}), (
-        "EnergySpec now carries a motor rating. FIX CONFIRMED: add a "
-        "constraint row asserting installed power reaches cruise_speed_kn, "
-        "then delete this test and HOUSEBOAT-16M section 3.")
+    assert "motor_kw" in EnergySpec.__dataclass_fields__
+    assert "motor_power" in CONSTRAINT_NAMES
