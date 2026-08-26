@@ -1,7 +1,12 @@
-"""EXPERIMENT (forensics section-26, C-24): built and gated, but NO
-production entrypoint consults the compiler yet — evaluate/certify run
-ungoverned. Wiring a governed entrypoint is its own decision (it changes
-what the product may refuse); until then this label is the truth.
+"""PARTIALLY WIRED (label corrected 2026-08-27; audit finding #19 — it
+read "no production entrypoint consults the compiler" while `ui/api.py`
+consulted `reference_policy().box(...)` at two call sites, the exact
+stale-honesty-label class this repo polices). Current truth: the UI's
+envelope screen and search sweep are GOVERNED (box only);
+`evaluate`/`certify` still default to ungoverned unless a caller passes a
+compiled policy — making governed the default is its own decision (it
+changes what the product may refuse), and THAT part of the old label
+stands.
 Governance kernel — what am I ALLOWED to design? (BuildPlan 3, V3.0)
 
   base.py      PolicyValue -- every policy constant carries source + basis

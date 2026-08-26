@@ -812,12 +812,21 @@ _M_SECOND_HULL = ("a second hull as GEOMETRY: hull count and separation live "
                   "cross-structure, no bridge deck")
 _M_WET_DECK = ("a wet deck: no clearance parameter, so "
                "resistance.wet_deck_clearance_g has nothing to score")
-_M_FLARE = ("flare that varies along the length: `flare` is one scalar applied "
-            "at every station")
+_M_FLARE = ("flare that vanishes forward INDEPENDENTLY of section area: the "
+            "LAW varies along the length now (flare/flare_bow/flare_len, "
+            "2026-08-24), but delivered flare is scaled by the area curve "
+            "a(x) pending the independent design-waterline B(x) — full "
+            "decoupling was implemented 2026-08-26 and MEASURED to collapse "
+            "plan convexity 0.5 -> 0.32, so the taper stays; at r_stem = 0 "
+            "the stem is a point and flare there is moot")
 _M_STEM = ("stem rake, bow overhang or a counter stern: LOA == LWL by "
            "construction")
-_M_AFT_DEADRISE = ("aft deadrise variation: the warp is forward-only and "
-                   "deadrise is frozen at beta_mid aft of the warp")
+_M_AFT_DEADRISE = ("SUPERSEDED AS A BLOCKER 2026-08-26: `beta_transom` and "
+                   "`beta_run` landed (geometry._deadrise's aft branch) and "
+                   "a 12-deg transom over an 8-deg midship is MEASURED "
+                   "expressible. Rows still citing this marker owe the "
+                   "Gate 0E5C-CAP re-fit of the seven published series "
+                   "against the new law before their verdicts flip")
 _M_APPENDAGE = ("appendages, steps, strakes, bulbs or foils: absent from "
                 "geometry.py entirely")
 _M_ASYMMETRIC = ("an asymmetric section: every section is symmetric about the "
@@ -1830,9 +1839,15 @@ FEATURES: tuple[Feature, ...] = (
             "mechanism behind the Cp band the mission wants. The grammar has "
             "`x_mb` (one max-beam STATION) and no midbody EXTENT, so a hull "
             "can have a peak but not a plateau"),
-        expressible=Expressible.NO,
-        parameterised_by="a midbody extent parameter beside x_mb, or a "
-                         "waterline distribution replacing the two exponents",
+        # NO -> YES on 2026-08-27: `pmb` landed 2026-08-24 exactly as
+        # `parameterised_by` prescribed, and the sac solve was corrected
+        # 2026-08-26 to INVERT the flat-topped curve (audit D.4), so the
+        # delivered Cp now equals the gene with the span active. MEASURED:
+        # the hull-kb cruiser carries pmb 0.12 at convexity 0.927 with a
+        # clean critique, and the landed barge carries its beam over 88%.
+        expressible=Expressible.YES,
+        parameterised_by="`pmb` (grammar 2026-08-24; solve corrected "
+                         "2026-08-26)",
         drawings=(_D004, _D005, _D008, _D009),
         applies_to=("slender_symmetric_cat_demihull", "slender_displacement",
                     "round_bilge_displacement"),
@@ -1887,9 +1902,15 @@ FEATURES: tuple[Feature, ...] = (
             "reserve buoyancy. Listed because the GRAMMAR GAP it exposes is "
             "real for every family: flare is one scalar, applied at every "
             "station, one line below a deadrise law that already varies"),
-        expressible=Expressible.NO,
-        parameterised_by="flare_mid / flare_bow / flare_len, an exact copy of "
-                         "the beta_mid / beta_bow / beta_len law",
+        # NO -> PARTIAL on 2026-08-27: the three genes landed verbatim
+        # (2026-08-24). Delivered flare remains SCALED BY a(x) (see
+        # _M_FLARE for the measured reason the scaling stays), so zero
+        # flare forward is expressible wherever the bow carries area
+        # (r_stem > 0) and exact only in the limit — full independence
+        # arrives with the design-waterline B(x).
+        expressible=Expressible.PARTIAL,
+        parameterised_by="flare / flare_bow / flare_len (landed 2026-08-24), "
+                         "delivered through the a(x) envelope",
         drawings=(_D002, _DGEM),
         applies_to=("axe_bow", "wave_piercing_monohull",
                     "wave_piercing_cat_demihull"),
