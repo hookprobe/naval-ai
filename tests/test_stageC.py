@@ -404,11 +404,36 @@ def test_the_l0_type_check_can_actually_reject(plm_run):
         f"{rejectable} of {in_box} in-box vectors are rejectable at L0; the "
         f"measurement this test rests on no longer holds")
 
-    # ARM 2: the Validator is SEEN doing it, on the Builder's own distribution.
+    # ARM 2: the Validator's L0 rejection is LIVE. Until 2026-08-27 this
+    # arm demanded a rejection IN THE TRAIL, which the builder's own
+    # distribution reliably supplied — its draws were lens hulls the
+    # typology bands refused. The shape-repair stage then landed (the
+    # builder climbs a flagged draw into the PRAM lane before forwarding;
+    # delivery went 0/3 -> 3/3) and a clean trail became the SUCCESS
+    # case, not the inert one. So: a trail rejection still satisfies the
+    # arm; a clean trail must PROVE itself clean — every forwarded
+    # candidate type-checks — and the rejection mechanism is probed
+    # directly on a vector outside every typology, so the branch cannot
+    # rot unexercised.
     results, audit, _m = plm_run
     stages = [m.payload.get("stage") for m in audit.trail if m.kind == "rejected"]
-    assert "L0 type-check" in stages, (
-        "the agent network rejected nothing at L0 — the arm that was inert")
+    if "L0 type-check" not in stages:
+        # the network stops when n_designs are delivered, so late builder
+        # candidates can sit unprocessed in the queue — only what the
+        # validator ACTUALLY PASSED can prove the clean-trail case
+        passed = [m.payload for m in audit.trail if m.kind == "validated"]
+        assert passed, "no candidates flowed at all"
+        assert all(infer_typology(np.asarray(rec[0] if isinstance(rec, tuple)
+                                             else rec, float)) is not None
+                   for rec in passed), (
+            "a design with no typology was VALIDATED — the L0 arm is "
+            "inert again")
+    probe = np.asarray(sample_valid(1, MissionSpec(), seed=3)[0][0],
+                       float).copy()
+    probe[grammar.NAMES.index("roundness")] = 0.5     # sheet pins refuse it
+    assert infer_typology(probe) is None, (
+        "the typology inference stopped rejecting a radiused-bilge vector "
+        "— the mechanism this arm guards is dead")
 
     # ARM 3: nothing is delivered that does not type-check as a real typology.
     for rec in results:

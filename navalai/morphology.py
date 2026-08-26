@@ -263,7 +263,21 @@ def describe(o: HullOffsets) -> Descriptors:
     plan_waist = (float(np.max(np.maximum.accumulate(fwd) - fwd))
                   if fwd.size else 0.0)
     cur = np.gradient(np.gradient(b, xf), xf)
-    waterline_convexity = float(np.mean(cur <= 1e-9))
+    # CONCAVITY BELOW THE FAIRING TOLERANCE IS NOT A HOLLOW (2026-08-26).
+    # The sign-only count read a flat-sided hull as WAVY: the landed 16 x 4
+    # barge's aft waterline carries a SYSTEMATIC +1..4 mm-per-station^2
+    # curvature (the derived-beam residue of the aft SAC branch), and a
+    # sign count weighs those millimetres exactly like the 2026-08-23
+    # spearhead's 0.24 m hollow. The tolerance is scale-free — a fraction
+    # of maximum beam over the station-spacing^2 — at plating-fairness
+    # scale, so the 58-corpus verdicts and the recorded pathologies are
+    # unchanged (re-measured on landing: 0 of 58 flagged before and
+    # after; the spearhead still reads 0.317) while a straight side
+    # measures as the straight line it is.
+    bmax = float(np.max(b)) if b.size else 1.0
+    span = float(xf[-1] - xf[0]) if xf.size > 1 else 1.0
+    tol = _CONVEXITY_FAIR_FRAC * bmax / max(span * span, 1e-12)
+    waterline_convexity = float(np.mean(cur <= tol))
 
     # -- transverse
     T = float(max(1e-9, -o.z_keel.min()))
@@ -491,6 +505,29 @@ class Critique:
 # justified in the comment. These are MEASUREMENTS, not preferences; widen them
 # only by re-running scripts/build_morphology_corpus.py on more real hulls.
 _CORPUS_N = 58
+#: The waterline fairing tolerance, in scale-free units of (max half-beam /
+#: LWL^2) — the curvature a straight-ish side may carry before it counts as
+#: hollow. CALIBRATED EMPIRICALLY 2026-08-26, both edges measured: the
+#: landed 16 x 4 barge's aft side carries positive curvature to 2.66 of
+#: these units (a millimetre-scale derived-beam residue, visually a
+#: straight side) and the 2026-08-23 spearhead's genuine hollows start at
+#: 4.6 with a median 0.041/m raw. 3.5 sits between the measured edges; the
+#: 58-hull corpus is unaffected at either value (0 flagged before and
+#: after, re-measured on landing).
+_CONVEXITY_FAIR_FRAC = 3.5
+
+# Conjunction constants for the BOX and PYRAMID pathologies, hoisted from
+# `critique`'s clauses on 2026-08-26 so `shape_margin` reads THE SAME
+# numbers — a second copy inside the margin function would be the
+# number-declared-twice defect wearing the critic's own uniform.
+_BOX_END_AREA_MIN = 0.6
+_PYRAMID_BARS = {
+    "beam_carried": 0.30,
+    "depth_variation": 0.12,
+    "sac_stem": 0.02,
+    "sac_transom": 0.10,
+}
+
 _BAR = {
     # Real hulls do not have a waist: p5 AND p95 are both exactly 0.000 across
     # all 58. A plan that rises, falls back, then rises again to maximum beam
@@ -568,7 +605,8 @@ def critique(d: Descriptors, family: str | None = None) -> Critique:
             bar["beam_carried_min"],
             "too little of the waterline carries beam; the hull is mostly taper"))
 
-    if d.pmb_frac > bar["pmb_frac_max"] and min(d.sac_transom, d.sac_stem) > 0.6:
+    if (d.pmb_frac > bar["pmb_frac_max"]
+            and min(d.sac_transom, d.sac_stem) > _BOX_END_AREA_MIN):
         f.append(Finding(
             "BOX", "pmb_frac", d.pmb_frac, bar["pmb_frac_max"],
             "near-constant sectional area terminating abruptly at both ends"))
@@ -582,14 +620,62 @@ def critique(d: Descriptors, family: str | None = None) -> Critique:
     # A PYRAMID tapers in several dimensions at once: little beam carried AND
     # little depth variation AND a vanishing stem. Any one of those alone is a
     # legitimate hull; all three together is a wedge.
-    if (d.beam_carried < 0.30 and d.depth_variation < 0.12
-            and d.sac_stem < 0.02 and d.sac_transom < 0.10):
+    if (d.beam_carried < _PYRAMID_BARS["beam_carried"]
+            and d.depth_variation < _PYRAMID_BARS["depth_variation"]
+            and d.sac_stem < _PYRAMID_BARS["sac_stem"]
+            and d.sac_transom < _PYRAMID_BARS["sac_transom"]):
         f.append(Finding(
-            "PYRAMID", "beam_carried", d.beam_carried, 0.30,
+            "PYRAMID", "beam_carried", d.beam_carried,
+            _PYRAMID_BARS["beam_carried"],
             "monotonic taper in beam, depth and area at once — a wedge"))
 
     score = max(0.0, 1.0 - 0.25 * len(f))
     return Critique(ok=not f, score=score, findings=tuple(f))
+
+
+def shape_margin(d: Descriptors, family: str | None = None) -> float:
+    """The critic as ONE signed margin: <= 0 plausible, > 0 the worst
+    relative violation. The continuous companion of `critique` for the
+    ladder's constraint vector — NSGA-II needs a gradient, and a count of
+    findings is a staircase.
+
+    READS THE SAME BARS as `critique` (`_BAR`, `_FAMILY_BAR`, the hoisted
+    conjunction constants) so the two can never drift; each rule's margin
+    is normalised by its own bar so a 10% shortfall on beam-carried and a
+    10% shortfall on convexity weigh the same. Conjunctive pathologies
+    (BOX, PYRAMID) take the MIN of their clause margins — the conjunction
+    is violated only when every clause is.
+
+    Wired into `evaluate.CONSTRAINT_NAMES` as the `shape` row on
+    2026-08-26 (audit finding I: the critic had ZERO production callers
+    while 89-92% of L0-valid hulls were morphologically implausible and
+    the 2026-08-23 plank passed every row this ladder had).
+    """
+    bar = dict(_BAR)
+    bar.update(_FAMILY_BAR.get((family or "").lower(), {}))
+
+    def _below(v: float, floor: float) -> float:
+        return (floor - v) / max(abs(floor), 1e-9)
+
+    def _above(v: float, ceil: float) -> float:
+        return (v - ceil) / max(abs(ceil), 1e-9)
+
+    margins = [
+        _above(d.plan_waist, max(bar["plan_waist_max"], 0.02)),
+        _below(d.waterline_convexity, bar["waterline_convexity_min"]),
+        _below(d.beam_carried, bar["beam_carried_min"]),
+        min(_above(d.pmb_frac, bar["pmb_frac_max"]),
+            _above(min(d.sac_transom, d.sac_stem), _BOX_END_AREA_MIN)),
+        max(_below(d.l_over_b, bar["l_over_b"][0]),
+            _above(d.l_over_b, bar["l_over_b"][1])),
+        min(_below(d.beam_carried, _PYRAMID_BARS["beam_carried"]),
+            _below(d.depth_variation, _PYRAMID_BARS["depth_variation"]),
+            _below(d.sac_stem, _PYRAMID_BARS["sac_stem"]),
+            _below(d.sac_transom, _PYRAMID_BARS["sac_transom"])),
+    ]
+    if math.isfinite(d.depth_variation):
+        margins.append(_below(d.depth_variation, bar["depth_variation_min"]))
+    return float(max(margins))
 
 
 def from_mesh(mesh, n_stations: int = 41, nz: int = 41,

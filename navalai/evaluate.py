@@ -50,7 +50,7 @@ from .hydrostatics import (HydroState, gm, gm_long,
                            solve_equilibrium, solve_to_displacement,
                            vessel_terms)
 from .limits import (FREEBOARD_FLOOR_M, LCB_BAND_PCT_LWL, LIST_LIMIT_DEG,
-                     PRISMATIC_TOLERANCE, TRIM_LIMIT_DEG, gm_floor,
+                     PRISMATIC_TOLERANCE, TRIM_LIMIT_DEG, HullRole, gm_floor,
                      laminate_plan, min_bend_radius_m)
 from .mission import (EVALUABLE_TOPOLOGIES, Manning, MissionSpec,
                       mission_cp_band, mission_cp_target, mission_lcb_band)
@@ -117,9 +117,21 @@ from .weights import MassAggregate, MassItem, aggregate
 # because nothing measured whether a propeller could be fed (stern immersion
 # 0.33 m; the thrust wants a 0.42 m disc). Appended at the END: every
 # existing row keeps its index, which is what the order fence protects.
+# `shape` appended 2026-08-26 (audit finding I, CONSTRAINT_NAMES grown
+# 10 -> 11 the same way b01ce4e grew it 8 -> 10). THE INCIDENT: the
+# morphology critic — the ONE module that names SPEARHEAD, BOX, PLANK,
+# WAIST, calibrated on 58 published hulls — had ZERO production callers
+# while 89-92% of L0-valid generated hulls were morphologically
+# implausible; the 2026-08-23 plank passed displacement, Cp, Cb, LCB,
+# GM, freeboard, scantlings, every constraint row, seven rule findings
+# and arrangement, and was found by a HUMAN opening the STL. The row is
+# `morphology.shape_margin` — the same bars as `critique`, as one signed
+# continuous margin so NSGA-II has a gradient. Appended at the END:
+# every existing row keeps its index, which is what the order fence
+# protects.
 CONSTRAINT_NAMES = ("freeboard", "gm", "bend_radius", "trim", "list",
                     "lcb", "proportions", "rules",
-                    "motor_power", "prop_space")
+                    "motor_power", "prop_space", "shape")
 
 # The value a constraint takes when the physics behind it is UNDEFINED rather
 # than merely violated: large, positive, finite. Large so NSGA-II ranks such a
@@ -311,6 +323,9 @@ class Evaluation:
     hull_lwl_m: float = 0.0         # so requirements can check the mission
     rules: dict = field(default_factory=dict)   # tier R, IN the ladder
     seakeeping: dict = field(default_factory=dict)   # tier L2, when it has run
+    # The critic's named findings for the `shape` row (2026-08-26) — the
+    # REPORT half; the margin itself is g["shape"]. Empty = plausible.
+    shape_findings: tuple = ()
     # Tier L3, when a RECORDED campaign has been read for this hull. Empty is
     # the honest default: "no evidence at this tier", never a placeholder drag.
     cfd: dict = field(default_factory=dict)
@@ -1119,8 +1134,29 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
     # vector whose fence has already counted the columns.
     _prop_g, _prop_why = propulsion.rows_for(
         hull, wl, float(res.total), float(en.prop_power_w), energy_spec)
+
+    # THE SHAPE ROW (2026-08-26). The critic judges the same surface the
+    # STL is built from, with the family the vessel actually is — a
+    # demihull is banded as a demihull (55 of 300 plywood demihulls were
+    # false-refused on the monohull L/B ceiling before the family reached
+    # the critic). An unmeasurable shape is INFEASIBLE_G, never a pass:
+    # a hull whose descriptors cannot be computed is not thereby plausible.
+    from . import morphology as _morph
+    _fam = ("demihull"
+            if grammar.hull_role(vessel_cfg) is HullRole.DEMIHULL
+            else None)
+    try:
+        _desc = _morph.describe(_morph.from_hull(hull))
+        _shape_g = float(_morph.shape_margin(_desc, family=_fam))
+        _shape_findings = tuple(
+            str(f) for f in _morph.critique(_desc, family=_fam).findings)
+    except Exception:                                      # noqa: BLE001
+        _shape_g, _shape_findings = INFEASIBLE_G, (
+            "shape: descriptors unmeasurable on this hull",)
+
     g = constraint_vector({
         **_prop_g,
+        "shape": _shape_g,
         "freeboard": FREEBOARD_FLOOR_M - hs.freeboard_min,
         "gm": gm_min - gm_m,
         "bend_radius": r_req - r_min,
@@ -1190,6 +1226,10 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
             for f in fails)) if fails else "",
         "motor_power": _prop_why.get("motor_power", ""),
         "prop_space": _prop_why.get("prop_space", ""),
+        "shape": ("shape: " + "; ".join(_shape_findings)
+                  if _shape_findings else
+                  "shape: margin positive with no named finding — the "
+                  "continuous margin and the critic disagree; re-measure"),
     }
 
     # A NON-FINITE CONSTRAINT USED TO MAKE A DESIGN FEASIBLE (gap E10).
@@ -1543,7 +1583,8 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
         trim_deg=trim, list_deg=heel, resistance=res, energy=en, g=g,
         ply_thickness_m=t_ply, unaccounted_frac=unaccounted_frac,
         gm_per_m_of_unaccounted=gm_per_m_unacc,
-        hull_lwl_m=float(p["LWL"]), rules=rules_rep, params=np.asarray(params),
+        hull_lwl_m=float(p["LWL"]), rules=rules_rep,
+        shape_findings=_shape_findings, params=np.asarray(params),
         non_developable_frac=_non_developable_frac(hull),
         eval_ms=(time.perf_counter() - t0) * 1e3, badges=badges,
         vessel=vessel_report, targets=targets_report,

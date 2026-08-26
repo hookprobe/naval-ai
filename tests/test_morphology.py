@@ -326,3 +326,41 @@ def test_every_design_rule_names_both_numbers_and_a_reason():
         assert r.rule and r.why and len(r.why) > 20
         assert math.isfinite(r.bar)
         assert str(r).startswith("[")
+
+
+def test_shape_margin_sign_agrees_with_the_critic():
+    """The `shape` row (evaluate.CONSTRAINT_NAMES, 2026-08-26) is
+    `shape_margin`; the critic is `critique`. They read the SAME bars, and
+    this holds the contract that keeps them one judgement: margin > 0
+    exactly when the critic finds a pathology. MEASURED at landing: 60 of
+    60 sampled hulls agree, plus the two calibration edges (the landed
+    barge at -0.25, the recorded spearhead at +0.39)."""
+    from navalai.morphology import critique, describe, from_hull, shape_margin
+
+    rng = np.random.default_rng(5)
+    agree = tot = 0
+    for x in grammar.sample(40, rng):
+        try:
+            d = describe(from_hull(Hull(x)))
+        except (GeometryError, ValueError):
+            continue
+        tot += 1
+        agree += (shape_margin(d) > 0) == (not critique(d).ok)
+    assert tot >= 30 and agree == tot, f"{agree}/{tot} agree"
+
+
+def test_the_shape_row_is_wired_and_refuses_the_spearhead_by_name():
+    """THE AUDIT'S #1 WIRING (2026-08-26): the critic had zero production
+    callers while the 2026-08-23 plank passed every row the ladder had.
+    The recorded spearhead genome must now be REFUSED by `evaluate`
+    itself, with the pathology NAMED in the violation."""
+    from navalai.evaluate import CONSTRAINT_NAMES, evaluate
+    from navalai.mission import MissionSpec
+    from navalai.reference import reference_params
+
+    assert "shape" in CONSTRAINT_NAMES
+    ev = evaluate(reference_params(), MissionSpec())
+    assert not ev.ok
+    assert ev.g["shape"] > 0
+    assert any("SPEARHEAD" in v for v in ev.violations), ev.violations
+    assert ev.shape_findings, "the report half must carry the named findings"

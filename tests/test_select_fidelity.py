@@ -558,8 +558,15 @@ def test_certify_carries_the_governor_and_uses_it_for_eligibility():
     from navalai import formcheck
     from navalai.certify import certify
 
+    # plausible variant, 2026-08-26: the canonical case is refused by the
+    # `shape` row before certification reaches the fidelity governor; the
+    # variant (formcheck.plausible_variant, one home) keeps case-b's
+    # dimensions and mission and reaches it. Fn/Re move by the variant's
+    # slightly different floated state; the CLAIMS pinned here (tier
+    # EMPIRICAL, five gate receipts, decision-worthy) are unchanged.
     case = {c.key: c for c in formcheck.CASES}["b"]
-    cert = certify(case.params, case.mission, with_gz=False)
+    cert = certify(formcheck.plausible_variant(case), case.mission,
+                   with_gz=False)
     assert cert.fidelity["tier"] == TIER_EMPIRICAL
     assert len(cert.fidelity["gates"]) == 5
     assert cert.cfd_candidate["fidelity_tier"] == TIER_EMPIRICAL

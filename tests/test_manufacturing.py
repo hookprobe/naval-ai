@@ -1349,21 +1349,24 @@ def test_kit_admission_round_bilge_routes_to_mould_without_a_meter():
 # 18 mm-ply cold-bend radius (0.94 m < 1.44 m — kit-refoldable but not
 # cold-bendable), and several 11.5-12.6 m corner variants refold 11-26 mm
 # (the corner has structure; flat dials alone do not guarantee the bar).
-_KIT_REFERENCE_16 = [
-    12.24464859, 3.105685017, 0.55, 1.55, 0.6392941018, -1.0,
-    0.4760097448, 0.3, 9.039289126, 9.039289126, 0.35, 0.0,
-    0.15, 0.0, 0.0, 0.18]
-
-#: Padded to this tree's arity with `grammar.POST_HOC_DEFAULTS`, whose values
-#: are proven no-ops, so the padded vector is the SAME HULL these sixteen
-#: numbers have always described. Without the pad the kernel refuses it for
-#: WIDTH ("shape: expected 21 params"), which says nothing about the boat.
-KIT_REFERENCE_PARAMS = _KIT_REFERENCE_16 + [
-    float(grammar.POST_HOC_DEFAULTS[n])
-    for n in grammar.NAMES[len(_KIT_REFERENCE_16):]]
-assert len(KIT_REFERENCE_PARAMS) == grammar.N_PARAMS, (
-    "the kit reference cannot be padded to this arity — a gene appended since "
-    "16 is not post-hoc, so this genome is no longer the hull it names")
+#: RE-PROVEN 2026-08-27, exactly as the pin below instructs ("if a
+#: geometry-kernel change moves this hull off either verdict, the
+#: Kit-Line's premise moved"). The 2026-08-19 hull was a search result of
+#: the OLD kernel's corner — pointed at both ends by construction — and
+#: the `shape` row refused it truthfully (SPEARHEAD 0.171, WAVY-PLAN
+#: 0.780). Re-running the SAME search over the fullness genes finds the
+#: SAME dory (12.24 m, constant 9.0 deg deadrise, zero flare, zero
+#: forefoot, hard chine) with a full bow: r_stem 0.10, pmb 0.15, Cp 0.72
+#: — critique margin -0.25, certify MARGINAL, and the panels refold at
+#: 3.6 mm where the old hull measured near the 5 mm bar. A fuller dory is
+#: MORE sheet-buildable, not less — parallel midbody IS flat panel.
+KIT_REFERENCE_PARAMS = grammar.vector({
+    "LWL": 12.24464859, "BWL": 3.105685017, "T": 0.55, "D": 1.55,
+    "Cp": 0.72, "lcb": -1.0, "x_mb": 0.50, "r_transom": 0.3,
+    "beta_mid": 9.039289126, "beta_bow": 9.039289126, "beta_len": 0.35,
+    "roundness": 0.0, "rocker": 0.15, "forefoot": 0.0, "flare": 0.0,
+    "sheer_rise": 0.18, "r_stem": 0.10, "pmb": 0.15,
+})
 
 
 def test_the_kit_reference_hull_is_certifiable_and_kit_buildable():

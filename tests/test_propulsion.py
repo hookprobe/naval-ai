@@ -49,10 +49,13 @@ def _mission(**energy):
 def test_the_propulsion_rows_are_permanent_members_of_the_vector():
     """Product definition, not a flag: 10 names, the two new ones LAST so
     every pre-existing row keeps its index (the order fence's contract)."""
-    assert len(CONSTRAINT_NAMES) == 10
+    # 10 -> 11 on 2026-08-26: the `shape` row joined the same way these
+    # two did (a deliberate product decision recorded in its module —
+    # evaluate.CONSTRAINT_NAMES' comment carries the incident).
+    assert len(CONSTRAINT_NAMES) == 11
     assert CONSTRAINT_NAMES[:8] == ("freeboard", "gm", "bend_radius", "trim",
                                     "list", "lcb", "proportions", "rules")
-    assert CONSTRAINT_NAMES[8:] == ("motor_power", "prop_space")
+    assert CONSTRAINT_NAMES[8:] == ("motor_power", "prop_space", "shape")
     assert propulsion.ROWS == ("motor_power", "prop_space")
 
 

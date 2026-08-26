@@ -162,8 +162,15 @@ def test_the_surface_never_invents_an_eleventh_constraint_row():
 
     m = api.manifest_payload()
     assert tuple(m["constraints"]) == CONSTRAINT_NAMES
-    assert len(m["constraints"]) == 10
-    assert CONSTRAINT_NAMES[8:] == ("motor_power", "prop_space")
+    # TEN -> ELEVEN, 2026-08-26, the way this fence demands rows arrive: a
+    # deliberate product decision recorded in the row's own module. `shape`
+    # is `morphology.shape_margin` — the plausibility critic as a
+    # continuous margin — appended after the audit measured that the critic
+    # had ZERO production callers while 89-92% of L0-valid hulls were
+    # morphologically implausible and the 2026-08-23 plank passed every
+    # row this surface could draw.
+    assert len(m["constraints"]) == 11
+    assert CONSTRAINT_NAMES[8:] == ("motor_power", "prop_space", "shape")
 
     twin = api.twin_payload({"params": _params()})
     for r in CONSTRAINT_NAMES:

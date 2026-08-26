@@ -104,6 +104,63 @@ async def _builder(inbox: asyncio.Queue, out: asyncio.Queue, audit: Audit,
             fit = fit_typology(x)
             if fit is not None:
                 x = fit[1]
+            # THE SHAPE REPAIR IS A GENERATIVE ACT TOO (2026-08-27), and it
+            # belongs on this side of the queue by the same argument as the
+            # typology projection above. The `shape` constraint row landed
+            # 2026-08-26 and the genome this builder samples was fitted on
+            # post-hoc-pinned draws, so its every draw is a lens hull the
+            # validator now truthfully refuses — MEASURED: run_plm
+            # delivered ZERO of three. `morphology_search.search` is the
+            # directed critic-guided hill-climb (the audit's "wire as a
+            # repair stage" item); a candidate the critic flags gets a
+            # bounded climb toward plausibility, and the Validator still
+            # judges the result strictly — nothing downstream is softened.
+            try:
+                from .geometry import Hull as _Hull
+                from .morphology import critique as _critique
+                from .morphology import describe as _describe
+                from .morphology import from_hull as _from_hull
+                if not _critique(_describe(_from_hull(_Hull(x)))).ok:
+                    from . import grammar as _grammar
+                    from .morphology_search import search as _repair_search
+
+                    # STEER INTO THE PRAM LANE, measured 2026-08-27: the
+                    # SHARP_CHINE typology's forefoot floor (0.4, a
+                    # cutaway stem) is in structural conflict with the
+                    # critic's beam-carried bar under the derived-beam
+                    # kernel — the joint space measured EMPTY over 6000
+                    # draws — while the PRAM lane's is RICH (375 of 790
+                    # L0-valid lane-aimed draws critique-clean). A repair
+                    # that climbs shape while walking out of every
+                    # typology band delivers nothing; clamping the lane
+                    # genes makes the climb search the space where both
+                    # judges can say yes. The Validator still runs the
+                    # strict inference on what arrives.
+                    def _pram_lane(gd: dict) -> dict:
+                        gd = dict(gd)
+                        gd["forefoot"] = min(gd.get("forefoot", 0.0), 0.24)
+                        gd["rocker"] = min(gd.get("rocker", 0.0), 0.34)
+                        gd["sheer_rise"] = min(gd.get("sheer_rise", 0.0),
+                                               0.24)
+                        gd["beta_bow"] = min(gd.get("beta_bow", 12.0), 24.5)
+                        gd["beta_mid"] = min(gd.get("beta_mid", 8.0),
+                                             gd["beta_bow"])
+                        gd["Cp"] = min(max(gd.get("Cp", 0.65), 0.605), 0.915)
+                        gd["roundness"] = 0.0
+                        return gd
+
+                    _g = _pram_lane(dict(zip(_grammar.NAMES,
+                                             map(float, x))))
+                    _best, _ = _repair_search(
+                        _g, iterations=150,
+                        rng=np.random.default_rng(seed * 1000 + 7))
+                    if _best is not None:
+                        x = _grammar.vector(_pram_lane(_best.genome))
+                        _refit = fit_typology(x)
+                        if _refit is not None:
+                            x = _refit[1]
+            except Exception:                          # noqa: BLE001
+                pass          # an unrepairable draw is the validator's to name
             msg = Message("builder", "validator", "candidate", x)
             audit.log(msg)
             await out.put(msg)

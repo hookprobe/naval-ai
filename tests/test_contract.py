@@ -17,33 +17,16 @@ from navalai.contract import (MARGINAL, OK, REFUSED, UNMEASURED,
 from navalai.mission import MissionSpec
 from tests.test_phase0 import mid_params
 
-#: The kit reference genome, written when the grammar had SIXTEEN genes.
-#: Padded to this tree's arity with `grammar.POST_HOC_DEFAULTS`, whose values
-#: are proven no-ops — so the padded vector describes exactly the hull these
-#: numbers always described. Without the pad `grammar.check` refuses it for
-#: WIDTH, which reads as "grammar refused the genome before any physics" and
-#: says nothing about the boat.
-_KIT_REFERENCE_16 = [12.24464859, 3.105685017, 0.55, 1.55, 0.6392941018, -1.0,
-                     0.4760097448, 0.3, 9.039289126, 9.039289126, 0.35, 0.0,
-                     0.15, 0.0, 0.0, 0.18]
-
-
-def _pad_to_arity(g):
-    """Extend a historical genome with post-hoc no-op defaults."""
-    from navalai import grammar as _g
-    g = list(map(float, g))
-    if len(g) > _g.N_PARAMS:
-        raise AssertionError(
-            f"genome has arity {len(g)} and this tree has {_g.N_PARAMS}: a "
-            f"gene was REMOVED, which is not a no-op")
-    missing = [n for n in _g.NAMES[len(g):] if n not in _g.POST_HOC_DEFAULTS]
-    assert not missing, (
-        f"cannot pad this historical genome: {missing} have no proven no-op "
-        f"default, so the padded vector would be a DIFFERENT hull")
-    return g + [float(_g.POST_HOC_DEFAULTS[n]) for n in _g.NAMES[len(g):]]
-
-
-KIT_REFERENCE = _pad_to_arity(_KIT_REFERENCE_16)
+#: THE ONE HOME of the kit reference is tests/test_manufacturing.py
+#: (KIT_REFERENCE_PARAMS). This file carried a private COPY of the
+#: sixteen-gene original, and on 2026-08-27 the copy went stale the exact
+#: way copies do: manufacturing RE-PROVED the kit hull with a full bow
+#: after the `shape` row landed (the old lens form is truthfully
+#: SPEARHEAD-refused now), and this file's copy kept describing the
+#: refused boat — so `status` read REFUSED where the test expected the
+#: unsolved-design MARGINAL/UNMEASURED. A fixture declared twice is the
+#: number-declared-twice defect wearing a test file.
+from tests.test_manufacturing import KIT_REFERENCE_PARAMS as KIT_REFERENCE
 
 
 def test_the_four_questions_stay_four_verdicts():

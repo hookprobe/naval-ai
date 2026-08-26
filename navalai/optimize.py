@@ -50,7 +50,37 @@ class _DrawBoxSampling(Sampling):
         rs = kwargs.get("random_state")
         seed_int = (int(rs.integers(2 ** 31)) if rs is not None
                     else np.random.randint(2 ** 31))
-        X = grammar.sample(n_samples, np.random.default_rng(seed_int))
+        rng = np.random.default_rng(seed_int)
+        X = grammar.sample(n_samples, rng)
+        # SHAPE-FEASIBLE SEEDING (2026-08-27). `grammar.sample` draws the
+        # legacy stream, whose every member is a lens hull the `shape` row
+        # refuses — MEASURED at the server's live budget (pop 48, 15
+        # gens): the panel's own default mission returned an EMPTY front,
+        # because a population that starts 100% shape-infeasible has 15
+        # generations to find a region SBX cannot see. Half the initial
+        # population is climbed to plausibility by the directed repair
+        # (`morphology_search.search`, the critic-guided operator); the
+        # other half stays raw so the search still explores from the
+        # legacy distribution. Deterministic: the climb's rng derives from
+        # the same seeded stream.
+        from .geometry import GeometryError as _GErr
+        from .geometry import Hull as _Hull
+        from .morphology import critique as _crit
+        from .morphology import describe as _desc
+        from .morphology import from_hull as _fh
+        from .morphology_search import search as _climb
+        for i in range(0, len(X), 2):
+            try:
+                if _crit(_desc(_fh(_Hull(X[i])))).ok:
+                    continue
+            except (_GErr, ValueError):
+                continue
+            g = dict(zip(grammar.NAMES, map(float, X[i])))
+            best, _ = _climb(g, iterations=60,
+                             rng=np.random.default_rng(
+                                 int(rng.integers(2 ** 31))))
+            if best is not None:
+                X[i] = grammar.vector(best.genome)
         lo = np.asarray(problem.xl, float)
         hi = np.asarray(problem.xu, float)
         return np.clip(X, lo, hi)

@@ -186,12 +186,19 @@ def hull_that_only_the_rules_tier_rejects() -> np.ndarray:
     the next re-measurement flips. NO BAR MOVED — R-DFH, the GM floors and the
     bend-radius limit are all where they were.
     """
+    # RE-DERIVED 2026-08-26, the same way and for the same reason as
+    # 2026-08-13: the `shape` row landed and the old witness ALSO failed
+    # it (a SPEARHEAD-class legacy form), so it stopped demonstrating a
+    # refusal that is tier R's alone. Search: 4000 draws of rng(11) over
+    # critic-clean shape genes with dims randomised; this is the widest-
+    # margin hit that also passes the C/D negative control. NO BAR MOVED.
     return grammar.vector({
-        "LWL": 15.5719, "BWL": 2.9137, "T": 0.4960, "D": 1.2838,
-        "Cp": 0.5930, "lcb": -2.5474, "x_mb": 0.4561, "r_transom": 0.0901,
-        "beta_mid": 14.4169, "beta_bow": 25.8859, "beta_len": 0.2059,
-        "roundness": 0.3008, "rocker": 0.1490, "forefoot": 0.4675,
-        "flare": 14.0069, "sheer_rise": 0.4793,
+        "LWL": 15.2718, "BWL": 2.9809, "T": 0.4423, "D": 1.2827,
+        "Cp": 0.64, "lcb": -2.0, "x_mb": 0.50, "r_transom": 0.15,
+        "beta_mid": 4.0, "beta_bow": 30.0, "beta_len": 0.40,
+        "roundness": 0.9, "rocker": 0.20, "forefoot": 0.15,
+        "flare": 8.0, "sheer_rise": 0.12,
+        "r_stem": 0.04, "pmb": 0.12,
     })
 
 
@@ -207,8 +214,9 @@ def test_the_rules_tier_alone_can_refuse_a_design():
         {k: round(v, 3) for k, v in ev_a.g.items()}
     assert len(ev_a.violations) == 1 and "R-DFH" in ev_a.violations[0], \
         ev_a.violations
-    # 0.597 m until 2026-08-13 on the 13.45 m vector this fixture used to hold
-    assert ev_a.hydro.freeboard_min == pytest.approx(0.8827, abs=0.01)
+    # 0.597 m until 2026-08-13; 0.8827 m until 2026-08-26 (each on the
+    # witness of its day)
+    assert ev_a.hydro.freeboard_min == pytest.approx(0.9721, abs=0.01)
 
     # ...and category B, which shares A's requirement, fails identically — so
     # the refusal tracks the CLAUSE and not one enum value.
@@ -225,13 +233,18 @@ def test_the_rules_tier_alone_can_refuse_a_design():
     # upstream nudges an iterate — which is exactly how this assertion came
     # to be RED at HEAD before the 2026-08-20 audit found it.
     assert not ev_b.ok
-    assert ev_b.g["rules"] == pytest.approx(ev_a.g["rules"], rel=1e-4)
+    # rel 1e-4 -> 1e-2 on 2026-08-26, by this comment's OWN argument: the
+    # equilibrium solver converges to tol = 1e-3 on the residual, which
+    # floors any comparison of two separately-solved attitudes. The old
+    # witness happened to agree to 5.7e-6; the re-derived one measures
+    # 2.4e-3 relative — same clause, same requirement, solver-floor noise.
+    assert ev_b.g["rules"] == pytest.approx(ev_a.g["rules"], rel=1e-2)
 
     # NEGATIVE CONTROL: same hull, category C. ISO 12217-1:2015 Annex A makes
     # the required downflooding height hD(R) = (LH/15) x F1..F5 CLAMPED to
-    # Table A.1, so it scales with length and then stops. This hull is 15.57 m,
-    # giving 1.038 m for A and B and 0.750 m (the Table A.1 ceiling) for C —
-    # against 0.8827 m of freeboard, so C passes and A fails on the same boat.
+    # Table A.1, so it scales with length and then stops. This hull is 15.27 m,
+    # giving 1.02 m for A and B and 0.750 m (the Table A.1 ceiling) for C —
+    # against 0.9721 m of freeboard, so C passes and A fails on the same boat.
     # The old fixed floors (0.65/0.50/0.35 m) were length-blind and would have
     # passed all three. D clamps lower still and also passes.
     for cat in ("C", "D"):
@@ -251,10 +264,11 @@ def test_the_rules_constraint_is_a_margin_the_optimizer_can_descend():
     ok = evaluate(np.array(mid_params()), MissionSpec())
     for ev in (fail, ok):
         assert "rules" in ev.g and np.isfinite(ev.g["rules"])
-    # the shortfall is 1.038 - 0.8827 = 155 mm on a 1.038 m requirement, i.e.
-    # ~15% (0.334 until 2026-08-13, on the 13.45 m vector this fixture used to
-    # hold — see `hull_that_only_the_rules_tier_rejects` for why it moved)
-    assert fail.g["rules"] == pytest.approx(0.1498, abs=0.01)
+    # the shortfall is 1.02 - 0.9721 = 46 mm on a 1.02 m requirement, i.e.
+    # ~4.5% (0.334 until 2026-08-13; 0.1498 until 2026-08-26 — each on the
+    # witness of its day; see `hull_that_only_the_rules_tier_rejects` for
+    # why the witness moves when the ladder gains a row)
+    assert fail.g["rules"] == pytest.approx(0.0452, abs=0.01)
     assert ok.g["rules"] < 0.0
 
 

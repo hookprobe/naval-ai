@@ -109,6 +109,28 @@ class FormCase:
         return grammar.named(self.params)
 
 
+def plausible_variant(case, **over):
+    """A case's dimensions/mission/family with critic-clean shape genes.
+
+    2026-08-26: the `shape` constraint row landed and refuses all six
+    canonical cases — they are SPEARHEAD-flagged legacy forms, measured
+    the day the row landed — and certification stops at
+    evaluation_ok False, so anything about LATER stages needs a hull that
+    reaches them. The gene set is the hull-kb cruiser's tuned family
+    (critique margin -0.22 on case-b's dims, measured before pinning).
+    Upgrading the canonical cases themselves is tracked follow-up work;
+    THIS is the one home of the variant so the certification, fidelity
+    and vessel-matrix tests cannot drift apart.
+    """
+    g = grammar.named(case.params)
+    g.update(dict(Cp=0.64, x_mb=0.50, r_transom=0.15, rocker=0.20,
+                  pmb=0.12, r_stem=0.04, roundness=0.9, beta_mid=4.0,
+                  beta_bow=30.0, beta_len=0.40, forefoot=0.15,
+                  flare=8.0, sheer_rise=0.12, lcb=-2.0))
+    g.update(over)
+    return np.array(grammar.vector(g))
+
+
 def _cases() -> tuple[FormCase, ...]:
     # Every Cp gene below is centred on `limits.prismatic_target` at the
     # mission's design Froude number (R1.1's form-follows-function rule,

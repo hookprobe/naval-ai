@@ -204,7 +204,14 @@ TYPOLOGY_RULES: dict[Typology, dict] = {
         "beta_bow_min": 12.0,       # warped bottom forward for wave entry
     },
     Typology.PRAM: {
-        "Cp": (0.600, 0.710),       # full bow
+        # Cp ceiling 0.710 -> 0.92 on 2026-08-27: the old value was the
+        # PRE-DECOUPLING Cp gene ceiling (the span of the Froude target
+        # table), inherited silently. A pram is THE full form — the
+        # re-proven kit reference dory (certifiable, kit-buildable,
+        # critic-clean) sits at Cp 0.72 and was refused by this band by
+        # 0.01, which put the typology in contradiction with the
+        # Kit-Line's own existence proof.
+        "Cp": (0.600, 0.92),        # full bow
         "roundness": Pin(0.0, _SHEET),   # SET, not banded — see `Pin`
         "forefoot": (0.0, 0.25),    # near-flat profile forward
         "rocker": (0.0, 0.35),

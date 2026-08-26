@@ -159,7 +159,16 @@ def test_the_four_canonical_classes_certify_end_to_end_S31():
             ev = evaluate(case.params, case.mission)
             man = manifest_from_evaluation(ev, case.mission)
             assert man.mass_kg == ev.masses.total_kg, case.key
-    # at least one class must remain CFD-worthy end-to-end, or the funnel
-    # is closed and every campaign starves at the gate
-    assert any(v in ("ACCEPT", "MARGINAL") for v in verdicts.values()), (
-        f"no canonical class certifies: {verdicts}")
+    # at least one hull must remain CFD-worthy end-to-end, or the funnel
+    # is closed and every campaign starves at the gate. 2026-08-26: the
+    # canonical fleet is SPEARHEAD-refused by the `shape` row (all six are
+    # legacy forms — measured the day the row landed; upgrading them is
+    # tracked work), so the open-funnel witness is the plausible variant
+    # of case b, from the ONE home in formcheck.
+    from navalai.certify import certify as _certify
+    from navalai.formcheck import plausible_variant
+    b = CASES["b"]
+    cert_b = _certify(plausible_variant(b), b.mission, with_gz=False)
+    assert cert_b.verdict in ("ACCEPT", "MARGINAL"), (
+        f"the funnel is closed: even the plausible cruiser reads "
+        f"{cert_b.verdict}; canonical fleet read {verdicts}")

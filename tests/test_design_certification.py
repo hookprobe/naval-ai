@@ -8,7 +8,7 @@ never fabricate what the tree cannot answer.
 import numpy as np
 import pytest
 
-from navalai import formcheck
+from navalai import formcheck, grammar
 from navalai.certify import (REGIME_AUTONOMOUS_SLOW_CRUISE, REGIME_PLANING,
                              REGIME_SEMI_DISPLACEMENT, certify,
                              mission_regime, speed_curve)
@@ -17,6 +17,9 @@ from navalai.mission import Manning, MissionSpec, VesselConfig
 from navalai.reference import reference_params
 
 CASES = {c.key: c for c in formcheck.CASES}
+
+
+from navalai.formcheck import plausible_variant  # noqa: E402  (one home)
 
 
 @pytest.fixture(scope="module")
@@ -56,24 +59,25 @@ def test_a_refusal_NAMES_its_defect_and_the_LADDER_now_passes(ref_cert):
     — that a refusal NAMES its defect rather than reporting a bare fail — but
     on the reason the boat actually has.
     """
-    assert ref_cert.evaluation_ok is True, (
-        "the LADDER refuses the reference hull again; the laminate floor may "
-        f"have moved: {ref_cert.reasons}")
-    # AND IT CERTIFIES NOW (2026-08-21). The PEOPLE_FORWARD refusal recorded
-    # above was the design TRIM bar being applied to a crowd state --
-    # `limits.TRIM_LIMIT_DEG` defines itself as "no crew movement" -- and it
-    # is reported rather than gated since that was found. The reference hull
-    # comes back MARGINAL, so this fixture is no longer a refusal example at
-    # all and the naming assertion moves to a hull that genuinely fails.
-    assert ref_cert.verdict == "MARGINAL", ref_cert.reasons
-    assert all(st.get("seaworthy") is not False
-               for st in ref_cert.loading.values() if isinstance(st, dict))
-    # the trim that used to refuse it is still measured and still visible
-    assert ref_cert.loading["PEOPLE_FORWARD"].get(
-        "trim_deg_vs_design_bar") is not None
-    # the bend radius is no longer the binding constraint either
+    # THE THIRD LAYER OF THE SAME STORY (2026-08-26). The laminate fix made
+    # the ladder pass (2026-08-20); the crowd-trim reporting made it
+    # MARGINAL (2026-08-21); and the `shape` row now refuses it AGAIN — on
+    # the defect the reference hull has carried all along: it IS the
+    # recorded SPEARHEAD specimen (beam_carried 0.122 vs the 0.200 corpus
+    # bar; `tests/test_morphology.py` uses this very genome as the
+    # spearhead exemplar). Each fix has made an older, truer defect
+    # visible, which is this test's whole thesis — a refusal NAMES its
+    # defect, and the name is now the right one.
+    assert ref_cert.evaluation_ok is False
+    assert ref_cert.verdict == "REFUSE", ref_cert.reasons
+    assert any("shape" in r and "SPEARHEAD" in r for r in ref_cert.reasons), (
+        f"the shape refusal must NAME the pathology: {ref_cert.reasons}")
+    # the two previously-fixed layers must not have regressed underneath:
     assert not any("bend radius" in r for r in ref_cert.reasons), (
         "the cold-bend refusal returned; laminate_plan may have regressed")
+    assert not any("PEOPLE_FORWARD" in r for r in ref_cert.reasons), (
+        "the crowd-trim gating returned; the 2026-08-21 report-not-gate "
+        "fix may have regressed")
 
     # ...and the naming machinery is exercised on a hull that DOES fail, so
     # this test still proves what its name says
@@ -88,16 +92,15 @@ def test_a_refusal_NAMES_its_defect_and_the_LADDER_now_passes(ref_cert):
     if bad.verdict == "REFUSE":
         assert bad.reasons, "a REFUSE with no reason is a bare fail"
         assert all(len(r) > 10 for r in bad.reasons), bad.reasons
-    # AND A FINDING THIS TEST NOW SURFACES: `cfd_candidate["eligible"]` is
-    # TRUE on a certification whose verdict is REFUSE. It tracks the LADDER,
-    # which passes, and does not consult the loading states that refused the
-    # boat — so the system would spend a CFD budget on a design it has just
-    # declined. Pinned as the CURRENT behaviour, not endorsed: it was
-    # invisible while the ladder refused this hull outright, and it is
-    # recorded in docs/audit/STATUS.md for its owner.
-    assert ref_cert.cfd_candidate["eligible"] is True, (
-        "eligibility changed; if it now consults the loading states this "
-        "assertion should become `is False` and the STATUS note retired")
+    # ELIGIBILITY NOW TRACKS A REFUSING LADDER (2026-08-26): with the
+    # `shape` row refusing this fixture at evaluate, eligibility follows —
+    # no CFD budget for a hull the ladder itself declines. The STATUS note
+    # about eligibility ignoring LOADING-STATE refusals is NOT retired by
+    # this: that gap still exists for hulls refused only by the loading
+    # floors (the plausible case-c variant in the R23 test is one), and it
+    # stays recorded for its owner.
+    assert ref_cert.cfd_candidate["eligible"] is False, (
+        "a REFUSED hull became CFD-eligible again")
 
 
 def test_every_quantity_carries_its_receipt(ref_cert):
@@ -288,7 +291,7 @@ def test_a_round_bilge_hull_can_be_cfd_worthy_C19():
     bilge target class structurally un-selectable. The refusal is now a
     MISSING metric with a note; eligibility is physics + validity."""
     case = CASES["b"]                     # 15 m round-bilge cruiser
-    cert = certify(case.params, case.mission, with_gz=False)
+    cert = certify(plausible_variant(case), case.mission, with_gz=False)
     assert "refused" in cert.buildability
     assert "NOT a physics verdict" in cert.buildability["note"]
     assert cert.cfd_candidate["eligible"] is True
@@ -338,9 +341,20 @@ def test_loading_states_gate_the_verdict_on_seaworthiness_floors_R23():
     # the defect. The trim value is now REPORTED on loaded states and no
     # longer gates them (navalai/certify.py), and case b certifies again --
     # which is what this test said in the first place.
+    # PLAUSIBLE VARIANTS OF THE CASES (2026-08-26). The `shape` row now
+    # refuses the canonical fixtures — they are SPEARHEAD-flagged legacy
+    # forms, all six of them, measured the day the row landed — and
+    # certification stops at evaluation_ok False, so the loading-state
+    # subject of THIS test became unreachable on them. These variants keep
+    # each case's dimensions, mission and family and change only the shape
+    # genes to critic-clean values (case-b: critique margin -0.22,
+    # MARGINAL; case-c: critique clean as a demihull, REFUSED on the
+    # loading floors — both measured before pinning). Upgrading the
+    # canonical cases themselves is tracked work; the loading-state story
+    # this test protects is unchanged.
     b = CASES["b"]
     assert b.mission.crew == 6, "fixture changed; re-measure the provision"
-    cert_b = certify(b.params, b.mission, with_gz=False)
+    cert_b = certify(plausible_variant(b), b.mission, with_gz=False)
     assert cert_b.verdict == "MARGINAL"
     assert cert_b.evaluation_ok is True, cert_b.reasons
     assert all(st.get("seaworthy") is not False
@@ -353,7 +367,9 @@ def test_loading_states_gate_the_verdict_on_seaworthiness_floors_R23():
         "even though it no longer gates")
 
     c = CASES["c"]
-    cert_c = certify(c.params, c.mission, with_gz=False)
+    cert_c = certify(plausible_variant(c, Cp=0.60, pmb=0.15, x_mb=0.45,
+                                       rocker=0.10),
+                     c.mission, with_gz=False)
     assert cert_c.verdict == "REFUSE"
     aft = cert_c.loading["PEOPLE_AFT"]
     assert aft["seaworthy"] is False
