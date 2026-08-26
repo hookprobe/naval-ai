@@ -12,14 +12,87 @@ from dataclasses import dataclass
 import numpy as np
 from pymoo.algorithms.moo.nsga2 import NSGA2
 from pymoo.core.problem import Problem
+from pymoo.core.repair import Repair
+from pymoo.core.sampling import Sampling
 from pymoo.optimize import minimize
 from pymoo.termination import get_termination
 
 from . import grammar
 from .energy import shell_area_m2
 from .evaluate import CONSTRAINT_NAMES, INFEASIBLE_G, evaluate
-from .geometry import Hull
+from .geometry import GeometryError, Hull, cp_band, lcb_band
 from .limits import GM_OVER_BEAM_MAX, gm_floor
+
+
+class _DrawBoxSampling(Sampling):
+    """Initialise inside the FROZEN DRAW box, not the full legal envelope.
+
+    2026-08-26: the legal envelope widened (Cp to 0.95, r_transom to 0.92,
+    beta_mid to 38 deg) and pymoo's default FloatRandomSampling over it
+    left pop-48 populations with ~0 feasible members — the front came back
+    EMPTY for the panel's own default brief. The DRAW box is the measured-
+    feasible region every seeded stream samples; starting there and letting
+    crossover/mutation walk outward (the repair below keeps the walk
+    consistent) searches the widened envelope without starting lost in it.
+    """
+
+    def _do(self, problem, n_samples, **kwargs):
+        # FEASIBLE initialisation via the grammar's own rejection sampler:
+        # a uniform draw — even inside the DRAW box — is only a few percent
+        # L0-valid, and at pop 16 that leaves 0-1 feasible members and a
+        # front that sometimes comes back empty (measured, order-flaky).
+        # Determinism: THIS pymoo threads a PRIVATE `random_state` through
+        # operators (Algorithm.setup: `self.random_state =
+        # np.random.default_rng(self.seed)`) — global np.random is never
+        # reseeded, and drawing from it made two identically-seeded fronts
+        # differ (measured, (8,23) vs (4,23) back to back). Derive the
+        # sampler's Generator from the passed random_state.
+        rs = kwargs.get("random_state")
+        seed_int = (int(rs.integers(2 ** 31)) if rs is not None
+                    else np.random.randint(2 ** 31))
+        X = grammar.sample(n_samples, np.random.default_rng(seed_int))
+        lo = np.asarray(problem.xl, float)
+        hi = np.asarray(problem.xu, float)
+        return np.clip(X, lo, hi)
+
+
+class _SacConsistencyRepair(Repair):
+    """Project (Cp, lcb) into the band the fullness genes can DELIVER.
+
+    The corrected sac solve (audit finding D.4) refuses a (Cp, pmb, r_stem)
+    request the family cannot reach — honest at L0, wasteful in a search:
+    an SBX/PM offspring that moves pmb without moving Cp is dead on
+    arrival. This is the same projection `morphology_search._clip` applies,
+    for the same reason a designer re-fairs Cp/LCB after moving fullness.
+    """
+
+    def _do(self, problem, X, **kwargs):
+        X = np.atleast_2d(np.asarray(X, float))
+        iC = grammar.NAMES.index("Cp")
+        iL = grammar.NAMES.index("lcb")
+        g = {n: grammar.NAMES.index(n)
+             for n in ("LWL", "x_mb", "r_transom", "r_stem", "pmb")}
+        lo, hi = np.asarray(problem.xl, float), np.asarray(problem.xu, float)
+        for row in X:
+            try:
+                b_lo, b_hi = cp_band(row[g["LWL"]], row[g["x_mb"]],
+                                     row[g["r_transom"]], row[g["r_stem"]],
+                                     row[g["pmb"]])
+            except (GeometryError, ValueError):
+                continue
+            eps = 1e-3 * max(b_hi - b_lo, 1e-6)
+            row[iC] = min(min(b_hi - eps, hi[iC]),
+                          max(max(b_lo + eps, lo[iC]), row[iC]))
+            try:
+                l_lo, l_hi = lcb_band(row[g["LWL"]], row[g["x_mb"]],
+                                      row[g["r_transom"]], row[iC],
+                                      row[g["r_stem"]], row[g["pmb"]])
+            except (GeometryError, ValueError):
+                continue
+            eps = 1e-2 * max(l_hi - l_lo, 1e-6)
+            row[iL] = min(min(l_hi - eps, hi[iL]),
+                          max(max(l_lo + eps, lo[iL]), row[iL]))
+        return X
 from .mission import MissionSpec, mission_cp_band
 
 
@@ -255,7 +328,8 @@ def pareto_front(mission: MissionSpec, pop: int = 40, gens: int = 30,
     ladder evaluation the search makes is recorded to it (R0.2f). See
     `HullProblem.__init__`."""
     problem = HullProblem(mission, policy=policy, provenance=provenance)
-    algo = NSGA2(pop_size=pop)
+    algo = NSGA2(pop_size=pop, sampling=_DrawBoxSampling(),
+                 repair=_SacConsistencyRepair())
     res = minimize(problem, algo, get_termination("n_gen", gens), seed=seed,
                    verbose=False)
     X, F = _front(res, problem.n_var)

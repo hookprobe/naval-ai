@@ -79,6 +79,16 @@ from .constants import RHO_FRESH as RHO_WATER
 SAC_P_MAX = 8.0
 SAC_P_MIN = 2.0 - SAC_P_MAX
 
+#: Closure cap on the flare slope forward of the max-area station: f is
+#: allowed at most this fraction of A / d^2, so the section quadratic's
+#: rhs = A - d^2 f keeps at least (1 - frac) * A of margin and yc stays
+#: strictly positive wherever the section carries any area at all. This is a
+#: kernel numerical guard, not a design limit — the DESIGN flare law is
+#: `flare`/`flare_bow`/`flare_len`, and this cap binds only where sections
+#: vanish (audit 2026-08-26, finding D.3: the old area-curve multiplier
+#: made `flare_bow` a no-op at the stem).
+_FLARE_CLOSURE_FRAC = 0.75
+
 # Points sampled along each half of the section by `Hull.section` when
 # `roundness > 0`.
 #
@@ -192,29 +202,61 @@ def _shape_moments(p: float) -> tuple[float, float]:
     return q / (q + 1.0), 0.5 - 1.0 / ((q + 1.0) * (q + 2.0))
 
 
-def _sac_terms(L: float, xm: float, R: float, pf: float, pa: float):
-    """Closed-form 0th and 1st moments of a(x).
+def _pmb_span(L: float, xm: float, pmb: float) -> tuple[float, float]:
+    """(x0, x1) of the parallel-midbody flat span, clipped to leave a real
+    entrance and a real run. THE ONE HOME of the clip — `sac_ordinate` and
+    `_sac_terms` must agree on the span or the solve inverts a different
+    curve than the kernel draws, which is exactly the defect this helper
+    closes (audit 2026-08-26, finding D.4)."""
+    half = 0.5 * float(pmb) * L
+    half = min(half, 0.98 * xm, 0.98 * (L - xm))
+    return xm - half, xm + half
 
-    a(x) = R + (1-R) h(x/xm; pa)               for x <  xm
-    a(x) = 1 - h((x-xm)/(L-xm); pf)            for x >= xm
+
+def _sac_terms(L: float, xm: float, R: float, pf: float, pa: float,
+               S_stem: float = 0.0, pmb: float = 0.0):
+    """Closed-form 0th and 1st moments of the ACTUAL a(x) family.
+
+    a(x) = R + (1-R) h(x/x0; pa)                     for x <= x0
+    a(x) = 1                                         for x0 < x < x1
+    a(x) = 1 - (1-S_stem) h((x-x1)/(L-x1); pf)       for x >= x1
+
+    with (x0, x1) = `_pmb_span(L, xm, pmb)`. At S_stem = 0 and pmb = 0 this
+    reduces EXACTLY to the two-branch expression that stood here before —
+    x0 == x1 == xm, zero-width flat span — so all-defaults hulls are
+    bit-identical.
+
+    INCIDENT (MEASURED 2026-08-26, audit finding D.4). Until this change the
+    moments here modelled the OLD two-branch curve while `sac_ordinate` drew
+    the three-piece one, so the solve inverted the wrong family: pmb = 0.3
+    alone inflated delivered Cp from the 0.600 the gene asked to 0.720, and
+    r_stem = 0.2 alone pushed delivered LCB +2.14 %LWL — 71% of the ±3 %LWL
+    gate band — so the `lcb` row PUNISHED the anti-spearhead gene and the
+    search had a gradient back toward the pointed bow it exists to prevent.
 
     S = int a dx and M = int x a dx, both exact. Cp = S / L and the
     longitudinal centre of buoyancy is M / S, so the two design targets are
     two equations in (pf, pa) — which is the whole point of writing them in
     closed form: the solve below is cheap enough to sit inside `grammar.check`.
     """
-    lf = L - xm
+    x0, x1 = _pmb_span(L, xm, pmb)
+    lf = L - x1
+    ks = 1.0 - float(S_stem)
     h1a, h2a = _shape_moments(pa)
     h1f, h2f = _shape_moments(pf)
-    S = xm * (R + (1.0 - R) * h1a) + lf * (1.0 - h1f)
-    M = (xm * xm * (0.5 * R + (1.0 - R) * h2a)
-         + lf * (xm * (1.0 - h1f) + lf * (0.5 - h2f)))
+    S = (x0 * (R + (1.0 - R) * h1a)
+         + (x1 - x0)
+         + lf * (1.0 - ks * h1f))
+    M = (x0 * x0 * (0.5 * R + (1.0 - R) * h2a)
+         + 0.5 * (x1 * x1 - x0 * x0)
+         + lf * (x1 * (1.0 - ks * h1f) + lf * (0.5 - ks * h2f)))
     return S, M
 
 
 @lru_cache(maxsize=8192)
 def sac_exponents(lwl: float, x_mb: float, r_transom: float,
-                  cp: float, lcb_pct: float) -> tuple[float, float]:
+                  cp: float, lcb_pct: float,
+                  r_stem: float = 0.0, pmb: float = 0.0) -> tuple[float, float]:
     """Solve the SAC shape exponents (pf, pa) for a target (Cp, LCB).
 
     Returns (pf, pa). Raises `GeometryError` when the target lies outside what
@@ -243,7 +285,8 @@ def sac_exponents(lwl: float, x_mb: float, r_transom: float,
     `_require_finite`.
     """
     for _nm, _v in (("LWL", lwl), ("x_mb", x_mb), ("r_transom", r_transom),
-                    ("Cp", cp), ("lcb", lcb_pct)):
+                    ("Cp", cp), ("lcb", lcb_pct),
+                    ("r_stem", r_stem), ("pmb", pmb)):
         if not math.isfinite(float(_v)):
             raise GeometryError(
                 f"finite: NaN/inf in parameter vector — {_nm} is {float(_v)}")
@@ -252,14 +295,25 @@ def sac_exponents(lwl: float, x_mb: float, r_transom: float,
     R = float(r_transom)
     S_t = float(cp) * L
     x_t = L * (0.5 + float(lcb_pct) / 100.0)
+    Sm = float(r_stem)
+    pm = float(pmb)
 
     def S_of(pf: float, pa: float) -> float:
-        return _sac_terms(L, xm, R, pf, pa)[0]
+        return _sac_terms(L, xm, R, pf, pa, Sm, pm)[0]
 
     def pf_for(pa: float) -> float | None:
         lo, hi = SAC_P_MIN, SAC_P_MAX
-        if not (S_of(lo, pa) <= S_t <= S_of(hi, pa)):
-            return None
+        s_lo, s_hi = S_of(lo, pa), S_of(hi, pa)
+        if not (s_lo <= S_t <= s_hi):
+            # A target a float-width outside the bracket is AT the
+            # endpoint, not out of band — measured 2026-08-26 at Cp 0.878
+            # on the reference demihull: the outer bisection converged to
+            # a pa whose inner bracket missed S_t by ~1e-12 and the solve
+            # reported "lost its bracket" for a deliverable target.
+            tol = 1e-9 * max(1.0, abs(S_t))
+            if S_t < s_lo - tol or S_t > s_hi + tol:
+                return None
+            return lo if S_t <= s_lo else hi
         for _ in range(60):
             mid = 0.5 * (lo + hi)
             if S_of(mid, pa) < S_t:
@@ -284,9 +338,11 @@ def sac_exponents(lwl: float, x_mb: float, r_transom: float,
     ok_lo = S_of(SAC_P_MIN, SAC_P_MIN) <= S_t
     ok_hi = S_of(SAC_P_MAX, SAC_P_MIN) >= S_t
     if S_of(SAC_P_MIN, SAC_P_MAX) > S_t or S_of(SAC_P_MAX, SAC_P_MIN) < S_t:
+        _extra = (f", r_stem {r_stem:.3f}, pmb {pmb:.3f}"
+                  if (r_stem or pmb) else "")
         raise GeometryError(
             f"sac: Cp {cp:.4f} unreachable at x_mb {x_mb:.3f}, "
-            f"r_transom {r_transom:.3f} with exponents in "
+            f"r_transom {r_transom:.3f}{_extra} with exponents in "
             f"[{SAC_P_MIN}, {SAC_P_MAX}]")
     pa_lo = SAC_P_MIN if ok_lo else _edge(False, lambda p: S_of(SAC_P_MIN, p) <= S_t)
     pa_hi = SAC_P_MAX if ok_hi else _edge(True, lambda p: S_of(SAC_P_MAX, p) >= S_t)
@@ -297,7 +353,7 @@ def sac_exponents(lwl: float, x_mb: float, r_transom: float,
         pf = pf_for(pa)
         if pf is None:                       # numerical edge of the interval
             pf = SAC_P_MIN if pa < 0.5 * (pa_lo + pa_hi) else SAC_P_MAX
-        S, M = _sac_terms(L, xm, R, pf, pa)
+        S, M = _sac_terms(L, xm, R, pf, pa, Sm, pm)
         return M - x_t * S
 
     r_lo, r_hi = lcb_res(pa_lo), lcb_res(pa_hi)
@@ -320,13 +376,110 @@ def sac_exponents(lwl: float, x_mb: float, r_transom: float,
     return float(pf), float(pa)
 
 
+def cp_band(lwl: float, x_mb: float, r_transom: float,
+            r_stem: float = 0.0, pmb: float = 0.0) -> tuple[float, float]:
+    """The (min, max) prismatic coefficient the SAC family can DELIVER for
+    these fullness genes, closed form — `_sac_terms` at the exponent corners.
+
+    Exists because the corrected solve (audit 2026-08-26, D.4) refuses a
+    (Cp, pmb, r_stem) request the family cannot reach, which is honest but
+    makes a UNIFORM draw over the gene box waste most of its draws on
+    contradictions: pmb 0.45 alone puts a floor near Cp 0.60. A sampler (or
+    a test) that wants a consistent target draws the fullness genes first
+    and then draws Cp INSIDE this band.
+    """
+    L = float(lwl)
+    xm = float(x_mb) * L
+    lo = _sac_terms(L, xm, float(r_transom), SAC_P_MIN, SAC_P_MAX,
+                    float(r_stem), float(pmb))[0] / L
+    hi = _sac_terms(L, xm, float(r_transom), SAC_P_MAX, SAC_P_MIN,
+                    float(r_stem), float(pmb))[0] / L
+    return lo, hi
+
+
+def lcb_band(lwl: float, x_mb: float, r_transom: float, cp: float,
+             r_stem: float = 0.0, pmb: float = 0.0) -> tuple[float, float]:
+    """The (min, max) LCB in %LWL the family can DELIVER at this Cp.
+
+    The companion of `cp_band`, for the same reason: with the corrected
+    solve, big fullness genes shrink the reachable LCB interval (measured
+    2026-08-26: x_mb 0.48, pmb 0.45, r_transom 0.40 at Cp 0.69 delivers
+    only [-8.2, -2.4] %LWL), and a sampler that draws lcb blind wastes its
+    draws on sac.target refusals. Raises GeometryError when Cp itself is
+    out of band. Cost: two bracketed bisections, same as one
+    `sac_exponents` call, memoised the same way.
+    """
+    L = float(lwl)
+    xm = float(x_mb) * L
+    R = float(r_transom)
+    S_t = float(cp) * L
+    Sm, pm = float(r_stem), float(pmb)
+
+    def S_of(pf: float, pa: float) -> float:
+        return _sac_terms(L, xm, R, pf, pa, Sm, pm)[0]
+
+    if S_of(SAC_P_MIN, SAC_P_MAX) > S_t or S_of(SAC_P_MAX, SAC_P_MIN) < S_t:
+        raise GeometryError(
+            f"sac: Cp {cp:.4f} outside cp_band for these fullness genes")
+
+    def pf_for(pa: float) -> float | None:
+        lo, hi = SAC_P_MIN, SAC_P_MAX
+        s_lo, s_hi = S_of(lo, pa), S_of(hi, pa)
+        if not (s_lo <= S_t <= s_hi):
+            # A target a float-width outside the bracket is AT the
+            # endpoint, not out of band — measured 2026-08-26 at Cp 0.878
+            # on the reference demihull: the outer bisection converged to
+            # a pa whose inner bracket missed S_t by ~1e-12 and the solve
+            # reported "lost its bracket" for a deliverable target.
+            tol = 1e-9 * max(1.0, abs(S_t))
+            if S_t < s_lo - tol or S_t > s_hi + tol:
+                return None
+            return lo if S_t <= s_lo else hi
+        for _ in range(60):
+            mid = 0.5 * (lo + hi)
+            if S_of(mid, pa) < S_t:
+                lo = mid
+            else:
+                hi = mid
+        return 0.5 * (lo + hi)
+
+    def _edge(feasible_at_low: bool, test) -> float:
+        lo, hi = SAC_P_MIN, SAC_P_MAX
+        for _ in range(60):
+            mid = 0.5 * (lo + hi)
+            if test(mid) == feasible_at_low:
+                lo = mid
+            else:
+                hi = mid
+        return 0.5 * (lo + hi)
+
+    ok_lo = S_of(SAC_P_MIN, SAC_P_MIN) <= S_t
+    ok_hi = S_of(SAC_P_MAX, SAC_P_MIN) >= S_t
+    pa_lo = SAC_P_MIN if ok_lo else _edge(
+        False, lambda p: S_of(SAC_P_MIN, p) <= S_t)
+    pa_hi = SAC_P_MAX if ok_hi else _edge(
+        True, lambda p: S_of(SAC_P_MAX, p) >= S_t)
+
+    def lcb_at(pa: float) -> float:
+        pf = pf_for(pa)
+        if pf is None:
+            pf = SAC_P_MIN if pa < 0.5 * (pa_lo + pa_hi) else SAC_P_MAX
+        S, M = _sac_terms(L, xm, R, pf, pa, Sm, pm)
+        return 100.0 * (M / max(S, 1e-12) - 0.5 * L) / L
+
+    lo_v, hi_v = lcb_at(pa_lo), lcb_at(pa_hi)
+    return (min(lo_v, hi_v), max(lo_v, hi_v))
+
+
 def sac_ordinate(params: np.ndarray, x: np.ndarray) -> np.ndarray:
     """a(x) in [0, 1]: sectional area / maximum sectional area."""
     p = grammar.named(params)
     L, xm = p["LWL"], p["x_mb"] * p["LWL"]
     R = p["r_transom"]
     pf, pa = sac_exponents(p["LWL"], p["x_mb"], p["r_transom"],
-                           p["Cp"], p["lcb"])
+                           p["Cp"], p["lcb"],
+                           float(p.get("r_stem", 0.0)),
+                           float(p.get("pmb", 0.0)))
     x = np.asarray(x, dtype=float)
     a = np.empty_like(x)
     # `r_stem` is the exact mirror of `r_transom`: a FLOOR on sectional area at
@@ -342,13 +495,9 @@ def sac_ordinate(params: np.ndarray, x: np.ndarray) -> np.ndarray:
     # of full area centred on `xm`; each branch then falls away from the END of
     # that span rather than from its centre. At pmb = 0 the span has zero width
     # and x0 == x1 == xm, which restores the previous expression exactly.
-    _pmb = float(p.get("pmb", 0.0))
-    half = 0.5 * _pmb * L
-    # The flat top must leave a real entrance and a real run on both sides, so
-    # it is clipped to the room actually available rather than allowed to run
-    # off either end (which would divide by zero in the branch maps below).
-    half = min(half, 0.98 * xm, 0.98 * (L - xm))
-    x0, x1 = xm - half, xm + half
+    # The span comes from `_pmb_span` — the ONE home of the clip, shared with
+    # `_sac_terms` so the solve inverts the same curve this function draws.
+    x0, x1 = _pmb_span(L, xm, float(p.get("pmb", 0.0)))
     a = np.ones_like(x)
     fwd = x >= x1
     a[fwd] = S + (1.0 - S) * (1.0 - _shape((x[fwd] - x1) / (L - x1), pf))
@@ -495,13 +644,10 @@ def _stations(params: np.ndarray, x: np.ndarray) -> dict:
     # declared twice.
     a = sac_ordinate(params, x)
     xm_val = p["x_mb"] * L
-    env = np.where(x <= xm_val, 1.0, np.maximum(a, 0.0))
     # FLARE THAT VARIES ALONG THE LENGTH. `formlib` records this as the single
     # blocker that made `axe_bow` and `wave_piercing_monohull` Expressible.NO:
     # "flare that varies along the length: `flare` is one scalar applied at
-    # every station". The `env` above tapers flare forward in proportion to the
-    # AREA curve, which is not the same thing — an axe bow needs the flare to
-    # vanish INDEPENDENTLY of how much area the section carries.
+    # every station".
     #
     # Baltic Workboats state the mechanism plainly: "when the bow becomes
     # submerged, the top surface of the bow creates increased downforce, which
@@ -519,16 +665,29 @@ def _stations(params: np.ndarray, x: np.ndarray) -> dict:
         frac = (x[wz] - w0) / (fl_len * L)
         flare_deg[wz] += (float(p.get("flare_bow", p["flare"]))
                           - float(p["flare"])) * frac ** 2
-    f = np.tan(np.radians(flare_deg)) * env
-    K = 1.0 - m * f
+    f_law = np.tan(np.radians(flare_deg))
 
     # A_mid from the DESIGN WATERLINE BEAM. `BWL` is the half-breadth of the
     # section at z = 0 at the max-area station, doubled — which is what the
     # symbol has always claimed and, until this commit, was not: it used to
     # scale the CHINE plan-form and the waterline came out wherever the flare
-    # put it.
+    # put it. Computed BEFORE the flare closure cap below, which needs A.
     xm = np.array([xm_val])
-    f_mid = math.tan(math.radians(p["flare"]))   # env == 1 at the max-area station
+    # f_mid is the flare LAW at the max-area station — not the bare `flare`
+    # gene. They differ when the flare warp reaches x_mb, which the gene box
+    # permits with zero margin (flare_len ceiling 0.6 == 1 - x_mb floor
+    # 0.40); reading the gene here silently broke "BWL = max beam" at that
+    # edge (audit 2026-08-26, _stations finding b).
+    _i_mid = int(np.searchsorted(x, xm_val))
+    if 0 <= _i_mid < len(flare_deg) and abs(x[_i_mid] - xm_val) < 1e-9:
+        _fl_mid_deg = float(flare_deg[_i_mid])
+    else:
+        _fl_mid_deg = float(p["flare"])
+        if fl_len > 0.0 and xm_val > L - fl_len * L:
+            _fr = (xm_val - (L - fl_len * L)) / (fl_len * L)
+            _fl_mid_deg += (float(p.get("flare_bow", p["flare"]))
+                            - float(p["flare"])) * _fr ** 2
+    f_mid = math.tan(math.radians(_fl_mid_deg))
     m_mid = float(np.tan(_deadrise(p, xm))[0])
     d_mid = float(-_keel(p, xm)[0])          # == T; x_mb is inside the flat run
     K_mid = 1.0 - m_mid * f_mid
@@ -541,6 +700,34 @@ def _stations(params: np.ndarray, x: np.ndarray) -> dict:
              + d_mid ** 2 * f_mid)
     if not (A_mid > 0.0):
         raise GeometryError("section: non-positive maximum sectional area")
+
+    # THE FLARE ENVELOPE — kept AREA-TAPERED, by measurement, not by taste.
+    # Audit finding D.3 (2026-08-26) called the `* env` a defect: it makes
+    # `flare_bow` a no-op at the stem when r_stem = 0. FULL decoupling was
+    # implemented the same day (f = the designed law, capped only for
+    # closure) and MEASURED to collapse plan convexity from a ~0.5 median
+    # to ~0.32 on the reference hull, the hull-kb cruiser and random draws
+    # alike: y_wl = K*yc + d*f, so at constant f the KEEL PROFILE's
+    # quadratic (forefoot/rocker) leaks into the waterline plan over the
+    # whole entrance, where the old a(x) taper had been accidentally
+    # FAIRING it. The real repair is an independent design-waterline curve
+    # B(x) solved jointly with the SAC (the audit's research answer — the
+    # three-coupled-curves practice), which makes flare a derived
+    # per-station quantity; until that lands, the taper stays and
+    # `flare_bow` is effective SCALED BY a(x) — real wherever r_stem > 0,
+    # and moot at r_stem = 0 where the stem is a point with nothing to
+    # flare. The closure cap below is new and stays: it bounds |f| by the
+    # area actually available so the section quadratic keeps margin in
+    # both signs (tumblehome cannot ask the sheer past the centreline).
+    env = np.where(x <= xm_val, 1.0, np.maximum(a, 0.0))
+    with np.errstate(divide="ignore", invalid="ignore"):
+        f_cap = np.where(
+            x > xm_val,
+            _FLARE_CLOSURE_FRAC * (A_mid * np.maximum(a, 0.0))
+            / np.maximum(d, 1e-9) ** 2,
+            np.inf)
+    f = np.clip(f_law * env, -f_cap, f_cap)
+    K = 1.0 - m * f
 
     A = A_mid * a
 

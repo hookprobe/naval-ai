@@ -986,7 +986,12 @@ FAMILIES: tuple[FormFamily, ...] = (
                            "grammar.L_OVER_B_BAND, the band the L0 gate "
                            "actually enforces"),
             "b_over_t": _b(1.8, 12.0, Basis.MEASURED, "grammar.B_OVER_T_BAND"),
-            "deadrise_deg": _b(0.0, 25.0, Basis.MEASURED,
+            # 25.0 -> 38.0 on 2026-08-26, WITH the grammar bound it cites:
+            # the beta_mid ceiling widened to admit the published deep-V
+            # canon (Keuning 1993 at 30 deg, Naples NSS to 37.4).
+            # tests/test_formlib.py::test_the_deadrise_bound_is_not_declared_twice
+            # is the fence that caught this copy the same day.
+            "deadrise_deg": _b(0.0, 38.0, Basis.MEASURED,
                                "grammar.PARAMS beta_mid bounds"),
             "cp": _b(0.55, 0.70, Basis.APPROX, "CP_VS_FN; no anchor"),
         },

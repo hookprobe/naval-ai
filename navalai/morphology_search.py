@@ -54,10 +54,23 @@ from .morphology import Critique, Descriptors, critique, describe, from_hull
 #                 max-area station apart relieves it
 #   depth_variation rises with sheer_rise, rocker and forefoot
 #   convexity     improves as the ends stop fighting the middle
+# `l_pmb` -> `pmb` + `r_stem` on 2026-08-26 (audit finding, gates report
+# §5.2 item 5): the table nudged `l_pmb`, a gene REMOVED from the grammar,
+# and `_nudge`'s `if gene not in out: continue` skipped it SILENTLY — so
+# the SPEARHEAD and BOX repairs ran without the parallel-midbody lever, and
+# neither ever mentioned `r_stem`, the gene grammar.py:355 names "the
+# mirror of r_transom; 0 = a pointed bow". `_assert_repair_genes_exist`
+# below turns the silent skip into a loud failure forever.
 _REPAIR: dict[str, tuple[tuple[str, float], ...]] = {
-    "SPEARHEAD": (("Cp", +1.0), ("r_transom", +1.0), ("l_pmb", +1.0),
-                  ("x_mb", -0.5)),
-    "BOX": (("Cp", -1.0), ("r_transom", -1.0), ("l_pmb", -1.0)),
+    # forefoot/beta_bow move WITH the fullness: a full bow needs draft and
+    # a moderate V to enclose its area — MEASURED 2026-08-26 on the
+    # reference seed: r_stem nudged to 0.14 against forefoot 0.6 refused at
+    # section.solve ("area 0.25 m^2 unreachable at draft 0.257 m").
+    "SPEARHEAD": (("Cp", +1.0), ("r_transom", +1.0), ("r_stem", +1.0),
+                  ("pmb", +1.0), ("x_mb", -0.5), ("forefoot", -1.0),
+                  ("beta_bow", -0.5)),
+    "BOX": (("Cp", -1.0), ("r_transom", -1.0), ("pmb", -1.0),
+            ("r_stem", -0.5)),
     "PLANK": (("sheer_rise", +1.0), ("rocker", +1.0), ("forefoot", +1.0),
               ("D", +0.5)),
     "PYRAMID": (("Cp", +1.0), ("r_transom", +1.0), ("sheer_rise", +1.0)),
@@ -65,6 +78,22 @@ _REPAIR: dict[str, tuple[tuple[str, float], ...]] = {
     "WAVY-PLAN": (("r_transom", -0.5), ("lcb", -0.5), ("Cp", +0.5)),
     "PROPORTION": (("BWL", -1.0), ("LWL", +1.0)),
 }
+
+
+def _assert_repair_genes_exist() -> None:
+    """A repair that names a gene the grammar no longer has is a silent
+    no-op (measured: `l_pmb` sat here from its removal until 2026-08-26).
+    Import-time check so a future gene rename fails loudly instead."""
+    from . import grammar as _g
+    for pathology, nudges in _REPAIR.items():
+        for gene, _sign in nudges:
+            if gene not in _g.NAMES:
+                raise AssertionError(
+                    f"_REPAIR[{pathology!r}] names {gene!r}, which is not in "
+                    f"grammar.NAMES — a silently skipped repair lever")
+
+
+_assert_repair_genes_exist()
 
 
 @dataclass
@@ -87,7 +116,37 @@ class Candidate:
 def _clip(g: dict) -> dict:
     lo = {n: float(v) for n, v in zip(grammar.NAMES, grammar.LOW)}
     hi = {n: float(v) for n, v in zip(grammar.NAMES, grammar.HIGH)}
-    return {k: float(min(hi[k], max(lo[k], v))) for k, v in g.items() if k in lo}
+    out = {k: float(min(hi[k], max(lo[k], v))) for k, v in g.items() if k in lo}
+    # PROJECT (Cp, lcb) INTO THE DELIVERABLE BANDS (2026-08-26). Since
+    # `sac_exponents` inverts the actual a(x) with pmb/r_stem, a nudge that
+    # raises Cp while holding lcb can ask for a curve the family cannot
+    # deliver; `inspect` then returns None and — measured on the archive
+    # test — every trial of a 60-iteration search died silently, archiving
+    # NOTHING. A repair operator that mutates a design target keeps the
+    # companion target consistent, the same way a designer re-fairs LCB
+    # after a Lackenby shift.
+    if "Cp" in out:
+        from .geometry import GeometryError, cp_band, lcb_band
+        b_lo, b_hi = cp_band(out.get("LWL", 10.0), out.get("x_mb", 0.5),
+                             out.get("r_transom", 0.3),
+                             out.get("r_stem", 0.0), out.get("pmb", 0.0))
+        eps = 1e-3 * max(b_hi - b_lo, 1e-6)
+        out["Cp"] = float(min(min(b_hi - eps, hi["Cp"]),
+                              max(max(b_lo + eps, lo["Cp"]), out["Cp"])))
+        if "lcb" in out:
+            try:
+                l_lo, l_hi = lcb_band(out.get("LWL", 10.0),
+                                      out.get("x_mb", 0.5),
+                                      out.get("r_transom", 0.3), out["Cp"],
+                                      out.get("r_stem", 0.0),
+                                      out.get("pmb", 0.0))
+                eps = 1e-2 * max(l_hi - l_lo, 1e-6)
+                out["lcb"] = float(min(min(l_hi - eps, hi["lcb"]),
+                                       max(max(l_lo + eps, lo["lcb"]),
+                                           out["lcb"])))
+            except GeometryError:
+                pass                      # Cp at a band edge; check() decides
+    return out
 
 
 def inspect(genome: dict) -> Candidate | None:
@@ -118,7 +177,14 @@ def _nudge(genome: dict, cand: Candidate, step: float,
     for p in cand.pathologies:
         for gene, sign in _REPAIR.get(p, ()):
             if gene not in out:
-                continue
+                # A 16-key seed predates the post-hoc genes; the repair's
+                # whole point is to hand it exactly those levers (r_stem is
+                # THE anti-spearhead gene). Seed the gene at its proven
+                # no-op default and nudge from there.
+                if gene in grammar.POST_HOC_DEFAULTS:
+                    out[gene] = float(grammar.POST_HOC_DEFAULTS[gene])
+                else:
+                    continue
             span = hi[gene] - lo[gene]
             out[gene] += sign * step * span * (0.5 + rng.random())
             moved = True

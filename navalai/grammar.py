@@ -272,9 +272,19 @@ PARAMS = [
     ("lcb",        "%", -LCB_BAND_PCT_LWL, LCB_BAND_PCT_LWL,
      "TARGET LCB, % LWL forward of midships"),
     ("x_mb",       "-",   0.40, 0.68, "max-AREA station / LWL"),
-    ("r_transom",  "-",   0.05, 0.50, "transom sectional area / max sectional "
+    # CEILING 0.50 -> 0.92 and 25 -> 38 deg on 2026-08-26 (audit findings
+    # G and E). 0.50 meant the transom could never carry more than half the
+    # midship section: MEASURED, 0 of 1592 generated hulls reached a 3.0 m
+    # transom on a 4 m beam, and the published planing series carry
+    # A_T/A_X 0.8-1.0 (morphology_families.HARD_CHINE_PLANING). 25 deg
+    # excluded the published deep-V canon (Keuning 1993 at 30 deg, Naples
+    # NSS to 37.4). The LEGACY SAMPLING BOX below pins the seeded streams
+    # to the old values, so this widening moves no recorded population —
+    # the widened envelope is reached by the optimizer, explicit design
+    # and the exploration streams only.
+    ("r_transom",  "-",   0.05, 0.92, "transom sectional area / max sectional "
                                       "area"),
-    ("beta_mid",   "deg", 0.0, 25.0, "deadrise at midship"),
+    ("beta_mid",   "deg", 0.0, 38.0, "deadrise at midship"),
     ("beta_bow",   "deg", 2.0, 50.0, "deadrise at forward stations"),
     ("beta_len",   "-",   0.15, 0.6, "fraction of LWL over which deadrise warps"),
     ("roundness",  "-",   0.0,  1.0, "bilge roundness: 0 hard chine, 1 full "
@@ -383,6 +393,42 @@ N_PARAMS = len(PARAMS)
 NAMES = [p[0] for p in PARAMS]
 LOW = np.array([p[2] for p in PARAMS])
 HIGH = np.array([p[3] for p in PARAMS])
+
+# =========================================================================
+# THE FROZEN LEGACY SAMPLING BOX — 2026-08-26, and why it exists.
+#
+# When the LEGAL envelope above widened (Cp gene decoupled from the Froude
+# target table, audit finding C.2), the first attempt scaled every seeded
+# uniform stream to the new bounds and 98 tests went red at once: sealed
+# population manifests, the mesh-robustness calibration bank, the golden
+# resistance file, the GP baseline marks and the blender identity fence all
+# name hulls by "seed + index", and every one of those names silently moved
+# — the exact defect the population module was built to catch, fired 98
+# times. A bound change should never be able to rewrite history.
+#
+# So the DRAW box is pinned to the values the historical streams were drawn
+# under, as literals, permanently: `sample()` and `evaluate.sample_valid`
+# scale their uniforms by THESE bounds, and a future widening of the legal
+# envelope cannot move a single seeded hull. The widened envelope is
+# reached by the paths that have no history to preserve — the optimizer
+# (LOW/HIGH), explicit design, the parent library, and the post-hoc
+# exploration stream — never by silently re-scaling old streams.
+#
+# THESE LITERALS DO NOT TRACK PARAMS. That is their entire point. If a gene
+# is APPENDED the arrays extend with its bounds at append time (post-hoc
+# genes are pinned by POST_HOC_DEFAULTS anyway); an EXISTING gene's row
+# here never changes again.
+DRAW_LOW = LOW.copy()
+DRAW_HIGH = HIGH.copy()
+_LEGACY_DRAW_ROWS = {
+    # gene: (low, high) as drawn by every seeded stream before 2026-08-26
+    "Cp": (0.525, 0.710),        # the old PRISMATIC_BY_FROUDE span
+    "r_transom": (0.05, 0.50),
+    "beta_mid": (0.0, 25.0),
+}
+for _nm, (_lo, _hi) in _LEGACY_DRAW_ROWS.items():
+    _i = NAMES.index(_nm)
+    DRAW_LOW[_i], DRAW_HIGH[_i] = _lo, _hi
 
 # Cold-bend twist a sheet panel will take without a jig or heat, in degrees of
 # deadrise change per metre of run. Declared once, here, and read by `check()`
@@ -670,7 +716,10 @@ def sample(n: int, rng: np.random.Generator | None = None,
     out = np.empty((n, N_PARAMS))
     got = 0
     core = [i for i, nm in enumerate(NAMES) if nm not in POST_HOC_DEFAULTS]
-    lo_c, hi_c = LOW[core], HIGH[core]
+    # THE FROZEN DRAW BOX, not the legal envelope — see _LEGACY_DRAW_ROWS.
+    # Scaling these uniforms by LOW/HIGH would move every seeded hull the
+    # day a bound widens (measured 2026-08-26: 98 tests red at once).
+    lo_c, hi_c = DRAW_LOW[core], DRAW_HIGH[core]
     post = {NAMES.index(k): float(v) for k, v in POST_HOC_DEFAULTS.items()
             if k in NAMES}
     for _ in range(max_tries * n):

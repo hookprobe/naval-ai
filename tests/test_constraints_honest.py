@@ -528,7 +528,14 @@ def test_the_lcb_band_bites_without_emptying_the_box():
         total += 1
         inside += ev.g["lcb"] <= 0.0
     frac = inside / total
-    assert frac == pytest.approx(0.85, abs=0.07), (
+    # 0.85 -> 0.95, RE-MEASURED 2026-08-26. The corrected sac solve (the
+    # exponents now invert the actual a(x) with pmb/r_stem, and the inner
+    # bracket clamps float-edge targets instead of refusing them) delivers
+    # the requested LCB more faithfully, so fewer floated hulls drift out
+    # of band: flotation now pushes ~5% of the box out, not 15%. The row is
+    # STILL live — the neighbouring test feeds it a hull that floats out of
+    # band and it refuses — and both dead-row edges (0%, 100%) still fail.
+    assert frac == pytest.approx(0.95, abs=0.04), (
         f"LCB band passes {100 * frac:.0f}% of the L0-feasible box; measured "
         f"85% on 2026-08-13 (47.3% before `lcb` became a bounded gene). "
         f"Re-measure and record BEFORE/AFTER rather than widening this.")

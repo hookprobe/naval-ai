@@ -115,10 +115,17 @@ def test_L0_refuses_an_unbuildable_panel_twist():
 
 
 def test_L0_refuses_a_chine_above_the_design_waterline():
-    """Drawn from the 10k property sweep (seed 42, index 569 — regenerated,
-    not transcribed): a wide shallow hull whose chine solves 0.048 m ABOVE
-    z=0. With the DWL a first-class curve, the closed-form area the kernel
+    """Drawn from the 10k property sweep (seed 42, index 2083 — regenerated,
+    not transcribed): a wide shallow hull whose chine solves ABOVE z=0.
+    With the DWL a first-class curve, the closed-form area the kernel
     solves against does not hold there. Named: chine.submerged, and only it.
+
+    Index 569 -> 484 on 2026-08-26: the sweep draws uniforms over the LEGAL
+    envelope (grammar.LOW/HIGH), which widened when the Cp gene box was
+    decoupled from the Froude target table — so the same uniforms scale to
+    different gene values and 569 no longer names a chine.submerged-only
+    hull. 484 is the first index in the same sweep whose ONLY clause is
+    chine.submerged under the widened envelope.
     """
     # THE SWEEP DRAWS THE CORE GENES ONLY, so index 569 keeps naming the same
     # hull when the genome gains a post-hoc gene. Drawing
@@ -133,7 +140,7 @@ def test_L0_refuses_a_chine_above_the_design_waterline():
     Xc = rng.uniform(grammar.LOW[core], grammar.HIGH[core],
                      size=(10000, len(core)))
     x = np.empty(grammar.N_PARAMS)
-    x[core] = Xc[569]
+    x[core] = Xc[484]
     for n, v in grammar.POST_HOC_DEFAULTS.items():
         x[grammar.NAMES.index(n)] = float(v)
     c = _clauses(x)
@@ -220,8 +227,16 @@ def test_property_random_genomes_are_gated_cheaply_with_attribution():
     l0 = [grammar.check(x) for x in X]
     t_l0 = (time.perf_counter() - t0) / N
     n_ok = sum(r.ok for r in l0)
-    # the box passes at a few percent — a 0% or a 50% box is a broken gate
-    assert 0.01 < n_ok / N < 0.25, f"{n_ok}/{N} L0 pass"
+    # Floor 0.01 -> 0.002 on 2026-08-26. `sac_exponents` now inverts the
+    # ACTUAL a(x) with pmb/r_stem (audit finding D.4), so a UNIFORM draw
+    # over the full 23-gene box mostly asks for contradictions — pmb 0.45
+    # alone floors deliverable Cp near 0.60 while the Cp gene draws down to
+    # 0.525 — and sac.target now refuses those honestly instead of
+    # delivering a silently different Cp. The funnel's SHAPE claims
+    # (attribution, cost) are unchanged; consistent draws come from
+    # `grammar.sample` (600/600 measured ok same day) or from drawing Cp
+    # inside `geometry.cp_band`.
+    assert 0.002 < n_ok / N < 0.25, f"{n_ok}/{N} L0 pass"
     for r in l0:
         if not r.ok:
             assert r.violations, "a refusal must carry named clauses"

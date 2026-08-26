@@ -400,7 +400,12 @@ def sample_valid(n: int, mission: MissionSpec, seed: int = 0,
     # function in the data feed, not only in the search. A hint-less mission
     # draws the full box exactly as before (band is None), which remains the
     # explicit exploration mode.
-    lo, hi = grammar.LOW.copy(), grammar.HIGH.copy()
+    # THE FROZEN DRAW BOX (grammar._LEGACY_DRAW_ROWS), not the legal
+    # envelope: seeded streams must reproduce across legal-bound widenings
+    # (measured 2026-08-26 — the first widening moved every manifest,
+    # golden and baseline at once). Policy and the mission band ratchet
+    # inward from here exactly as before.
+    lo, hi = grammar.DRAW_LOW.copy(), grammar.DRAW_HIGH.copy()
     if policy is not None:
         # The compiler's output (1). `box()` only ever ratchets INWARD and
         # takes the caller's bounds, so the mission's Cp band below still

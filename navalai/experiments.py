@@ -363,11 +363,64 @@ BOW_FOREFOOT_SWEEP: tuple[float, ...] = (0.0, 0.2, 0.35, 0.5, 0.65, 0.8)
 # weak entry-angle lever and the keel line is the strong one.
 BOW_BETA_SWEEP: tuple[float, ...] = (8.0, 14.0, 20.0, 26.0, 32.0)
 
-# Cp sweep: the gene's own declared bounds, from `limits.CP_GENE_BOUNDS`, which
-# is the span of `limits.prismatic_target`'s table. Not a literal here.
-CP_SWEEP: tuple[float, ...] = tuple(
-    float(v) for v in np.linspace(limits.CP_GENE_BOUNDS[0],
-                                  limits.CP_GENE_BOUNDS[1], 9))
+# Cp sweep: the DELIVERABLE intersection, computed per sweep hull.
+# 2026-08-26: `limits.CP_GENE_BOUNDS` widened to the range of existing
+# recreational craft (audit finding C.2), and the corrected sac solve
+# refuses a Cp the sweep hull's own proportions cannot deliver — the top
+# of the widened box (0.894 on the reference demihull) is honestly
+# L0-infeasible at its x_mb/r_transom. The sweep therefore spans
+# `geometry.cp_band(...) ∩ CP_GENE_BOUNDS` at N_CP_SWEEP points; a sweep
+# pinned to the raw gene box would be a defect measured at a
+# configuration the hull cannot occupy (defect class 6).
+N_CP_SWEEP = 9
+
+
+def cp_sweep_for(params) -> tuple[float, ...]:
+    """The Cp sweep values deliverable by THIS hull — at ITS OWN lcb.
+
+    The prismatic sweep is a controlled experiment: lcb is held at the
+    reference value while Cp moves, so a sweep point is admissible only
+    where BOTH targets are deliverable. At Cp 0.90 the reference
+    demihull's lcb of -1 %LWL is honestly unreachable (the deliverable
+    LCB bracket is +0.8..+9.1 — a hull that full must carry its buoyancy
+    forward), so the sweep stops where the controlled variable would have
+    to move, rather than moving it silently.
+    """
+    from .geometry import GeometryError, cp_band, sac_exponents
+    p = grammar.named(np.asarray(params, float))
+    b_lo, b_hi = cp_band(p["LWL"], p["x_mb"], p["r_transom"],
+                         float(p.get("r_stem", 0.0)),
+                         float(p.get("pmb", 0.0)))
+    lo = max(limits.CP_GENE_BOUNDS[0], b_lo + 1e-3)
+    hi = min(limits.CP_GENE_BOUNDS[1], b_hi - 1e-3)
+    if not (hi > lo):
+        raise ExperimentError(
+            f"cp sweep: deliverable band [{b_lo:.3f}, {b_hi:.3f}] does not "
+            f"intersect the gene box {limits.CP_GENE_BOUNDS}")
+
+    # Admissibility is decided by THE SOLVER ITSELF, not by a band probe:
+    # the lcb bracket and the nested bisection can disagree by a float
+    # width at the extreme ends, and a sweep point the solve refuses is a
+    # sweep point regardless of what a second implementation thinks.
+    def _solvable(cp: float) -> bool:
+        try:
+            sac_exponents(p["LWL"], p["x_mb"], p["r_transom"], float(cp),
+                          float(p["lcb"]), float(p.get("r_stem", 0.0)),
+                          float(p.get("pmb", 0.0)))
+            return True
+        except GeometryError:
+            return False
+
+    keep = [float(cp) for cp in np.linspace(lo, hi, 10 * N_CP_SWEEP)
+            if _solvable(cp)]
+    if len(keep) < 2:
+        raise ExperimentError(
+            f"cp sweep: lcb {p['lcb']:+.2f} %LWL is deliverable at fewer "
+            f"than two Cp values in [{lo:.3f}, {hi:.3f}]")
+    pts = np.linspace(keep[0], keep[-1], N_CP_SWEEP)
+    # keep only solvable points even inside the hull's span (the feasible
+    # set need not be an interval at its float edges)
+    return tuple(float(v) for v in pts if _solvable(v)) or tuple(keep[:N_CP_SWEEP])
 
 # LCB sweep: the gene's band, `limits.LCB_BAND_PCT_LWL`, both signs.
 LCB_SWEEP: tuple[float, ...] = tuple(
@@ -1273,7 +1326,7 @@ def experiment_2_prismatic() -> ExperimentRecord:
     conv = dict(resistance.CONVERGED_GRID)
 
     points: list[SweepPoint] = []
-    for cp in CP_SWEEP:
+    for cp in cp_sweep_for(ref):
         params = require_feasible(with_genes(Cp=cp), f"Cp={cp:.3f}")
         hull, st, wl = _float_hull(params, HYDRO_STATIONS, target)
         q: dict[str, Quantity] = {}

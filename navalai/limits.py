@@ -773,11 +773,24 @@ def prismatic_target(fn: float) -> float:
     raise AssertionError("unreachable: PRISMATIC_BY_FROUDE is not monotone")
 
 
-# The span of the table above, as the `Cp` gene's declared bounds. Written here
-# so the gene cannot be bounded somewhere the target function can reach — or,
-# worse, somewhere it cannot, which would make the acceptance bar unreachable
-# by construction at one end of the speed range.
-CP_GENE_BOUNDS = (PRISMATIC_BY_FROUDE[0][1], PRISMATIC_BY_FROUDE[-1][1])
+# The Cp GENE box — DECOUPLED from the Froude target table on 2026-08-26
+# (audit finding C.2). It used to be the span of PRISMATIC_BY_FROUDE
+# (0.525, 0.710), which is the RESISTANCE-OPTIMAL band by speed — and using
+# it as the gene box meant a deliberately full recreational hull could not
+# even be REQUESTED: a canal barge, houseboat or pontoon runs Cp 0.85-0.95
+# on purpose, trading resistance for volume (Larsson & Eliasson ch. 5 give
+# 0.50-0.60 as the optimum for displacement sailing craft, which is a
+# statement about resistance, not about what boats exist; PNA Vol. I
+# tabulates full-form barges at Cb ~ 0.9, i.e. Cp above 0.90). MEASURED
+# consequence of the old coupling: the fullness genes (pmb, r_stem) push
+# deliverable Cp above 0.710, so 59% of full-box draws asked for a Cp the
+# box refused — the anti-box levers were unusable outside a corner.
+#
+# The RESISTANCE table keeps its one job: `prismatic_for_froude` remains
+# the TARGET the mission band steers toward and the conformance note in
+# certify measures against. A full hull is legal to draw and priced by the
+# physics, exactly like every other trade.
+CP_GENE_BOUNDS = (0.50, 0.95)
 
 
 # GM CEILING as a fraction of waterline beam. GM has always had a floor (the

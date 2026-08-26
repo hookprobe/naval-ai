@@ -895,7 +895,13 @@ def test_r_stem_actually_widens_the_bow():
             "so the SAC ordinate AT the stem must equal it")
         _zk, _yc, _zc, ysh, _zsh = geometry.station_geometry(v, xs)
         widths.append(2.0 * float(ysh[0]))
-    assert widths[0] < 0.05, (
+    # 0.05 -> 0.15 on 2026-08-26: the flare law is now CLOSURE-limited
+    # instead of multiplied by the area curve (audit finding D.3), so the
+    # designed 6 deg of flare is carried until the vanishing section forces
+    # it down — the baseline stem measures 0.085 m instead of 0.020 m. It
+    # still closes to a point AT the stem (a(L) = r_stem = 0 zeroes the
+    # cap); the bar is about the spearhead, not about the approach rate.
+    assert widths[0] < 0.15, (
         f"the pointed bow is the baseline this gene exists to fix; measured "
         f"{widths[0]:.3f} m")
     assert all(b > a for a, b in zip(widths, widths[1:])), (
@@ -952,7 +958,13 @@ def test_pmb_zero_is_bit_identical_and_the_gene_creates_parallel_midbody():
 
     # -- and it must actually FLATTEN the top ------------------------------
     L = 16.0
-    base = dict(LWL=L, BWL=3.0, T=0.60, D=1.55, Cp=0.69, lcb=-2.0, x_mb=0.48,
+    # lcb -2.0 -> -3.0 on 2026-08-26: `sac_exponents` now inverts the ACTUAL
+    # three-piece a(x) (audit finding D.4), and this family — 45% flat span
+    # at x_mb 0.48 over a 0.40 transom floor against a zero-area stem — can
+    # only DELIVER lcb in about [-8.2, -2.4] %LWL at Cp 0.69. The old
+    # fixture "reached" -2.0 because the solver inverted a curve without
+    # the flat span and the delivered LCB was silently different.
+    base = dict(LWL=L, BWL=3.0, T=0.60, D=1.55, Cp=0.69, lcb=-3.0, x_mb=0.48,
                 r_transom=0.40, beta_mid=4.0, beta_bow=18.0, beta_len=0.45,
                 roundness=0.85, rocker=0.03, forefoot=0.05, flare=15.0,
                 sheer_rise=0.42)

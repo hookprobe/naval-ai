@@ -280,12 +280,32 @@ def test_the_widened_box_still_yields_samples_at_a_measured_rate():
     a COLLAPSE, not to pin a statistic that legitimately drifts when any other
     clause changes.
     """
+    # 2026-08-26: the samplers now rejection-sample the FROZEN DRAW box
+    # (grammar.DRAW_LOW/HIGH), not the legal envelope — so the yield that
+    # matters for `sample()` headroom is measured on the DRAW box, and the
+    # LEGAL box's (much lower) uniform yield is recorded separately: the
+    # widened envelope mostly holds (Cp, pmb, r_stem) combinations only a
+    # band-aware caller (geometry.cp_band / lcb_band, the optimizer's
+    # repair) draws consistently. Measured at this commit: DRAW box ~0.05,
+    # legal box ~0.005 of uniform draws pass.
     rng = np.random.default_rng(1)
-    x = rng.uniform(grammar.LOW, grammar.HIGH, size=(1500, grammar.N_PARAMS))
+    x = rng.uniform(grammar.DRAW_LOW, grammar.DRAW_HIGH,
+                    size=(1500, grammar.N_PARAMS))
+    # post-hoc genes at their defaults — what `sample()` actually draws;
+    # uniform post-hoc values are the exploration stream's business and
+    # mostly ask for (Cp, pmb, r_stem) contradictions the corrected solve
+    # refuses.
+    for _nm, _v in grammar.POST_HOC_DEFAULTS.items():
+        x[:, grammar.NAMES.index(_nm)] = float(_v)
     rate = sum(grammar.check(row).ok for row in x) / len(x)
     assert rate > 0.02, (
-        f"uniform-in-box yield collapsed to {rate:.4f}; `sample()` and "
+        f"uniform-in-DRAW-box yield collapsed to {rate:.4f}; `sample()` and "
         f"`evaluate.sample_valid` rejection-sample this box")
+    y = rng.uniform(grammar.LOW, grammar.HIGH, size=(1500, grammar.N_PARAMS))
+    legal_rate = sum(grammar.check(row).ok for row in y) / len(y)
+    assert legal_rate > 0.001, (
+        f"the LEGAL envelope admits nothing at all ({legal_rate:.4f}); the "
+        f"widened bounds have broken the gate rather than the sampler")
 
 
 # ============================================ 5. WHICH STABILITY CRITERION, and

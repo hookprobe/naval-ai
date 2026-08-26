@@ -73,9 +73,12 @@ SCALE = 1.0
 #: MEASURED: hull 152 of `sample_valid(160, MissionSpec(), seed=0)` is the
 #: first hull the screen refuses with NO ladder rescue at scale 1.0 —
 #: `min_interior_sheer_halfwidth_cells` 0.0636 and
-#: `min_bottom_panel_width_cells` 0.0648, both against a 0.1-cell edge — and
-#: the writer takes it. Same stream as the labelled 25 (prefix-stable, fenced
-#: below), so it is not a second population.
+#: `min_bottom_panel_width_cells` 0.0648, both against a 0.1-cell edge.
+#: 2026-08-26 NOTE: the anchor was briefly re-derived as hull 104 while the
+#: sac solver's inner bracket refused edge hulls; the float-tolerance fix
+#: restored the historical acceptance and the stream ROUND-TRIPPED back to
+#: this exact hull and these exact values. The stream is pinned by sha
+#: below, so any future drift is loud.
 SUB_CELL_HULL = 152
 SUB_CELL_DRAW = 160
 
@@ -89,27 +92,35 @@ def campaign_hulls():
     trusted, because the entire defect this module is recovering from is a
     population that changed while keeping its name.
     """
-    X, _ = sample_valid(25, MissionSpec(), seed=0)
     manifest = next(
         (doc for _p, doc in population.manifests()
          if doc.get("population_id") == CALIBRATION_POPULATION_ID), None)
     assert manifest is not None, (
         f"no manifest for {CALIBRATION_POPULATION_ID} in "
         f"{population.MANIFEST_DIR} — the calibration population is not pinned")
-    # COMPARE ON THE MANIFEST'S OWN ARITY. The genome may gain POST-HOC genes
-    # (`grammar.POST_HOC_DEFAULTS`) whose default is a proven no-op, so a draw
-    # at a later arity describes THE SAME HULLS with extra all-zero columns.
-    # `sample_valid` consumes uniforms only for the CORE genes precisely so the
-    # bit-stream does not move; this comparison must therefore be made over the
-    # columns the manifest actually recorded, or a no-op gene would read as a
-    # changed population. MEASURED 2026-08-24: at arity 21 the first 16 columns
-    # reproduce a16/s0/n25 exactly.
-    _w = len(manifest["genomes"][0])
-    assert population.genome_sha256(np.asarray(X, float)[:, :_w]) \
-        == manifest["genome_sha256"], (
-        "this tree's seed-0 draw is not the population the calibration bank "
-        "was measured on; re-run scripts/mesh_robustness.py before trusting "
-        "any label in this file")
+    # THE POPULATION IS THE STORED GENOMES, not a live redraw. Until
+    # 2026-08-26 this helper redrew sample_valid(25, seed=0) and checked it
+    # hashed to the manifest — which glued the bank's labels to the CURRENT
+    # sampler bounds: the day the Cp gene box was widened (audit finding
+    # C.2), the same uniforms scaled to different gene values and the fence
+    # fired even though the measured hulls had not changed. The bank's
+    # labels belong to the hulls they were measured ON, which the manifest
+    # itself records; the identity check is now internal (stored genomes
+    # hash to the recorded sha), and post-hoc genes are padded at their
+    # proven no-op defaults to reach the current arity.
+    G = np.asarray(manifest["genomes"], float)
+    assert population.genome_sha256(G) == manifest["genome_sha256"], (
+        "the manifest's own genomes do not hash to its recorded sha — the "
+        "calibration bank has been edited; re-run scripts/mesh_robustness.py")
+    if G.shape[1] < grammar.N_PARAMS:
+        pad = np.zeros((len(G), grammar.N_PARAMS - G.shape[1]))
+        for _nm, _v in grammar.POST_HOC_DEFAULTS.items():
+            _i = grammar.NAMES.index(_nm) - G.shape[1]
+            if _i >= 0:
+                pad[:, _i] = float(_v)
+        X = np.hstack([G, pad])
+    else:
+        X = G
     return X
 
 
@@ -129,11 +140,17 @@ def dev_stream(campaign_hulls):
     """
     X, _ = sample_valid(SUB_CELL_DRAW, MissionSpec(), seed=population.DEV_SEED)
     assert len(X) == SUB_CELL_DRAW
-    assert np.array_equal(np.asarray(X[:len(campaign_hulls)], float),
-                          np.asarray(campaign_hulls, float)), (
-        "the development draw is not prefix-stable in this tree, so the hull "
-        "index this file's sub-cell anchor names is not the hull it was "
-        "measured on")
+    # PINNED BY ITS OWN SHA (2026-08-26). The old fence was prefix-equality
+    # with the campaign manifest, which glued this stream to the sampler
+    # bounds of the day the bank was measured; the campaign fixture now
+    # returns the STORED genomes, so the live stream is pinned directly.
+    # When a deliberate bounds change moves this hash: re-record it AND
+    # re-derive SUB_CELL_HULL by searching the stream (the constant's
+    # comment shows the procedure) — never delete the guard.
+    assert population.genome_sha256(np.asarray(X, float)) == (
+        "60e8596d1b265ef0ef28dce4983d36fab36bcc2213328ab837fc804d1df1a54b"), (
+        "the development stream moved — re-derive SUB_CELL_HULL and "
+        "re-record this sha alongside the bounds change that moved it")
     return X
 
 

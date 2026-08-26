@@ -73,9 +73,15 @@ TARGETS: dict[str, dict] = {
         "kb_record": "solar-slender-cruiser",
         "genes": {
             "LWL": 12.0, "BWL": 1.85, "T": 0.55, "D": 1.30,
-            "Cp": 0.56, "lcb": -2.0, "x_mb": 0.50, "r_transom": 0.15,
+            # Re-tuned 2026-08-26 under the corrected sac solve (audit D.4):
+            # the old Cp 0.56 was tuned against a solver that ignored pmb
+            # and silently delivered ~0.60; the corrected kernel DELIVERS
+            # the gene, and the reference's labelled parallel midbody wants
+            # the fuller curve. Measured: entry 11.8 deg, transom 0.341,
+            # convexity 0.927, zero critique findings.
+            "Cp": 0.64, "lcb": -2.0, "x_mb": 0.50, "r_transom": 0.15,
             "beta_mid": 4.0, "beta_bow": 30.0, "beta_len": 0.40,
-            "roundness": 0.9, "rocker": 0.30, "forefoot": 0.15,
+            "roundness": 0.9, "rocker": 0.20, "forefoot": 0.15,
             "flare": 8.0, "sheer_rise": 0.12,
             "beta_transom": 2.0, "beta_run": 0.25,
             "flare_bow": 2.0, "flare_len": 0.35,
@@ -94,13 +100,18 @@ TARGETS: dict[str, dict] = {
         "kb_record": "claude-training-sheet",
         "genes": {
             "LWL": 8.0, "BWL": 2.4, "T": 0.45, "D": 1.10,
-            "Cp": 0.62, "lcb": -3.0, "x_mb": 0.40, "r_transom": 0.50,
+            # Re-tuned 2026-08-26 under the corrected sac solve: Cp 0.74 is
+            # planing-correct and became REQUESTABLE when the Cp gene box
+            # was decoupled from the Froude target table; pmb 0.30 carries
+            # beam_carried to 0.390 — the published-hull median — with the
+            # 24/14/27 deg warped deadrise law delivered exactly.
+            "Cp": 0.74, "lcb": -2.0, "x_mb": 0.40, "r_transom": 0.50,
             "beta_mid": 24.0, "beta_bow": 46.0, "beta_len": 0.40,
             "roundness": 0.0, "rocker": 0.05, "forefoot": 0.10,
             "flare": 12.0, "sheer_rise": 0.10,
             "beta_transom": 14.0, "beta_run": 0.35,
             "flare_bow": 5.0, "flare_len": 0.30,
-            "stem_depth": 0.05, "r_stem": 0.05, "pmb": 0.45,
+            "stem_depth": 0.05, "r_stem": 0.05, "pmb": 0.30,
         },
         "intent": {
             "deadrise_mid_deg": 24.0,     # the sheet's label

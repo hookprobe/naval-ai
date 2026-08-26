@@ -489,15 +489,21 @@ def test_cp_sweep_holds_displacement_fixed(suite):
 
 
 def test_cp_sweep_spans_the_declared_gene_bounds(suite):
-    """The sweep must cover `limits.CP_GENE_BOUNDS`, not a literal.
+    """The sweep must cover the DELIVERABLE span, not a literal.
 
-    The bounds live in `limits.py` because they are the span of
-    `limits.prismatic_target`'s table; a sweep with its own copy would stop
-    covering the gene the moment the table moved.
+    2026-08-26: `CP_GENE_BOUNDS` is now the range of existing recreational
+    craft (0.50-0.95), wider than any single hull's proportions can
+    deliver, and the corrected sac solve refuses the undeliverable part
+    honestly. The sweep therefore spans `cp_band ∩ CP_GENE_BOUNDS` for its
+    own hull — recomputed here from the sweep's recorded genes, never
+    restated as numbers.
     """
+    from navalai.experiments import cp_sweep_for, reference_demihull
+
+    expect = cp_sweep_for(reference_demihull())
     cps = [p.value("cp_gene") for p in suite["2-prismatic"].points]
-    assert min(cps) == pytest.approx(limits.CP_GENE_BOUNDS[0], abs=1e-12)
-    assert max(cps) == pytest.approx(limits.CP_GENE_BOUNDS[1], abs=1e-12)
+    assert min(cps) == pytest.approx(expect[0], abs=1e-12)
+    assert max(cps) == pytest.approx(expect[-1], abs=1e-12)
     assert len(cps) >= 5
 
 

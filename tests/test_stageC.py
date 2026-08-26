@@ -385,10 +385,16 @@ def test_the_l0_type_check_can_actually_reject(plm_run):
     # ARM 1: the class of vectors the old disjunction could not exclude is not
     # empty. If it ever becomes empty the measurement above has gone stale and
     # this test is worthless without saying so.
+    # Drawn over the FROZEN DRAW box with post-hoc genes at defaults
+    # (2026-08-26): the legal envelope widened past what a blind uniform
+    # draw can satisfy, and the measurement this arm rests on was made on
+    # the sampler's own distribution — which is the DRAW box.
     rng = np.random.default_rng(0)
     in_box = rejectable = 0
     for _ in range(4000):
-        x = rng.uniform(grammar.LOW, grammar.HIGH)
+        x = rng.uniform(grammar.DRAW_LOW, grammar.DRAW_HIGH)
+        for _nm, _v in grammar.POST_HOC_DEFAULTS.items():
+            x[grammar.NAMES.index(_nm)] = float(_v)
         if not grammar.check(x).ok:
             continue
         in_box += 1
