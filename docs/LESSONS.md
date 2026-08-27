@@ -450,3 +450,33 @@ three the machinery was sound and the instrument was not.
 
 Before quoting a rate, ask what would change it besides the thing it is
 supposed to be measuring.
+
+## SPEED IS A MESH PARAMETER: THE SAME MESH SOLVES AT Fn 0.38 AND DIES AT Fn 0.53 (2026-08-27)
+
+Measured on the hookprobe owner hull (`docs/research/HOOKPROBE-CFD-CAMPAIGN.md`),
+three times in one night: `make_case.py --stl` cases at 4.1 m/s solved cleanly
+with `--n-layers 10`, and the SAME hull at 5.66 m/s died at t~0.045 s with
+deltaT collapsing to 1e-105..1e-26 while one cell's Courant stayed ~10 — at
+n_layers 10, 8 AND 5. Every one of those meshes PASSED the mesh-quality bars
+(0 zero-volume, <=5 wrongly-oriented, skew < 20). Three lessons, none of them
+recoverable from the logs of a single failure:
+
+- **The layer stack that is safe at one speed is not safe at another.** The
+  first-layer thickness is derived from the target y+, so raising the speed
+  thins the near-wall cells under an unchanged stack count. n=10 at 4.1 m/s
+  and n=10 at 5.66 m/s are DIFFERENT meshes.
+- **Above ~Fn 0.5 the impulsive start, not the stack, is the killer — stop
+  backing off layers and ramp the velocity instead.** Three stack depths dying
+  identically is the signature that the start-up transient, not the near-wall
+  aspect ratio, folds the cell. make_case.py exposes no ramp; that is the fix
+  to build, not another rung on the backoff ladder.
+- **On Apple Silicon a solver FPE surfaces as SIGILL ("Illegal instruction:
+  4"), not sigFpe.** The night this was learned the OS had just been updated,
+  and "the update broke the binary" was the obvious wrong diagnosis. The
+  discriminator is in the log: deltaT collapsing while Courant max holds is
+  physics, whatever the signal number says.
+
+Cost lore worth keeping beside it: +25% speed (8->10 kn) TRIPLED wall-clock
+per simulated second on this family (dt 3.2 ms -> 0.9-1.1 ms, and at Fn 0.48
+it never relaxes after startup, where at Fn 0.38 it does). The timestep is set
+by the fastest water in the tank — wave crests and spray — not the boat speed.
