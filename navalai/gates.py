@@ -234,6 +234,23 @@ GATES = [
     # notch as three no-op genes, the SAC delivered NET of it in closed
     # form, the crown-submerged rule refusing what vessel_terms cannot
     # model, and the sections carrying the W the hydrostatics integrate.
+    # Phase 4B, 2026-08-28: the split stern — the waterplane hole is the
+    # DESIGN, so the hydrostatics integrate it (awp/ixx/lcf/I_L on the
+    # reduced strip) instead of refusing; the kernel piece the
+    # recorded-OPEN hookprobe 70-80% split was waiting for.
+    # The owner's CFD-distillation directive (2026-08-28): the campaigns'
+    # measured behaviour, harvested into a committed book before any purge
+    # can lose it (gap N6), consumed with surrogate-honesty refusals.
+    Gate("Gate CFD-KB", "the CFD anchor book: every record honest about "
+         "settledness and GCI, unsettled records never support a "
+         "prediction, family bands refuse outside measured Fn support, "
+         "and the hb19 L1 anchor carries its sigma and basis",
+         suite="tests/test_cfd_kb.py"),
+    Gate("Gate SPLIT", "the split stern: split genes are no-ops at zero, "
+         "the SAC stays the net contract, the wall is vertical at "
+         "y_split, the waterplane integrals subtract the hole, and split "
+         "+ tunnel on one station is refused by name",
+         suite="tests/test_split.py"),
     Gate("Gate TUNNEL", "the W-stern: tunnel genes are no-ops at zero, the "
          "SAC stays the net displacement contract to the bit, a crown "
          "above the waterline is refused by name, and the wetted surface "
