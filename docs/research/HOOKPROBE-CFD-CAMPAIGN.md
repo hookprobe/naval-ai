@@ -115,6 +115,27 @@ v3. Design guidance: prop axis at or below z=-0.4 (0.4 m below static WL),
   (0 zeroVol / <=5 wrongOri / skew<20) passed on every mesh that later
   died — build-time bars still do not predict solve-time collapse.
 
+## v4 (rudder + twin ring-duct pods + chine strakes) @ 8 kn — LANDED 2026-08-27 18:55
+
+    v3 bare hull   2965.6 N (2341.1 p / 624.5 v)   settled
+    v4 appendaged  3944.5 N (3290.8 p / 653.7 v)   settled, windows 3854-3960
+
+THE APPENDAGE PACKAGE AS-DRAWN COSTS +33% (+979 N, 97% of it PRESSURE).
+A faired appendage set should cost 3-8%; the excess is diagnosed, not
+guessed: the pod WAKE VENTILATES (water fraction reaches 0.00 down to
+z=-0.65 behind the rings; the rings and rudder themselves stay wet). The
+flush-mounted 378 mm ring ducts sit ~0.15-0.2 m under the surface and drag
+air into their wake — bluff bodies with aerated wakes. Contributors, in
+order: (1) near-surface ring exposure, (2) two pods' frontal area, (3) the
+rudder's FLAT trailing face (an export repair capped an open ring with a
+flat base — base drag), (4) unfaired pod-hull junctions. NOTE: the export
+pipeline lifted the pods +50 mm to flush-mount (the modeled 27 mm gap was
+unmeshable), which moved the rings closer to the surface; direction of the
+fix is unaffected. v5 GUIDANCE, measured: ONE pod not two, mounted DEEPER
+(axis z<=-0.4), nose/tail faired, tapered rudder TE, filleted junctions.
+Chine strakes: not separable from the appendage delta in this single A/B.
+Case runs/hookprobe_v4; wave map runs/hookprobe_inspect/wave_plan_v4.png.
+
 ## Stability & seakeeping indicators (hydrostatics, NOT wave CFD)
 
 v2 @ 8 t: waterplane 21.58 m^2, I_T 14.38 m^4, I_L 150.7 m^4, KB 0.690 m,
