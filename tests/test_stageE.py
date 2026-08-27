@@ -92,10 +92,21 @@ def test_latent_front_feasible_and_competitive(data):
     seeding. `data/gate-ledger.json` carries the full record ("Gate E",
     owner ml-engineer, review_by 2026-09-30).
 
-    WHAT FIRES THIS SENTINEL: the P1 exploring-stream Genome refit. When
-    the latent front comes back competitive, restore the 1.20x
-    assertion, delete the ledger entry, and retire this docstring's
-    middle paragraph — do NOT delete the test.
+    WHAT FIRES THIS SENTINEL: a Genome whose latent space can express a
+    competitive plausible hull. THE OBVIOUS FIX WAS TRIED 2026-08-27 AND
+    MEASURED INSUFFICIENT, so it is written down rather than re-attempted:
+    refitting the 8-D PPCA on the P1 exploring stream
+    (`sample_valid(..., explore_post_hoc=True)`) gives the genome the
+    post-hoc directions but does NOT fire this sentinel — the front stays
+    uncompetitive at this budget — and it COLLAPSES the front's LWL
+    diversity (seed 9 spread 0.141 at pop 40/gens 20, and 0.152 even at
+    60/30, against the sibling test's unchanged 0.4 bar): eight
+    dimensions now carry 23 active genes and principal variance moves to
+    the shape genes. Closing Gate E therefore needs a latent-space
+    decision (more dimensions, or a conditioned model), not just the
+    feed; the production feeds (agents' genome, the UI's GMM) DID move to
+    the exploring stream the same day, so only this fixture stays on the
+    legacy draw its calibrated measurements were made on.
     """
     m, _X, _y, genome = data
     res_lat = pareto_front_latent(m, genome, pop=20, gens=8, seed=5)

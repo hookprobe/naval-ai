@@ -384,6 +384,7 @@ class Evaluation:
 
 
 def sample_valid(n: int, mission: MissionSpec, seed: int = 0,
+                 explore_post_hoc: bool = False,
                  quantity: str = "wh_per_nm", policy=None):
     """Sample n hulls that clear L0 AND produce a finite L1 evaluation.
 
@@ -461,6 +462,12 @@ def sample_valid(n: int, mission: MissionSpec, seed: int = 0,
         x[_core] = rng.uniform(lo[_core], hi[_core])
         for _i, _v in _post.items():
             x[_i] = _v
+        if explore_post_hoc:
+            # THE P1 EXPLORING STREAM (2026-08-27): post-hoc genes drawn
+            # from a SPAWNED Generator (the legacy stream consumes nothing)
+            # with (Cp, lcb) re-faired into the deliverable bands — see
+            # grammar._explore_post_hoc_inplace for the whole argument.
+            grammar._explore_post_hoc_inplace(x, grammar._explore_rng(rng))
         if not grammar.check(x, vessel=vessel_cfg).ok:
             continue
         ev = evaluate(x, mission, policy=policy)

@@ -111,7 +111,18 @@ def test_raw_feasibility_is_measured_on_the_model_not_the_sampler(model):
     assert f < 0.99, (
         f"raw feasibility {f:.1%} now clears the 99% bar — if that is real, "
         f"raise this gate to the bar; do not leave it recorded as RED")
-    assert f > 0.6, f"raw feasibility collapsed to {f:.1%}"
+    # Collapse floor 0.6 -> 0.4, RE-MEASURED 2026-08-27 at the P1 feed
+    # flip: the training draw now VARIES the seven post-hoc genes
+    # (explore_post_hoc=True), so the mixture attempts the full 23-gene
+    # joint instead of a 16-gene one, and its raw draws leak across more
+    # constraint surfaces — 47.3% after re-fairing (Cp, lcb) into the
+    # deliverable bands and re-imposing the deadrise law's own ordering,
+    # against 62.3% on the pinned feed. That is the measured price of a
+    # model that can finally emit a full bow at all; the SERVED path
+    # (`sample()`) keeps `grammar.check` inside its rejection loop and
+    # stays 100% feasible by construction, and the 99% aspiration stays
+    # recorded as RED at Gate 4F, whose diffusion upgrade is the real fix.
+    assert f > 0.4, f"raw feasibility collapsed to {f:.1%}"
 
 
 # ---------------- feasibility + conditioning ----------------

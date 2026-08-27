@@ -119,14 +119,72 @@ def _pin_post_hoc(X: np.ndarray) -> np.ndarray:
     The generative model is therefore measured on the space it was actually
     trained on. When a post-hoc gene gains real variance in the feed, this stops
     being a no-op and the model will learn it.
+
+    THAT DAY CAME: 2026-08-27, the P1 exploring stream
+    (`sample_valid(..., explore_post_hoc=True)`) gives every post-hoc
+    column real variance, and PINNING would now DESTROY the signal the
+    feed finally carries — the audit's finding #2 verbatim ("guarantees
+    /generate can never emit a full-bowed hull, even if the feed is
+    fixed"). The body is now a CLAMP to the gene bounds, which subsumes
+    the original rounding fix: a -1e-18 on a zero-variance column clamps
+    to its 0.0 LOW exactly as the pin did, while a learned 0.2 passes
+    through untouched. Zero-variance feeds are bit-identical under it.
     """
     if X.ndim != 2 or X.shape[1] != grammar.N_PARAMS:
         return X
     out = np.array(X, dtype=float, copy=True)
-    for name, value in grammar.POST_HOC_DEFAULTS.items():
+    for name in grammar.POST_HOC_DEFAULTS:
         if name in grammar.NAMES:
-            out[:, grammar.NAMES.index(name)] = float(value)
+            i = grammar.NAMES.index(name)
+            out[:, i] = np.clip(out[:, i], grammar.LOW[i], grammar.HIGH[i])
     return out
+
+
+def _refair_targets(X: np.ndarray) -> None:
+    """Re-fair (Cp, lcb) into the bands the drawn fullness genes deliver.
+
+    A Gaussian factorises what the corrected sac solve couples: a mixture
+    fitted on the P1 exploring feed happily emits pmb 0.3 beside Cp 0.55,
+    and `sac.target` refuses the pair — MEASURED 2026-08-27, GMM raw
+    feasibility 43.2% against the 60% collapse floor the day the feed
+    started varying the fullness genes. This is the same closed-form
+    re-fairing every other generator path applies (`grammar`'s exploring
+    stream, the optimizer's repair, `morphology_search._clip`): the model
+    keeps its drawn SHAPE, and the two targets it cannot hold
+    independently are projected onto the deliverable band — construction,
+    not a softened gate; `grammar.check` still judges the result.
+    """
+    from .geometry import GeometryError, cp_band, lcb_band
+    iC, iL = grammar.NAMES.index("Cp"), grammar.NAMES.index("lcb")
+    ix = {n: grammar.NAMES.index(n)
+          for n in ("LWL", "x_mb", "r_transom", "r_stem", "pmb")}
+    # the deadrise LAW's own ordering (`deadrise.order`: beta_bow >=
+    # beta_mid; the aft warp stays near the midship value) — a mixture
+    # component happily inverts it, and re-imposing an ordering the law
+    # itself defines is construction, not repair
+    i_bm = grammar.NAMES.index("beta_mid")
+    i_bb = grammar.NAMES.index("beta_bow")
+    i_bt = grammar.NAMES.index("beta_transom")
+    X[:, i_bb] = np.maximum(X[:, i_bb], X[:, i_bm])
+    X[:, i_bt] = np.minimum(X[:, i_bt], X[:, i_bm] + 5.0)
+    for row in X:
+        try:
+            b_lo, b_hi = cp_band(row[ix["LWL"]], row[ix["x_mb"]],
+                                 row[ix["r_transom"]], row[ix["r_stem"]],
+                                 row[ix["pmb"]])
+            lo_c = max(b_lo + 1e-3, float(grammar.LOW[iC]))
+            hi_c = min(b_hi - 1e-3, float(grammar.HIGH[iC]))
+            if hi_c > lo_c:
+                row[iC] = float(np.clip(row[iC], lo_c, hi_c))
+            l_lo, l_hi = lcb_band(row[ix["LWL"]], row[ix["x_mb"]],
+                                  row[ix["r_transom"]], float(row[iC]),
+                                  row[ix["r_stem"]], row[ix["pmb"]])
+            lo_l = max(l_lo + 1e-2, float(grammar.LOW[iL]))
+            hi_l = min(l_hi - 1e-2, float(grammar.HIGH[iL]))
+            if hi_l > lo_l:
+                row[iL] = float(np.clip(row[iL], lo_l, hi_l))
+        except (GeometryError, ValueError):
+            continue                      # check() refuses it by name
 
 
 def _project_to_feasible(rows: np.ndarray, X_train: np.ndarray,
@@ -316,7 +374,10 @@ class HullFamilyModel:
         Z = rng.standard_normal((n, d))
         X = np.array([self.means[jj] + chol[jj] @ z for jj, z in zip(j, Z)])
         X = _pin_post_hoc(X)
-        return np.clip(X, grammar.LOW, grammar.HIGH) if clip else X
+        if clip:
+            X = np.clip(X, grammar.LOW, grammar.HIGH)
+            _refair_targets(X)
+        return X
 
     def sample(self, n: int, seed: int = 0, max_tries: int = 400) -> np.ndarray:
         """Draw n L0-feasible hulls (GMM proposal + grammar gate)."""

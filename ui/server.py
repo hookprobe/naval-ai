@@ -204,7 +204,8 @@ def get_model() -> HullGenerator:
     global _model
     with _model_lock:
         if _model is None:
-            X, _y = sample_valid(150, _mission_default, seed=11)
+            X, _y = sample_valid(150, _mission_default, seed=11,
+                                 explore_post_hoc=True)
             _model = make_generator(
                 X, kind=os.environ.get("NAVALAI_GENERATOR", "gmm"), seed=1)
         return _model

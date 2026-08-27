@@ -681,7 +681,8 @@ def check(x: np.ndarray, vessel=None) -> GateReport:
 
 
 def sample(n: int, rng: np.random.Generator | None = None,
-           max_tries: int = 200, vessel=None) -> np.ndarray:
+           max_tries: int = 200, vessel=None,
+           explore_post_hoc: bool = False) -> np.ndarray:
     """Rejection-sample n feasible parameter vectors (uniform in bounds).
 
     `vessel` is passed straight through to `check`, so sampling for a catamaran
@@ -689,6 +690,20 @@ def sample(n: int, rng: np.random.Generator | None = None,
     2026-08-14 over 4000 uniform draws (seed 1): 6.7% pass as a monohull and
     9.6% as a demihull, against 13.2% in the old, narrower box — the widened
     box costs about 2x the draws and `max_tries` of 200 leaves ~15x of headroom.
+
+    `explore_post_hoc` (2026-08-27, the P1 coverage event of the hull-design
+    audit): False is the LEGACY stream, bit-identical forever — post-hoc
+    genes at their no-op defaults, core uniforms in their original order.
+    True is THE EXPLORING STREAM: after the core draw, the post-hoc genes
+    are drawn from a SECOND Generator spawned deterministically from the
+    caller's rng, and (Cp, lcb) are projected into the bands the drawn
+    fullness genes can deliver (`geometry.cp_band`/`lcb_band`) — a blind
+    joint draw is ~99% self-contradictory and rejection would eat the
+    whole tries budget. The two streams never share a random number, so
+    turning exploration on cannot move a single legacy hull. Every model
+    trained before this flag existed had only ever seen hulls whose bow is
+    a point and whose SAC touches its maximum at one station; this flag is
+    how a training feed stops teaching that.
     """
     # THE DRAW IS ARITY-STABLE, AND THAT IS NOT A DETAIL.
     #
@@ -731,12 +746,69 @@ def sample(n: int, rng: np.random.Generator | None = None,
         cand[core] = rng.uniform(lo_c, hi_c)
         for i, v in post.items():
             cand[i] = v
+        if explore_post_hoc:
+            _explore_post_hoc_inplace(cand, _explore_rng(rng))
         if check(cand, vessel).ok:
             out[got] = cand
             got += 1
             if got == n:
                 return out
     raise RuntimeError(f"only {got}/{n} feasible samples after {max_tries * n} tries")
+
+
+def _explore_rng(rng: np.random.Generator) -> np.random.Generator:
+    """The exploring stream's OWN Generator, derived deterministically from
+    the caller's — one integer is consumed from a spawned child, never from
+    the legacy stream itself, so the legacy bit-stream cannot move."""
+    return rng.spawn(1)[0]
+
+
+def _explore_post_hoc_inplace(cand: np.ndarray,
+                              erng: np.random.Generator) -> None:
+    """Draw the post-hoc genes and re-fair (Cp, lcb) into deliverable bands.
+
+    The post-hoc draw is MODERATE, not box-uniform: box-uniform fullness
+    (r_stem to 0.95, pmb to 0.55) contradicts almost every core draw and
+    the section solver refuses the rest at the bow (a full bow needs
+    draft); the exploring stream's job is coverage of the FEASIBLE
+    neighbourhood, not of the box's corners. Bands are projected with the
+    closed-form helpers so the candidate asks for a curve the family can
+    deliver — the same re-fairing a designer does after moving fullness.
+    """
+    from .geometry import GeometryError, cp_band, lcb_band
+    g = dict(zip(NAMES, map(float, cand)))
+    spans = {"r_stem": 0.35, "pmb": 0.35, "stem_depth": 0.25,
+             "beta_transom": 20.0, "beta_run": 0.5,
+             "flare_len": 0.5}
+    for nm, hi in spans.items():
+        cand[NAMES.index(nm)] = hi * erng.random()
+    i_fb = NAMES.index("flare_bow")
+    lo_fb, hi_fb = LOW[i_fb], HIGH[i_fb]
+    cand[i_fb] = lo_fb + (hi_fb - lo_fb) * erng.random()
+    # deadrise order: the aft warp may not exceed the midship value's law —
+    # beta_transom above beta_mid reads as a warp the run cannot deliver
+    i_bt = NAMES.index("beta_transom")
+    cand[i_bt] = min(float(cand[i_bt]), float(g["beta_mid"]) + 5.0)
+    try:
+        b_lo, b_hi = cp_band(g["LWL"], g["x_mb"], g["r_transom"],
+                             float(cand[NAMES.index("r_stem")]),
+                             float(cand[NAMES.index("pmb")]))
+        i_cp = NAMES.index("Cp")
+        lo_c = max(b_lo + 1e-3, float(LOW[i_cp]))
+        hi_c = min(b_hi - 1e-3, float(HIGH[i_cp]))
+        if hi_c > lo_c:
+            cand[i_cp] = float(np.clip(cand[i_cp], lo_c, hi_c))
+        l_lo, l_hi = lcb_band(g["LWL"], g["x_mb"], g["r_transom"],
+                              float(cand[i_cp]),
+                              float(cand[NAMES.index("r_stem")]),
+                              float(cand[NAMES.index("pmb")]))
+        i_l = NAMES.index("lcb")
+        lo_l = max(l_lo + 1e-2, float(LOW[i_l]))
+        hi_l = min(l_hi - 1e-2, float(HIGH[i_l]))
+        if hi_l > lo_l:
+            cand[i_l] = float(np.clip(cand[i_l], lo_l, hi_l))
+    except GeometryError:
+        pass                          # check() will refuse it by name
 
 
 def named(x: np.ndarray) -> dict[str, float]:

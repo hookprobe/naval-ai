@@ -286,7 +286,8 @@ async def _orchestrate(mission_text: str, n_designs: int, batch: int,
                        "displacement": mission.displacement_target_kg}))
 
     # the builder's generative basis: a genome fitted on-mission
-    X, _ = sample_valid(80, mission, seed=17, policy=policy)
+    X, _ = sample_valid(80, mission, seed=17, policy=policy,
+                        explore_post_hoc=True)
     genome = Genome.fit(X)
 
     q_build: asyncio.Queue = asyncio.Queue()
