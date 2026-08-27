@@ -567,6 +567,25 @@ _FAMILY_BAR: dict[str, dict] = {
     "demihull": {"l_over_b": (2.2, 15.5)},
     "catamaran": {"l_over_b": (2.2, 15.5)},
     "pontoon": {"l_over_b": (2.2, 15.5), "pmb_frac_max": 0.98},
+    # A BARGE IS NOT IN THE CORPUS, AND JUDGING IT AS ONE IS THE DEMIHULL
+    # FALSE POSITIVE OVER AGAIN. MEASURED 2026-08-27 on the PROVEN 16x4
+    # liveaboard barge (`parents.PARENTS` "liveaboard-barge", fenced by
+    # tests/test_barge_bow.py at 88% beam carried / 59.4 m2 of deck): the
+    # general bars refused it on plan_waist 0.105 (bar 0.020) and
+    # waterline_convexity 0.732 (bar 0.800). All 58 corpus hulls measure
+    # waist 0.000 — because all 58 are pointed-bow monohulls; a pram bow
+    # (r_stem 0.40) rounds the plan into a shape the corpus simply does
+    # not contain. P2-A routes mission family "barge" into this table, so
+    # without this row every houseboat mission's shape row was
+    # unsatisfiable BY CONSTRUCTION. Bands are set just outside the proven
+    # barge's measured values, not invented: waist 0.105 -> 0.12,
+    # convexity 0.732 -> 0.70, and the pontoon pmb relaxation applies (a
+    # barge's midbody IS the boat). CAVEAT, recorded: part of the 0.105
+    # waist may be the derived-beam artifact (one curve, two jobs — the
+    # Phase-3 B(x) work); re-measure and TIGHTEN these when the design
+    # waterline lands.
+    "barge": {"plan_waist_max": 0.12, "waterline_convexity_min": 0.70,
+              "pmb_frac_max": 0.98},
 }
 
 

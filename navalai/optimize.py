@@ -51,6 +51,24 @@ class _DrawBoxSampling(Sampling):
                     else np.random.randint(2 ** 31))
         rng = np.random.default_rng(seed_int)
         X = grammar.sample(n_samples, rng)
+        # P5 RETRIEVAL SEEDING (2026-08-27). A mission that DECLARES a hull
+        # family starts up to a quarter of its population from the parent
+        # library, distorted to the brief (homothetic rescale to the stated
+        # dims + band-projected Cp/lcb — `navalai.parents`). Research row
+        # "variation of a parent": below ~10^3 corpus hulls, retrieval +
+        # low-dimensional distortion beats any learned generator, and it
+        # starts the search where a naval architect would — on a proven
+        # hull of the right KIND. GATED ON `hull_family` so every
+        # family-less mission (including all seeded fixtures) consumes the
+        # RNG stream bit-identically to before this landed.
+        mission = getattr(problem, "mission", None)
+        if getattr(mission, "hull_family", None):
+            from .parents import seed_for_mission
+            S = seed_for_mission(
+                mission, max(1, n_samples // 4),
+                np.random.default_rng(int(rng.integers(2 ** 31))))
+            for k in range(len(S)):
+                X[k] = S[k]
         # SHAPE-FEASIBLE SEEDING (2026-08-27). `grammar.sample` draws the
         # legacy stream, whose every member is a lens hull the `shape` row
         # refuses — MEASURED at the server's live budget (pop 48, 15

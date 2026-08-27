@@ -224,6 +224,17 @@ GATES = [
     Gate("Gate BARGE", "a houseboat is a rectangle: the widened envelope "
          "draws it, the frozen DRAW box protects history, and the pointed "
          "bow stays reachable", suite="tests/test_barge_bow.py"),
+    # P5, 2026-08-27: with a corpus of TENS of hulls, retrieval + parent
+    # distortion is the honest seeding mechanism and a learned generator is
+    # not (research matrix, docs/audit/HULL-DESIGN-AUDIT.md). The suite
+    # re-proves every parent on every run — a decayed parent would seed
+    # every family search with a refused shape — and fences the barge
+    # family bar that keeps P2-A's family routing satisfiable.
+    Gate("Gate PARENTS", "the parent library is proven and the distortion "
+         "operators deliver: parents pass their family critic, Lackenby "
+         "clips into the deliverable band, rescale stays homothetic, and "
+         "family missions seed the optimizer without touching recorded "
+         "streams", suite="tests/test_parents.py"),
     Gate("Gate HB16", "the 16 m liveaboard probe's refusals stay refusals: "
          "3 t is refused naming the family, and the motor-power fix the "
          "old sentinel demanded stays landed",
