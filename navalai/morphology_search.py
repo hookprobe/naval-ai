@@ -74,6 +74,20 @@ _REPAIR: dict[str, tuple[tuple[str, float], ...]] = {
     "PLANK": (("sheer_rise", +1.0), ("rocker", +1.0), ("forefoot", +1.0),
               ("D", +0.5)),
     "PYRAMID": (("Cp", +1.0), ("r_transom", +1.0), ("sheer_rise", +1.0)),
+    # `dwl` DOES NOT JOIN the plan pathologies, and that is a MEASURED
+    # negative result (2026-08-27, the day the design waterline landed).
+    # The hand-CHOSEN barge configuration proves dwl is the anti-WAVY-PLAN
+    # lever (margin +4.26 -> +0.06), so the obvious move was
+    # ("dwl", +1.0) + ("rb_transom", +0.5) on WAIST and WAVY-PLAN — and it
+    # made the walk WORSE, 2/8 -> 0/8 wins on the same seeds (with
+    # rb_stem added too: still 0/8). Mechanism: a naive dwl step arrives
+    # with UNCHOSEN rb targets, and the faired solve then delivers a
+    # waterline that deviates from a curve nobody designed — the walk
+    # burns its iterations on hulls whose plan the critic likes no
+    # better. Using dwl well needs the rb/cwp targets DERIVED from the
+    # descriptors (set rb_transom from the delivered transom beam, not
+    # nudged blindly), which is repair-table-shaped work for the knuckle
+    # slice. Until then: measured better without it.
     "WAIST": (("lcb", -1.0), ("x_mb", -0.5), ("r_transom", -0.5)),
     "WAVY-PLAN": (("r_transom", -0.5), ("lcb", -0.5), ("Cp", +0.5)),
     "PROPORTION": (("BWL", -1.0), ("LWL", +1.0)),

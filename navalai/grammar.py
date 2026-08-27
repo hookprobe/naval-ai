@@ -387,6 +387,46 @@ PARAMS = [
     ("pmb",        "-",     0.0,  0.55, "PARALLEL MIDBODY: fraction of LWL "
                                         "over which sectional area is held at "
                                         "maximum. 0 = a single-station peak"),
+    # THE DESIGN WATERLINE B(x) — Phase 3's kernel repair, the one the audit's
+    # research row names outright: "the lines plan is three coupled curves —
+    # SAC, design waterline, section character" (Larsson & Eliasson;
+    # Harries/Abt), and this grammar had the SAC only. The waterline was a
+    # CONSEQUENCE: `_stations` solved the chine from the AREA target and the
+    # flare put the waterline wherever it landed — the measured root of the
+    # flare/env coupling (full decoupling collapsed plan convexity 0.5 ->
+    # 0.32 because the KEEL quadratic leaked into the plan), of the
+    # `_CONVEXITY_FAIR_FRAC` fairing tolerance, and of the formcheck
+    # collision (a mission-correct slender Cp cannot carry a critic-clean
+    # waterline when both live in one curve — measured 2026-08-27, margins
+    # +0.024..+0.201 on all six canonical cases).
+    #
+    # With `dwl` > 0 the kernel is given BOTH targets — A(x) from the SAC and
+    # w(x) from this curve — and solves the section for (chine, flare)
+    # JOINTLY. The solve stays closed form: the f^2 coefficient of the joint
+    # equation is m*d^2*(c1 - c2 - 1), and the fillet identity c1 - c2 = 1
+    # makes it VANISH, so the derived flare is the root of a LINEAR equation.
+    # The B(x) curve itself reuses the SAC's exponent family (one ordinate
+    # law, two curves), with its own end fullness ratios below and its
+    # waterplane fullness tied to Cp by a DELTA.
+    #
+    # `dwl` = 0 disables everything: the pass-1 solve is the only solve and is
+    # bit-identical to every hull drawn before this existed (verified by
+    # test_dwl_zero_is_bit_identical). All four are lawful post-hoc appends.
+    ("dwl",        "-",     0.0,  1.0,  "design-waterline authority: 0 = the "
+                                        "waterline is the section solve's "
+                                        "consequence (legacy), 1 = B(x) is "
+                                        "prescribed and flare is derived"),
+    ("cwp_x",      "-",    -0.20, 0.25, "waterplane fullness DELTA: the B(x) "
+                                        "curve's prismatic is Cp + cwp_x, "
+                                        "clipped into its own deliverable "
+                                        "band. 0 = waterline fullness follows "
+                                        "the SAC's"),
+    ("rb_transom", "-",     0.0,  0.98, "waterline half-beam ratio at the "
+                                        "transom (beam analogue of "
+                                        "r_transom's area ratio)"),
+    ("rb_stem",    "-",     0.0,  0.98, "waterline half-beam ratio at the "
+                                        "stem; 0 = the waterline closes to a "
+                                        "point"),
 ]
 
 N_PARAMS = len(PARAMS)
@@ -425,6 +465,21 @@ _LEGACY_DRAW_ROWS = {
     "Cp": (0.525, 0.710),        # the old PRISMATIC_BY_FROUDE span
     "r_transom": (0.05, 0.50),
     "beta_mid": (0.0, 25.0),
+    # THE dwl QUARTET IS PINNED AT ITS DEFAULTS IN THE DRAW BOX (Phase 3,
+    # 2026-08-27) — unlike r_stem/pmb, whose DRAW rows stayed open for the
+    # P1 exploring stream. MEASURED the day dwl landed: an UN-CHOSEN
+    # random (dwl, cwp_x, rb_transom, rb_stem) tuple is a waterline target
+    # nobody designed — direct DRAW-box draws (the morphology tests, the
+    # directed-search seeds) degraded from median 4 to median 1 search
+    # wins, and full-box buildability read 34/500 against 41/500 with dwl
+    # forced off. The lever is for CALLERS WHO CHOOSE A CURVE (parents,
+    # missions, the repair table once its targets are derived); it enters
+    # the exploring stream when a calibrated span is measured, exactly as
+    # the P1 event did for the fullness genes.
+    "dwl": (0.0, 0.0),
+    "cwp_x": (0.0, 0.0),
+    "rb_transom": (0.0, 0.0),
+    "rb_stem": (0.0, 0.0),
 }
 for _nm, (_lo, _hi) in _LEGACY_DRAW_ROWS.items():
     _i = NAMES.index(_nm)
@@ -822,7 +877,15 @@ def named(x: np.ndarray) -> dict[str, float]:
 POST_HOC_DEFAULTS: dict[str, float] = {"beta_transom": 0.0, "beta_run": 0.0,
                                        "flare_bow": 0.0, "flare_len": 0.0,
                                        "stem_depth": 0.0,
-                                       "r_stem": 0.0, "pmb": 0.0}
+                                       "r_stem": 0.0, "pmb": 0.0,
+                                       # Phase 3 (2026-08-27): dwl = 0 makes
+                                       # the whole B(x) branch unreachable
+                                       # code, so the other three are inert
+                                       # whatever they hold; 0 keeps them
+                                       # meaningful anyway (waterline follows
+                                       # Cp, closes to a point both ends)
+                                       "dwl": 0.0, "cwp_x": 0.0,
+                                       "rb_transom": 0.0, "rb_stem": 0.0}
 
 
 def pad_genome(g) -> np.ndarray:

@@ -497,13 +497,84 @@ def sac_ordinate(params: np.ndarray, x: np.ndarray) -> np.ndarray:
     # and x0 == x1 == xm, which restores the previous expression exactly.
     # The span comes from `_pmb_span` — the ONE home of the clip, shared with
     # `_sac_terms` so the solve inverts the same curve this function draws.
-    x0, x1 = _pmb_span(L, xm, float(p.get("pmb", 0.0)))
+    return _ordinate(L, xm, R, S, float(p.get("pmb", 0.0)), pf, pa, x)
+
+
+def _ordinate(L: float, xm: float, R: float, S: float, pmb: float,
+              pf: float, pa: float, x: np.ndarray) -> np.ndarray:
+    """The ONE ordinate family both design curves are drawn from.
+
+    Extracted (Phase 3, 2026-08-27) so the SAC and the design waterline
+    B(x) share one law instead of two transcribed copies — the same
+    number-declared-twice fence, applied to a FUNCTION. `sac_exponents`
+    inverts exactly this family, so any curve drawn here is solvable by it.
+    """
+    x = np.asarray(x, dtype=float)
+    x0, x1 = _pmb_span(L, xm, pmb)
     a = np.ones_like(x)
     fwd = x >= x1
     a[fwd] = S + (1.0 - S) * (1.0 - _shape((x[fwd] - x1) / (L - x1), pf))
     aft = x <= x0
     a[aft] = R + (1.0 - R) * _shape(x[aft] / x0, pa)
     return np.clip(a, 0.0, 1.0)
+
+
+def waterline_ordinate(params: np.ndarray, x: np.ndarray) -> np.ndarray:
+    """b(x) in [0, 1]: designed waterline half-breadth / (BWL/2).
+
+    THE SECOND OF THE THREE COUPLED CURVES (Phase 3). Reuses the SAC's
+    exponent family with its own end ratios (`rb_transom`, `rb_stem`) and a
+    waterplane fullness tied to the SAC's by a DELTA: cwp = Cp + cwp_x,
+    clipped into the band the family can deliver at these ratios, with the
+    waterline centroid tied to `lcb` the same way. Both clips are toward
+    the band interior — this function is called with AUTO-DERIVED targets,
+    so a band edge here is a fairing decision, not a user request to
+    refuse; `sac_exponents` still refuses a genuinely unreachable pair by
+    name. Only consulted when `dwl` > 0.
+    """
+    p = grammar.named(params)
+    L, xmf = p["LWL"], p["x_mb"]
+    Rb = float(p.get("rb_transom", 0.0))
+    Sb = float(p.get("rb_stem", 0.0))
+    pm = float(p.get("pmb", 0.0))
+    lo, hi = cp_band(L, xmf, Rb, Sb, pm)
+    # THE TARGET WALKS INWARD RATHER THAN REFUSING THE HULL. The closed-form
+    # bands overpromise near their high edge (the solver's own bracket can
+    # fail 10% inside — measured on the cruiser parent, recorded in
+    # parents.refair), and (cwp, lcf) here are AUTO-DERIVED, not user
+    # requests: a target curve whose exponents will not solve is a fairing
+    # decision, so it eases toward band middle until the solve succeeds.
+    # MEASURED before this walk: uniform full-box draws collapsed from
+    # ~60% buildable to 6% — "sac: inner solve lost its bracket" from THIS
+    # call, refusing whole hulls over a curve that only needed easing.
+    # Mid-band solves for every case measured; if even it fails, the raise
+    # stands and names the genes.
+    cwp0 = p["Cp"] + float(p.get("cwp_x", 0.0))
+    lcb0 = p["lcb"]
+    mid_cp = 0.5 * (lo + hi)
+    last_exc = None
+    for frac in (0.0, 0.05, 0.1, 0.2, 0.35, 0.5, 0.75, 1.0):
+        eps = 1e-2 * max(hi - lo, 1e-6)
+        cwp = float(np.clip(cwp0 + frac * (mid_cp - cwp0),
+                            lo + eps, hi - eps))
+        try:
+            l_lo, l_hi = lcb_band(L, xmf, Rb, cwp, Sb, pm)
+        except (GeometryError, ValueError) as exc:
+            last_exc = exc
+            continue
+        eps = 1e-2 * max(l_hi - l_lo, 1e-6)
+        mid_l = 0.5 * (l_lo + l_hi)
+        lcf = float(np.clip(lcb0 + frac * (mid_l - lcb0),
+                            l_lo + eps, l_hi - eps))
+        try:
+            pf, pa = sac_exponents(L, xmf, Rb, cwp, lcf, Sb, pm)
+        except (GeometryError, ValueError) as exc:
+            last_exc = exc
+            continue
+        return _ordinate(L, xmf * L, Rb, Sb, pm, pf, pa, x)
+    raise GeometryError(
+        f"dwl: no design-waterline curve solves at rb_transom {Rb:.3f}, "
+        f"rb_stem {Sb:.3f}, pmb {pm:.3f} (last: {last_exc})")
 
 
 # --------------------------------------------------------------------------
@@ -732,8 +803,24 @@ def _stations(params: np.ndarray, x: np.ndarray) -> dict:
     A = A_mid * a
 
     # Solve the section quadratic, stable branch.
+    #
+    # PASS-1 REFUSALS ARE CONDITIONAL ON AUTHORITY (Phase 3). At dwl = 0
+    # this solve IS the section and its refusals are the kernel's word. At
+    # dwl > 0 it is only the BLEND SOURCE for the designed waterline below
+    # — the joint solve re-derives (chine, flare) and carries its own
+    # refusals — so a station pass 1 cannot reach is clamped to the closest
+    # it CAN reach (chine at the waterline, the quadratic's vertex) instead
+    # of refusing a hull whose final section never uses this answer.
+    # MEASURED before this guard: r_stem 0.06 at beta_bow 30 refused in
+    # pass 1 ("area 0.1664 m^2 unreachable") for a dwl = 1 hull whose
+    # joint solve delivers that station fine — the exact coupling B(x)
+    # exists to relieve.
+    _dwl = float(p.get("dwl", 0.0))
     rhs = A - d * d * f
     disc = (K * c1 * d) ** 2 - 4.0 * K * c2 * m * rhs
+    if _dwl > 0.0:
+        disc = np.maximum(disc, 0.0)
+        rhs = np.maximum(rhs, 0.0)
     if np.any(disc < 0.0):
         i = int(np.argmin(disc))
         raise GeometryError(
@@ -751,6 +838,104 @@ def _stations(params: np.ndarray, x: np.ndarray) -> dict:
     yc = np.maximum(yc, 0.0)
     zc = zk + yc * m
     y_wl = K * yc + d * f
+
+    # ---- THE DESIGN WATERLINE B(x) (Phase 3, 2026-08-27) -----------------
+    # With `dwl` > 0 the section receives BOTH targets — A(x) above and a
+    # designed waterline half-breadth w(x) — and (chine, flare) are solved
+    # JOINTLY, which is what makes the flare a DERIVED per-station quantity
+    # (the audit's three-coupled-curves repair). Substituting
+    # u = w - d*f = K*yc into the area closed form gives a polynomial in f
+    # whose f^2 coefficient is m*d^2*(c1 - c2 - 1); the fillet identity
+    # c1 - c2 = 1 (see _fillet_coeffs) makes it VANISH for every roundness,
+    # so the derived flare is the root of a LINEAR equation and the kernel
+    # stays closed form. `dwl` blends the target between the pass-1
+    # consequence (0, bit-identical legacy) and the prescribed curve (1).
+    if _dwl > 0.0:
+        b_wl = waterline_ordinate(params, x)
+        w = (1.0 - _dwl) * y_wl + _dwl * (0.5 * B) * b_wl
+        e = d
+        a0 = A - c1 * e * w + c2 * m * w * w
+        a1 = -A * m + c1 * e * (e + m * w) - 2.0 * c2 * m * e * w - e * e
+        # f = -a0/a1, guarded: a vanishing a1 means no flare satisfies
+        # both targets at this station; send it to +inf so the cap-and-
+        # refair branch below owns it. (The first draft of this guard
+        # composed sign() and a negation into +a0/a1 — the SIGN of the
+        # solve — and every fuller-waterline request pinned at the
+        # tumblehome cap; verified against 2000 synthetic sections.)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            f_lin = np.where(np.abs(a1) > 1e-12,
+                             -a0 / np.where(np.abs(a1) > 1e-12, a1, 1.0),
+                             np.inf)
+        # B(x) IS A HARD TARGET ONLY WHERE A BOUNDED FLARE CAN DELIVER IT.
+        # MEASURED before this clamp: every tried configuration refused at
+        # the STEM with derived flare 83-90 deg — near the tips A(x) and
+        # w(x) fall at rates the section's one shape DOF cannot reconcile,
+        # and demanding exactness there refused the whole hull for its last
+        # 2% of length. This is what lines fairing IS: the waterline is
+        # authoritative over the body and eased at the ends. So the derived
+        # flare is capped at +-60 deg; where the cap binds, the section
+        # reverts to AREA-faithful (the pass-1 quadratic at the capped
+        # flare) and the delivered waterline deviates from the designed
+        # curve THERE ONLY. The deviation is not silent: it is readable as
+        # y_wl vs (BWL/2) * waterline_ordinate(...), and
+        # `Hull.dwl_deviation()` reports it — a requested-vs-achieved gap
+        # this kernel measures rather than hides.
+        # THE DERIVED FLARE SATURATES SMOOTHLY, AND THE SECTION STAYS
+        # AREA-FAITHFUL EVERYWHERE. The first cut clipped f_lin hard and
+        # switched the section between waterline-exact and area-faithful
+        # regimes; the switch was value-continuous but kinked the plan, and
+        # the critic read the kinks as waists (+17..+19 margins on slender
+        # hulls — WORSE than the lens it replaced). So: (1) f2 is a tanh
+        # saturation of the linear solve toward per-station caps — near
+        # zero it is the exact answer to machine precision growth, at the
+        # caps it eases in smoothly, and it is C1 along the hull; (2) the
+        # chine is then ALWAYS solved from the AREA at that flare, so the
+        # SAC — the displacement contract — is delivered exactly at every
+        # dwl, and the waterline APPROXIMATES the designed B(x) as closely
+        # as the caps allow. That is what fairing a lines plan means; the
+        # requested-vs-achieved gap is measurable (y_wl against
+        # waterline_ordinate) and Hull.dwl_deviation() reports it.
+        #
+        # The caps: outward flare stops 5 deg short of panels-parallel
+        # (K = 0 at beta + flare = 90 deg) and at 60 deg absolutely;
+        # tumblehome is capped at 25 deg scaled by the one-sided envelope
+        # AND the SAC ordinate — a short topside on a small section may
+        # not chase the waterline far (measured: the sheer walked through
+        # the centreline at both ends before these tapers).
+        f_hi = np.tan(np.minimum(math.radians(60.0),
+                                 (0.5 * math.pi - beta) - math.radians(5.0)))
+        f_lo = math.tan(math.radians(25.0)) * env * np.minimum(a, 1.0)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            f2 = np.where(
+                f_lin >= 0.0,
+                f_hi * np.tanh(np.minimum(f_lin, 1e6)
+                               / np.maximum(f_hi, 1e-9)),
+                -np.maximum(f_lo, 1e-9)
+                * np.tanh(-np.maximum(f_lin, -1e6)
+                          / np.maximum(f_lo, 1e-9)))
+        K2 = 1.0 - m * f2
+        if np.any(K2 <= 1e-6):
+            i = int(np.argmin(K2))
+            raise GeometryError(
+                f"dwl: bottom and topside panels become parallel at "
+                f"x = {x[i]:.3f} m")
+        rhs2 = A - d * d * f2
+        disc2 = (K2 * c1 * d) ** 2 - 4.0 * K2 * c2 * m * rhs2
+        if np.any(disc2 < 0.0):
+            i = int(np.argmin(disc2))
+            raise GeometryError(
+                f"dwl: area {A[i]:.4f} m^2 unreachable at x = {x[i]:.3f} m "
+                f"at the faired flare "
+                f"{math.degrees(math.atan(float(f2[i]))):.1f} deg — the "
+                f"SAC and the designed waterline cannot be faired there")
+        den2 = K2 * c1 * d + np.sqrt(np.maximum(disc2, 0.0))
+        yc = np.where(den2 > 1e-12,
+                      2.0 * np.maximum(rhs2, 0.0) / np.maximum(den2, 1e-12),
+                      0.0)
+        yc = np.maximum(yc, 0.0)
+        f, K = f2, K2
+        zc = zk + yc * m
+        y_wl = K * yc + d * f
 
     # Sheer: freeboard at mid, rising toward the bow. The topside is ONE
     # straight run from the chine at the (enveloped) flare, so the sheer
@@ -1384,6 +1569,26 @@ class Hull:
         method, 41 at a time, all at one waterline.
         """
         return _immersed_batch(*self._controls(), wl)
+
+    def dwl_deviation(self) -> np.ndarray:
+        """|delivered - designed| waterline half-breadth, per station [m].
+
+        THE REQUESTED-VS-ACHIEVED RECEIPT for the design waterline: the
+        derived flare saturates toward per-station caps, so the delivered
+        y_wl approximates B(x) rather than equalling it, and a designed
+        curve the section family cannot fair is delivered as DEVIATION,
+        never as a silent success (the snappy layer-table lesson, applied
+        to geometry). All zeros when `dwl` == 0 — there is no designed
+        curve to deviate from, so the legacy waterline is exact by
+        definition.
+        """
+        p = grammar.named(self.params)
+        d = float(p.get("dwl", 0.0))
+        if d <= 0.0:
+            return np.zeros_like(self.y_wl)
+        b = waterline_ordinate(self.params, self.x)
+        w = (1.0 - d) * self.y_wl + d * (0.5 * p["BWL"]) * b
+        return np.abs(self.y_wl - w)
 
     def form_coefficients(self, n: int = 401) -> dict:
         """Cp, LCB, Cwp, LCF and Cm of the DELIVERED surface.

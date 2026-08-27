@@ -97,7 +97,14 @@ def test_the_generated_space_and_the_real_manifold_barely_overlap():
     # solve lower the raw yield of a full-box uniform draw (measured 63
     # L0-valid per 4000); the MEASUREMENT needs >= 80 descriptors, so the
     # budget doubles rather than the sample shrinking.
-    while len(gen) < 120 and tries < 8000:
+    # 8000 -> 16000 on 2026-08-27 (the dwl arity event): this test draws
+    # the LEGAL box on purpose — the headline is about the raw generated
+    # space — and that space now includes uniform (dwl, cwp_x, rb) tuples,
+    # i.e. waterline targets nobody designed, which mostly refuse
+    # (measured 76 L0-valid per 8000 at the new arity). The budget doubles
+    # again for the same reason as last time: the sample floor is the
+    # statistic's, not the space's.
+    while len(gen) < 120 and tries < 16000:
         tries += 1
         x = grammar.LOW + rng.random(grammar.N_PARAMS) * (grammar.HIGH - grammar.LOW)
         # Cp drawn INSIDE the band the fullness genes can deliver

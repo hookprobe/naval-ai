@@ -239,8 +239,17 @@ def test_the_fit_moved_only_the_shape_genes(hid: str):
         assert abs(gen["genome"][k] - want[k]) < 1e-9, (
             f"{hid}: {k} was pinned at the source value {want[k]} but the "
             f"stored genome carries {gen['genome'][k]}")
-    assert set(gen["pinned_genes"]) | set(gen["fitted_genes"]) == \
-        set(grammar.NAMES)
+    # A fixture records the arity OF ITS DAY. A gene that is neither
+    # pinned nor fitted must be a POST-HOC append whose default is a
+    # proven no-op — the same law pad_genome enforces — so an arity event
+    # cannot invalidate a recorded fit (measured 2026-08-27: the dwl
+    # quartet failed all 28 round-trip fixtures on this set-equality until
+    # the defaulted class was named).
+    recorded = set(gen["pinned_genes"]) | set(gen["fitted_genes"])
+    defaulted = set(grammar.NAMES) - recorded
+    assert defaulted <= set(grammar.POST_HOC_DEFAULTS), (
+        f"{hid}: {sorted(defaulted - set(grammar.POST_HOC_DEFAULTS))} are "
+        f"neither pinned, fitted, nor lawful post-hoc defaults")
     assert not (set(gen["pinned_genes"]) & set(gen["fitted_genes"]))
 
 

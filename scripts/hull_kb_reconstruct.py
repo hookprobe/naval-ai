@@ -101,10 +101,17 @@ TARGETS: dict[str, dict] = {
 
 
 def vector_from_genes(genes: dict[str, float]) -> np.ndarray:
-    missing = [n for n in grammar.NAMES if n not in genes]
+    # A gene ABSENT from an interpretation must be a proven no-op, never a
+    # guess — that is grammar.POST_HOC_DEFAULTS' contract, and grammar.vector
+    # applies it. Only a missing CORE gene is an incomplete interpretation.
+    # (The strict all-genes check here refused the proven parents the day
+    # the dwl quartet appended — an arity event should never invalidate a
+    # recorded genome; that is the whole point of the post-hoc law.)
+    missing = [n for n in grammar.NAMES
+               if n not in genes and n not in grammar.POST_HOC_DEFAULTS]
     if missing:
         raise SystemExit(f"gene interpretation incomplete: {missing}")
-    return np.array([float(genes[n]) for n in grammar.NAMES])
+    return np.asarray(grammar.vector(genes), dtype=float)
 
 
 # ---------------------------------------------------------------------------

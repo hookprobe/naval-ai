@@ -418,9 +418,21 @@ def _in_box_witnesses(mission, cp, n_draws: int = 8000):
 
     box = cp.box(mission.design_category)
     rng = np.random.default_rng(0)
+    # POST-HOC GENES AT THEIR DEFAULTS, drawn-then-overwritten so the PCG64
+    # stream keeps its column phase. Re-based 2026-08-27 (the dwl arity
+    # event): drawing the policy box uniformly at 27 columns put random
+    # UN-DESIGNED waterline targets in most candidates, buildability fell
+    # to ~6%, and 8000 draws yielded ZERO witnesses. The witness claim —
+    # "a design INSIDE the box that a ROW refuses exists" — needs any
+    # witness, not a dwl-active one, and pinning the post-hoc columns is
+    # the same fixed-width discipline grammar.sample itself uses.
+    _post = {_g.NAMES.index(k): float(v)
+             for k, v in _g.POST_HOC_DEFAULTS.items() if k in _g.NAMES}
     out = []
     for _ in range(n_draws):
         x = box.low + rng.random(len(box.low)) * (box.high - box.low)
+        for _i, _v in _post.items():
+            x[_i] = _v
         if not _g.check(x).ok:
             continue
         if not ev_(x, mission).ok:

@@ -147,8 +147,15 @@ def dev_stream(campaign_hulls):
     # When a deliberate bounds change moves this hash: re-record it AND
     # re-derive SUB_CELL_HULL by searching the stream (the constant's
     # comment shows the procedure) — never delete the guard.
+    # RE-RECORDED 2026-08-27 (Phase 3 arity 23 -> 27, the dwl genes): the
+    # sha covers the full vectors, so four appended no-op columns move it
+    # while the HULLS stand still. VERIFIED before re-recording: hull 152
+    # round-trips to the identical screen values (sheer ridge 0.0636,
+    # bottom panel 0.0648 cells) — the same round-trip proof the
+    # 2026-08-26 note demanded. Previous sha, arity 23:
+    # 60e8596d1b265ef0ef28dce4983d36fab36bcc2213328ab837fc804d1df1a54b.
     assert population.genome_sha256(np.asarray(X, float)) == (
-        "60e8596d1b265ef0ef28dce4983d36fab36bcc2213328ab837fc804d1df1a54b"), (
+        "e9cb7c8c35dd364c4730df8f1887e9460636773a0153399a1dee0b6ee13fe61e"), (
         "the development stream moved — re-derive SUB_CELL_HULL and "
         "re-record this sha alongside the bounds change that moved it")
     return X

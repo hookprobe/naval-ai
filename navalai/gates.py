@@ -224,6 +224,17 @@ GATES = [
     Gate("Gate BARGE", "a houseboat is a rectangle: the widened envelope "
          "draws it, the frozen DRAW box protects history, and the pointed "
          "bow stays reachable", suite="tests/test_barge_bow.py"),
+    # Phase 3 slice 1, 2026-08-27: the design waterline B(x) — the second
+    # of the three coupled curves, closed-form (the joint solve's f^2 term
+    # vanishes by the fillet identity), bit-identical at dwl = 0, and
+    # measured to take the proven barge from critic +4.26 to +0.06 under
+    # the GENERAL bar. The single-panel-topside limitation is a recorded
+    # sentinel, to be inverted when the waterline knuckle lands.
+    Gate("Gate DWL", "the design waterline: dwl = 0 is bit-identical "
+         "legacy, the SAC stays the displacement contract at every dwl, "
+         "the barge passes the general critic, and the requested-vs-"
+         "achieved gap is a receipt (Hull.dwl_deviation)",
+         suite="tests/test_dwl.py"),
     # P5, 2026-08-27: with a corpus of TENS of hulls, retrieval + parent
     # distortion is the honest seeding mechanism and a learned generator is
     # not (research matrix, docs/audit/HULL-DESIGN-AUDIT.md). The suite
