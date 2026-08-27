@@ -230,6 +230,14 @@ GATES = [
     # measured to take the proven barge from critic +4.26 to +0.06 under
     # the GENERAL bar. The single-panel-topside limitation is a recorded
     # sentinel, to be inverted when the waterline knuckle lands.
+    # Phase 4A, 2026-08-27: houseboat17's W-stern in-genome — the tunnel
+    # notch as three no-op genes, the SAC delivered NET of it in closed
+    # form, the crown-submerged rule refusing what vessel_terms cannot
+    # model, and the sections carrying the W the hydrostatics integrate.
+    Gate("Gate TUNNEL", "the W-stern: tunnel genes are no-ops at zero, the "
+         "SAC stays the net displacement contract to the bit, a crown "
+         "above the waterline is refused by name, and the wetted surface "
+         "counts the tunnel walls", suite="tests/test_tunnel.py"),
     Gate("Gate DWL", "the design waterline: dwl = 0 is bit-identical "
          "legacy, the SAC stays the displacement contract at every dwl, "
          "the barge passes the general critic, and the requested-vs-"

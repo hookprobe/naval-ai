@@ -27,6 +27,11 @@ APP = ROOT / "ui" / "app"
 def _params(**over):
     p = grammar.named((grammar.LOW + grammar.HIGH) / 2)
     p["roundness"] = 0.0            # the compiled box pins this; so does the UI
+    # post-hoc genes at their NO-OPS, not their mids (2026-08-27, the
+    # tunnel arity event): mid-dwl + mid-tunnel is an active-everything
+    # hull the UI never serves, and its transom refuses at L0
+    for _nm, _v in grammar.POST_HOC_DEFAULTS.items():
+        p[_nm] = float(_v)
     p.update(over)
     return p
 

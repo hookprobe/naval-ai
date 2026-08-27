@@ -152,10 +152,15 @@ def dev_stream(campaign_hulls):
     # while the HULLS stand still. VERIFIED before re-recording: hull 152
     # round-trips to the identical screen values (sheer ridge 0.0636,
     # bottom panel 0.0648 cells) — the same round-trip proof the
-    # 2026-08-26 note demanded. Previous sha, arity 23:
-    # 60e8596d1b265ef0ef28dce4983d36fab36bcc2213328ab837fc804d1df1a54b.
+    # 2026-08-26 note demanded. Previous shas: arity 23
+    # 60e8596d1b265ef0ef28dce4983d36fab36bcc2213328ab837fc804d1df1a54b,
+    # arity 27 (the dwl quartet)
+    # e9cb7c8c35dd364c4730df8f1887e9460636773a0153399a1dee0b6ee13fe61e.
+    # RE-RECORDED again the same evening for the Phase-4 tunnel trio
+    # (27 -> 30); hull 152 round-trips to the identical screen values
+    # (0.0636 / 0.0648), exactly as at both prior events.
     assert population.genome_sha256(np.asarray(X, float)) == (
-        "e9cb7c8c35dd364c4730df8f1887e9460636773a0153399a1dee0b6ee13fe61e"), (
+        "f38618a9e8e994f304f8a5009d033db6e89646025d45c8e85f1a12710c560511"), (
         "the development stream moved — re-derive SUB_CELL_HULL and "
         "re-record this sha alongside the bounds change that moved it")
     return X

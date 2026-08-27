@@ -62,8 +62,19 @@ def _hulls(n: int = 40, seed: int = 0) -> list[np.ndarray]:
     """
     rng = np.random.default_rng(seed)
     out: list[np.ndarray] = []
+    # POST-HOC GENES AT THEIR DEFAULTS, drawn-then-overwritten (2026-08-27,
+    # the tunnel arity event; the same fixed-width discipline as
+    # test_optimize._in_box_witnesses): a raw 30-column uniform is dwl- and
+    # tunnel-active with targets nobody designed, and the L1-evaluable
+    # yield collapses — these tests are about POLICY routing, and legacy-
+    # class hulls are the population the routing claims were measured on.
+    _post = {grammar.NAMES.index(k): float(v)
+             for k, v in grammar.POST_HOC_DEFAULTS.items()
+             if k in grammar.NAMES}
     while len(out) < n:
         x = rng.uniform(grammar.LOW, grammar.HIGH)
+        for _i, _v in _post.items():
+            x[_i] = _v
         if not grammar.check(x).ok:
             continue
         if evaluate(x, MISSION).hydro is None:
@@ -378,8 +389,18 @@ def test_a_refusal_reaches_the_ladder_as_a_refusal_not_as_an_exception():
         1.3, "-", "a deliberately large stem/transom overhang allowance, to "
                   "push a grammar-legal hull out of the RCD's own scope"))
     cp = compile_policy(Constitution("out of scope", LegalEnvelope(), dna))
-    x = _hulls(1)[0].copy()
-    x[grammar.NAMES.index("LWL")] = 20.0
+    # the FIRST hull that stays L0-legal at the forced 20 m: the claim is
+    # about the POLICY refusal reaching the ladder, which needs a hull the
+    # geometry does not refuse first (the tunnel arity re-deal moved hull
+    # 0 out of that class)
+    x = None
+    for cand in _hulls(10):
+        y = cand.copy()
+        y[grammar.NAMES.index("LWL")] = 20.0
+        if grammar.check(y).ok and evaluate(y, MISSION).hydro is not None:
+            x = y
+            break
+    assert x is not None, "no draw survives the 20 m override"
     ev = evaluate(x, MISSION, policy=cp)
     assert ev.policy["route"]["mode"] == "REFUSED"
     assert "Art. 3(2)" in ev.policy["route"]["refusal"]
@@ -1001,6 +1022,11 @@ def test_an_unmeasurable_developability_is_a_VIOLATION_never_a_pass():
     from navalai.mission import MissionSpec
 
     x = (np.array(grammar.LOW) + np.array(grammar.HIGH)) / 2.0
+    # the MID of a post-hoc gene is not its no-op (mid-dwl + mid-tunnel is
+    # an active-everything hull whose transom refuses); the fixture wants
+    # the legacy mid-box hull the claim was measured on
+    for _nm, _v in grammar.POST_HOC_DEFAULTS.items():
+        x[grammar.NAMES.index(_nm)] = float(_v)
     j = grammar.NAMES.index("roundness")
     assert x[j] > 0.0, "this fixture must be round-bilged to be the test"
 

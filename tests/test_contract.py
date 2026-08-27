@@ -647,6 +647,11 @@ def _mid_genome(**over):
     from navalai import grammar as _g
     d = {n: 0.5 * (lo + hi)
          for n, lo, hi in zip(_g.NAMES, _g.LOW, _g.HIGH)}
+    # post-hoc genes at their NO-OPS, not their mids (2026-08-27, the
+    # tunnel arity event) — mid-dwl + mid-tunnel refuses at L0 and this
+    # helper's callers all want an evaluable legacy hull
+    for _nm, _v in _g.POST_HOC_DEFAULTS.items():
+        d[_nm] = float(_v)
     d.update(over)
     return _g.vector(d)
 

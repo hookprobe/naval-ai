@@ -427,6 +427,27 @@ PARAMS = [
     ("rb_stem",    "-",     0.0,  0.98, "waterline half-beam ratio at the "
                                         "stem; 0 = the waterline closes to a "
                                         "point"),
+    # THE TUNNEL STERN (Phase 4, 2026-08-27) — the owner-approved
+    # houseboat17 W-section, expressed as the NOTCH it is: the centreline
+    # keel rises to a tunnel CROWN over the after `tun_len` of the hull,
+    # walls sloping down-out to the floor at `tun_w` of the local chine
+    # half-breadth. The notch is space the boat displaces but cannot use
+    # (the owner's own sentence), so the section solve delivers the SAC
+    # NET of it — displacement stays the contract — and the crown must
+    # stay submerged at the floated state (the waterplane never gains a
+    # hole; a pierce is REFUSED, not mis-integrated). All three are
+    # lawful post-hoc appends: at 0 the notch has no width, no height and
+    # no length, and every function reduces to the pre-tunnel expression
+    # bit for bit.
+    ("tun_w",      "-",     0.0,  0.60, "tunnel half-width at the floor / "
+                                        "local chine half-breadth. 0 = no "
+                                        "tunnel"),
+    ("tun_crown",  "-",     0.0,  0.70, "tunnel crown height above the keel "
+                                        "/ local draft, at the transom. 0 = "
+                                        "no tunnel"),
+    ("tun_len",    "-",     0.0,  0.50, "fraction of LWL the tunnel runs "
+                                        "forward from the transom. 0 = no "
+                                        "tunnel"),
 ]
 
 N_PARAMS = len(PARAMS)
@@ -480,6 +501,11 @@ _LEGACY_DRAW_ROWS = {
     "cwp_x": (0.0, 0.0),
     "rb_transom": (0.0, 0.0),
     "rb_stem": (0.0, 0.0),
+    # the tunnel trio is pinned for the same reason as the dwl quartet: a
+    # random un-designed notch is not a hull anyone asked for
+    "tun_w": (0.0, 0.0),
+    "tun_crown": (0.0, 0.0),
+    "tun_len": (0.0, 0.0),
 }
 for _nm, (_lo, _hi) in _LEGACY_DRAW_ROWS.items():
     _i = NAMES.index(_nm)
@@ -885,7 +911,11 @@ POST_HOC_DEFAULTS: dict[str, float] = {"beta_transom": 0.0, "beta_run": 0.0,
                                        # meaningful anyway (waterline follows
                                        # Cp, closes to a point both ends)
                                        "dwl": 0.0, "cwp_x": 0.0,
-                                       "rb_transom": 0.0, "rb_stem": 0.0}
+                                       "rb_transom": 0.0, "rb_stem": 0.0,
+                                       # Phase 4: the tunnel notch — zero
+                                       # width x height x length is no notch
+                                       "tun_w": 0.0, "tun_crown": 0.0,
+                                       "tun_len": 0.0}
 
 
 def pad_genome(g) -> np.ndarray:
