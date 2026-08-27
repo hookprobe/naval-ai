@@ -162,7 +162,7 @@ different Gate 2M numbers came to circulate at once (gap J1).
 
 | Gate | Scope | Verified by |
 |---|---|---|
-| Gate PROP | propulsion integration: motor power and prop space are constraint rows; transom Froude, bilge-keel span and pitch entry are measured reports | `tests/test_propulsion.py` (9 tests) |
+| Gate PROP | propulsion integration: motor power and prop space are constraint rows; transom Froude, bilge-keel span and pitch entry are measured reports | `tests/test_propulsion.py` (16 tests) |
 | Gate MORPH | morphological plausibility: a hull must LOOK like a boat, judged on descriptors measured against 58 published hulls (89-92% of L0-valid generated hulls fail; 0 of 58 real ones do) | `tests/test_morphology.py` (16 tests) |
 | Gate HULL-KB | the reference corpus is learned and reconstruction is proven: KB citations resolve, and the measured cruiser / warped-V / split-topology reconstructions stand | `tests/test_hull_kb.py` (6 tests) |
 | Gate BARGE | a houseboat is a rectangle: the widened envelope draws it, the frozen DRAW box protects history, and the pointed bow stays reachable | `tests/test_barge_bow.py` (6 tests) |

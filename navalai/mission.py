@@ -837,20 +837,29 @@ def parse_mission(text: str) -> MissionSpec:
     if solar and m.energy.battery_kwh == 30.0:
         pass  # defaults already solar-electric
 
+    # P6 (2026-08-27): the DRIVE the brief names reaches the propulsion
+    # rows. "outboard" used to be measured as a shaft drive with a tunnel
+    # lever it does not have; the vocabulary maps onto
+    # propulsion.DriveArchitecture and anything unnamed stays the shaft
+    # default.
+    from dataclasses import replace as _replace
+    if re.search(r"\boutboards?\b", t):
+        m.energy = _replace(m.energy, drive="outboard")
+    elif re.search(r"\b(?:saildrive|sail\s*drive|pod\s*drive|azimuth)\b", t):
+        m.energy = _replace(m.energy, drive="pod")
+    elif re.search(r"\b(?:tunnel\s*(?:drive|prop)|protected\s*prop(?:eller)?)\b", t):
+        m.energy = _replace(m.energy, drive="tunnel")
+
     # The clamp runs LAST, after every `setattr` above: `__post_init__` saw only
     # the defaults, so a parsed 0 knots or 5000 crew would have walked straight
     # past it. Its notes join the unparsed list, which is the only channel this
     # function has for saying "what you got back is not what you asked for".
-    # A DECLARED LIMIT WITH NOWHERE TO LIVE IS SAID OUT LOUD. There is no air
-    # draft, mast height or bridge-clearance concept anywhere in this tree —
-    # `WindageSpec.centroid_above_wl_m` is the centroid of a lateral AREA for a
-    # heeling moment, not a maximum height, and repurposing it would answer a
-    # different question. So a brief that states a vertical clearance gets told
-    # that nothing will check it, rather than having the number silently
-    # absorbed into the waterline length (which is what used to happen).
-    # P2-A (2026-08-27): the field exists now and `translate` grades it, so
-    # this warning fires only when a clearance WORD appears with no number
-    # the parser could bind — stated-and-unbound, not stated-and-unchecked.
+    # A DECLARED LIMIT WITH NOWHERE TO LIVE IS SAID OUT LOUD — that was this
+    # warning's original job, when no air-draft concept existed in the tree.
+    # P2-A (2026-08-27) gave the number a home (`air_draft_max_m`, graded by
+    # `translate`), so the warning now fires only when a clearance WORD
+    # appears with no number the parser could bind — stated-and-unbound,
+    # not stated-and-unchecked.
     if m.air_draft_max_m is None and re.search(
             r"\b(?:air\s*draft|air-draft|headroom|clearance|"
             r"(?:total|overall)\s+height|bridge)\b", t):

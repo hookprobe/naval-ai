@@ -41,6 +41,14 @@ class EnergySpec:
     # a SHALLOW-DRAFT mission sets 0.0 and must then buy its disc with
     # tunnels or extra props — which is precisely the houseboat19 lesson.
     prop_max_below_keel_m: float = 0.35
+    # P6 (2026-08-27): WHICH stern the rows are measured against. One of
+    # propulsion.DriveArchitecture's values; "shaft" reproduces the pre-P6
+    # rows bit-identically. The drive decides which of the two levers
+    # above may buy disc diameter at all — an outboard has no tunnel to
+    # recess, a protected tunnel drive must put nothing below the keel —
+    # and an unknown string is REFUSED by propulsion.drive_law, never
+    # silently defaulted.
+    drive: str = "shaft"
 
 
 # structural mass model constants (plywood-epoxy build, Phase 6 refines via ISO 12215)

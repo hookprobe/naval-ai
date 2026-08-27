@@ -165,3 +165,107 @@ def test_disc_sizing_is_monotone_in_its_levers():
     assert d2 < d1
     assert propulsion.max_prop_diameter_m(0.33, 0.16) > \
         propulsion.max_prop_diameter_m(0.33, 0.0)
+
+
+# ===========================================================================
+# P6 (2026-08-27) — THE DRIVE ARCHITECTURE. Before it, the rows judged every
+# hull as a conventional shaft drive: an outboard was CREDITED with a tunnel
+# recess it cannot have, and a protected tunnel drive was credited with a
+# below-keel hang it exists to avoid — the naval-ai-concept's central
+# protected prop puts NOTHING below the keel line, and the row measured a
+# stern that does not exist (audit H chain).
+# ===========================================================================
+
+from tests.test_phase0 import mid_params  # noqa: E402
+
+
+def test_the_shaft_default_reproduces_the_pre_p6_rows_bit_identically():
+    """The compatibility clause: DRIVE_LAWS['shaft'] is station 0.12 with
+    both levers live, so every recorded evaluation stands."""
+    law = propulsion.DRIVE_LAWS[propulsion.DriveArchitecture.SHAFT]
+    assert law.station_frac == propulsion.PROP_STATION_FRAC
+    assert law.allows_recess and law.allows_below_keel
+    assert EnergySpec().drive == "shaft"
+    x = np.array(mid_params())
+    from navalai.geometry import Hull
+    hull = Hull(x)
+    g_new, _ = propulsion.rows_for(hull, 0.0, 3000.0, 9000.0, EnergySpec())
+    # hand-build the pre-P6 computation from the same primitives
+    imm = propulsion.prop_immersion_m(hull, 0.0)
+    d_min = propulsion.min_prop_diameter_m(3000.0, 1)
+    d_max = propulsion.max_prop_diameter_m(imm, 0.0, 0.35)
+    assert g_new["prop_space"] == pytest.approx(d_min / d_max - 1.0, rel=1e-12)
+
+
+def test_an_outboard_gets_no_credit_for_a_tunnel_it_cannot_have():
+    x = np.array(mid_params())
+    from navalai.geometry import Hull
+    hull = Hull(x)
+    with_recess = EnergySpec(drive="outboard", prop_tunnel_recess_m=0.5)
+    without = EnergySpec(drive="outboard", prop_tunnel_recess_m=0.0)
+    g1, _ = propulsion.rows_for(hull, 0.0, 3000.0, 9000.0, with_recess)
+    g0, _ = propulsion.rows_for(hull, 0.0, 3000.0, 9000.0, without)
+    assert g1["prop_space"] == pytest.approx(g0["prop_space"]), (
+        "a declared tunnel recess bought an outboard disc diameter — the "
+        "drive law is not being applied")
+
+
+def test_a_protected_tunnel_drive_puts_nothing_below_the_keel():
+    """The naval-ai-concept configuration: the recess is the ONLY lever."""
+    x = np.array(mid_params())
+    from navalai.geometry import Hull
+    hull = Hull(x)
+    spec = EnergySpec(drive="tunnel", prop_max_below_keel_m=0.35,
+                      prop_tunnel_recess_m=0.0)
+    g, why = propulsion.rows_for(hull, 0.0, 3000.0, 9000.0, spec)
+    imm = propulsion.prop_immersion_m(hull, 0.0)
+    d_max_no_hang = propulsion.max_prop_diameter_m(imm, 0.0, 0.0)
+    d_min = propulsion.min_prop_diameter_m(3000.0, 1)
+    assert g["prop_space"] == pytest.approx(
+        (d_min / d_max_no_hang - 1.0) if d_max_no_hang > 1e-9
+        else float("inf"))
+    # and when the row fires, the message names the drive and ONLY the
+    # levers this drive actually has
+    if g["prop_space"] > 0:
+        assert "tunnel stern" in why["prop_space"]
+        assert "hang below the keel" not in why["prop_space"]
+
+
+def test_an_unknown_drive_is_refused_by_name_never_defaulted():
+    with pytest.raises(ValueError, match="waterjet"):
+        propulsion.drive_law(EnergySpec(drive="waterjet"))
+
+
+def test_the_usable_column_fraction_is_derived_from_the_named_margins():
+    """The 0.70 was a single opaque number with the 15% tip clearance
+    folded in silently; now both margins are named and the fraction is
+    DERIVED — a change to either moves it, retyping it is impossible."""
+    assert propulsion.PROP_IMMERSION_FRACTION == pytest.approx(
+        1.0 - propulsion.TIP_CLEARANCE_FRACTION
+        - propulsion.GROUNDING_MARGIN_FRACTION)
+    assert propulsion.PROP_IMMERSION_FRACTION == pytest.approx(0.70)
+
+
+def test_the_brief_names_the_drive_and_the_spec_receives_it():
+    from navalai.mission import parse_mission
+    cases = {
+        "6 m dinghy with an outboard, 8 knots": "outboard",
+        "12 m saildrive cruiser at 6 knots": "pod",
+        "16 m houseboat with a protected prop, 5 knots": "tunnel",
+        "10 m solar boat at 5 knots": "shaft",
+    }
+    for brief, drive in cases.items():
+        assert parse_mission(brief).energy.drive == drive, brief
+
+
+def test_the_report_carries_the_drive_and_the_as_applied_levers():
+    """`assess` must report the recess AS APPLIED (zeroed for a drive with
+    no tunnel), not as declared — a report that echoes the request is the
+    layer-table lie all over again."""
+    m = _mission(n_props=1, drive="outboard", prop_tunnel_recess_m=0.5)
+    x = np.array(mid_params())
+    ev = evaluate(x, m)
+    from navalai.geometry import Hull
+    rep = propulsion.assess(Hull(x), ev, m.energy)
+    assert rep.drive == "outboard"
+    assert rep.tunnel_recess_m == 0.0

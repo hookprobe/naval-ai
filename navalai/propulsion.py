@@ -65,16 +65,96 @@ MOTOR_CONTINUOUS_FRACTION = 0.80
 #: design must grow the disc, split it (n_props), or recess a tunnel.
 PROP_DISC_LOADING_MAX_PA = 8000.0
 
+#: Tip clearance to the hull above the disc, as a fraction of D: >= 15%,
+#: per the tunnel configurations in `galati-romania.pdf` (JMSE 10:1523).
+#: Below it the blade-passage pressure pulse couples into the plating —
+#: noise and vibration first, cavitation erosion second. P6 makes this an
+#: explicitly NAMED bar instead of a number folded silently into the
+#: usable-column fraction.
+TIP_CLEARANCE_FRACTION = 0.15
+
+#: Grounding / debris margin between the disc and the keel line below.
+GROUNDING_MARGIN_FRACTION = 0.15
+
 #: Usable prop diameter as a fraction of the water column at the prop
-#: station: tip clearance to the hull above (>= 15% D, per the tunnel
-#: configurations in `galati-romania.pdf`, JMSE 10:1523) plus grounding
-#: margin below.
-PROP_IMMERSION_FRACTION = 0.70
+#: station — DERIVED from the two margins above, never retyped (the value
+#: is 0.70, exactly what this constant read before the margins were named).
+PROP_IMMERSION_FRACTION = 1.0 - TIP_CLEARANCE_FRACTION - GROUNDING_MARGIN_FRACTION
 
 #: The prop works this fraction of LWL forward of the transom. Far enough
 #: forward for a shaft angle under 12 deg to a motor above the WL; far
-#: enough aft to clear the run's rise.
+#: enough aft to clear the run's rise. (SHAFT/TUNNEL station; other
+#: architectures override — see DRIVE_LAWS.)
 PROP_STATION_FRAC = 0.12
+
+
+# ---------------------------------------------------------------------------
+# Drive architecture (P6, 2026-08-27). The audit's H chain: the propulsion
+# rows judged every hull as a conventional shaft drive, so an outboard
+# transom-hung leg was charged for a tunnel it cannot have and a protected
+# tunnel drive was CREDITED with a below-keel hang it must not take — the
+# naval-ai-concept's central protected prop exists precisely to put nothing
+# below the keel line. WHERE the disc works and WHICH levers can buy it
+# room are properties of the drive, not of the hull, so they live in one
+# enum-keyed table and both `assess` and `rows_for` read it. `shaft`
+# reproduces the pre-P6 behaviour bit-identically (station 0.12, both
+# levers live), which is what keeps every recorded evaluation standing.
+# ---------------------------------------------------------------------------
+
+from enum import Enum
+
+
+class DriveArchitecture(Enum):
+    SHAFT = "shaft"          # conventional shaft behind a skeg
+    OUTBOARD = "outboard"    # transom-hung leg
+    POD = "pod"              # under-hull pod / saildrive
+    TUNNEL = "tunnel"        # recessed tunnel, protected prop
+
+
+@dataclass(frozen=True)
+class DriveLaw:
+    station_frac: float      # where the disc works, as LWL frac fwd of transom
+    allows_recess: bool      # may a tunnel recess buy diameter?
+    allows_below_keel: bool  # may the disc hang below the keel line?
+    note: str
+
+
+DRIVE_LAWS: dict[DriveArchitecture, DriveLaw] = {
+    DriveArchitecture.SHAFT: DriveLaw(
+        station_frac=PROP_STATION_FRAC, allows_recess=True,
+        allows_below_keel=True,
+        note="shaft angle <= 12 deg; skeg protects the hang"),
+    DriveArchitecture.OUTBOARD: DriveLaw(
+        station_frac=0.02, allows_recess=False, allows_below_keel=True,
+        note="transom-hung: the leg sets immersion at the transom and no "
+             "tunnel exists to recess"),
+    DriveArchitecture.POD: DriveLaw(
+        station_frac=0.20, allows_recess=False, allows_below_keel=True,
+        note="pod/saildrive: the pod IS the hang; a tunnel would defeat "
+             "its pulling flow"),
+    DriveArchitecture.TUNNEL: DriveLaw(
+        station_frac=PROP_STATION_FRAC, allows_recess=True,
+        allows_below_keel=False,
+        note="protected prop: NOTHING below the keel line — the recess is "
+             "the only lever (the naval-ai-concept configuration)"),
+}
+
+
+def drive_law(spec) -> tuple[DriveArchitecture, DriveLaw]:
+    """The architecture a spec declares, defaulting to SHAFT.
+
+    An UNKNOWN drive string is refused, not defaulted: a spec that says
+    'waterjet' and silently gets shaft rows would be measured against the
+    wrong stern — the fail-open pattern the mesh receipts taught us about.
+    """
+    raw = str(getattr(spec, "drive", "shaft") or "shaft").lower()
+    try:
+        arch = DriveArchitecture(raw)
+    except ValueError:
+        raise ValueError(
+            f"unknown drive architecture {raw!r}; known: "
+            f"{[a.value for a in DriveArchitecture]}") from None
+    return arch, DRIVE_LAWS[arch]
 
 #: Transom Froude number Fn_T = V / sqrt(g * transom immersion) above which
 #: the transom runs cleanly ventilated; below ~2.0 it drags its dead-water
@@ -110,9 +190,13 @@ def _keel_z_at(hull, x_frac: float) -> float:
     return float(keel[0, 2])
 
 
-def prop_immersion_m(hull, wl: float) -> float:
-    """Water column available to the disc at the prop station, >= 0."""
-    return max(0.0, float(wl) - _keel_z_at(hull, PROP_STATION_FRAC))
+def prop_immersion_m(hull, wl: float,
+                     station_frac: float = PROP_STATION_FRAC) -> float:
+    """Water column available to the disc at the prop station, >= 0.
+
+    The station is the DRIVE's (DRIVE_LAWS), defaulting to the shaft
+    station so every existing caller reads the same water it always did."""
+    return max(0.0, float(wl) - _keel_z_at(hull, station_frac))
 
 
 def transom_immersion_m(hull, wl: float) -> float:
@@ -193,7 +277,8 @@ class PropulsionReport:
     demand_rel_sigma: float
     motor_kw: float | None
     n_props: int
-    tunnel_recess_m: float
+    drive: str                 # DriveArchitecture.value the rows were built for
+    tunnel_recess_m: float     # AS APPLIED (zeroed when the drive has no tunnel)
     prop_immersion_m: float    # L0
     d_prop_min_m: float        # from thrust; inherits resistance sigma
     d_prop_max_m: float        # L0
@@ -215,7 +300,12 @@ def assess(hull, ev, spec) -> PropulsionReport:
     """The full report, from a FINISHED evaluation. Reader, not a tier."""
     wl = float(ev.wl)
     speed_ms = float(ev.energy.speed)
-    imm = prop_immersion_m(hull, wl)
+    arch, law = drive_law(spec)
+    imm = prop_immersion_m(hull, wl, law.station_frac)
+    recess = (float(getattr(spec, "prop_tunnel_recess_m", 0.0) or 0.0)
+              if law.allows_recess else 0.0)
+    below = (float(getattr(spec, "prop_max_below_keel_m", 0.0) or 0.0)
+             if law.allows_below_keel else 0.0)
     tr_imm = transom_immersion_m(hull, wl)
     thrust = float(ev.resistance.total)
     rel_sigma = (float(ev.resistance.uncertainty) / thrust
@@ -226,13 +316,12 @@ def assess(hull, ev, spec) -> PropulsionReport:
         demand_rel_sigma=rel_sigma,
         motor_kw=spec.motor_kw,
         n_props=int(getattr(spec, "n_props", 1) or 1),
-        tunnel_recess_m=float(getattr(spec, "prop_tunnel_recess_m", 0.0) or 0.0),
+        drive=arch.value,
+        tunnel_recess_m=recess,
         prop_immersion_m=imm,
         d_prop_min_m=min_prop_diameter_m(thrust,
                                          int(getattr(spec, "n_props", 1) or 1)),
-        d_prop_max_m=max_prop_diameter_m(
-            imm, float(getattr(spec, "prop_tunnel_recess_m", 0.0) or 0.0),
-            float(getattr(spec, "prop_max_below_keel_m", 0.0) or 0.0)),
+        d_prop_max_m=max_prop_diameter_m(imm, recess, below),
         transom_immersion_m=tr_imm,
         transom_fn=transom_froude(speed_ms, tr_imm),
         transom_fn_clean_bar=TRANSOM_FN_CLEAN,
@@ -259,7 +348,15 @@ def rows_for(hull, wl: float, thrust_n: float, prop_power_w: float,
     g, why = {}, {}
     demand_kw = float(prop_power_w) / 1000.0
     n_props = int(getattr(spec, "n_props", 1) or 1)
-    recess = float(getattr(spec, "prop_tunnel_recess_m", 0.0) or 0.0)
+    arch, law = drive_law(spec)
+    # a lever the DRIVE does not have contributes NOTHING, whatever the
+    # spec declares — an outboard credited with a tunnel recess, or a
+    # protected tunnel drive credited with a below-keel hang, is measured
+    # against a stern that does not exist (P6; audit H chain)
+    recess = (float(getattr(spec, "prop_tunnel_recess_m", 0.0) or 0.0)
+              if law.allows_recess else 0.0)
+    below = (float(getattr(spec, "prop_max_below_keel_m", 0.0) or 0.0)
+             if law.allows_below_keel else 0.0)
     rated = float(spec.motor_kw) * MOTOR_CONTINUOUS_FRACTION
     g[ROW_MOTOR] = demand_kw / rated - 1.0 if rated > 0 else float("inf")
     if g[ROW_MOTOR] > 0:
@@ -267,17 +364,21 @@ def rows_for(hull, wl: float, thrust_n: float, prop_power_w: float,
             f"cruise demand {demand_kw:.1f} kW exceeds the continuous "
             f"rating {rated:.1f} kW ({MOTOR_CONTINUOUS_FRACTION:.0%} of the "
             f"declared {spec.motor_kw:.0f} kW motor)")
-    imm = prop_immersion_m(hull, wl)
-    below = float(getattr(spec, "prop_max_below_keel_m", 0.0) or 0.0)
+    imm = prop_immersion_m(hull, wl, law.station_frac)
     d_min = min_prop_diameter_m(thrust_n, n_props)
     d_max = max_prop_diameter_m(imm, recess, below)
     g[ROW_PROP] = (d_min / d_max - 1.0) if d_max > 1e-9 else float("inf")
     if g[ROW_PROP] > 0:
+        levers = ["add props"]
+        if law.allows_recess:
+            levers.append("recess a tunnel")
+        if law.allows_below_keel:
+            levers.append("allow hang below the keel")
+        levers.append("deepen the stern")
         why[ROW_PROP] = (
             f"the thrust needs a {d_min:.2f} m disc ({n_props} prop(s) at "
-            f"<= {PROP_DISC_LOADING_MAX_PA:.0f} Pa loading) but the stern "
-            f"offers {d_max:.2f} m ({imm:.2f} m immersion + {recess:.2f} m "
-            f"tunnel recess + {below:.2f} m below-keel hang); add props, "
-            f"recess a tunnel, allow hang below the keel, or deepen the "
-            f"stern")
+            f"<= {PROP_DISC_LOADING_MAX_PA:.0f} Pa loading) but the "
+            f"{arch.value} stern offers {d_max:.2f} m ({imm:.2f} m "
+            f"immersion + {recess:.2f} m tunnel recess + {below:.2f} m "
+            f"below-keel hang); " + ", ".join(levers))
     return g, why
