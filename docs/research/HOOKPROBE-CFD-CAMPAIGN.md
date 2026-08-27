@@ -96,8 +96,20 @@ v3. Design guidance: prop axis at or below z=-0.4 (0.4 m below static WL),
   (On Apple Silicon the FPE trap surfaces as SIGILL "Illegal instruction: 4",
   not sigFpe — do not misread it as a broken binary. First observed the
   night the OS was updated, which made that misread very tempting.)
-- 10-kn ledger row is owed by the in-flight run `runs/hookprobe_v3_10kn`
-  (v3, n=8, end-time 32 s); append its settled numbers when it lands.
+- 10-kn ledger row (LANDED 2026-08-27 14:08, `runs/hookprobe_v3_10kn`, v3,
+  n=8, 32 s = 3.09 flow-throughs): total ~3500-3900 N (5-s windows 3344-3907,
+  pressure ~81%), NOT settled (drift 11.5% > 5% bar; the final window may
+  also carry a crash-restart transient at t~26.6 — one transient death,
+  auto-resumed from the 25.6 s checkpoint, cleared on retry). Quote as
+  UNDER-RUN, +-10%: P_E ~18-20 kW at 10 kn vs 12.2 kW at 8 kn (+~60%).
+  Viscous 740 N = 0.70x ITTC-57. THE HUMP, VISUALIZED: at Fn 0.48 the wave
+  length (2*pi*U^2/g = 16.9 m) exceeds Lwl (11.8 m) — the wave profile
+  (`runs/hookprobe_inspect/wave_profiles_8v10.png`) shows one bow crest and
+  ONE trough spanning the entire aft half: the hull is climbing its own bow
+  wave. Tunnel inflow at 10 kn: still wet at prop depth (0.96-1.00 water at
+  z=-0.4, U/U0 0.86-1.00) with more near-surface aeration than at 8 kn
+  (0.89-0.98 at z=-0.2) — the tunnel concept degrades gracefully, it does
+  not fail, at Fn 0.48.
 - n_layers interacts with SPEED: n=10 meshed AND solved at 4.1 m/s but died
   at 5.66 m/s (thinner speed-derived first layer). The mesh-quality bars
   (0 zeroVol / <=5 wrongOri / skew<20) passed on every mesh that later
