@@ -118,9 +118,22 @@ def plausible_variant(case, **over):
     evaluation_ok False, so anything about LATER stages needs a hull that
     reaches them. The gene set is the hull-kb cruiser's tuned family
     (critique margin -0.22 on case-b's dims, measured before pinning).
-    Upgrading the canonical cases themselves is tracked follow-up work;
     THIS is the one home of the variant so the certification, fidelity
     and vessel-matrix tests cannot drift apart.
+
+    UPGRADING THE CANONICAL CASES THEMSELVES IS DEFERRED TO PHASE 3, and
+    the deferral is MEASURED, not procrastinated (2026-08-27): this tuned
+    family passes the critic at its own Cp 0.64 (margin -0.25) but FAILS
+    at every case's mission-centred prismatic — margins +0.024 at Cp
+    0.568-0.573 (cases a/b/e/f) and +0.146/+0.201 on the demihulls (c/d)
+    at Cp 0.558/0.559. R1.1 centres each case's Cp on
+    `prismatic_target(Fn)` on purpose, and at 23 genes the beam is DERIVED
+    from the SAC, so a slender mission-correct prismatic cannot also carry
+    a critic-clean waterline: the two requirements collide in the one
+    curve. That collision is the audit's root defect ("one curve, two
+    jobs") and the Phase-3 independent-B(x) work is its fix — upgrade the
+    cases when the genome can hold Cp and the waterline separately, or
+    the re-pinning would be paid twice.
     """
     g = grammar.named(case.params)
     g.update(dict(Cp=0.64, x_mb=0.50, r_transom=0.15, rocker=0.20,
