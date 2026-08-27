@@ -79,13 +79,36 @@ def _vec(lwl: float, bwl: float, t: float, cp: float,
          roundness: float = 0.0, **over: float) -> np.ndarray:
     """The `tests/test_vessel_bands._hull` idiom: a known-buildable shape-gene
     set with the principal dimensions and design targets on top. D defaults to
-    the shallowest depth that clears both freeboard floors with margin."""
+    the shallowest depth that clears both freeboard floors with margin.
+
+    CRITIC-PASSING SINCE 2026-08-27 (#17, unblocked by the Phase-3 design
+    waterline + knuckle): the cases used to be SPEARHEAD-flagged legacy
+    forms — at 23 genes the beam was derived from the SAC, so a
+    mission-centred Cp (R1.1) could not also carry a critic-clean plan,
+    measured +0.024..+0.201 on all six. With `dwl` the waterline is its own
+    designed curve: the defaults below are the MONOHULL overlay, measured
+    margin -0.098..-0.128 at the cases' own prismatics; the demihull cases
+    pass their slender overlay explicitly (measured -0.098/-0.117). Every
+    case remains at its mission-centred Cp — the upgrade did not abandon
+    R1.1, which is the whole point of the second curve.
+    """
     d = max(t + grammar.MIN_FREEBOARD_ABS_M,
             t + grammar.MIN_FREEBOARD_FRAC_LWL * lwl) + 0.02
+    # The overlay was TUNED AGAINST FOUR BARS AT ONCE and each number has
+    # a measured reason: pmb = 0 and r_stem = 0 keep the SAC strictly
+    # unimodal (the flat span and the stem floor both break the
+    # sections-shrink test) and the stem pointed; rb_transom 0.38 tracks
+    # the SAC's r_transom 0.20 (a waterline the transom AREA cannot ground
+    # is delivered as all-flare, and the writer screen refuses the
+    # zero-width bottom panel — measured y_chine 0.000 at the transom at
+    # rb 0.60); cwp_x 0.10 keeps the beamy 5 m case's entrance chord at
+    # 42.9 deg under the 45-deg provisional ceiling (0.20 read 46.1).
     p = dict(LWL=lwl, BWL=bwl, T=t, D=d, Cp=cp, lcb=0.0, x_mb=0.55,
-             r_transom=0.20, beta_mid=8.0, beta_bow=20.0, beta_len=0.35,
-             roundness=roundness, rocker=0.05, forefoot=0.30, flare=5.0,
-             sheer_rise=0.10)
+             r_transom=0.20, beta_mid=8.0, beta_bow=25.0, beta_len=0.40,
+             roundness=roundness, rocker=0.15, forefoot=0.20, flare=6.0,
+             sheer_rise=0.12,
+             dwl=1.0, cwp_x=0.10, rb_transom=0.38, rb_stem=0.0,
+             r_stem=0.0, pmb=0.0)
     p.update(over)
     return grammar.vector(p)
 
@@ -110,36 +133,26 @@ class FormCase:
 
 
 def plausible_variant(case, **over):
-    """A case's dimensions/mission/family with critic-clean shape genes.
+    """A case's genes with optional overrides — an IDENTITY since #17 closed.
 
-    2026-08-26: the `shape` constraint row landed and refuses all six
-    canonical cases — they are SPEARHEAD-flagged legacy forms, measured
-    the day the row landed — and certification stops at
-    evaluation_ok False, so anything about LATER stages needs a hull that
-    reaches them. The gene set is the hull-kb cruiser's tuned family
-    (critique margin -0.22 on case-b's dims, measured before pinning).
-    THIS is the one home of the variant so the certification, fidelity
-    and vessel-matrix tests cannot drift apart.
+    HISTORY, kept because three test families cite it: when the `shape` row
+    landed (2026-08-26) it refused all six canonical cases — legacy
+    spearhead forms — so this function substituted the hull-kb cruiser's
+    tuned family (Cp 0.64) to give certification/fidelity/vessel-matrix
+    tests a hull that could reach the later stages. The upgrade of the
+    cases themselves was DEFERRED with a measurement: at 23 genes the beam
+    was derived from the SAC and a mission-centred Cp could not carry a
+    critic-clean waterline (+0.024..+0.201 on all six).
 
-    UPGRADING THE CANONICAL CASES THEMSELVES IS DEFERRED TO PHASE 3, and
-    the deferral is MEASURED, not procrastinated (2026-08-27): this tuned
-    family passes the critic at its own Cp 0.64 (margin -0.25) but FAILS
-    at every case's mission-centred prismatic — margins +0.024 at Cp
-    0.568-0.573 (cases a/b/e/f) and +0.146/+0.201 on the demihulls (c/d)
-    at Cp 0.558/0.559. R1.1 centres each case's Cp on
-    `prismatic_target(Fn)` on purpose, and at 23 genes the beam is DERIVED
-    from the SAC, so a slender mission-correct prismatic cannot also carry
-    a critic-clean waterline: the two requirements collide in the one
-    curve. That collision is the audit's root defect ("one curve, two
-    jobs") and the Phase-3 independent-B(x) work is its fix — upgrade the
-    cases when the genome can hold Cp and the waterline separately, or
-    the re-pinning would be paid twice.
+    CLOSED 2026-08-27 by Phase 3 (the design waterline + the waterline
+    knuckle): the canonical cases now pass the critic AT THEIR OWN
+    mission-centred prismatics (margins -0.098..-0.128, see _vec), so the
+    variant no longer substitutes anything — it returns the case's own
+    genes with the caller's overrides. The name and call sites stay: a
+    caller asking for "a plausible variant of case-b" now simply gets
+    case-b, which is the sentence #17 existed to make true.
     """
     g = grammar.named(case.params)
-    g.update(dict(Cp=0.64, x_mb=0.50, r_transom=0.15, rocker=0.20,
-                  pmb=0.12, r_stem=0.04, roundness=0.9, beta_mid=4.0,
-                  beta_bow=30.0, beta_len=0.40, forefoot=0.15,
-                  flare=8.0, sheer_rise=0.12, lcb=-2.0))
     g.update(over)
     return np.array(grammar.vector(g))
 
@@ -174,7 +187,9 @@ def _cases() -> tuple[FormCase, ...]:
         FormCase(
             key="c", title="10 m solar catamaran (slender demihull, 8-12 m "
                            "class)",
-            params=_vec(10.0, 0.82, 0.52, 0.558, roundness=0.8),
+            params=_vec(10.0, 0.82, 0.52, 0.558, roundness=0.8,
+                        cwp_x=0.12, rb_transom=0.32, flare=4.0,
+                        sheer_rise=0.10),
             mission=MissionSpec(
                 name="case-c 10m solar cat", displacement_target_kg=3400.0,
                 cruise_speed_kn=5.0, design_category="D", crew=2,
@@ -187,7 +202,9 @@ def _cases() -> tuple[FormCase, ...]:
         FormCase(
             key="d", title="12 m solar catamaran — the project's 12 x 0.8 m "
                            "demihull class",
-            params=_vec(12.0, 0.8, 0.52, 0.559, roundness=0.8),
+            params=_vec(12.0, 0.8, 0.52, 0.559, roundness=0.8,
+                        cwp_x=0.12, rb_transom=0.32, flare=4.0,
+                        sheer_rise=0.10),
             mission=MissionSpec(
                 name="case-d 12x0.8 solar cat", displacement_target_kg=4300.0,
                 cruise_speed_kn=5.5, design_category="C", crew=2,
