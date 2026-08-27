@@ -283,8 +283,28 @@ def search(seed_genome: dict, iterations: int = 400, step: float = 0.12,
                 if cand.ok and (best is None or cand.score >= best.score):
                     best = cand
 
-    for _ in range(iterations):
+    for _it in range(iterations):
         base = cur.genome if cur else _clip(seed_genome)
+        # THE DERIVED MOVE RETRIES MID-WALK (measured: with the opening
+        # move only, 12 of 18 losing walks ended at dwl = 0 — their SEED's
+        # derived candidate failed, but the walk then moved the fullness
+        # genes and never got a second chance to design the waterline the
+        # EVOLVED hull has). Every 40th iteration, same conditions as the
+        # opening move, deterministic, no RNG consumed.
+        if (_it % 40 == 39 and cur is not None and cur.pathologies
+                and {"WAIST", "WAVY-PLAN", "SPEARHEAD"} & set(cur.pathologies)
+                and float(cur.genome.get("dwl", 0.0) or 0.0) == 0.0):
+            smart = _derived_dwl(cur.genome)
+            if smart is not None:
+                cand = inspect(smart)
+                if cand is not None:
+                    archive.append(cand)
+                    if (cand.engineering == "L0-ok"
+                            and cand.score > cur_score):
+                        cur, cur_score = cand, cand.score
+                    if cand.ok and (best is None
+                                    or cand.score >= best.score):
+                        best = cand
         trial = _nudge(base, cur, step, rng) if cur else _clip(seed_genome)
         cand = inspect(trial)
         if cand is None:
