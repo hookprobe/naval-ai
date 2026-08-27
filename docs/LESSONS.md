@@ -480,3 +480,45 @@ Cost lore worth keeping beside it: +25% speed (8->10 kn) TRIPLED wall-clock
 per simulated second on this family (dt 3.2 ms -> 0.9-1.1 ms, and at Fn 0.48
 it never relaxes after startup, where at Fn 0.38 it does). The timestep is set
 by the fastest water in the tank — wave crests and spray — not the boat speed.
+
+## CFD MEASUREMENTS ARE DESIGN LEVERS ONLY WHERE A GENE CAN HEAR THEM (2026-08-27)
+
+The owner asked the right question — "check lessons from CFD runs to see if
+any data can boost design: curves, chine, keel line" — and the answer sorts
+cleanly into three bins. Recorded here because the sorting itself keeps
+being re-derived.
+
+**Bin 1 — measured AND expressible (act on these):**
+- **The pressure/wave system dominates bluff-stern hulls and it is an AFT
+  problem.** hb19 at Fn 0.33: 78% pressure of 1733 N total
+  (`runs/hb19_7kn`, settled). hookprobe v1-v3 at Fn 0.38: 78-80%, stern
+  system dominant, transom 0.24 m immersed. The levers are transom
+  clearance and an eased aft shoulder — and since the design-waterline
+  genes landed (`dwl`, `rb_transom`), the kernel can finally EXPRESS an
+  eased aft plan on purpose instead of receiving one from the SAC.
+- **Prop-plane placement**: the tunnel inflow receipt (wet, 99-107% U0 in
+  the deep layer, deficit 0.70-0.84 near the surface) is carried on the
+  TUNNEL drive law in `propulsion.py`. Deep axis, behind the keel tail.
+- **Form factor**: Watanabe 1+k = 1.094 +/- 0.05 at KCS proportions vs
+  1.161 RANS-measured — order corroborated, sigma marginal. The receipt is
+  on `resistance.form_factor`; do not narrow sigma_k without a second
+  anchor.
+- **Entry angle**: the 11.5-deg axe entry the campaign praised is inside
+  the KB cruiser's <= 12-deg band the critic already enforces. Anchored,
+  no change needed.
+
+**Bin 2 — measured, NOT yet expressible (do not fake a gene):** fin/skeg
+trailing-edge taper (v2's lever; appendages are absent from geometry.py),
+wet-deck/tunnel topology (Phase 4's inner boundary), roll damping from
+chine-mounted bilge keels (report field only). These become levers when
+their geometry exists; encoding them as bars today would judge hulls on
+features the kernel cannot draw.
+
+**Bin 3 — method, not geometry:** a drag delta smaller than the settled
+window's scatter (~+/-2.5% on the hookprobe mesh family) is NOT a design
+signal, whatever its sign — v1->v3 was claimed only as a monotone
+DIRECTION across three settled runs, never as three resolved numbers. Any
+CFD-informed optimize loop must hold deltas to that bar or it will tune on
+noise. And the owner's split stands: theory first (Kelvin wavelength,
+ITTC, hydrostatics — check, don't discover), simulation only for what has
+no formula (tunnel inflow, fin wakes, which cell folds first).

@@ -116,8 +116,16 @@ At 7 kn the same chain measures 117% of continuous rating and the
 `motor_power` check REFUSES — 7 kn is sprint, not cruise, on this motor;
 that refusal is the pipeline doing its job. Drag is carried as an ITTC-57
 friction × (1.15–1.45) form-factor BAND (1480–1866 N at 6 kn; 1505–1897
-Wh/nm electric), never a single claimed number; the hb19 RANS anchor and
-the Coandă-attachment hypothesis both stay OWED to CFD on this geometry.
+Wh/nm electric), never a single claimed number. The hb19 RANS anchor
+LANDED (2026-08-27 re-read of `runs/hb19_7kn`, settled at 2.22
+flow-throughs, drift 1.7%): total 1733 N at 7 kn — ~1.57x the L1
+prediction — split 1350 N pressure / 384 N viscous, i.e. **78% pressure**
+at Fn 0.33, the same wave-dominated split the hookprobe campaign measured
+at Fn 0.38 (78-80%). On bluff-stern forms the drag lever is AFT: transom
+clearance and an eased aft shoulder — which the design side can now
+express (`dwl`/`rb_transom`, the designed waterline). The 1.57x is a
+single-grid number (no GCI) and stays a research anchor, not an L1
+correction; the Coandă-attachment hypothesis stays OWED to CFD.
 
 **OPEN — the owner's split-position correction.** Same day: "the deep v
 hull needs to extend for about 70-80% of the length and the demihull the

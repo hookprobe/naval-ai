@@ -136,7 +136,16 @@ DRIVE_LAWS: dict[DriveArchitecture, DriveLaw] = {
         station_frac=PROP_STATION_FRAC, allows_recess=True,
         allows_below_keel=False,
         note="protected prop: NOTHING below the keel line — the recess is "
-             "the only lever (the naval-ai-concept configuration)"),
+             "the only lever (the naval-ai-concept configuration). "
+             "MEASURED inflow receipt (hookprobe v1-v3 @ 8 kn, "
+             "docs/research/HOOKPROBE-CFD-CAMPAIGN.md): the tunnel stays "
+             "WET (>=0.98 water) and the deep layer arrives at 99-107% of "
+             "boat speed at 0.4 m below the static WL, >=0.5 prop "
+             "diameters behind the keel tail; the near-surface layer "
+             "carries a fin/hull wake deficit (0.70-0.84 U0). Configuration"
+             "-specific numbers, not a general bar — but the DESIGN rule "
+             "they support is general: put the prop axis in the deep "
+             "layer, not under the surface deficit"),
 }
 
 

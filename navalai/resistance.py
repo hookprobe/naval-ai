@@ -1050,6 +1050,14 @@ def form_factor(cb: float, lwl: float, beam: float, t: float) -> FormFactor:
 
     Returns a `FormFactor`, not a float, because a bare 0.4500 cannot say
     whether Watanabe produced it or the clamp did.
+
+    RANS CROSS-CHECK (2026-08-27, from runs/kcs_s1 via docs/research/CFD.md
+    §2): at KCS proportions this estimate gives 1 + k = 1.094 with
+    sigma_k 0.05, and the settled RANS viscous drag measured 1.161x the
+    ITTC-57 flat plate — 0.017 OUTSIDE one sigma. Read it both ways: the
+    estimate's order is corroborated by an independent viscous-resolving
+    method on a real hull, and the sigma is marginal rather than generous,
+    so do not narrow it without a second anchor.
     """
     # A STATE THAT CANNOT BE EVALUATED IS FATAL, NOT A DEFAULT. With t = 0 the
     # sqrt(B/T) term goes to infinity and k collapses to -0.095, which the old
