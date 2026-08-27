@@ -318,3 +318,108 @@ def test_a_unit_match_that_measures_the_wrong_quantity_is_refused_and_said():
         "6 tonne solar-electric liveaboard, 10 m, Danube and Black Sea "
         "coastal, cruise 5 knots, 2 crew, 40 kWh battery"
     ).energy.battery_kwh == pytest.approx(40)
+
+
+# ===========================================================================
+# P2-A (2026-08-27) — THE MISSION FINALLY BINDS BEAM, FAMILY, BERTHS AND THE
+# BRIDGE. MEASURED before this landed: "a 16 m x 4 m houseboat, 8 berths,
+# air draft 3.5 m" parsed to lwl_hint_m=16 and NOTHING else — the beam was
+# absorbed, "houseboat" matched no family, "8 berths" collapsed to crew, the
+# clearance survived only as a notes string saying nothing checks it. The
+# requirement report then graded 5/5 on a hull that honoured none of them.
+# ===========================================================================
+
+
+def test_mission_binds_beam_family_berths_and_air_draft():
+    m = parse_mission("a 16 m x 4 m houseboat for canals, 8 berths, "
+                      "air draft 3.5 m")
+    assert m.lwl_hint_m == pytest.approx(16.0)
+    assert m.bwl_hint_m == pytest.approx(4.0)
+    assert m.hull_family == "barge"
+    assert m.berths == 8 and isinstance(m.berths, int)
+    assert m.air_draft_max_m == pytest.approx(3.5)
+    # the stated-and-unbound warning fires ONLY when no height parses; a
+    # bound clearance must not carry the old "NOTHING checks it" note
+    assert "NOTHING" not in m.notes
+    m2 = parse_mission("10 m river boat, must clear the low bridge")
+    assert m2.air_draft_max_m is None
+    assert "no height could be parsed" in m2.notes
+
+
+def test_the_new_fields_pass_the_same_range_gate_as_the_old_ones():
+    """Contract clamps, recorded in notes — same law as crew/speed."""
+    m = parse_mission("a 16 m boat with 900 berths, air draft 0.2 m")
+    assert m.berths == 250 and isinstance(m.berths, int)
+    assert m.air_draft_max_m == pytest.approx(1.0)
+    assert "berths" in m.notes and "air_draft" in m.notes
+
+
+def test_stated_beam_narrows_the_sample_feed_and_the_search_box():
+    from navalai import grammar
+    from navalai.evaluate import sample_valid
+    from navalai.optimize import HullProblem
+
+    m = parse_mission("a 16 m x 4 m houseboat for canals")
+    X, _ = sample_valid(6, m, seed=3)
+    j = grammar.NAMES.index("BWL")
+    assert (X[:, j] >= 0.9 * 4.0 - 1e-9).all()
+    assert (X[:, j] <= 1.1 * 4.0 + 1e-9).all()
+    p = HullProblem(m)
+    assert p.xl[j] == pytest.approx(0.9 * 4.0)
+    assert p.xu[j] == pytest.approx(1.1 * 4.0)
+    # STREAM SAFETY: a hint-less mission draws the identical stream it drew
+    # before the narrowing existed (no RNG value is consumed differently)
+    m0 = parse_mission("6 tonne solar liveaboard, 10 m, river at 5 knots")
+    A, _ = sample_valid(4, m0, seed=11)
+    B, _ = sample_valid(4, m0, seed=11)
+    assert np.array_equal(A, B)
+
+
+def test_the_dropped_fields_are_now_graded_rows():
+    """Each row exists ONLY when stated, and each can actually fail."""
+    x = np.array(mid_params())          # LWL 10, BWL 3.20, D 1.16 hull
+
+    m = parse_mission("a 16 m x 4 m houseboat for canals, 8 berths, "
+                      "air draft 3.5 m")
+    rep = grade(evaluate(x, m), requirements_from_mission(m))
+    rows = {r["name"]: r for r in rep["requirements"]}
+    assert rows["beam-hint"]["pass"] is False        # 3.20 m vs 4.0 asked
+    assert "0.80x" in rows["beam-hint"]["detail"]
+    assert rows["berths-fit"]["pass"] is True        # 7.4 m2 vs ~22 m2 deck
+    assert rows["air-draft"]["pass"] is True         # hull tops at ~1.4 m
+    assert rep["checkers_ok"]
+
+    # the same rows can fail: an impossible berth count and a low bridge
+    m_hard = parse_mission("10 m boat, 250 berths, air draft 1 m")
+    rep2 = grade(evaluate(x, m_hard), requirements_from_mission(m_hard))
+    rows2 = {r["name"]: r for r in rep2["requirements"]}
+    assert rows2["berths-fit"]["pass"] is False      # ~233 m2 needed
+    assert rows2["air-draft"]["pass"] is False       # hull alone ~1.4 m
+
+    # an unstated field is NOT a requirement — no phantom rows
+    m_plain = parse_mission("6 tonne solar liveaboard, 10 m, river, 5 knots")
+    names = {r.name for r in requirements_from_mission(m_plain)}
+    assert not names & {"beam-hint", "berths-fit", "air-draft"}
+
+
+def test_declared_family_reaches_the_shape_critic():
+    """`hull_family` selects the critic's band table end to end (the same
+    seam the demihull L/B fix used); an unknown family falls through to the
+    general bars rather than raising."""
+    from navalai import morphology
+
+    called = {}
+    orig = morphology.shape_margin
+
+    def spy(d, family=None):
+        called["family"] = family
+        return orig(d, family=family)
+
+    m = parse_mission("a 16 m x 4 m houseboat for canals")
+    assert m.hull_family == "barge"
+    morphology.shape_margin = spy
+    try:
+        evaluate(np.array(mid_params()), m)
+    finally:
+        morphology.shape_margin = orig
+    assert called["family"] == "barge"

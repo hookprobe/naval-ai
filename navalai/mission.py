@@ -86,6 +86,15 @@ FIELD_RANGES: dict[str, tuple[float, float]] = {
     # legal range.
     "lwl_hint_m": (float(grammar.LOW[grammar.NAMES.index("LWL")]),
                    float(grammar.HIGH[grammar.NAMES.index("LWL")])),
+    # P2-A (2026-08-27): the three parsed-and-dropped fields get the same
+    # contract every other field has. Beam derives from the grammar's BWL box
+    # for the same D1 reason length does; berths shares crew's range (a berth
+    # is one sleeping person); the air-draft ceiling spans the lowest fixed
+    # canal bridges (~1.8 m) to clearances no recreational craft needs.
+    "bwl_hint_m": (float(grammar.LOW[grammar.NAMES.index("BWL")]),
+                   float(grammar.HIGH[grammar.NAMES.index("BWL")])),
+    "berths": (1, 250),
+    "air_draft_max_m": (1.0, 80.0),
 }
 
 # EnergySpec's writable ranges, for the same reason and with the same history:
@@ -112,7 +121,8 @@ ENERGY_RANGES: dict[str, tuple[float, float]] = {
 }
 
 _DEFAULTS = {"displacement_target_kg": 6000.0, "cruise_speed_kn": 5.0,
-             "crew": 2, "lwl_hint_m": None, "design_category": "C"}
+             "crew": 2, "lwl_hint_m": None, "design_category": "C",
+             "bwl_hint_m": None, "berths": None, "air_draft_max_m": None}
 
 
 # ---------------------------------------------------------------------------
@@ -453,6 +463,20 @@ class VesselConfig:
 class MissionSpec:
     name: str = "unnamed mission"
     lwl_hint_m: float | None = None
+    # P2-A (2026-08-27, audit finding #12): the fields the parser used to
+    # RECOGNISE AND DISCARD. "i have asked for a 4m width boat" had no
+    # field to land in — _DENY_LENGTH correctly refused it as a length and
+    # then dropped it; "houseboat" matched nothing; "8 berths" collapsed
+    # to crew mass. Each now binds: bwl_hint_m bounds the search beam the
+    # way lwl_hint_m bounds length; hull_family reaches the shape critic
+    # (and, later, the family-keyed design rules); berths is the declared
+    # accommodation count (necessary-condition checks; full arrangement
+    # wiring is its own tracked work); air_draft_max_m is the bridge
+    # clearance nothing used to check.
+    bwl_hint_m: float | None = None
+    hull_family: str | None = None
+    berths: int | None = None
+    air_draft_max_m: float | None = None
     displacement_target_kg: float = 6000.0
     cruise_speed_kn: float = 5.0
     design_category: str = "C"           # worst waters intended
@@ -579,7 +603,8 @@ class MissionSpec:
             if new != val:
                 notes.append(f"{k} {val:g} outside [{lo:g}, {hi:g}]; "
                              f"clamped to {new:g}")
-            setattr(self, k, int(new) if k == "crew" else float(new))
+            setattr(self, k,
+                    int(new) if k in ("crew", "berths") else float(new))
 
         cat = str(self.design_category).upper()
         if cat not in DESIGN_CATEGORIES:
@@ -718,6 +743,43 @@ def parse_mission(text: str) -> MissionSpec:
                         _DENY_LENGTH, unparsed, "lwl_hint_m"):
         m.lwl_hint_m = float(g.group(1))
 
+    # THE BEAM, finally a field (P2-A). Three spellings, most specific
+    # first: "beam of 4 m" / "4 m beam|wide|width", and the drawing-style
+    # dimension pair "16 x 4 m" (larger number is the length; the pair
+    # only binds beam when both read as plausible boat dimensions).
+    if g := re.search(r"beam" + _SEP + r"(?:of" + _SEP + r")?" + _NUM
+                      + _SEP + r"(?:metres?|meters?|m)\b", t):
+        m.bwl_hint_m = float(g.group(1))
+    elif g := re.search(_NUM + _SEP + r"(?:metres?|meters?|m)?" + _SEP
+                        + r"(?:beam|wide|width)\b", t):
+        m.bwl_hint_m = float(g.group(1))
+    elif g := re.search(_NUM + _SEP + r"(?:m\b)?" + _SEP + r"[x×]" + _SEP
+                        + _NUM + _SEP + r"(?:metres?|meters?|m)\b", t):
+        a, b = float(g.group(1)), float(g.group(2))
+        if a != b and 0.5 <= min(a, b) <= 12.0 and max(a, b) <= 40.0:
+            m.lwl_hint_m = m.lwl_hint_m or max(a, b)
+            m.bwl_hint_m = min(a, b)
+
+    # THE FAMILY. A small, deliberate vocabulary — only names the critic
+    # (or its tracked extensions) can band; an unknown style word stays
+    # None and the hull is judged by the general bands.
+    for _words, _fam in ((("houseboat", "barge", "canal boat",
+                           "liveaboard"), "barge"),
+                         (("pontoon",), "pontoon"),
+                         (("axe bow", "axe-bow", "wave piercing",
+                           "wave-piercing", "wave piercer"),
+                          "wave_piercer")):
+        if any(w in t for w in _words):
+            m.hull_family = _fam
+            break
+
+    if g := re.search(r"air" + _SEP + r"draft" + _SEP + r"(?:of" + _SEP
+                      + r")?" + _NUM + _SEP + r"m\b", t):
+        m.air_draft_max_m = float(g.group(1))
+    elif g := re.search(r"bridge" + _SEP + r"clearance" + _SEP + r"(?:of"
+                        + _SEP + r")?" + _NUM + _SEP + r"m\b", t):
+        m.air_draft_max_m = float(g.group(1))
+
     if g := re.search(_NUM + _SEP + r"(?:knots?|kn)\b", t):
         m.cruise_speed_kn = float(g.group(1))
     elif g := re.search(_NUM + _SEP + r"km/?h", t):
@@ -757,6 +819,8 @@ def parse_mission(text: str) -> MissionSpec:
 
     if g := re.search(r"(\d+)" + _SEP + r"(?:crew|people|persons|berths)", t):
         m.crew = int(g.group(1))
+    if g := re.search(r"(\d+)" + _SEP + r"berths?\b", t):
+        m.berths = int(g.group(1))
 
     solar = "solar" in t
     if g := re.search(_NUM + _SEP + r"kwh", t):
@@ -784,10 +848,14 @@ def parse_mission(text: str) -> MissionSpec:
     # different question. So a brief that states a vertical clearance gets told
     # that nothing will check it, rather than having the number silently
     # absorbed into the waterline length (which is what used to happen).
-    if re.search(r"\b(?:air\s*draft|air-draft|headroom|clearance|"
-                 r"(?:total|overall)\s+height|bridge)\b", t):
-        unparsed.append("a vertical clearance was stated and NOTHING checks "
-                        "it: this tree has no air-draft field")
+    # P2-A (2026-08-27): the field exists now and `translate` grades it, so
+    # this warning fires only when a clearance WORD appears with no number
+    # the parser could bind — stated-and-unbound, not stated-and-unchecked.
+    if m.air_draft_max_m is None and re.search(
+            r"\b(?:air\s*draft|air-draft|headroom|clearance|"
+            r"(?:total|overall)\s+height|bridge)\b", t):
+        unparsed.append("a vertical clearance was mentioned but no height "
+                        "could be parsed; the air-draft requirement is off")
     unparsed.extend(m.clamp())
     m.notes = "; ".join(unparsed)
     return m

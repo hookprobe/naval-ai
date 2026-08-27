@@ -437,6 +437,21 @@ def sample_valid(n: int, mission: MissionSpec, seed: int = 0,
             b_lo, b_hi = max(lo[j], band[0]), min(hi[j], band[1])
             if b_lo <= b_hi:
                 lo[j], hi[j] = b_lo, b_hi
+    # THE MISSION CHOOSES THE BEAM (P2-A, 2026-08-27). "16 m x 4 m houseboat"
+    # parsed a beam and NOTHING consumed it — the feed drew BWL across the
+    # whole box for a brief that stated it. Unlike length (which reaches Cp
+    # through the Froude window above), beam IS a gene, so the hint binds it
+    # directly, +/-10% like every other hint. STREAM-SAFE: no existing
+    # fixture brief states a beam, so `bwl_hint_m` is None on every seeded
+    # stream and their draws are bit-identical; the narrowing is active only
+    # for missions that ask for it.
+    bhint = getattr(mission, "bwl_hint_m", None)
+    if bhint:
+        jb = grammar.NAMES.index("BWL")
+        bb_lo = max(float(lo[jb]), bhint * 0.9)
+        bb_hi = min(float(hi[jb]), bhint * 1.1)
+        if bb_lo <= bb_hi:
+            lo[jb], hi[jb] = bb_lo, bb_hi
     X, y = [], []
     # THE DRAW IS ARITY-STABLE. `rng.uniform(lo, hi)` consumes exactly
     # N_PARAMS values per candidate, so appending a gene shifts the whole
@@ -1149,9 +1164,12 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
     # the critic). An unmeasurable shape is INFEASIBLE_G, never a pass:
     # a hull whose descriptors cannot be computed is not thereby plausible.
     from . import morphology as _morph
-    _fam = ("demihull"
-            if grammar.hull_role(vessel_cfg) is HullRole.DEMIHULL
-            else None)
+    # the mission's declared family wins (P2-A: "houseboat" finally
+    # reaches the critic); the vessel role fills in when none is declared
+    _fam = (getattr(mission, "hull_family", None)
+            or ("demihull"
+                if grammar.hull_role(vessel_cfg) is HullRole.DEMIHULL
+                else None))
     try:
         _desc = _morph.describe(_morph.from_hull(hull))
         _shape_g = float(_morph.shape_margin(_desc, family=_fam))

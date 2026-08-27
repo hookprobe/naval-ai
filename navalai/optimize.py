@@ -21,7 +21,6 @@ from . import grammar
 from .energy import shell_area_m2
 from .evaluate import CONSTRAINT_NAMES, INFEASIBLE_G, evaluate
 from .geometry import GeometryError, Hull, cp_band, lcb_band
-from .limits import GM_OVER_BEAM_MAX, gm_floor
 
 
 class _DrawBoxSampling(Sampling):
@@ -159,22 +158,28 @@ def _score(x, mission: MissionSpec, policy, names, provenance=None):
     # is already a recorded caveat in `ev.vessel`.
     n_hulls = int(ev.vessel.get("n_hulls", 1))
     build_area = n_hulls * (shell_area_m2(hull) + hull.deck_area())
-    # GM is a BAND, not a maximisation target — above ~0.20*B it is a hazard
-    # (GM/B 0.82 gave a 1.5 s roll period on a boat sold as a dayboat). The
-    # band middle uses the FLOATED beam (R0.2d — the design chine beam is not
-    # the beam the metacentre was computed from). The monohull floor is the
-    # only floor that exists; a multihull cannot reach this line until a
-    # sourced multihull criterion lands (R2.2), because its stability refusal
-    # has no g row and is rejected above.
-    gm_mid = 0.5 * (gm_floor(mission.design_category)
-                    + GM_OVER_BEAM_MAX * float(ev.hydro.b_wl_max))
-    f_row = (ev.energy.wh_per_nm, build_area, abs(ev.gm_m - gm_mid))
+    # OBJECTIVE 3 REWORKED (P2-A, 2026-08-27 — audit finding #4/#20). The
+    # GM-band term charged a wide shallow hull for the large GM it
+    # inevitably has (`gm_mid` scales with beam), and `build_area` already
+    # prices the deck as pure COST — together the search was paid to avoid
+    # exactly the boats the missions describe. The gm FLOOR row still
+    # guards stability (it always did), the ceiling stays what limits.py
+    # says it is (a report — "a genuinely beamy shallow hull can exceed it
+    # for good reasons"), and the third objective becomes DECK
+    # EFFICIENCY: build area per m^2 of usable deck. Minimising it rewards
+    # a hull that turns material into deck — the entire product value of a
+    # houseboat — without unbounded growth, because objective 2 still
+    # prices the material itself and the trade-off tension the front test
+    # pins (area rises with length, energy falls) is untouched.
+    deck = max(float(hull.deck_area()), 1e-6)
+    f_row = (ev.energy.wh_per_nm, build_area, build_area / deck)
     g_row = [ev.g[k] for k in names]
     return f_row, g_row
 
 
 class HullProblem(Problem):
-    """3 objectives: min Wh/NM, min build panel area (m^2), GM toward a BAND.
+    """3 objectives: min Wh/NM, min build panel area (m^2), min build area
+    per m^2 of usable deck (deck efficiency — see the P2-A rework in _score).
     Inequality constraints (g <= 0) are the ladder's own — CONSTRAINT_NAMES —
     plus, when a compiled constitution is passed, that policy's appended rows.
     """
@@ -244,6 +249,19 @@ class HullProblem(Problem):
                 # falling back to `grammar.LOW/HIGH` (which is what this line
                 # did when the grammar was the only box) would do exactly that.
                 xl[i], xu[i] = box_lo[i], box_hi[i]
+        # THE BEAM BINDS THE SAME WAY THE LENGTH DOES (P2-A, 2026-08-27).
+        # "i have asked for a 4m width boat" was parsed, refused as a
+        # length hint (correctly) and then DROPPED — no field existed. It
+        # exists now, and it composes with governance by the identical
+        # intersection law: tighter edge wins, an empty intersection drops
+        # the hint with the box left standing.
+        bhint = getattr(mission, "bwl_hint_m", None)
+        jb = grammar.NAMES.index("BWL")
+        if bhint:
+            xl[jb] = max(xl[jb], bhint * (1.0 - length_tol))
+            xu[jb] = min(xu[jb], bhint * (1.0 + length_tol))
+            if xl[jb] > xu[jb]:
+                xl[jb], xu[jb] = box_lo[jb], box_hi[jb]
         # THE MISSION CHOOSES THE PRISMATIC (R1.1). Same composition law as
         # the length hint: intersection with whatever box survives
         # governance, so a target that would widen a governed edge cannot,

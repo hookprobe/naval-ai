@@ -684,10 +684,27 @@ CHECKS: tuple[Check, ...] = (
           lambda: imports("navalai/optimize.py", ".energy", "shell_area_m2")
                   and has_code("navalai/optimize.py",
                                r"shell_area_m2\(hull\) \+ hull\.deck_area\(\)")),
-    Check("B6", "optimize.py aims GM at a BAND (limits.GM_OVER_BEAM_MAX) "
-                "instead of maximising -GM",
-          lambda: imports("navalai/optimize.py", ".limits", "GM_OVER_BEAM_MAX")
-                  and has_code("navalai/optimize.py", r"gm_mid")),
+    # RE-AIMED 2026-08-27 — the third "regression on an improvement" in this
+    # predicate family (see the planing-regime note below for the second).
+    # The original closure was the GM BAND objective, and this predicate
+    # pinned that fix's FORM (`gm_mid` + the limits import). The P2-A
+    # objective rework then removed GM from F entirely: the band itself
+    # taxed beam (`gm_mid` scales with B, so a wide shallow hull was charged
+    # for the GM it inevitably has — hull-design audit findings #4/#20), and
+    # the gm FLOOR row in evaluate() was always the actual stability
+    # authority. B6's defect is "-GM is MAXIMISED as an objective"; the
+    # property that closes it is that NO GM term appears in the objectives
+    # at all, and that optimize.py holds no private stability bar for one to
+    # ride back in on. `tests/test_optimize.py::
+    # test_the_third_objective_is_deck_efficiency_not_a_gm_band` pins the
+    # replacement F row's semantics.
+    Check("B6", "optimize.py must not put GM in the objectives at all: the "
+                "gm floor row in evaluate() is the one stability authority",
+          lambda: not has_code("navalai/optimize.py", r"gm_mid")
+                  and not has_code("navalai/optimize.py",
+                                   r"from \.limits import")
+                  and has_code("navalai/optimize.py",
+                               r"build_area / deck")),
     # RE-AIMED 2026-08-14, and for the second time this predicate family has
     # reported a REGRESSION ON AN IMPROVEMENT. It required the literal string
     # "planing regime" in evaluate.py. That wording was REMOVED ON PURPOSE when

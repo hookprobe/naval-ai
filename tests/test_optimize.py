@@ -126,8 +126,20 @@ def test_optimizer_gm_floor_matches_the_rules_tier():
     # the literal would forbid the fix.
     for hard in ("0.25 -", "80.0 * 0.015"):
         assert hard not in src, f"optimize.py re-declares a limit: {hard}"
-    assert "from .limits import" in src, (
-        "optimize.py must take its bars from limits.py, not restate them")
+    # 2026-08-27 (P2-A objective rework): optimize.py now consumes NO limit
+    # directly. The GM-band objective it imported gm_floor for was itself a
+    # second stability authority — it taxed beam that the gm CONSTRAINT row
+    # (fed by limits.py through evaluate()) already governs, which is how the
+    # audit's "objectives reward boxes" chain started. So the assertion is no
+    # longer "imports limits.py" but "holds no bar of its own": any limit it
+    # needs must arrive through evaluate()'s g vector, and a fresh
+    # `from .limits import` here should be treated as the defect returning.
+    assert "from .limits import" not in src, (
+        "optimize.py has re-acquired a private limits import; bars reach the "
+        "optimizer only through evaluate()'s constraint vector")
+    assert "gm_floor" not in src, (
+        "optimize.py must not hold its own GM bar; the gm row in evaluate() "
+        "is the one stability authority")
 
 
 # ===========================================================================
@@ -703,3 +715,43 @@ def test_the_objective_COSTS_length_so_the_search_does_not_run_to_the_ceiling():
     assert energy_corr < 0.0, (
         f"Wh/NM does not fall with length (corr {energy_corr:+.3f}); if both "
         f"objectives moved the same way there would be no trade-off to make")
+
+
+def test_the_third_objective_is_deck_efficiency_not_a_gm_band():
+    """P2-A objective rework (2026-08-27, audit findings #4/#20).
+
+    MEASURED before it: the third objective scored |GM - gm_mid(beam)| — a
+    band. `gm_mid` scales with beam, so a wide shallow hull was CHARGED for
+    the large GM it inevitably has, while `build_area` already priced its
+    deck as pure cost. Together the search was paid, twice, to avoid exactly
+    the wide flat boats the houseboat missions describe — the "objectives
+    reward spearheads and boxes" causal chain in the hull-design audit.
+
+    Now F = (Wh/NM, build area, build area / deck area). The gm FLOOR row in
+    evaluate() remains the one stability authority (see
+    test_optimizer_gm_floor_matches_the_rules_tier); nothing in F mentions
+    GM at all. This test pins the F row's semantics through the public
+    _evaluate path so the two problems (direct and latent share _score)
+    cannot drift back.
+    """
+    import numpy as np
+
+    from navalai.energy import shell_area_m2
+    from navalai.geometry import Hull
+    from navalai.mission import parse_mission
+    from navalai.optimize import HullProblem
+    from tests.test_phase0 import mid_params
+
+    m = parse_mission("6 tonne solar liveaboard, 10 m, river at 5 knots")
+    p = HullProblem(m)
+    out: dict = {}
+    x = np.array(mid_params())
+    p._evaluate(x[None, :], out)
+    F = out["F"][0]
+    hull = Hull(x)
+    build = shell_area_m2(hull) + hull.deck_area()
+    assert F[1] == pytest.approx(build, rel=1e-9)
+    assert F[2] == pytest.approx(build / hull.deck_area(), rel=1e-9)
+    # deck efficiency is scale-free-ish and bounded: a hull that turns
+    # material into deck scores low, and no GM term can tax beam here
+    assert 1.0 < F[2] < 20.0

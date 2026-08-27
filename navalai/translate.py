@@ -41,8 +41,9 @@ _ENERGY_RANGES = ENERGY_RANGES
 
 TRANSLATOR_PROMPT = """Translate the boating mission below into JSON with ONLY
 these keys (omit unknowns): displacement_target_kg, cruise_speed_kn, crew,
-lwl_hint_m, design_category (one of A/B/C/D), waters, energy {battery_kwh,
-payload_kg, hotel_kwh_day, cruise_hours_day}. No other keys. No prose.
+lwl_hint_m, bwl_hint_m, berths, air_draft_max_m, design_category (one of
+A/B/C/D), waters, energy {battery_kwh, payload_kg, hotel_kwh_day,
+cruise_hours_day}. No other keys. No prose.
 Mission: """
 
 
@@ -273,7 +274,99 @@ def requirements_from_mission(m: MissionSpec) -> list[Requirement]:
         f"(rules.ergonomics.E-DECK; assessment aid, not certification)",
         lambda ev: _ergonomics_finding(ev, m.crew).passed,
         lambda ev: _ergonomics_finding(ev, m.crew).note))
+
+    # ---- P2-A (2026-08-27): the parsed-and-dropped fields become rows ------
+    # "a 16 m x 4 m houseboat, 8 berths, air draft 3.5 m" used to grade 5/5
+    # with the beam, the berths and the bridge never consulted — the same
+    # substitution defect `length-hint` was added for, three fields over.
+    # Each row is graded ONLY when the brief states the field (an unstated
+    # hint is not a requirement), and each is a NECESSARY condition with its
+    # limitation named in the clause, per the E-DECK precedent above.
+    if m.bwl_hint_m is not None:
+        reqs.append(Requirement(
+            "beam-hint", "stated BWL +/-10%",
+            lambda ev: (abs(_declared_bwl_m(ev) - m.bwl_hint_m)
+                        <= 0.10 * m.bwl_hint_m),
+            lambda ev: f"BWL {_declared_bwl_m(ev):.2f} m vs "
+                       f"{m.bwl_hint_m:.2f} m asked "
+                       f"({_declared_bwl_m(ev) / m.bwl_hint_m:.2f}x)"))
+    if m.berths:
+        reqs.append(Requirement(
+            "berths-fit",
+            f"{m.berths} berths x minimum berth footprint vs working deck "
+            f"(refdata.ergonomics; NECESSARY only — no cabin layout exists)",
+            lambda ev: _berths_area_m2(m.berths) <= _working_deck_m2(ev),
+            lambda ev: f"{m.berths} berths need "
+                       f"{_berths_area_m2(m.berths):.1f} m2 vs "
+                       f"{_working_deck_m2(ev):.1f} m2 working deck"))
+    if m.air_draft_max_m is not None:
+        reqs.append(Requirement(
+            "air-draft",
+            f"bare-hull height above WL vs {m.air_draft_max_m:.2f} m bridge "
+            f"clearance (NECESSARY only — superstructure is not modelled)",
+            lambda ev: _hull_air_draft_m(ev) <= m.air_draft_max_m,
+            lambda ev: f"hull alone reaches {_hull_air_draft_m(ev):.2f} m "
+                       f"above WL vs {m.air_draft_max_m:.2f} m limit"))
     return reqs
+
+
+def _declared_bwl_m(ev: Evaluation) -> float:
+    """BWL as the grammar declares it, from the genome the ladder floated.
+
+    Raises on a missing genome — `grade()` types that as a BROKEN checker,
+    never a passing one (gap E15), matching `_ergonomics_finding`.
+    """
+    from . import grammar
+    if ev is None or ev.params is None:
+        raise ValueError("no genome on the evaluation — the beam requirement "
+                         "cannot be measured")
+    import numpy as _np
+    return float(_np.asarray(ev.params, float)[grammar.NAMES.index("BWL")])
+
+
+def _berths_area_m2(berths: int) -> float:
+    """Minimum plan area of N single berths, from the sourced refdata.
+
+    The absolute-floor berth (1980 mm) at its tapered mean width
+    ((560 + 380)/2 mm) — the smallest rectangle-equivalent a berth can
+    occupy, so the row it feeds is a necessary condition by construction.
+    """
+    from .refdata.ergonomics import (BERTH_LENGTH_MIN_MM, BERTH_WIDTH_FOOT_MM,
+                                     BERTH_WIDTH_HEAD_MM)
+    per = (BERTH_LENGTH_MIN_MM.value / 1e3) * (
+        (BERTH_WIDTH_HEAD_MM.value + BERTH_WIDTH_FOOT_MM.value) / 2e3)
+    return berths * per
+
+
+def _working_deck_m2(ev: Evaluation) -> float:
+    """ISO-countable working deck area for the evaluated genome (E-DECK)."""
+    from .geometry import Hull                # local: geometry <-> translate
+    from .rules.ergonomics import working_deck_area_m2
+    if ev is None or ev.params is None:
+        raise ValueError("no genome on the evaluation — the berths "
+                         "requirement cannot be measured")
+    counting, _ = working_deck_area_m2(Hull(ev.params))
+    return counting
+
+
+def _hull_air_draft_m(ev: Evaluation) -> float:
+    """Height of the bare hull's highest point above the floated waterline.
+
+    The sheer peaks at the bow at D*(1 + sheer_rise) above the keel
+    (grammar: sheer_rise is "bow sheer rise / D"); subtracting the solved
+    draft gives the hull-only air draft. No superstructure is modelled, so
+    the row consuming this can only ever REFUSE a hull that is too tall by
+    itself — it cannot clear one.
+    """
+    from . import grammar
+    import numpy as _np
+    if ev is None or ev.params is None or ev.hydro is None:
+        raise ValueError("no genome/hydrostatics on the evaluation — the "
+                         "air-draft requirement cannot be measured")
+    x = _np.asarray(ev.params, float)
+    d = float(x[grammar.NAMES.index("D")])
+    sheer = float(x[grammar.NAMES.index("sheer_rise")])
+    return d * (1.0 + sheer) - float(ev.hydro.draft)
 
 
 def _ergonomics_finding(ev: Evaluation, crew: int):
