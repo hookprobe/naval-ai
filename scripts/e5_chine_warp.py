@@ -15,7 +15,14 @@ deadrise law can come to each published series.
     beta(x) = beta_mid                                   x <= (1 - beta_len) L
     beta(x) = beta_mid + (beta_bow - beta_mid) frac^2    forward of that
 
-MEASURED, and the answer splits the families cleanly in two:
+MEASURED 2026-08-23 with the THREE-gene law, and the answer split the
+families cleanly in two. SUPERSEDED 2026-08-27: the kernel gained the aft
+warp (`beta_transom`/`beta_run`) and `beta_mid` widened to 38 deg; the
+re-run against the five-gene law (best_fit below) reports 3 of 7, hits
+every warped series' TRANSOM station exactly, and moved the open limit to
+the FORWARD quadratic's reach. `data/e5_chine_warp.json` and
+`docs/gates/E5-CHINE.md` carry the current table; the one below is the
+historical record of what the three-gene law could do:
 
     series                              published        best fit      max err
     Series 62 (Clement & Blount 1963)   12.5/13.0/19.2   12.5/13.0/19.2   0.00
@@ -26,8 +33,8 @@ MEASURED, and the answer splits the families cleanly in two:
     NSS (De Luca & Pensa 2017)          13.2/22.3/38.5   20.0/20.9/30.2   8.27
     NTUA (Grigoropoulos & Loukakis)     10.0/22.5/38.0   18.6/19.5/29.3   8.69
 
-MONOHEDRAL HULLS FIT EXACTLY. WARPED HULLS DO NOT, AND THE REASON IS
-STRUCTURAL. `beta_len` is bounded at 0.60, so the deadrise is CONSTANT over at
+MONOHEDRAL HULLS FIT EXACTLY. WARPED HULLS DID NOT, AND THE REASON WAS
+STRUCTURAL (three-gene law; superseded, see above). `beta_len` is bounded at 0.60, so the deadrise is CONSTANT over at
 least the after 40% of every hull this grammar can build, and warps only
 forward. A warped hull's deadrise grows from the transom onward -- NSS runs
 13.2 deg at the transom to 22.3 at midships -- which is warp in exactly the
@@ -94,18 +101,33 @@ STATIONS = (0.0, 0.50, 0.75)          # x / LWL from the transom
 WARP_TOL_DEG = 1.0
 
 
-def beta_of(u, beta_mid: float, beta_bow: float, beta_len: float):
-    """The grammar's deadrise law. `u` is x/LWL measured from the transom."""
+def beta_of(u, beta_mid: float, beta_bow: float, beta_len: float,
+            beta_transom: float = None, beta_run: float = 0.0):
+    """The grammar's deadrise law. `u` is x/LWL measured from the transom.
+
+    RE-VERDICT 2026-08-27 (the event the watermark test demands): the
+    kernel gained the AFT WARP this survey measured as missing —
+    `geometry` now adds (beta_transom - beta_mid) * f^2 over the after
+    `beta_run` of the hull (beta_run = 0 reproduces the old law bit for
+    bit, which is why the two extra arguments default to inactive). This
+    function mirrors that law exactly; a survey fitting three genes
+    against a five-gene kernel would be measuring a grammar that no
+    longer exists.
+    """
     u = np.asarray(u, dtype=float)
     w0 = 1.0 - beta_len
     b = np.full_like(u, float(beta_mid))
     m = u > w0
     b[m] = beta_mid + (beta_bow - beta_mid) * ((u[m] - w0) / beta_len) ** 2
+    if beta_transom is not None and beta_run > 0.0:
+        aft = u < beta_run
+        b[aft] += (beta_transom - beta_mid) * ((beta_run - u[aft])
+                                               / beta_run) ** 2
     return b
 
 
 def best_fit(target) -> dict:
-    names = ("beta_mid", "beta_bow", "beta_len")
+    names = ("beta_mid", "beta_bow", "beta_len", "beta_transom", "beta_run")
     box = [(float(grammar.LOW[grammar.NAMES.index(n)]),
             float(grammar.HIGH[grammar.NAMES.index(n)])) for n in names]
     t = np.array(target[:3])

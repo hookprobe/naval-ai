@@ -790,7 +790,22 @@ def prismatic_target(fn: float) -> float:
 # the TARGET the mission band steers toward and the conformance note in
 # certify measures against. A full hull is legal to draw and priced by the
 # physics, exactly like every other trade.
-CP_GENE_BOUNDS = (0.50, 0.95)
+#
+# CEILING 0.95 -> 0.98, 2026-08-27 (the 0E5C-CAP re-verdict). The 0.95 was
+# set in the same recalibration that opened the barge, before the corrected
+# sac solve could deliver a prismatic planing hull at all. MEASURED at the
+# Fridsma planform (x_mb 0.540, r_transom 0.275): the kernel now delivers
+# Cp up to 0.9776 (r_stem 0.95, pmb 0.55), and every hull of the Fridsma
+# series — the ACQUIRED, public-domain, published-parametric benchmark —
+# sits at Cp 0.9507-0.9705. At 0.95 the gene box refused published hulls
+# the kernel can draw, by margins of 0.0007 to 0.0205: a bound doing
+# nothing but forbidding real boats, which is exactly what C.2 moved the
+# ceiling for the first time over. 0.98 sits above the fullest acquired
+# hull (0.9705) and below the kernel's own measured reach (0.9776 at that
+# planform is not a universal promise; the sac solve still refuses
+# planform-by-planform). The DRAW box is frozen (grammar._LEGACY_DRAW_ROWS)
+# so no seeded stream moves.
+CP_GENE_BOUNDS = (0.50, 0.98)
 
 
 # GM CEILING as a fraction of waterline beam. GM has always had a floor (the

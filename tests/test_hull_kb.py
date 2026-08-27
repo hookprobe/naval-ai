@@ -69,9 +69,10 @@ def test_cruiser_reconstruction_meets_the_reference_labels():
 def test_deepv_reconstruction_expresses_the_warped_deadrise_law():
     """hull-designs-gemini cell 1 labels 24 deg deadrise; the warped family
     (Naples NSS shape) needs transom < midship < forward. MEASURED at
-    reconstruction: 14.0 / 24.0 / 27.1 deg. Gate 0E5C-CAP's 'no aft warp'
-    verdict predates beta_run/beta_transom — this test is the measured
-    counterexample that stands until that gate is re-verdicted."""
+    reconstruction: 14.0 / 24.0 / 27.1 deg. Gate 0E5C-CAP was re-verdicted
+    on 2026-08-27 and agrees: the aft warp is closed as a blocker (every
+    published transom station hit to the decimal); the open limit moved to
+    the FORWARD quadratic's reach."""
     genes = rk.TARGETS["deepv"]["genes"]
     x = rk.vector_from_genes(genes)
     assert grammar.check(x).ok

@@ -278,8 +278,14 @@ def roundtrip() -> int:
         # question and gave the wrong answer: a prismatic hull needs a long
         # parallel middle body and no keel rise, and mid-box supplies neither.
         try:
-            g, res, six_used, grid, r = fit(src2_for(src, p), seed=11,
-                                            maxiter=60)
+            # pmb FREE: a Fridsma model is a prismatic hull, and the
+            # parallel middle body is the feature the E5 clamp table
+            # (round-bilge yachts) zeroes out. r_stem stays 0 — the chine
+            # planform ellipse closes to a point at the stem.
+            g, res, six_used, grid, r = fit(
+                src2_for(src, p), seed=11, maxiter=60,
+                ceilings={"stem_depth": 0.0, "flare_len": 0.0,
+                          "r_stem": 0.0})
             rec["as_published"] = {
                 "status": "BUILT", "is_pass": True,
                 "geom_rms_m": res["rms_m"],
@@ -303,13 +309,24 @@ def roundtrip() -> int:
 
         # Nearest expressible: Cp clamped, everything else at the source.
         cp_max = _max_buildable_cp(six, mid)
+        # the measured reach is part of the RECORD, not only of the print:
+        # the gate's "the reason is a number" test cites it, and for a hull
+        # whose nearest-expressible fit also refuses (b30 at 0.95) it was
+        # otherwise lost with the print buffer
+        rec["max_buildable_cp"] = cp_max
         clamped = dict(six)
         clamped["Cp"] = cp_max
         src2 = dict(src)
         src2["particulars"] = dict(p)
         src2["particulars"]["Cp"] = cp_max
         try:
-            g, res, _, _, r = fit(src2, seed=11, maxiter=40)
+            # same clamp table as the as-published attempt: a prismatic
+            # hull needs its pmb free HERE too, or the clamped-Cp retry
+            # refuses for a reason that has nothing to do with the clamp
+            g, res, _, _, r = fit(src2, seed=11, maxiter=40,
+                                  ceilings={"stem_depth": 0.0,
+                                            "flare_len": 0.0,
+                                            "r_stem": 0.0})
             mb = measure_back(g, src2)
             rec["nearest_expressible"] = {
                 "is_pass": False,
@@ -366,12 +383,17 @@ def _max_buildable_cp(six: dict, other: dict) -> float:
     from navalai import geometry, grammar
     import numpy as _np
     best = 0.0
+    # `l_pmb` DIED in the E5 recalibration and `grammar.vector` now refuses
+    # unknown genes by name — so this probe, still passing it, raised on
+    # every configuration and reported "largest buildable Cp: 0.0000" for
+    # hulls the kernel builds fine (measured 2026-08-27, all five Fridsma
+    # rows). The probe now speaks the current fullness vocabulary.
     for cp in _np.arange(0.60, 1.00, 0.005):
         ok = False
-        for lam in (0.70, 0.50, 0.30, 0.0):
+        for lam in (0.55, 0.40, 0.20, 0.0):
             for xmb in (0.40, 0.45, 0.50):
                 for rt in (0.50, 0.35, 0.20):
-                    d = {**other, **six, "Cp": float(cp), "l_pmb": lam,
+                    d = {**other, **six, "Cp": float(cp), "pmb": lam,
                          "x_mb": xmb, "r_transom": rt,
                          "forefoot": 0.0, "rocker": 0.0}
                     try:

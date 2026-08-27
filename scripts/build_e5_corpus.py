@@ -85,9 +85,17 @@ _E5_FLOORS = {"forefoot": 0.0}
 #: which r_stem = 0 IS the right fit, so clamping it costs the residual
 #: nothing and keeps E5 measuring the same 21-gene fit it was recorded against.
 _E5_CEILINGS = {"stem_depth": 0.0, "flare_len": 0.0, "pmb": 0.0, "r_stem": 0.0}
-BOX = [(max(float(grammar.LOW[grammar.NAMES.index(n)]), _E5_FLOORS.get(n, -1e18)),
-        min(float(grammar.HIGH[grammar.NAMES.index(n)]),
-            _E5_CEILINGS.get(n, 1e18))) for n in TEN]
+
+
+def _box_for(ceilings: dict) -> list:
+    """The fit box under a given clamp table — see fit(ceilings=...)."""
+    return [(max(float(grammar.LOW[grammar.NAMES.index(n)]),
+                 _E5_FLOORS.get(n, -1e18)),
+             min(float(grammar.HIGH[grammar.NAMES.index(n)]),
+                 ceilings.get(n, 1e18))) for n in TEN]
+
+
+BOX = _box_for(_E5_CEILINGS)
 
 #: The genome's own box IS the E5 target range -- LWL [2.5, 24] m from RCD
 #: scope, Cp [0.525, 0.710] from the prismatic table, LCB +-3%. A hull outside
@@ -176,8 +184,19 @@ def _declared_waterline(head: list[str], tab: dict) -> float:
                      "function's docstring for what that cost.")
 
 
-def fit(src: dict, seed: int, maxiter: int) -> tuple:
+def fit(src: dict, seed: int, maxiter: int, ceilings: dict = None) -> tuple:
     """Best-fit shape genes with the six PINNED. Returns the residual left.
+
+    `ceilings` overrides the _E5_CEILINGS clamp table (None keeps it). The
+    default clamps exist because every E5 hull is a round-bilge yacht, a
+    Series 60 or a Wigley — pointed-bow forms where pmb/r_stem = 0 IS the
+    right fit and freeing them corrupts the BWL round-trip (each clamp's
+    measured incident is above). The Fridsma hard-chine round-trip
+    (build_e5_chine) fits PRISMATIC hulls, where a parallel middle body is
+    the defining feature: it passes its own table with `pmb` free. One fit
+    body, per-corpus clamps — the alternative was the 2026-08-27 finding
+    that the chine round-trip printed REFUSED for hulls whose Cp the
+    kernel had been able to deliver for a day.
 
     D IS THE ONE GENE THAT MAY MIGRATE, AND ONLY WHEN THE SOURCE HAS NONE.
     A towing-tank series publishes the SUBMERGED body; several sources here
@@ -199,7 +218,7 @@ def fit(src: dict, seed: int, maxiter: int) -> tuple:
             "v": tab["z_wl_m"] / T,
             "y": tab["y_m"], "six": six}
     free = list(TEN)
-    box = list(BOX)
+    box = list(BOX if ceilings is None else _box_for(ceilings))
     if not np.isfinite(six["D"]):
         free = free + ["D"]
         i = grammar.NAMES.index("D")

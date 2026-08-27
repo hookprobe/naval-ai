@@ -821,12 +821,14 @@ _M_FLARE = ("flare that vanishes forward INDEPENDENTLY of section area: the "
             "the stem is a point and flare there is moot")
 _M_STEM = ("stem rake, bow overhang or a counter stern: LOA == LWL by "
            "construction")
-_M_AFT_DEADRISE = ("SUPERSEDED AS A BLOCKER 2026-08-26: `beta_transom` and "
-                   "`beta_run` landed (geometry._deadrise's aft branch) and "
-                   "a 12-deg transom over an 8-deg midship is MEASURED "
-                   "expressible. Rows still citing this marker owe the "
-                   "Gate 0E5C-CAP re-fit of the seven published series "
-                   "against the new law before their verdicts flip")
+# _M_AFT_DEADRISE RETIRED 2026-08-27: the Gate 0E5C-CAP re-fit its text
+# demanded has RUN (scripts/e5_chine_warp.py against the five-gene law).
+# Measured: the aft warp hits the transom station of every published warped
+# series to the decimal, the deepv reconstruction delivers 14/24/27 deg
+# (tests/test_hull_kb.py), and the three planing rows that cited this
+# marker dropped it — their remaining gap is _M_APPENDAGE (pads, strakes,
+# steps), which is real. The FORWARD warp's reach is the open limit now,
+# and it is the warp survey's finding, not a formlib marker.
 _M_APPENDAGE = ("appendages, steps, strakes, bulbs or foils: absent from "
                 "geometry.py entirely")
 _M_ASYMMETRIC = ("an asymmetric section: every section is symmetric about the "
@@ -1175,7 +1177,7 @@ FAMILIES: tuple[FormFamily, ...] = (
             "deadrise to a solar demihull is the single most likely wrong "
             "answer this library exists to prevent"),
         expressible=Expressible.PARTIAL,
-        missing=(_M_AFT_DEADRISE, _M_APPENDAGE),
+        missing=(_M_APPENDAGE,),
         drawings=(_DGEM, _DEXP, _D001, _D003),
         proportions={
             "l_over_b": _b(2.5, 4.5, Basis.APPROX, "practice; no anchor"),
@@ -1202,7 +1204,7 @@ FAMILIES: tuple[FormFamily, ...] = (
             "DEADRISE law it needs is the one thing the current grammar "
             "already does well (beta_mid/beta_bow/beta_len)"),
         expressible=Expressible.PARTIAL,
-        missing=(_M_AFT_DEADRISE, _M_APPENDAGE),
+        missing=(_M_APPENDAGE,),
         drawings=(_DGEM, _DEXP),
         proportions={
             "l_over_b": _b(2.5, 5.0, Basis.APPROX, "practice; no anchor"),
@@ -1225,7 +1227,7 @@ FAMILIES: tuple[FormFamily, ...] = (
         candidacy=Candidacy.EXCLUDED,
         candidacy_reason="a lift device on a hull that never planes",
         expressible=Expressible.PARTIAL,
-        missing=(_M_APPENDAGE, _M_AFT_DEADRISE),
+        missing=(_M_APPENDAGE,),
         drawings=(_DEXP,),
         proportions={
             "l_over_b": _b(2.5, 5.0, Basis.APPROX, "practice; no anchor"),

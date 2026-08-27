@@ -5,6 +5,49 @@ public-domain and closed-form, and the kernel measurably cannot express it.
 
 ---
 
+## RE-VERDICT 2026-08-27 — read this before the sections below
+
+The kernel this document measured has moved: `beta_transom`/`beta_run` (the
+aft deadrise warp), `pmb`/`r_stem` (parallel middle body and stem fullness,
+coupled into the sac solve), `beta_mid` → 38° and the Cp gene ceiling →
+0.98 all landed after the 2026-08-23 measurement. The survey and the
+round-trip were RE-RUN against the five-gene deadrise law and the
+recalibrated box (`data/e5_chine_warp.json`,
+`data/e5_hard_chine_roundtrip.json`; the ledger row carries the same
+numbers). The gate stays RED, but on different numbers:
+
+| series | published | best fit (5-gene law) | max err | expressible |
+|---|---|---|---|---|
+| Series 62 (Clement & Blount 1963) | 12.5/13.0/19.2 | 12.5/13.0/19.2 | **0.00°** | YES |
+| Keuning & Gerritsma 1982 | 25.0/26.0/30.7 | 25.0/26.0/30.7 | **0.00°** | YES |
+| Keuning & Alii 1993 (30° deep-V) | 30.0/31.2/35.8 | 30.0/31.2/35.8 | **0.00°** | **YES — was out of box** |
+| Taunton & Alii 2010 | 22.5/22.5/35.3 | 22.5/24.3/32.6 | 2.71° | no |
+| USCG (Kowalyshyn & Metcalf 2006) | 16.6/22.5/34.4 | 16.6/23.9/32.3 | 2.10° | no |
+| NTUA (Grigoropoulos & Loukakis) | 10.0/22.5/38.0 | 10.0/25.6/33.4 | 4.56° | no |
+| NSS (De Luca & Pensa 2017) | 13.2/22.3/38.5 | 13.2/25.7/33.5 | 5.00° | no |
+
+**3 of 7.** The aft warp CLOSED as a blocker: every warped series' TRANSOM
+station is now hit to the decimal (13.2, 16.6, 10.0), and the deep-V fits
+exactly under the widened `beta_mid`. What remains open is the FORWARD
+quadratic's reach — β(75%) − β(50%) of 12–16° cannot be delivered inside
+`beta_bow` ≤ 50° and `beta_len` ≤ 0.60 while holding the 50% station, so
+the warped series now miss at the BOW, by 2–5° instead of 8–9°.
+
+The round-trip is still **0 of 5**, but the limit is functional now, not a
+box: the Cp ceiling (0.98) sits ABOVE every Fridsma hull, `pmb` is free in
+the chine fit, and the measured kernel reach at each hull's own six
+(`max_buildable_cp`) is **0.885–0.950** against the published
+**0.9507–0.9705**. With `r_stem` honestly held at 0 (the chine planform
+closes to a point), the SAC family still cannot hold a full prism through
+the fine elliptical bow. Nearest-expressible fits land 3.0–4.9% halfbeam
+rms with Cp clamped to the reach.
+
+Everything below this line is the 2026-08-23 measurement, kept as the
+record of what the THREE-gene law and the 0.710 box could and could not
+do. Its numbers are superseded by the table above.
+
+---
+
 ## Why this is a separate gate from E5
 
 E5 is green: 53 published hulls, three independent source families, and the

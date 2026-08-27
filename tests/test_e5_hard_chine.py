@@ -128,12 +128,25 @@ def test_the_reason_the_gate_is_red_is_a_number_not_a_shrug():
     """Three measured limits, each recoverable from a committed artifact."""
     rt = json.loads((DATA / "e5_hard_chine_roundtrip.json").read_text())
     assert rt, "no hard-chine round-trip record"
-    cp_ceiling = float(grammar.HIGH[grammar.NAMES.index("Cp")])
+    # RE-VERDICTED 2026-08-27. The original clause asserted source_Cp above
+    # the GENE CEILING, because in 2026-08-23's kernel the box (0.710) was
+    # the binding limit. The recalibrations moved the ceiling to 0.98 —
+    # ABOVE every Fridsma Cp — so the box no longer refuses these hulls;
+    # the SAC FUNCTIONAL FORM does, and the record now carries the measured
+    # reach (`max_buildable_cp`, 0.885-0.950 at these hulls' own six with
+    # pmb free and r_stem 0). The reason is still a number, it is just a
+    # different number than it was, which is exactly what a re-verdict is.
     for hid, rec in rt.items():
-        assert rec["source_Cp"] > cp_ceiling, (
-            f"{hid} is inside the Cp box after all — then it should have "
-            f"been round-tripped, not refused")
         assert rec["as_published"]["status"] == "REFUSED"
+        reach = rec["max_buildable_cp"]
+        assert 0.85 <= reach < rec["source_Cp"], (
+            f"{hid}: measured kernel reach {reach} vs source "
+            f"{rec['source_Cp']} — if reach now exceeds the source, the "
+            f"hull should have BUILT and this gate must be re-verdicted "
+            f"again, not quietly passed")
+        assert "sac" in rec["as_published"]["refusal"], (
+            f"{hid} was refused by something other than the SAC solve — "
+            f"the recorded limit no longer describes the refusal")
 
     warp = json.loads((DATA / "e5_chine_warp.json").read_text())
     res = warp["results"]
@@ -141,10 +154,22 @@ def test_the_reason_the_gate_is_red_is_a_number_not_a_shrug():
     assert res["series62_clement_blount_1963"]["expressible"], (
         "a MONOHEDRAL hard-chine series must be expressible — if Series 62 "
         "has stopped fitting, the deadrise law changed")
+    # RE-VERDICTED 2026-08-27 with the five-gene law (beta_transom +
+    # beta_run landed; beta_mid widened to 38). The aft warp closed the
+    # TRANSOM station for every warped series exactly (NSS 13.2, NTUA
+    # 10.0, USCG 16.6 — all hit to the decimal), and the 30-deg deep-V
+    # (Keuning 1993) now fits 0.00 deg. What remains is the FORWARD
+    # quadratic's reach: beta(75%) - beta(50%) of 12-16 deg cannot be
+    # delivered inside beta_bow <= 50 and beta_len <= 0.60 while holding
+    # the 50% station — NSS still misses by 5.0 deg, at the bow now
+    # instead of the transom.
+    assert res["keuning_alii_1993"]["expressible"], (
+        "the 30-deg deep-V fit exactly under the widened beta_mid; if it "
+        "no longer does, the deadrise bounds regressed")
     assert not res["nss_deluca_pensa_2017"]["expressible"], (
-        "the Naples warped series is recorded as inexpressible; if that has "
-        "changed the grammar gained an aft warp and this gate should be "
-        "re-run, not quietly passed")
+        "NSS is recorded as inexpressible by the FORWARD warp's reach "
+        "(5.0 deg at 75% LWL); if it now fits, the forward law changed "
+        "and this gate must be re-verdicted, not quietly passed")
     assert 0 < len(ok) < len(res), (
         "the warp survey should separate monohedral from warped families; "
         f"it currently reports {len(ok)} of {len(res)} expressible")
@@ -186,11 +211,12 @@ def test_the_recorded_hard_chine_limits_are_still_what_the_ledger_says():
     refused = sorted(k for k, v in rt.items()
                      if v["as_published"]["status"] == "REFUSED")
     led = json.loads((DATA / "gate-ledger.json").read_text())["Gate 0E5C-CAP"]
-    assert len(expressible) == 2 and len(refused) == 5, (
+    assert len(expressible) == 3 and len(refused) == 5, (
         f"the hard-chine watermark has MOVED: {len(expressible)} of "
         f"{len(warp)} series expressible within {WARP_TOL_DEG} deg "
         f"({expressible}), {len(refused)} of {len(rt)} hulls refused. The "
-        f"ledger records 2 and 5. Re-measure, then update "
-        f"data/gate-ledger.json — do not edit this number to match.")
-    assert "2 of 7" in led["watermark"], (
+        f"ledger records 3 and 5 (re-verdict of 2026-08-27; it was 2 and 5 "
+        f"from 2026-08-23). Re-measure, then update data/gate-ledger.json "
+        f"— do not edit this number to match.")
+    assert "3 of 7" in led["watermark"], (
         "the ledger watermark no longer states the measured count")
