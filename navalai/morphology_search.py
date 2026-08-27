@@ -210,6 +210,49 @@ def _nudge(genome: dict, cand: Candidate, step: float,
     return _clip(out)
 
 
+def _derived_dwl(genome: dict, hull=None) -> dict | None:
+    """The SMART dwl move: design the waterline the hull already has, faired.
+
+    The recorded negative result above stands — nudging `dwl` blindly hands
+    the joint solve targets nobody chose, and the walk got WORSE (2/8 ->
+    0/8). The move that works is the one a designer would make: read the
+    DELIVERED plan off the hull, then set the designed curve's parameters
+    to match it — same transom ratio, same stem ratio, same waterplane
+    fullness. The designed family is convex/unimodal BY CONSTRUCTION, so
+    the delivered plan is replaced by the nearest FAIR member of the
+    ordinate family: the wiggles the critic names as WAIST / WAVY-PLAN are
+    exactly what this subtracts, while beam, fullness and displacement
+    stay what they were (the SAC is untouched and remains the area
+    contract).
+
+    Returns the candidate genome, or None when the genome already has dwl
+    authority or the hull cannot be built.
+    """
+    from . import grammar as _g
+    import numpy as _np
+    if float(genome.get("dwl", 0.0) or 0.0) > 0.0:
+        return None
+    try:
+        from .geometry import Hull as _Hull
+        h = hull if hull is not None else _Hull(_g.vector(genome))
+        y = _np.asarray(h.y_wl, float)
+        y_max = float(y.max())
+        if y_max <= 1e-9:
+            return None
+        b = y / y_max
+        L = float(h.x[-1] - h.x[0])
+        cwp = float(_np.trapezoid(b, h.x) / L)     # plan fullness, measured
+        out = dict(genome)
+        out["dwl"] = 1.0
+        out["rb_transom"] = float(_np.clip(b[0], 0.0, 0.95))
+        out["rb_stem"] = float(_np.clip(b[-1], 0.0, 0.5))
+        out["cwp_x"] = float(_np.clip(cwp - float(genome["Cp"]),
+                                      -0.20, 0.25))
+        return _clip(out)
+    except Exception:                              # noqa: BLE001 — a move,
+        return None                                # not a verdict
+
+
 def search(seed_genome: dict, iterations: int = 400, step: float = 0.12,
            rng: np.random.Generator | None = None,
            journal: Path | str | None = None) -> tuple[Candidate | None, list[Candidate]]:
@@ -223,6 +266,22 @@ def search(seed_genome: dict, iterations: int = 400, step: float = 0.12,
     archive: list[Candidate] = []
     best = cur if (cur and cur.ok) else None
     cur_score = cur.score if cur else -1.0
+
+    # THE DERIVED-dwl OPENING MOVE (Phase 3): when the seed's findings are
+    # plan-shaped, try designing the waterline it already has ONCE, before
+    # any random walk — deterministic, cheap (one extra inspect), and
+    # measured to be the move the blind nudge could not make.
+    if cur is not None and cur.pathologies and (
+            {"WAIST", "WAVY-PLAN", "SPEARHEAD"} & set(cur.pathologies)):
+        smart = _derived_dwl(cur.genome if cur else seed_genome)
+        if smart is not None:
+            cand = inspect(smart)
+            if cand is not None:
+                archive.append(cand)
+                if cand.engineering == "L0-ok" and cand.score > cur_score:
+                    cur, cur_score = cand, cand.score
+                if cand.ok and (best is None or cand.score >= best.score):
+                    best = cand
 
     for _ in range(iterations):
         base = cur.genome if cur else _clip(seed_genome)

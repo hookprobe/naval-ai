@@ -215,7 +215,13 @@ def test_directed_search_reaches_plausible_hulls_far_more_often_than_chance():
     # to 4 when the SAC-corner fix or the independent design-waterline
     # B(x) lands (Phase 3) — lowering it further than the measured value
     # would be softening a failing gate, which honesty rule 6 forbids.
-    assert wins >= max(before + 1, 3), (
+    # AND IT DID, 2026-08-27: B(x) landed and the DERIVED-dwl opening move
+    # (design the waterline the hull already has — `_derived_dwl`) took
+    # the walk from median 1 win across six 8-seed deals (0,1,1,2,3 — the
+    # post-arity re-deal) to median 5 (2,5,5,5,6,7), and THIS deal from
+    # 0/8-before to 5/8. Bar 3 -> 4, back to its pre-arity value, one
+    # under the measured 5 so the trajectory lottery does not flake it.
+    assert wins >= max(before + 1, 4), (
         f"directed search reached {wins}/8 plausible from {before}/8 seeds; "
         "the loop has stopped beating its own starting point")
 
