@@ -136,6 +136,33 @@ SIMULATION WAS FOR (no formula exists):
 - Which cell folds first when the start is too violent (found empirically,
   three times).
 
+## Mission statement and phase plan (owner, 2026-08-27)
+
+The boat is a PLYWOOD, SOLAR-POWERED cruiser; the mission target is
+continuous low-speed running (~4-5 kn, ~1.2-2.3 kW input — see the solar
+reframe in `docs/research/PROPULSION-INTEGRATION.md` §6, which holds the
+propulsion/energy conclusions). The 8 t / 8-10 kn runs in this document are
+deliberate STRESS-VALIDATION of the hull, not the operating point: validate
+at the hard condition, operate at the easy one.
+
+Phases, in order:
+1. Calm-water hull validation (THIS DOCUMENT) — v1/v2/v3 complete; 10-kn
+   point owed below; a 5-kn measured point (cheap: large timesteps) anchors
+   the solar operating point.
+2. v4: owner adds rudder + central pod/duct (E-POD or rim drive) in
+   Blender; A/B vs v3 answers duct augmentation, rudder appendage drag,
+   pod inflow. Modeling rules that keep it meshable: ONE closed outer
+   envelope (union everything; my export keeps only the outer skin); no
+   gaps under ~10 cm (a 1-2 cm rudder gap is unmeshable — attach or gap
+   honestly); no features thinner than ~6 cm except trailing edges.
+3. Rough-sea simulation AFTER hull validation: waves2Foam-style inlet
+   relaxation zones (per JMSE 14(16):1483, the owner's chosen method
+   reference), head seas with pitch+heave free (wave-cutting / anti-pitch),
+   beam seas with roll+heave free (anti-roll, the fins' dynamic exam),
+   wave-by-wave statistics, differences claimed only beyond combined
+   uncertainty. Toolchain check owed BEFORE the phase starts: does a wave
+   solver build against OpenFOAM v2606 on this Mac?
+
 ## Reusable recipe for the NEXT owner hull
 
 1. Export outer envelope from Blender headless (drop Solidify, Subsurf 4,

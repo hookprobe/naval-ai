@@ -164,3 +164,61 @@ causal KB — because a bar written before its quantity is measurable is the
 "unmeasured metric assumed good" defect, and a causal entry written from
 the rulebook instead of a run is the negative-result-about-the-literature
 defect (LESSONS.md 2026-08-21).
+
+## 6. The hookprobe campaign made this concrete (2026-08-27, measured)
+
+First application of §1's co-design finding to an owner hull. Drag numbers
+live in `docs/research/HOOKPROBE-CFD-CAMPAIGN.md` (one home); this section
+holds the PROPULSION conclusions they produced.
+
+### The trade study, against a measured 2966 N @ 8 kn / 8 t
+
+- **Disc loading decides more than motor efficiency.** Momentum theory on the
+  measured thrust: a 290 mm rim disc (RDT POD 22.0, 22 kW, 300 kgf STATIC,
+  €18,495) idealises to ~0.57 at 8 kn — its static thrust equals the 8-kn
+  drag, so it realistically tops out ~7 kn free-stream. A 450 mm shaft prop
+  (VETUS E-LINE 220S path) idealises to ~0.72-0.78; two 420 mm E-POD 10s to
+  ~0.80. Electric-motor efficiency differences between all of them: 2-4
+  points. THE PROP IS THE LEVER, THE MOTOR IS A COMMODITY.
+- **Static thrust specs are dock numbers.** Thrust falls with advance speed;
+  compare at the operating point, never at bollard.
+- **Owner's layout decision: ONE CENTRAL motor between the fins**, fed by the
+  central tunnel (Coanda keel-line concept — CONFIRMED by CFD: wet,
+  84-107% U0 at the centreline prop stations). Twin-pod layouts are off-DNA.
+- **Clearance geometry at 8 t (v3 hull):** a 420 mm pod does NOT fit the
+  keel-to-fin slot (0.26-0.42 m wide); aft of the side-fin trailing edges
+  (last ~0.9 m before the transom) it fits with 200 mm submergence over the
+  pod top and the fin tips grounding 0.28 m FIRST (fins = prop guards). At
+  6 t the submergence margin drops to ~110 mm — marginal; the 8 t decision
+  protects it.
+- **Selection logic recorded:** economical + maintenance-free -> single
+  central rim pod in a v4 duct (one rotating part, no gland/bearing/
+  alignment, anodes only), accepting ~7 kn; firm 8-kn cruise -> E-LINE
+  inboard + large wake-adapted prop, accepting shaft maintenance. The v4
+  duct's Kort-nozzle augmentation (20-30% bollard-class gains in the
+  literature) is the open question a v4 CFD run decides.
+- **Wake-adapted prop design is UNBLOCKED:** its one expensive input — the
+  measured velocity field at the prop plane — is in the campaign doc.
+
+### The solar reframe changes the drag hierarchy (owner's mission, 2026-08-27)
+
+Plywood, solar-powered, goal = continuous low-speed running. Scaling the
+measured v3 components to 5 kn (Fn 0.24): ~490 N total, ~55% VISCOUS — the
+8-kn "stern wave first" priority INVERTS at solar speed, where wetted area
+rules and the fins (48% of wetted area) cost ~a quarter of total power.
+Energy balance from measured data: ~1.2 kW input @ 4 kn / ~2.3 kW @ 5 kn;
+a 20-28 m^2 deck array (4.5-6 kWp, 22-33 kWh/day summer) CLOSES 24/7 at
+~4 kn (~100 nm/day). Motor right-sizes to 6-8 kW (3x cruise margin), NOT
+22 kW. A hull validated at 8 t / 8-10 kn and operated at 4-5 kn is the
+deliberate strategy: validate at the hard condition, operate at the easy one.
+
+### Steering actuator (for the v4 rudder)
+
+At 8 kn a balanced 0.3 m^2 rudder in the pod slipstream sees ~5.1 kN side
+force -> 200-300 Nm at a 20-25%-chord stock (4-5x more if unbalanced —
+balance the blade); design mechanism for ~700 Nm with wave-slap factor.
+NEMA-34-class stepper through a SELF-LOCKING worm 60-100:1 gives ~5 Nm
+motor torque at ~97 rpm hard-over-to-hard-over in ~12 s, and the worm IS the
+lock — no powered brake needed. Non-negotiable: mechanical end stops and a
+manual override; a self-locking worm with a dead controller is a frozen
+rudder.
