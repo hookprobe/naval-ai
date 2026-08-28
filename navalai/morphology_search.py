@@ -127,6 +127,48 @@ class Candidate:
         return d
 
 
+#: THE AFT-MUTATION PRIOR (CFD audit P2-14, finding R2). MEASURED on the
+#: hookprobe campaign: v1 -> v2 -> v3 fell 3034 -> 2998 -> 2966 N under
+#: AFT edits (transom clearance, eased shoulder), monotonically, and the
+#: family is wave-dominated — pressure is 78-83% of total drag on every
+#: bluff/hybrid anchor in the book against 39% on the slender benchmark.
+#:
+#: WHAT THIS MAY AND MAY NOT DO. Each of those steps is 1.1-1.2%, INSIDE
+#: the +/-2.5% window scatter, and v2 carries 19% more cells than v3 —
+#: `cfd_kb.compare` refuses the pair outright. So the magnitude is not a
+#: prediction and must never reach a score. The DIRECTION is safe for
+#: exactly one job: deciding what a blind search TRIES FIRST. A prior that
+#: only reorders proposals cannot make a wrong hull win; it can only find
+#: the right one sooner, and if the prior is wrong the search still
+#: explores everything and pays a little more for it.
+_AFT_GENES = ("r_transom", "beta_transom", "beta_run", "rb_transom",
+              "rocker", "tun_w", "tun_crown", "tun_len")
+
+#: How much likelier an aft gene is to be picked when the blind explorer
+#: fires on a bluff-sterned hull. DECLARED, basis approx: the campaign
+#: gives a direction, not a weight. 3x is chosen to bias the draw without
+#: starving the other genes — at 8 aft genes of 34, uniform gives them
+#: 24% of picks and this gives 49%, so more than half the exploration is
+#: still elsewhere.
+AFT_EXPLORE_WEIGHT = 3.0
+
+#: A stern is "bluff" when the SAC still carries area at the transom.
+#: CALIBRATED on the one anchor that has BOTH a genome and a measured
+#: force split: houseboat19 (`data/exports/houseboat19/genome.json`,
+#: `runs/hb19_7kn`) reads sac_transom 0.4401 with 77.9% pressure drag.
+#: The slender benchmark sits far below. 0.30 is a declared threshold
+#: between them, not a measured boundary — nobody has run the sweep — and
+#: it is safe to declare because being wrong costs search order and
+#: nothing else.
+BLUFF_SAC_TRANSOM = 0.30
+
+
+def is_bluff_stern(descriptors: dict) -> bool:
+    """Does this hull belong to the family R2 was measured on?"""
+    v = descriptors.get("sac_transom")
+    return v is not None and float(v) >= BLUFF_SAC_TRANSOM
+
+
 def _clip(g: dict) -> dict:
     lo = {n: float(v) for n, v in zip(grammar.NAMES, grammar.LOW)}
     hi = {n: float(v) for n, v in zip(grammar.NAMES, grammar.HIGH)}
@@ -203,8 +245,19 @@ def _nudge(genome: dict, cand: Candidate, step: float,
             out[gene] += sign * step * span * (0.5 + rng.random())
             moved = True
     if not moved:                      # nothing known to repair it: explore
-        for gene in rng.choice(list(out), size=max(1, len(out) // 4),
-                               replace=False):
+        genes, k = list(out), max(1, len(out) // 4)
+        if is_bluff_stern(cand.descriptors):
+            # AFT FIRST on the family the campaign measured. Weighted draw
+            # ONLY on this branch: an unweighted `rng.choice` and a
+            # `p=uniform` one do not consume the stream identically, so
+            # every non-bluff search stays bit-identical to what the
+            # archives already hold.
+            w = np.array([AFT_EXPLORE_WEIGHT if g in _AFT_GENES else 1.0
+                          for g in genes], float)
+            picked = rng.choice(genes, size=k, replace=False, p=w / w.sum())
+        else:
+            picked = rng.choice(genes, size=k, replace=False)
+        for gene in picked:
             span = hi[gene] - lo[gene]
             out[gene] += rng.normal(0.0, 0.5 * step) * span
     return _clip(out)

@@ -392,3 +392,89 @@ def test_the_shape_row_is_wired_and_refuses_the_spearhead_by_name():
     assert ev.g["shape"] > 0
     assert any("SPEARHEAD" in v for v in ev.violations), ev.violations
     assert ev.shape_findings, "the report half must carry the named findings"
+
+
+# --------------------------------------------------------------------------
+# CFD audit P2-14: the aft-mutation prior — a DIRECTION, used only to
+# decide what the blind search tries first.
+#
+# THE MEASUREMENT AND ITS LIMIT. The hookprobe ladder fell 3034 -> 2998 ->
+# 2966 N under aft edits, monotonically, on a family where pressure is
+# 78-83% of total drag. But each step is 1.1-1.2% against a +/-2.5%
+# window scatter and v2 carries 19% more cells than v3, so
+# `cfd_kb.compare` REFUSES the pair. The magnitude is not a result.
+#
+# The direction still is, for one job: search ORDER. A prior that only
+# reorders proposals cannot make a wrong hull win — the score is
+# untouched and the explorer still reaches every gene. These tests hold
+# exactly that line: the prior must BITE on the measured family, must not
+# fire elsewhere, and must not touch a single score.
+# --------------------------------------------------------------------------
+
+def test_the_aft_prior_fires_on_the_family_it_was_measured_on():
+    import json
+    from pathlib import Path
+
+    from navalai import grammar, morphology_search as ms
+    from navalai.geometry import Hull
+    from navalai.morphology import describe, from_hull
+
+    gpath = (Path(__file__).resolve().parents[1]
+             / "data/exports/houseboat19/genome.json")
+    if not gpath.exists():
+        pytest.skip("houseboat19 genome not on disk (build artifact)")
+    d = describe(from_hull(Hull(grammar.vector(
+        json.loads(gpath.read_text()))))).as_dict()
+    # hb19 IS the calibration anchor: it has a genome AND a measured force
+    # split (runs/hb19_7kn, 77.9% pressure).
+    assert d["sac_transom"] == pytest.approx(0.4401, abs=5e-3), (
+        "the hull the threshold was calibrated on has changed shape; "
+        "re-derive BLUFF_SAC_TRANSOM against its measured force split")
+    assert ms.is_bluff_stern(d)
+    assert not ms.is_bluff_stern({"sac_transom": 0.05})
+    assert not ms.is_bluff_stern({}), (
+        "a hull with no transom descriptor got a family verdict — an "
+        "unmeasured quantity must not read as a member")
+
+
+def test_the_prior_reorders_and_changes_nothing_else():
+    """Weights bias the DRAW; they may not touch a score or a bound."""
+    import numpy as np
+
+    from navalai import morphology_search as ms
+
+    genes = list(ms.grammar.NAMES)
+    w = np.array([ms.AFT_EXPLORE_WEIGHT if g in ms._AFT_GENES else 1.0
+                  for g in genes], float)
+    aft_share = w[[g in ms._AFT_GENES for g in genes]].sum() / w.sum()
+    # More than half the exploration must still go elsewhere, or the prior
+    # has stopped being a prior and become a constraint.
+    assert 0.3 < aft_share < 0.60, (
+        f"aft genes take {100 * aft_share:.0f}% of the weighted draw; a "
+        f"prior that starves the rest of the genome is a search "
+        f"restriction wearing a prior's name")
+    for g in ms._AFT_GENES:
+        assert g in ms.grammar.NAMES, f"{g} is not a gene — a dead lever"
+
+
+def test_a_non_bluff_search_is_bit_identical_to_the_unweighted_stream():
+    """The archives already recorded were drawn without weights.
+
+    `rng.choice` with p=uniform and without p do NOT consume the stream
+    identically, so the weighted path is taken ONLY on the measured
+    family. Anything else would silently re-draw every recorded search.
+    """
+    import numpy as np
+
+    from navalai import morphology_search as ms
+
+    genes = list(ms.grammar.NAMES)
+    k = max(1, len(genes) // 4)
+    a = np.random.default_rng(5).choice(genes, size=k, replace=False)
+    b = np.random.default_rng(5).choice(genes, size=k, replace=False,
+                                        p=np.full(len(genes),
+                                                  1.0 / len(genes)))
+    assert list(a) != list(b), (
+        "these two draws now agree, so the reason for branching is gone "
+        "— simplify _nudge rather than keeping a branch whose stated "
+        "justification no longer holds")
