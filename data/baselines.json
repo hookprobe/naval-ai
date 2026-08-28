@@ -1,6 +1,6 @@
 {
   "_README": {
-    "generated_utc": "2026-08-28T04:46:58Z",
+    "generated_utc": "2026-08-28T14:14:21Z",
     "generation": {
       "frozen_suite": "flywheel.frozen_suite \u2014 BENCHMARK_PROBES + held-out wedge",
       "harvest_seed": 21,
@@ -26,37 +26,37 @@
   },
   "gm": {
     "best_coverage_2sigma": 1.0,
-    "best_median_rel_err": 0.19894115320283234,
-    "best_wall_clock_s": 2.6797339999998258,
+    "best_median_rel_err": 0.3044793022853751,
+    "best_wall_clock_s": 1.5989167500010808,
     "coverage_2sigma": 1.0,
     "coverage_2sigma_seeds": [
       1.0,
-      0.9629629629629629,
-      0.9629629629629629,
       1.0,
       0.9259259259259259,
       1.0,
+      0.8888888888888888,
+      0.9629629629629629,
       1.0,
-      0.9259259259259259
+      0.8518518518518519
     ],
     "ensemble_coverage_2sigma": 0.9814814814814814,
-    "ensemble_median_rel_err": 0.2974975981799298,
+    "ensemble_median_rel_err": 0.28092335897744325,
     "err_kind": "spread-normalised",
-    "frozen_ood_rate": 0.5555555555555556,
-    "median_rel_err": 0.19894115320283234,
+    "frozen_ood_rate": 0.2962962962962963,
+    "median_rel_err": 0.3044793022853751,
     "median_rel_err_seeds": [
-      0.19894115320283234,
-      0.24047799919110335,
-      0.2910623062501631,
-      0.32692472001709644,
-      0.3073316163552594,
-      0.3526982841169903,
-      0.3039328901096966,
-      0.273579059774222
+      0.3044793022853751,
+      0.28443237129323096,
+      0.25475655390895646,
+      0.15862594316414477,
+      0.2774143466616556,
+      0.39860909309558235,
+      0.4297717615816348,
+      0.242827763460694
     ],
     "n_frozen": 27,
     "n_train": 120,
-    "seed_spread": 1.7728774486261945,
+    "seed_spread": 2.709340937610128,
     "seeds": [
       21,
       22,
@@ -68,45 +68,45 @@
       28
     ],
     "suite": "frozen_suite",
-    "suite_fingerprint": "f4032f874b1ed628",
-    "targets_fingerprint": "a6664d004570f47d",
+    "suite_fingerprint": "fe8c9b431b0c25ac",
+    "targets_fingerprint": "92ed09822ecdef09",
     "transform": "identity",
-    "utc": 1787892237.96222,
-    "wall_clock_s": 2.6797339999998258
+    "utc": 1787926352.546241,
+    "wall_clock_s": 1.5989167500010808
   },
   "rt": {
     "best_coverage_2sigma": 1.0,
-    "best_median_rel_err": 0.09899651097493298,
-    "best_wall_clock_s": 2.4870065420000174,
+    "best_median_rel_err": 0.1575085511269653,
+    "best_wall_clock_s": 1.4849455419971491,
     "coverage_2sigma": 1.0,
     "coverage_2sigma_seeds": [
-      1.0,
-      1.0,
       1.0,
       0.9629629629629629,
       1.0,
       1.0,
       1.0,
-      1.0
+      0.9629629629629629,
+      1.0,
+      0.9629629629629629
     ],
     "ensemble_coverage_2sigma": 1.0,
-    "ensemble_median_rel_err": 0.1464072403143504,
+    "ensemble_median_rel_err": 0.16601232820017714,
     "err_kind": "relative",
-    "frozen_ood_rate": 0.5555555555555556,
-    "median_rel_err": 0.09899651097493298,
+    "frozen_ood_rate": 0.3333333333333333,
+    "median_rel_err": 0.1575085511269653,
     "median_rel_err_seeds": [
-      0.09899651097493298,
-      0.17525082045037482,
-      0.06083656870040173,
-      0.2251577424995089,
-      0.14412294743458404,
-      0.14869153319411677,
-      0.13753240245324896,
-      0.1975243676187178
+      0.1575085511269653,
+      0.17451610527338896,
+      0.09057505422872016,
+      0.23077232535154252,
+      0.12085730704135245,
+      0.22006066943080357,
+      0.1504770613841102,
+      0.22811897559458746
     ],
     "n_frozen": 27,
     "n_train": 120,
-    "seed_spread": 3.701026328561198,
+    "seed_spread": 2.5478574351034466,
     "seeds": [
       21,
       22,
@@ -118,45 +118,45 @@
       28
     ],
     "suite": "frozen_suite",
-    "suite_fingerprint": "f4032f874b1ed628",
-    "targets_fingerprint": "105e6b7f76a45675",
+    "suite_fingerprint": "fe8c9b431b0c25ac",
+    "targets_fingerprint": "8b19eb1c2f055c10",
     "transform": "log",
-    "utc": 1787892240.527856,
-    "wall_clock_s": 2.4870065420000174
+    "utc": 1787926354.0809238,
+    "wall_clock_s": 1.4849455419971491
   },
   "wh_per_nm": {
-    "best_coverage_2sigma": 1.0,
-    "best_median_rel_err": 0.09524427924262525,
-    "best_wall_clock_s": 3.639150958000073,
-    "coverage_2sigma": 1.0,
+    "best_coverage_2sigma": 0.9629629629629629,
+    "best_median_rel_err": 0.11689577721756779,
+    "best_wall_clock_s": 2.1431847919957363,
+    "coverage_2sigma": 0.9629629629629629,
     "coverage_2sigma_seeds": [
+      0.9629629629629629,
+      0.9629629629629629,
       1.0,
       1.0,
       1.0,
       0.9629629629629629,
       1.0,
-      1.0,
-      1.0,
-      1.0
+      0.9629629629629629
     ],
-    "ensemble_coverage_2sigma": 1.0,
-    "ensemble_median_rel_err": 0.14640369365774303,
+    "ensemble_coverage_2sigma": 0.9814814814814814,
+    "ensemble_median_rel_err": 0.16249965726553364,
     "err_kind": "relative",
-    "frozen_ood_rate": 0.5185185185185185,
-    "median_rel_err": 0.09524427924262525,
+    "frozen_ood_rate": 0.2962962962962963,
+    "median_rel_err": 0.11689577721756779,
     "median_rel_err_seeds": [
-      0.09524427924262525,
-      0.17525005911499422,
-      0.060844505883818345,
-      0.22512650984953197,
-      0.14412639195497193,
-      0.1486809953605141,
-      0.13753502955768568,
-      0.19752386975219
+      0.11689577721756779,
+      0.17452068627575296,
+      0.09057790962447883,
+      0.23076301474000235,
+      0.12085820535411745,
+      0.22005371504346197,
+      0.15047862825531433,
+      0.22816122647878484
     ],
     "n_frozen": 27,
     "n_train": 120,
-    "seed_spread": 3.700030209455684,
+    "seed_spread": 2.5476743247521165,
     "seeds": [
       21,
       22,
@@ -168,10 +168,10 @@
       28
     ],
     "suite": "frozen_suite",
-    "suite_fingerprint": "f4032f874b1ed628",
-    "targets_fingerprint": "0323572d7ba69f1e",
+    "suite_fingerprint": "fe8c9b431b0c25ac",
+    "targets_fingerprint": "2a97350f3335ae58",
     "transform": "log",
-    "utc": 1787892235.203011,
-    "wall_clock_s": 3.639150958000073
+    "utc": 1787926350.897522,
+    "wall_clock_s": 2.1431847919957363
   }
 }
