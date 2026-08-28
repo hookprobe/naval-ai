@@ -243,6 +243,45 @@ _DOMAIN_X = (-2.5, 2.0)                       # inlet .. outlet, x/Lwl
 _DOMAIN_LENGTH_L = _DOMAIN_X[1] - _DOMAIN_X[0]
 _DOMAIN_HALF_WIDTH_L = 1.5                    # y/Lwl, one side
 
+
+def domain_x_bounds(lwl: float, speed: float) -> tuple[float, float]:
+    """(x0, x1) in METRES: the tank must contain the ship's OWN wave.
+
+    THE DEPTH ALREADY SCALED WITH THE WAVE AND THE LENGTH DID NOT, and that
+    asymmetry is a measured defect, not a style point. MEASURED 2026-08-28 on
+    `runs/hookprobe_v5_20kn` (v5 hull, 10.29 m/s, Fn 0.95): the transverse
+    wavelength 2*pi*U^2/g is **67.8 m** against a 4.5 Lwl tank of **53.2 m**,
+    so the box held 0.78 of ONE wavelength. The run solved cleanly for 24 s
+    and its drag is still meaningless: a wave that does not fit cannot form,
+    and what does form reflects off an outlet a fraction of a wavelength
+    astern. The receipt `domain_length_m=53.19` was written beside
+    `wavelength_m=67.82` in the same `case.info` and nothing compared them.
+
+    The rule is the same one `depth = max(1.0*lwl, 1.5*half_lambda)` already
+    applies on the z axis, now applied on x, and it is a MAX so every case at
+    or below the design point is bit-identical to before: at Fn 0.26-0.48 the
+    hull-length terms dominate and these bounds return exactly (-2.5, 2.0)*lwl.
+    It only opens the tank where the physics demands it.
+
+      downstream (wake)  >= 1.5 lambda   — the transverse system trails the
+                                           hull; one wavelength is the floor
+                                           for a wake that exists at all, and
+                                           the half buys settling room before
+                                           the outlet.
+      upstream (inflow)  >= 0.5 lambda   — ship waves do not propagate far
+                                           ahead, but the inlet must sit
+                                           outside the bow pressure field.
+
+    Cost is real and must be stated: at Fn 0.95 this is a 12.5 Lwl tank
+    against 4.5, i.e. 2.8x the x cells and 2.8x the cell count at fixed dx.
+    That is the price of the number being about the ship rather than about
+    the box.
+    """
+    lam = 2.0 * math.pi * speed ** 2 / _G
+    downstream = max(-_DOMAIN_X[0] * lwl, 1.5 * lam)   # -x, astern of x=0
+    upstream = max(_DOMAIN_X[1] * lwl - lwl, 0.5 * lam) + lwl
+    return -downstream, upstream
+
 # THE BACKGROUND x COUNT AT scale = 1, IN ONE PLACE.
 # It was the literal `54` in two expressions — `_write_case_dicts` and
 # `write_resistance_case`'s STL-resolution estimate — which is this project's
@@ -2789,10 +2828,18 @@ def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
     # changing cell SHAPE mixed in with the changing cell SIZE, which is the
     # same defect that made the v1 triplet oscillate.
     nx, ny, nz_deep, n_hull, n_wave, nz_air = background_counts(scale, symmetric)
+    # dx_bg IS SET BY THE NOMINAL PAIR AND NOTHING ELSE. `nx` from
+    # `background_counts` is the count for a 4.5 Lwl tank, so it is the CELL
+    # SIZE that carries over when `domain_x_bounds` opens the box at high
+    # Froude number — the x count then follows the length at fixed dx. ny and
+    # nz are NOT touched: the width and depth rules are unchanged, and scaling
+    # them with a longer x would silently refine the other two axes.
     dx_bg = _DOMAIN_LENGTH_L * lwl / nx
+    x0, x1 = domain_x_bounds(lwl, speed)
+    nx = max(int(round((x1 - x0) / dx_bg)), nx)
     dz_core = abs(zh) / n_hull
 
-    dom = dict(x0=_DOMAIN_X[0] * lwl, x1=_DOMAIN_X[1] * lwl,
+    dom = dict(x0=x0, x1=x1,
                y0=0.0 if symmetric else -_DOMAIN_HALF_WIDTH_L * lwl,
                y1=_DOMAIN_HALF_WIDTH_L * lwl,
                z0=-depth, zh=zh, za=za, z1=0.25 * lwl,
@@ -2853,7 +2900,19 @@ def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
     _spec = layer_spec(lwl, speed, scale)
     t1, hull_cell, n_ideal = (_spec["first_layer_m"], _spec["hull_cell_m"],
                               _spec["n_ideal"])
-    assert _spec["nx"] == dom["nx"], "layer_spec disagrees with the block mesh"
+    # THE INVARIANT IS THE CELL, NOT THE COUNT. This compared `nx` against
+    # `dom["nx"]`, which was the same number only while the tank was always
+    # 4.5 Lwl. `domain_x_bounds` opens the box at high Froude number and adds
+    # x cells AT FIXED dx, so the counts legitimately differ while the hull
+    # cell the layer stack must bridge is bit-identical — and that cell is the
+    # only thing `layer_spec` is actually asserting about. Comparing counts
+    # here would refuse a valid mesh for having the right cells in a longer
+    # tank; comparing the cell keeps the guard that matters (a stack sized
+    # against a cell the mesh does not have).
+    _mesh_hull_cell = (dom["x1"] - dom["x0"]) / dom["nx"] / 2 ** _HULL_REFINE[0]
+    assert abs(_mesh_hull_cell - hull_cell) / hull_cell < 0.02, (
+        f"layer_spec sized against a {hull_cell:.4f} m hull cell but the block "
+        f"mesh will produce {_mesh_hull_cell:.4f} m")
     # THE WALL MODEL MUST BE FROZEN ACROSS A GCI TRIPLET, AND IT WAS NOT.
     # case.info has told every reader "first-layer thickness is held constant
     # across the GCI triplet, so the GCI bounds OUTER-flow discretisation, not

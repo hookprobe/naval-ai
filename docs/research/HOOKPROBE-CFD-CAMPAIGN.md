@@ -136,6 +136,47 @@ fix is unaffected. v5 GUIDANCE, measured: ONE pod not two, mounted DEEPER
 Chine strakes: not separable from the appendage delta in this single A/B.
 Case runs/hookprobe_v4; wave map runs/hookprobe_inspect/wave_plan_v4.png.
 
+## 20 kn: the first result was about the BOX, not the ship (2026-08-28)
+
+`runs/hookprobe_v5_20kn` solved cleanly to 24 s at Fn 0.95 and its 726 kW is
+RETRACTED. The tank was 4.5 Lwl = 53.2 m; the ship's own transverse wave at
+10.29 m/s is 2*pi*U^2/g = **67.8 m**. The box held **0.78 of one wavelength**,
+so the wave that makes the drag could not form and what did form reflected off
+an outlet a fraction of a wavelength astern. `case.info` printed
+`domain_length_m=53.19` beside `wavelength_m=67.82` and nothing compared them —
+the depth rule had scaled with the wave since it was written, the length rule
+never did.
+
+FIX (`navalai/cfd/case.py`, `domain_x_bounds`, gate test
+`tests/test_domain_wavelength.py`): downstream >= 1.5 lambda, upstream >= 0.5
+lambda, as a MAX against the old bounds so Fn <= 0.5 is bit-identical — the
+whole v1/v2/v3 ladder and the 10-kn point remain comparable. At Fn 0.95 the
+tank becomes 147.5 m = 2.17 lambda (289k cells, 3.14 flow-throughs at 45 s).
+
+RE-RUN `runs/hookprobe_v5_20kn_big` — STILL NOT A VALIDATED NUMBER. It ramped
+to full speed (t=12) and ran 8 s (0.56 flow-throughs) before a pathological
+cell killed it at t=20.3. Over that window the forces were in strong monotone
+DECAY, not settling:
+
+    window s   drag N    vertical N
+    12-14      108126     +628968
+    14-16       87240     +442237
+    16-18       63959     +204417
+    18-20       29172      +56293
+
+Drag fell 3.7x across 8 s, so no mean is quotable and 528 kW is a transient
+artefact, not a result. The one qualitative finding that survives: the vertical
+force is strongly POSITIVE (upward) throughout, 72-800% of the 78.5 kN weight —
+directional support for the owner's stern-lift hypothesis, on a FIXED hull that
+cannot rise, and therefore a tendency only. Free surface at t=19.5 spans
+-0.93..+2.25 m and is visibly chaotic rather than a formed Kelvin wake.
+
+20 kn REMAINS UNVALIDATED. What it needs: a longer run (>=3 flow-throughs =
+45 s), which needs the pathological cell fixed, which on the evidence of this
+campaign needs free sinkage and trim — at Fn 0.95 a FIXED hull is being forced
+to hold an attitude the flow is pushing it hard out of, and that is exactly
+where cells fold.
+
 ## Stability & seakeeping indicators (hydrostatics, NOT wave CFD)
 
 v2 @ 8 t: waterplane 21.58 m^2, I_T 14.38 m^4, I_L 150.7 m^4, KB 0.690 m,
