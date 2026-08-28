@@ -320,6 +320,16 @@ def feasible_seed(names, low, high) -> tuple[dict | None, list[dict]]:
     lo = {n: float(low[i]) for i, n in enumerate(names)}
     hi = {n: float(high[i]) for i, n in enumerate(names)}
     mid = {n: (lo[n] + hi[n]) / 2.0 for n in names}
+    # POST-HOC GENES AT THEIR NO-OPS, not their midpoints (2026-08-28).
+    # The mid of a post-hoc gene is not its no-op: mid-dwl + mid-tunnel +
+    # mid-split is an active-everything hull the UI never serves and the
+    # kernel refuses, so the midpoint stopped building and the relaxation
+    # walk below reported a NaN `was` into the payload — a screen showing
+    # a repair from a value that never existed. The seed the novice sees
+    # is the product's own genome class.
+    for _nm, _v in grammar.POST_HOC_DEFAULTS.items():
+        if _nm in mid:
+            mid[_nm] = float(_v)
     if _builds(mid):
         return mid, []
 

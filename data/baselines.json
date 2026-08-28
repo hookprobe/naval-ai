@@ -1,6 +1,6 @@
 {
   "_README": {
-    "generated_utc": "2026-08-27T17:53:44Z",
+    "generated_utc": "2026-08-28T04:46:58Z",
     "generation": {
       "frozen_suite": "flywheel.frozen_suite \u2014 BENCHMARK_PROBES + held-out wedge",
       "harvest_seed": 21,
@@ -19,51 +19,44 @@
       "n_harvest": 120
     },
     "how_produced": "scripts/make_baseline.py \u2014 a seeded harvest into a throwaway provenance DB, then the real retrain(..., bootstrap=True). No metric in this file was written by hand.",
-    "refused_by_the_gate": {
-      "gm": {
-        "coverage_2sigma": 1.0,
-        "err_kind": "spread-normalised",
-        "median_err": 0.8685693780768718,
-        "transform": "identity"
-      }
-    },
+    "refused_by_the_gate": {},
     "regenerate": "python scripts/make_baseline.py",
     "wall_clock_caveat": "best_wall_clock_s was measured on the machine that generated this file. flywheel.WALL_CLOCK_TOL is 3x precisely because it is machine weather, not model quality; a slower host that trips it is reporting its own speed, not a regression. Regenerate on the host if that becomes noise.",
     "what": "Frozen deployment marks for navalai.flywheel.retrain. Each quantity key holds the metrics of the last ACCEPTED retrain plus monotone best-ever marks; retrain refuses to deploy a model worse than best_median_rel_err * tol, or with 2-sigma coverage more than 0.15 below best_coverage_2sigma."
   },
-  "rt": {
-    "best_coverage_2sigma": 0.9259259259259259,
-    "best_median_rel_err": 0.12210075186434487,
-    "best_wall_clock_s": 5.0285757499950705,
-    "coverage_2sigma": 0.9259259259259259,
+  "gm": {
+    "best_coverage_2sigma": 1.0,
+    "best_median_rel_err": 0.19894115320283234,
+    "best_wall_clock_s": 2.6797339999998258,
+    "coverage_2sigma": 1.0,
     "coverage_2sigma_seeds": [
+      1.0,
+      0.9629629629629629,
+      0.9629629629629629,
+      1.0,
       0.9259259259259259,
       1.0,
-      0.8888888888888888,
-      0.9629629629629629,
-      0.9629629629629629,
-      0.9629629629629629,
-      0.9629629629629629,
-      0.9629629629629629
+      1.0,
+      0.9259259259259259
     ],
-    "ensemble_coverage_2sigma": 0.9629629629629629,
-    "ensemble_median_rel_err": 0.20994149272951623,
-    "err_kind": "relative",
-    "frozen_ood_rate": 0.6666666666666666,
-    "median_rel_err": 0.12210075186434487,
+    "ensemble_coverage_2sigma": 0.9814814814814814,
+    "ensemble_median_rel_err": 0.2974975981799298,
+    "err_kind": "spread-normalised",
+    "frozen_ood_rate": 0.5555555555555556,
+    "median_rel_err": 0.19894115320283234,
     "median_rel_err_seeds": [
-      0.12210075186434487,
-      0.21311758992383972,
-      0.19224294041126333,
-      0.2942938957880284,
-      0.2564872282598866,
-      0.17542734404229035,
-      0.24424271351138677,
-      0.20676539553519271
+      0.19894115320283234,
+      0.24047799919110335,
+      0.2910623062501631,
+      0.32692472001709644,
+      0.3073316163552594,
+      0.3526982841169903,
+      0.3039328901096966,
+      0.273579059774222
     ],
     "n_frozen": 27,
     "n_train": 120,
-    "seed_spread": 2.410254574967661,
+    "seed_spread": 1.7728774486261945,
     "seeds": [
       21,
       22,
@@ -75,45 +68,95 @@
       28
     ],
     "suite": "frozen_suite",
-    "suite_fingerprint": "a86a83e1f43b1777",
-    "targets_fingerprint": "083229e91fa4e2b0",
+    "suite_fingerprint": "f4032f874b1ed628",
+    "targets_fingerprint": "a6664d004570f47d",
+    "transform": "identity",
+    "utc": 1787892237.96222,
+    "wall_clock_s": 2.6797339999998258
+  },
+  "rt": {
+    "best_coverage_2sigma": 1.0,
+    "best_median_rel_err": 0.09899651097493298,
+    "best_wall_clock_s": 2.4870065420000174,
+    "coverage_2sigma": 1.0,
+    "coverage_2sigma_seeds": [
+      1.0,
+      1.0,
+      1.0,
+      0.9629629629629629,
+      1.0,
+      1.0,
+      1.0,
+      1.0
+    ],
+    "ensemble_coverage_2sigma": 1.0,
+    "ensemble_median_rel_err": 0.1464072403143504,
+    "err_kind": "relative",
+    "frozen_ood_rate": 0.5555555555555556,
+    "median_rel_err": 0.09899651097493298,
+    "median_rel_err_seeds": [
+      0.09899651097493298,
+      0.17525082045037482,
+      0.06083656870040173,
+      0.2251577424995089,
+      0.14412294743458404,
+      0.14869153319411677,
+      0.13753240245324896,
+      0.1975243676187178
+    ],
+    "n_frozen": 27,
+    "n_train": 120,
+    "seed_spread": 3.701026328561198,
+    "seeds": [
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28
+    ],
+    "suite": "frozen_suite",
+    "suite_fingerprint": "f4032f874b1ed628",
+    "targets_fingerprint": "105e6b7f76a45675",
     "transform": "log",
-    "utc": 1787852990.514467,
-    "wall_clock_s": 5.0285757499950705
+    "utc": 1787892240.527856,
+    "wall_clock_s": 2.4870065420000174
   },
   "wh_per_nm": {
-    "best_coverage_2sigma": 0.8888888888888888,
-    "best_median_rel_err": 0.11061403724932777,
-    "best_wall_clock_s": 8.940021708011045,
-    "coverage_2sigma": 0.8888888888888888,
+    "best_coverage_2sigma": 1.0,
+    "best_median_rel_err": 0.09524427924262525,
+    "best_wall_clock_s": 3.639150958000073,
+    "coverage_2sigma": 1.0,
     "coverage_2sigma_seeds": [
-      0.8888888888888888,
       1.0,
-      0.8888888888888888,
+      1.0,
+      1.0,
       0.9629629629629629,
-      0.9629629629629629,
-      0.9629629629629629,
-      0.9629629629629629,
-      0.9629629629629629
+      1.0,
+      1.0,
+      1.0,
+      1.0
     ],
-    "ensemble_coverage_2sigma": 0.9629629629629629,
-    "ensemble_median_rel_err": 0.20994786025009074,
+    "ensemble_coverage_2sigma": 1.0,
+    "ensemble_median_rel_err": 0.14640369365774303,
     "err_kind": "relative",
-    "frozen_ood_rate": 0.6666666666666666,
-    "median_rel_err": 0.11061403724932777,
+    "frozen_ood_rate": 0.5185185185185185,
+    "median_rel_err": 0.09524427924262525,
     "median_rel_err_seeds": [
-      0.11061403724932777,
-      0.21311680249931264,
-      0.19223163257106782,
-      0.2943840295018705,
-      0.2564925165003685,
-      0.17542664082207834,
-      0.24424293253566884,
-      0.20677891800086884
+      0.09524427924262525,
+      0.17525005911499422,
+      0.060844505883818345,
+      0.22512650984953197,
+      0.14412639195497193,
+      0.1486809953605141,
+      0.13753502955768568,
+      0.19752386975219
     ],
     "n_frozen": 27,
     "n_train": 120,
-    "seed_spread": 2.6613623082784597,
+    "seed_spread": 3.700030209455684,
     "seeds": [
       21,
       22,
@@ -125,10 +168,10 @@
       28
     ],
     "suite": "frozen_suite",
-    "suite_fingerprint": "a86a83e1f43b1777",
-    "targets_fingerprint": "95974e47b24434a5",
+    "suite_fingerprint": "f4032f874b1ed628",
+    "targets_fingerprint": "0323572d7ba69f1e",
     "transform": "log",
-    "utc": 1787852980.235702,
-    "wall_clock_s": 8.940021708011045
+    "utc": 1787892235.203011,
+    "wall_clock_s": 3.639150958000073
   }
 }

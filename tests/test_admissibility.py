@@ -159,8 +159,12 @@ def dev_stream(campaign_hulls):
     # RE-RECORDED again the same evening for the Phase-4 tunnel trio
     # (27 -> 30); hull 152 round-trips to the identical screen values
     # (0.0636 / 0.0648), exactly as at both prior events.
+    # arity 30 (the tunnel trio)
+    # f38618a9e8e994f304f8a5009d033db6e89646025d45c8e85f1a12710c560511;
+    # arity 32 (the Phase-4B split pair), hull 152 round-tripping to
+    # 0.0636 / 0.0648 for the FOURTH consecutive event:
     assert population.genome_sha256(np.asarray(X, float)) == (
-        "f38618a9e8e994f304f8a5009d033db6e89646025d45c8e85f1a12710c560511"), (
+        "027577658b4cd38aba407779068096da3acaf178037d183a714b60eaad2b03e0"), (
         "the development stream moved — re-derive SUB_CELL_HULL and "
         "re-record this sha alongside the bounds change that moved it")
     return X

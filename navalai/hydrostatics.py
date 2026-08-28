@@ -303,10 +303,20 @@ def solve(hull: Hull, rho: float = RHO_WATER, wl: float = 0.0,
     zb = 2.0 * float(np.trapezoid(a * zc, x)) / vol_demi
     t_design = -float(hull.z_keel.min())
     kb = zb + t_design
-    awp_demi = 2.0 * float(np.trapezoid(b, x))
+    # THE SPLIT-STERN HOLE (Phase 4B): where an inner wall stands at
+    # y_split, the waterplane strip is [y_split, b] — the hole is the
+    # DESIGN there, so the integrals subtract it: width (b - ys), inertia
+    # (b^3 - ys^3)/3 per side, and the flotation moment on the same
+    # reduced strip. On every legacy hull ys == 0.0 and each expression
+    # is IEEE-identical to the unsubtracted one (x - 0.0 == x), so no
+    # recorded state moves.
+    ys = np.minimum(np.asarray(getattr(hull, "y_split", 0.0) * 1.0)
+                    if np.ndim(getattr(hull, "y_split", 0.0)) else
+                    np.zeros_like(b), b)
+    awp_demi = 2.0 * float(np.trapezoid(b - ys, x))
     awp = n_hulls * awp_demi
-    lcf = 2.0 * float(np.trapezoid(b * x, x)) / max(awp_demi, 1e-12)
-    ixx_demi = (2.0 / 3.0) * float(np.trapezoid(b**3, x))
+    lcf = 2.0 * float(np.trapezoid((b - ys) * x, x)) / max(awp_demi, 1e-12)
+    ixx_demi = (2.0 / 3.0) * float(np.trapezoid(b**3 - ys**3, x))
     # THE MULTIHULL TERM, AND IT IS THE WHOLE POINT.
     #     I_T = sum_j [ I_T,j + A_wp,j d_j^2 ]
     # The demihull's own inertia about ITS centreplane is ixx_demi; the shift
@@ -325,7 +335,7 @@ def solve(hull: Hull, rho: float = RHO_WATER, wl: float = 0.0,
     # the volume scale by n_hulls and BM_L is UNCHANGED by adding a demihull.
     # That is correct and worth saying: a catamaran's transverse stiffness is
     # transformed by separation and its longitudinal stiffness is not.
-    i_l = n_hulls * 2.0 * float(np.trapezoid(b * (x - lcf) ** 2, x))
+    i_l = n_hulls * 2.0 * float(np.trapezoid((b - ys) * (x - lcf) ** 2, x))
     bm_l = i_l / vol
     bmax = 2.0 * float(b.max())          # ONE demihull's waterline beam
     wet = a > 1e-6
@@ -794,13 +804,23 @@ def solve_trimmed(hull: Hull, rho: float = RHO_WATER, wl0: float = 0.0,
     zb = 2.0 * float(np.trapezoid(a * zc, x)) / vol_demi
     t_design = -float(hull.z_keel.min())
     kb = zb + t_design
-    awp_demi = 2.0 * float(np.trapezoid(b, x))
+    # THE SPLIT-STERN HOLE (Phase 4B): where an inner wall stands at
+    # y_split, the waterplane strip is [y_split, b] — the hole is the
+    # DESIGN there, so the integrals subtract it: width (b - ys), inertia
+    # (b^3 - ys^3)/3 per side, and the flotation moment on the same
+    # reduced strip. On every legacy hull ys == 0.0 and each expression
+    # is IEEE-identical to the unsubtracted one (x - 0.0 == x), so no
+    # recorded state moves.
+    ys = np.minimum(np.asarray(getattr(hull, "y_split", 0.0) * 1.0)
+                    if np.ndim(getattr(hull, "y_split", 0.0)) else
+                    np.zeros_like(b), b)
+    awp_demi = 2.0 * float(np.trapezoid(b - ys, x))
     awp = n_hulls * awp_demi
-    lcf = 2.0 * float(np.trapezoid(b * x, x)) / max(awp_demi, 1e-12)
-    ixx_demi = (2.0 / 3.0) * float(np.trapezoid(b**3, x))
+    lcf = 2.0 * float(np.trapezoid((b - ys) * x, x)) / max(awp_demi, 1e-12)
+    ixx_demi = (2.0 / 3.0) * float(np.trapezoid(b**3 - ys**3, x))
     i_t = n_hulls * (ixx_demi + awp_demi * d * d)
     bm = i_t / vol
-    i_l = n_hulls * 2.0 * float(np.trapezoid(b * (x - lcf) ** 2, x))
+    i_l = n_hulls * 2.0 * float(np.trapezoid((b - ys) * (x - lcf) ** 2, x))
     bm_l = i_l / vol
     bmax = 2.0 * float(b.max())
     wet = a > 1e-6

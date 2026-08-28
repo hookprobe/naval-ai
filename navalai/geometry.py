@@ -833,6 +833,39 @@ def _stations(params: np.ndarray, x: np.ndarray) -> dict:
                 f"x = {x[i]:.3f} m reaches the design waterline (draft "
                 f"{d[i]:.3f} m) — the tunnel roof must stay submerged")
 
+    # THE SPLIT STERN (Phase 4B). Aft of split_len the centreline opens:
+    # an inner wall at y_split = split_w * yc (tapered like every aft
+    # feature), keel to deck; the hole below the design waterline is
+    # y_split * d of half-plane area — REMOVED displacement, so the
+    # section is solved for the SAC PLUS the hole, exactly as the tunnel
+    # notch is, and the hole is linear in yc so it folds into the same
+    # linear coefficient. A station cannot be both a W and a split — the
+    # crown IS centreline material, the split is its absence — so the two
+    # features overlapping is refused by name.
+    _sw = float(p.get("split_w", 0.0))
+    _sl = float(p.get("split_len", 0.0))
+    _split_on = _sw > 0.0 and _sl > 0.0
+    split_frac = np.zeros_like(x)
+    if _split_on:
+        aft_s = x < _sl * L
+        split_frac[aft_s] = (_sl * L - x[aft_s]) / (_sl * L)
+        split_frac = split_frac ** 2
+        if _tun_on:
+            # THE SPLIT WINS WHERE BOTH STAND (2026-08-28). A station with
+            # an open centreline has no centreline material to carve a
+            # crown into, so the tunnel is MASKED where split_frac > 0
+            # rather than the pair being refused. The first cut REFUSED
+            # the overlap by name — and since a uniform legal-box draw
+            # activates both features over aft spans that always share
+            # the transom, that refusal emptied the ENTIRE envelope
+            # (measured: 0/600 L0 passes, "the LEGAL envelope admits
+            # nothing at all"). Precedence is deterministic and keeps the
+            # plausible composite legal: a W forward of the split's end,
+            # an open centreline aft of it.
+            keep = split_frac <= 0.0
+            z_crown = np.where(keep, z_crown, 0.0)
+            _tun_on = bool(np.any(z_crown > 0.0))
+
     # The notch area is (tun_w * yc) * z_crown IN THIS FORMULA'S UNITS —
     # the section closed form is the FULL (mirrored) area (A_mid ~ Cm*B*T),
     # while the immersed integrals work the half-plane; the first fold used
@@ -847,6 +880,12 @@ def _stations(params: np.ndarray, x: np.ndarray) -> dict:
     # No iteration, no approximation; at tun_* = 0 the correction is zero
     # in every term, bit for bit.
     _tnotch = _tw * z_crown if _tun_on else 0.0
+    # the split hole in the same units: full-area 2 * (split_w*yc*frac) * d
+    # -> linear coefficient 2 * split_w * frac * d (the half-plane notch
+    # carried a 1/2 that the full-area convention doubled away; the hole's
+    # half-plane area is the full rectangle y_split*d, hence the 2)
+    if _split_on:
+        _tnotch = _tnotch + 2.0 * _sw * split_frac * d
 
     # Solve the section quadratic, stable branch.
     #
@@ -1036,8 +1075,10 @@ def _stations(params: np.ndarray, x: np.ndarray) -> dict:
         # harmless to the integrals, which guard on the height, but a lie
         # in the exported curve)
         y_tun = np.where(z_crown > 0.0, _tw * np.maximum(yc, 0.0), 0.0)
+    y_split = (_sw * split_frac * np.maximum(yc, 0.0)
+               if _split_on else np.zeros_like(x))
     return {"x": x, "z_keel": zk, "d": d, "beta": beta, "m": m, "f": f, "K": K,
-            "z_crown": z_crown, "y_tun": y_tun,
+            "z_crown": z_crown, "y_tun": y_tun, "y_split": y_split,
             "y_chine": yc, "z_chine": zc, "y_wl": y_wl,
             "y_sheer": y_sheer, "z_sheer": zs, "a": a, "A": A, "A_mid": A_mid,
             "c1": c1, "c2": c2}
@@ -1171,10 +1212,20 @@ def sample_section(keel: np.ndarray, chine: np.ndarray, sheer: np.ndarray,
     # carries the wall with the bilge row convention untouched (row n_lo is
     # still the bilge). None on every legacy section — untouched paths.
     if notch is not None:
-        y_t, c_h = float(notch[0]), float(notch[1])
-        if y_t > 0.0 and c_h > 0.0:
-            crown = np.array([0.0, K[1] + c_h])
-            floor = np.array([y_t, K[1]])
+        # 2-field rows are the TUNNEL semantic (crown at the centreline,
+        # floor outboard); 3-field rows are the general start polyline
+        # (y_top, height, y_floor) — the split stern's wall is VERTICAL
+        # (y_top == y_floor == y_split), which the 2-field form cannot
+        # say (measured: the union hack drew the wall slanted from the
+        # centreline deck through the open water).
+        if len(notch) == 2:
+            y_top, c_h, y_floor = 0.0, float(notch[1]), float(notch[0])
+        else:
+            y_top, c_h, y_floor = (float(notch[0]), float(notch[1]),
+                                   float(notch[2]))
+        if c_h > 0.0 and (y_floor > 0.0 or y_top > 0.0):
+            crown = np.array([y_top, K[1] + c_h])
+            floor = np.array([y_floor, K[1]])
             lo_poly = np.vstack([crown[None, :], floor[None, :]])
         else:
             lo_poly = K[None, :]
@@ -1389,9 +1440,13 @@ def _sections_batch(K: np.ndarray, C: np.ndarray, S: np.ndarray,
         # degenerate to repeated keel points where the notch has no
         # height), then floor->bilge. Rows are per-station, mirroring the
         # scalar's two-leg lo construction.
-        crown = np.stack([np.zeros(K.shape[0]), K[:, 1] + notch[:, 1]],
-                         axis=1)
-        floor = np.stack([notch[:, 0], K[:, 1]], axis=1)
+        if notch.shape[1] == 2:
+            _yt = np.zeros(K.shape[0])
+            _hh, _yf = notch[:, 1], notch[:, 0]
+        else:
+            _yt, _hh, _yf = notch[:, 0], notch[:, 1], notch[:, 2]
+        crown = np.stack([_yt, K[:, 1] + _hh], axis=1)
+        floor = np.stack([_yf, K[:, 1]], axis=1)
         n_w = max(1, n_lo // 2)
         t_w = np.linspace(0.0, 1.0, n_w + 1)
         wall = (crown[:, None, :]
@@ -1560,6 +1615,7 @@ class Hull:
         self.y_sheer, self.z_sheer = s["y_sheer"], s["z_sheer"]
         self.y_wl, self.A_sac = s["y_wl"], s["A"]
         self.z_crown, self.y_tun = s["z_crown"], s["y_tun"]
+        self.y_split = s["y_split"]
         self._f, self._m = s["f"], s["m"]
         self._sections = {}
         self._segs = {}
@@ -1606,7 +1662,8 @@ class Hull:
             (self.y_sheer[i], self.z_sheer[i]),
             (self.y_wl[i], 0.0),
             self.roundness, n_lo, n_hi, knuckle=self.has_wl_knuckle,
-            notch=None if (_N := self._tunnel_notch()) is None else _N[i])
+            notch=None if (_N := self._section_start_notch()) is None
+            else _N[i])
 
     def section_control(self, i: int) -> tuple[np.ndarray, ...]:
         """(K, P0, P1, P2, S): the section as two legs and ONE quadratic arc.
@@ -1671,6 +1728,38 @@ class Hull:
             return None
         return np.stack([self.y_tun, self.z_crown], axis=1)
 
+    def _split_hole(self):
+        """(n,) inner-wall half-breadths, or None without a split — the
+        hole argument of the immersed integrals (Phase 4B)."""
+        if not float(np.max(self.y_split)) > 0.0:
+            return None
+        return np.asarray(self.y_split, float)
+
+    def _section_start_notch(self):
+        """The SAMPLERS' start-of-section rows, 3-field (y_top, height,
+        y_floor): the tunnel's crown-at-centreline where the W stands, the
+        split's VERTICAL wall (y_top == y_floor == y_split, keel to deck)
+        where the centreline is open. The integrals treat the two
+        differently — triangle vs rectangle — which is why this union
+        exists only for the samplers."""
+        N = self._tunnel_notch()
+        H = self._split_hole()
+        if N is None and H is None:
+            return None
+        n = self.n_stations
+        rows = np.zeros((n, 3))
+        if N is not None:
+            live = N[:, 1] > 0.0
+            rows[live, 1] = N[live, 1]
+            rows[live, 2] = N[live, 0]
+        if H is not None:
+            live = H > 0.0
+            rows[live, 0] = H[live]
+            rows[live, 1] = np.maximum(
+                self.z_sheer[live] - self.z_keel[live], 0.0)
+            rows[live, 2] = H[live]
+        return rows
+
     def section(self, i: int) -> np.ndarray:
         """Section polyline, keel -> bilge -> sheer, as (N, 2) array of (y, z).
 
@@ -1699,7 +1788,7 @@ class Hull:
             # a negative or out-of-range index: `_section_points` keeps its
             # old numpy indexing semantics rather than becoming a KeyError.
             n = ((2 if (self.has_wl_knuckle
-                        or self._tunnel_notch() is not None) else 1)
+                        or self._section_start_notch() is not None) else 1)
              if self.roundness <= 0.0 else SECTION_FILLET_SAMPLES)
             cached = self._section_points(i, n, n)
             self._sections[i] = cached
@@ -1712,7 +1801,7 @@ class Hull:
         the equality is fenced at exactly 0.0 (see `_sections_batch`).
         """
         n = ((2 if (self.has_wl_knuckle
-                        or self._tunnel_notch() is not None) else 1)
+                        or self._section_start_notch() is not None) else 1)
              if self.roundness <= 0.0 else SECTION_FILLET_SAMPLES)
         zero = np.zeros(self.n_stations)
         pts = _sections_batch(
@@ -1721,7 +1810,7 @@ class Hull:
             np.stack([self.y_sheer, self.z_sheer], axis=1),
             np.stack([self.y_wl, zero], axis=1),
             self.roundness, n, n, knuckle=self.has_wl_knuckle,
-            notch=self._tunnel_notch())
+            notch=self._section_start_notch())
         self._stack = pts
         for i in range(self.n_stations):
             self._sections[i] = pts[i]
@@ -1772,9 +1861,11 @@ class Hull:
         """
         W = self._knuckle_W()
         N = self._tunnel_notch()
+        H = self._split_hole()
         return _immersed(*self.section_control(i), wl,
                          W=None if W is None else W[i],
-                         notch=None if N is None else N[i])
+                         notch=None if N is None else N[i],
+                         hole=None if H is None else H[i])
 
     # ---- integral properties ------------------------------------------------
 
@@ -1800,7 +1891,8 @@ class Hull:
         method, 41 at a time, all at one waterline.
         """
         return _immersed_batch(*self._controls(), wl, W=self._knuckle_W(),
-                               notch=self._tunnel_notch())
+                               notch=self._tunnel_notch(),
+                               hole=self._split_hole())
 
     def dwl_deviation(self) -> np.ndarray:
         """|delivered - designed| waterline half-breadth, per station [m].
@@ -1908,8 +2000,14 @@ class Hull:
                                    (s["y_sheer"][i], s["z_sheer"][i]),
                                    (s["y_wl"][i], 0.0), rho, 8 * nz, 8 * nz,
                                    knuckle=self.has_wl_knuckle,
-                                   notch=(s["y_tun"][i], s["z_crown"][i])
-                                   if float(s["y_tun"][i]) > 0.0 else None)
+                                   notch=(0.0, s["z_crown"][i],
+                                          s["y_tun"][i])
+                                   if float(s["y_tun"][i]) > 0.0 else
+                                   ((s["y_split"][i],
+                                     s["z_sheer"][i] - s["z_keel"][i],
+                                     s["y_split"][i])
+                                    if float(s["y_split"][i]) > 0.0
+                                    else None))
             # ONE uniform-arc-length resample over the WHOLE section, not one
             # per half. The two halves have different girths, so giving each
             # nz/2 points puts a step in the spacing at the bilge — and the
@@ -1946,18 +2044,38 @@ class Hull:
         P, Z, SEG = self._section_stack()
         n, N = Z.shape
         girth = np.zeros(n)
-        live = ~(Z[:, 0] >= wl)                        # keel above water: dry
-        ks = np.count_nonzero(Z < wl, axis=1)          # z monotone
-        for i in np.flatnonzero(live):
-            girth[i] = SEG[i, :max(int(ks[i]) - 1, 0)].sum()
-        cut = live & (ks < N)
-        if cut.any():
-            j = np.flatnonzero(cut)
-            kj = ks[j]
-            prev, cur = P[j, kj - 1], P[j, kj]
-            fr = ((wl - prev[:, 1]) / (cur[:, 1] - prev[:, 1]))[:, None]
-            step = (prev + fr * (cur - prev)) - prev
-            girth[j] += np.hypot(step[:, 0], step[:, 1])
+        if self._split_hole() is not None:
+            # THE SPLIT STERN BREAKS THE Z-MONOTONE PREFIX (Phase 4B): a
+            # split section STARTS at the wall TOP — above the waterline —
+            # so the prefix rule below read every split station as DRY and
+            # the wetted surface fell 26.1 -> 18.8 m^2 the moment the wall
+            # landed (measured; this is one of the four monotone-z
+            # assumers the audit named). The general form clips EVERY
+            # segment at the waterline independently: full length where
+            # both ends are submerged, the submerged fraction where it
+            # straddles, zero where dry. Legacy hulls keep the memoised
+            # prefix path below, byte for byte.
+            z0, z1 = Z[:, :-1], Z[:, 1:]
+            both = (z0 < wl) & (z1 < wl)
+            strad = ((z0 < wl) ^ (z1 < wl))
+            with np.errstate(divide="ignore", invalid="ignore"):
+                fr = np.clip((wl - np.minimum(z0, z1))
+                             / np.maximum(np.abs(z1 - z0), 1e-15), 0.0, 1.0)
+            weight = np.where(both, 1.0, np.where(strad, fr, 0.0))
+            girth = (SEG[:, :N - 1] * weight).sum(axis=1)
+        else:
+            live = ~(Z[:, 0] >= wl)                    # keel above water: dry
+            ks = np.count_nonzero(Z < wl, axis=1)      # z monotone
+            for i in np.flatnonzero(live):
+                girth[i] = SEG[i, :max(int(ks[i]) - 1, 0)].sum()
+            cut = live & (ks < N)
+            if cut.any():
+                j = np.flatnonzero(cut)
+                kj = ks[j]
+                prev, cur = P[j, kj - 1], P[j, kj]
+                fr = ((wl - prev[:, 1]) / (cur[:, 1] - prev[:, 1]))[:, None]
+                step = (prev + fr * (cur - prev)) - prev
+                girth[j] += np.hypot(step[:, 0], step[:, 1])
         # GAP E17: THE STRIP IS NOT A RECTANGLE. `girth * dx` measures the
         # area of a surface whose sections are STACKED WITHOUT SHIFTING; a
         # real hull's sections move in y and z as x advances, so the ruled
@@ -2277,12 +2395,12 @@ class Hull:
              lerp(self.z_sheer[i - 1], self.z_sheer[i])),
             (lerp(self.y_wl[i - 1], self.y_wl[i]), 0.0),
             self.roundness, n_lo, n_hi, knuckle=self.has_wl_knuckle,
-            notch=(None if (_N := self._tunnel_notch()) is None else
-                   (1 - f) * _N[i - 1] + f * _N[i]))
+            notch=(None if (_N := self._section_start_notch()) is None
+                   else (1 - f) * _N[i - 1] + f * _N[i]))
 
     def _section_at(self, xv: float) -> np.ndarray:
         n = ((2 if (self.has_wl_knuckle
-                        or self._tunnel_notch() is not None) else 1)
+                        or self._section_start_notch() is not None) else 1)
              if self.roundness <= 0.0 else SECTION_FILLET_SAMPLES)
         return self._section_at_rows(xv, n, n)
 
@@ -2323,7 +2441,7 @@ class Hull:
         W = np.stack([lerp(self.y_wl), np.zeros_like(xs)], axis=1)
         # The body that used to be inlined here now lives in `_sections_batch`
         # so the STATION-indexed memo can share it instead of copying it.
-        _N = self._tunnel_notch()
+        _N = self._section_start_notch()
         return _sections_batch(K, C, S, W, self.roundness, n_lo, n_hi,
                                knuckle=self.has_wl_knuckle,
                                notch=None if _N is None
@@ -2410,7 +2528,7 @@ def _split_at_z(P0: np.ndarray, P1: np.ndarray, P2: np.ndarray, z: float):
     return P0, Q1, X
 
 
-def _immersed(K, P0, P1, P2, S, wl: float, W=None, notch=None):
+def _immersed(K, P0, P1, P2, S, wl: float, W=None, notch=None, hole=None):
     """Immersed half-area, waterline half-breadth and z-centroid, EXACTLY.
 
     NO SAMPLING. The immersed region is a polygon on the section's control
@@ -2503,6 +2621,23 @@ def _immersed(K, P0, P1, P2, S, wl: float, W=None, notch=None):
                 return 0.0, b_wl, 0.0
             zc_v = (a_v * zc_v - a_n * z_n) / new_tot
             a_v = new_tot
+    if hole is not None and float(hole) > 0.0:
+        # THE SPLIT HOLE (Phase 4B): the region inboard of the inner wall
+        # is water, keel to deck — the subtraction is the rectangle
+        # [0, y_split] x [zk, wl], and the wall piercing the waterline is
+        # THE DESIGN (the waterplane strip becomes [y_split, b]; the
+        # hydrostatics integrate that hole via Hull.y_split).
+        y_s = float(hole)
+        zk_ = float(K[1])
+        h = wl - zk_
+        if h > 0.0:
+            a_h = y_s * h
+            z_h = 0.5 * (zk_ + wl)
+            new_tot = a_v - a_h
+            if new_tot <= 1e-15:
+                return 0.0, b_wl, 0.0
+            zc_v = (a_v * zc_v - a_h * z_h) / new_tot
+            a_v = new_tot
     return a_v, b_wl, zc_v
 
 
@@ -2566,7 +2701,8 @@ def _split_at_z_rows(P0: np.ndarray, P1: np.ndarray, P2: np.ndarray,
 
 
 def _immersed_batch(K: np.ndarray, P0: np.ndarray, P1: np.ndarray,
-                    P2: np.ndarray, S: np.ndarray, wl, W=None, notch=None):
+                    P2: np.ndarray, S: np.ndarray, wl, W=None, notch=None,
+                    hole=None):
     """`_immersed` over a stack of sections: (a, b_wl, zc), each (n,).
 
     `_immersed` STAYS THE DEFINITION. This is the same four-case clip, the
@@ -2741,6 +2877,19 @@ def _immersed_batch(K: np.ndarray, P0: np.ndarray, P1: np.ndarray,
             dead = new_tot <= 1e-15
             zc_v = np.where(dead, 0.0,
                             (a_v * zc_v - a_n * z_n)
+                            / np.where(dead, 1.0, new_tot))
+            a_v = np.where(dead, 0.0, new_tot)
+    if hole is not None:
+        Hv = hole if sel is None else hole[sel]
+        h_z = wv - Kv[:, 1]
+        live_h = (Hv > 0.0) & (h_z > 0.0)
+        if live_h.any():
+            a_h = np.where(live_h, Hv * h_z, 0.0)
+            z_h = 0.5 * (Kv[:, 1] + wv)
+            new_tot = a_v - a_h
+            dead = new_tot <= 1e-15
+            zc_v = np.where(dead, 0.0,
+                            (a_v * zc_v - a_h * z_h)
                             / np.where(dead, 1.0, new_tot))
             a_v = np.where(dead, 0.0, new_tot)
     # the waterplane half-breadth is the LAST cut vertex: v3 on the

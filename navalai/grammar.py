@@ -448,6 +448,22 @@ PARAMS = [
     ("tun_len",    "-",     0.0,  0.50, "fraction of LWL the tunnel runs "
                                         "forward from the transom. 0 = no "
                                         "tunnel"),
+    # THE SPLIT STERN (Phase 4B, 2026-08-27) — the hookprobe generalisation:
+    # aft of `split_len` the CENTRELINE OPENS. An inner wall stands at
+    # `split_w` of the local chine half-breadth, keel to deck, and the
+    # region inboard of it is water with sky over it (the wet deck is the
+    # DECK; its air gap is the freeboard's business). Unlike the tunnel
+    # (displaced-but-unusable, crown submerged), the split REMOVES
+    # displacement and SPLITS THE WATERPLANE — the hydrostatics integrate
+    # the hole (awp ~ b - y_split, ixx ~ b^3 - y_split^3) rather than
+    # refusing it, because here the hole is the design. Both are lawful
+    # post-hoc appends: at 0 there is no wall and no hole, bit for bit.
+    ("split_w",    "-",     0.0,  0.80, "inner-wall position / local chine "
+                                        "half-breadth, at the transom. 0 = "
+                                        "no split"),
+    ("split_len",  "-",     0.0,  0.80, "fraction of LWL the split runs "
+                                        "forward from the transom. 0 = no "
+                                        "split"),
 ]
 
 N_PARAMS = len(PARAMS)
@@ -506,6 +522,9 @@ _LEGACY_DRAW_ROWS = {
     "tun_w": (0.0, 0.0),
     "tun_crown": (0.0, 0.0),
     "tun_len": (0.0, 0.0),
+    # and the split pair, for the same reason
+    "split_w": (0.0, 0.0),
+    "split_len": (0.0, 0.0),
 }
 for _nm, (_lo, _hi) in _LEGACY_DRAW_ROWS.items():
     _i = NAMES.index(_nm)
@@ -915,7 +934,9 @@ POST_HOC_DEFAULTS: dict[str, float] = {"beta_transom": 0.0, "beta_run": 0.0,
                                        # Phase 4: the tunnel notch — zero
                                        # width x height x length is no notch
                                        "tun_w": 0.0, "tun_crown": 0.0,
-                                       "tun_len": 0.0}
+                                       "tun_len": 0.0,
+                                       # Phase 4B: no wall, no hole
+                                       "split_w": 0.0, "split_len": 0.0}
 
 
 def pad_genome(g) -> np.ndarray:

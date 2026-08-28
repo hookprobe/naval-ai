@@ -25,8 +25,14 @@ from navalai.geometry import Hull
 
 
 def _mid_hull() -> Hull:
-    return Hull(grammar.vector({n: 0.5 * (lo + hi)
-                                for n, _u, lo, hi, _d in grammar.PARAMS}))
+    # post-hoc genes at their NO-OPS, not their mids (2026-08-28, the
+    # split-pair arity event — the fourth mid-box site to learn this):
+    # mid-dwl + mid-tunnel happened to build at arity 30, but mid-split's
+    # hole makes the faired flare unreachable and the whole helper refused
+    g = {n: 0.5 * (lo + hi) for n, _u, lo, hi, _d in grammar.PARAMS}
+    for _nm, _v in grammar.POST_HOC_DEFAULTS.items():
+        g[_nm] = float(_v)
+    return Hull(grammar.vector(g))
 
 
 def _write_box_stl(path: Path, lx=4.0, ly=2.0, z0=-3.0, z1=2.0) -> None:

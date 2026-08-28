@@ -335,6 +335,22 @@ def frozen_suite(mission: MissionSpec, quantity: str = "wh_per_nm",
                 f"in_heldout_region's 2026-08-18 incident note). Re-anchor "
                 f"the wedge and re-measure; do not widen this budget.")
         x = rng.uniform(grammar.LOW, grammar.HIGH)
+        # THE HELD-OUT ARM MUST BE UNSEEN, NOT UNREACHABLE (2026-08-28).
+        # A uniform draw over the LEGAL box activates every post-hoc gene,
+        # while `sample_valid` — the feed the model trains on — holds them
+        # at their no-op defaults (arity-stable draw). MEASURED the day the
+        # split pair landed: 25 of 27 benchmark probes carried an active
+        # dwl/tunnel/split while ZERO training hulls did, so the deployment
+        # gate scored every retrain on a hull class the training set
+        # structurally cannot contain — median relative error 0.79 against
+        # a 0.22-era baseline, and EVERY quantity refused deployment. The
+        # wedge is meant to be a region of the SAME space the product
+        # samples (long and narrow), not a different genome. Post-hoc genes
+        # are therefore pinned to their defaults here exactly as the
+        # sampler pins them; when the exploring stream widens them for the
+        # product, this line moves with it, deliberately, as one event.
+        for _nm, _v in grammar.POST_HOC_DEFAULTS.items():
+            x[grammar.NAMES.index(_nm)] = float(_v)
         if (not in_heldout_region(x[None, :])[0]
                 or not grammar.check(x, vessel=vessel_cfg).ok):
             continue

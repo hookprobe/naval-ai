@@ -242,9 +242,10 @@ def test_an_impossible_request_is_delivered_as_measured_deviation():
 def test_the_arity_event_is_lawful():
     """27 genes; the four new ones are post-hoc with in-bounds no-op
     defaults; pad_genome lifts a 23-vector to the same hull."""
-    # 27 when the dwl quartet landed; the Phase-4 tunnel trio appended
-    # three more the same day (tests/test_tunnel.py owns their lawfulness)
-    assert grammar.N_PARAMS == 30
+    # 27 when the dwl quartet landed; the tunnel trio (test_tunnel) and
+    # the split pair (test_split) appended five more across Phase 4 —
+    # each suite owns its own genes' lawfulness, this one pins the total
+    assert grammar.N_PARAMS == 32
     for g in ("dwl", "cwp_x", "rb_transom", "rb_stem"):
         assert g in grammar.POST_HOC_DEFAULTS
         i = grammar.NAMES.index(g)

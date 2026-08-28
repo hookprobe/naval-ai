@@ -104,7 +104,7 @@ def test_the_tunnel_tapers_to_nothing_forward():
 
 
 def test_the_arity_event_is_lawful():
-    assert grammar.N_PARAMS == 30
+    assert grammar.N_PARAMS == 32      # + the Phase-4B split pair
     for g in ("tun_w", "tun_crown", "tun_len"):
         assert g in grammar.POST_HOC_DEFAULTS
         i = grammar.NAMES.index(g)
@@ -112,8 +112,8 @@ def test_the_arity_event_is_lawful():
         # pinned in the DRAW box: an un-designed random notch is not a hull
         # anyone asked for (the dwl quartet's precedent)
         assert grammar.DRAW_LOW[i] == grammar.DRAW_HIGH[i] == 0.0
-    x30 = grammar.vector(REFERENCE_HULL)
-    assert np.array_equal(grammar.pad_genome(x30[:27]), x30)
+    x32 = grammar.vector(REFERENCE_HULL)
+    assert np.array_equal(grammar.pad_genome(x32[:27]), x32)
 
 
 def test_the_ladder_runs_a_tunnel_hull_end_to_end():
