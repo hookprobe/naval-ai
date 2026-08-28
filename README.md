@@ -180,7 +180,7 @@ different Gate 2M numbers came to circulate at once (gap J1).
 | Gate 0R | a missed clause is RED BY RECORD, never prose in a scope | `tests/test_red_by_record.py` (14 tests) |
 | Gate 0K | geometry kernel: SAC/DWL design curves + N-point section | `tests/test_geometry_kernel.py` (27 tests) |
 | Gate 1E | the stages agree with each other: one geometry, one resistance, one ply, tier+sigma across every handoff | `tests/test_end_to_end_flow.py` (14 tests) |
-| Gate 0F | the hull-form library: bands ordered, every band carries its basis, no family contradicts its own Froude regime | `tests/test_formlib.py` (50 tests) |
+| Gate 0F | the hull-form library: bands ordered, every band carries its basis, no family contradicts its own Froude regime | `tests/test_formlib.py` (51 tests) |
 | Gate 0X | the experiment suite: controlled sweeps hold their controlled quantities, out-of-envelope points are refused, and the Michell interference phase matches an independent superposition | `tests/test_experiments.py` (52 tests) |
 | Gate 1M | the vessel: topology/manning/regime, the parallel-axis I_T, separation in the PRODUCTION wave term, and no multihull safety verdict from a monohull GM floor | `tests/test_multihull.py` (31 tests) |
 | Gate PV-B | vessel-conditional proportion bands, the sourced size box, and the multihull stability refusal | `tests/test_vessel_bands.py` (20 tests) |
@@ -209,6 +209,7 @@ different Gate 2M numbers came to circulate at once (gap J1).
 | Gate E | latent-space evolution + latent GP | `tests/test_stageE.py` (3 tests) |
 | Gate F | panel unroll/DXF + Pareto dash + handoff receipt | `tests/test_stageF.py` (14 tests) |
 | Gate G | APSE: similitude/ITTC-78/cost/planner/evidence | `tests/test_stageG.py` (58 tests) |
+| Gate MULTI-CHINE | the topside is a knuckle list: a second chine is an exact vertex, and k=0/1 are unchanged | `tests/test_multichine.py` (7 tests) |
 | Gate CFD-CMP | CFD comparisons are in newtons, above the scatter, on matched meshes -- or refused | `tests/test_cfd_compare.py` (6 tests) |
 | Gate V2.1 | arrangement grammar: envelope, spaces, deck zones, and an L0-A that names the space it refuses | `tests/test_arrangement.py` (42 tests) |
 | Gate V3.0 | governance compiles to a parameter box and to constraint rows, ratchets only tighter, and the ladder never imports it | `tests/test_policy.py` (55 tests) |

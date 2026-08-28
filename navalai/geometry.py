@@ -874,6 +874,10 @@ def _stations(params: np.ndarray, x: np.ndarray) -> dict:
     # linear coefficient. A station cannot be both a W and a split — the
     # crown IS centreline material, the split is its absence — so the two
     # features overlapping is refused by name.
+    # THE SECOND CHINE (Phase 5). Read here with the other post-hoc genes so
+    # the station block has one place where the genome is unpacked.
+    _ch2_y = float(p.get("ch2_y", 0.0))
+    _ch2_z = float(p.get("ch2_z", 0.0)) if _ch2_y > 0.0 else 0.0
     _sw = float(p.get("split_w", 0.0))
     _sl = float(p.get("split_len", 0.0))
     _split_on = _sw > 0.0 and _sl > 0.0
@@ -1113,6 +1117,14 @@ def _stations(params: np.ndarray, x: np.ndarray) -> dict:
             "z_crown": z_crown, "y_tun": y_tun, "y_split": y_split,
             "rho_x": rho_x,
             "y_chine": yc, "z_chine": zc, "y_wl": y_wl,
+            # THE SECOND CHINE (Phase 5, PV-4). Its height is a fraction of
+            # the chine -> sheer run, and its half-breadth is that of the
+            # straight chine->sheer line PLUS an outboard offset in units of
+            # the local half-beam. Offset 0 puts it exactly on the line, so
+            # the vertex is not a chine and the caller never builds it.
+            "y_ch2": (yc + _ch2_z * (y_sheer - yc)
+                      + _ch2_y * np.maximum(yc, y_sheer)),
+            "z_ch2": zc + _ch2_z * (zs - zc),
             "y_sheer": y_sheer, "z_sheer": zs, "a": a, "A": A, "A_mid": A_mid,
             "c1": c1, "c2": c2}
 
@@ -1213,10 +1225,31 @@ def _bezier(p0: np.ndarray, p1: np.ndarray, p2: np.ndarray,
     return (1.0 - s) ** 2 * p0 + 2.0 * s * (1.0 - s) * p1 + s * s * p2
 
 
+def _leg_counts(n_hi: int, k: int) -> list[int]:
+    """Split `n_hi` topside samples across `k + 1` legs (Phase 5).
+
+    At k = 1 this returns exactly `[max(1, n_hi // 2), n_hi - that]` — the
+    hand-written split the waterline knuckle used — so the knuckle's own
+    samples are bit-identical to the ones it drew before the topside became
+    a list. Every leg gets at least one sample, which is what makes each
+    interior vertex a pinned OUTPUT point rather than a place a uniform
+    arc-length walk happens to pass near.
+    """
+    if k <= 0:
+        return [n_hi]
+    counts, rem = [], n_hi
+    for j in range(k):
+        c = max(1, rem // (k + 1 - j))
+        counts.append(c)
+        rem -= c
+    counts.append(rem)
+    return counts
+
+
 def sample_section(keel: np.ndarray, chine: np.ndarray, sheer: np.ndarray,
                    wl: np.ndarray, rho: float,
                    n_lo: int, n_hi: int, knuckle: bool = False,
-                   notch=None) -> np.ndarray:
+                   notch=None, chain=None) -> np.ndarray:
     """The section shape function, sampled to n_lo + n_hi + 1 (y, z) points.
 
     Point `n_lo` is the BILGE FEATURE: the chine itself at rho = 0, the
@@ -1275,11 +1308,24 @@ def sample_section(keel: np.ndarray, chine: np.ndarray, sheer: np.ndarray,
     # therefore resampled as its two legs, W pinned as the last point of
     # the first — which needs n_hi >= 2 (`Hull.section` guarantees it on
     # knuckle hulls).
-    if knuckle and n_hi < 2:
-        raise ValueError("a knuckle section needs n_hi >= 2 to carry both "
-                         "the waterline vertex and the sheer")
-    n_a = max(1, n_hi // 2)
-    n_b = n_hi - n_a
+    # THE TOPSIDE VERTEX LIST (Phase 5). `knuckle=True` is the one-vertex
+    # case and is kept as the caller-facing spelling of `chain=[W]`; a
+    # second chine adds a second entry. Every interior vertex must be an
+    # OUTPUT point, not merely a point of the dense polyline — a uniform
+    # arc-length resample walks straight past a breakpoint (MEASURED
+    # 0.455 m from the nearest sample to W when the knuckle landed, and
+    # 0.273 m to the second chine before this generalisation), and a mesh
+    # that misses a knuckle is a different hull.
+    TOP = ([np.asarray(W, float)] if knuckle and chain is None
+           else [np.asarray(v, float) for v in (chain if chain is not None
+                                                else [])])
+    k = len(TOP)
+    if k and n_hi < k + 1:
+        raise ValueError(f"a section with {k} topside knuckle(s) needs "
+                         f"n_hi >= {k + 1} to carry each vertex and the "
+                         f"sheer")
+    counts = _leg_counts(n_hi, k)
+    knuckle = bool(k)
     if notch is not None and lo_poly.shape[0] > 1 and n_lo < 2:
         raise ValueError("a tunnel section needs n_lo >= 2 to carry the "
                          "crown, the floor and the bilge")
@@ -1296,9 +1342,12 @@ def sample_section(keel: np.ndarray, chine: np.ndarray, sheer: np.ndarray,
         else:
             lo = K + np.linspace(0.0, 1.0, n_lo + 1)[:, None] * (C - K)
         if knuckle:
-            leg_a = C + np.linspace(0.0, 1.0, n_a + 1)[1:, None] * (W - C)
-            leg_b = W + np.linspace(0.0, 1.0, n_b + 1)[1:, None] * (S - W)
-            hi = np.vstack([leg_a, leg_b])
+            legs, prev = [], C
+            for j, v in enumerate(TOP + [S]):
+                legs.append(prev + np.linspace(
+                    0.0, 1.0, counts[j] + 1)[1:, None] * (v - prev))
+                prev = v
+            hi = np.vstack(legs)
         else:
             hi = C + np.linspace(0.0, 1.0, n_hi + 1)[1:, None] * (S - C)
         return np.vstack([lo, hi])
@@ -1318,11 +1367,20 @@ def sample_section(keel: np.ndarray, chine: np.ndarray, sheer: np.ndarray,
         lo = np.vstack([K[None, :], arc[:m + 1]])
         lo_res = None
     if knuckle:
-        leg_a = _resample(np.vstack([arc[m:], W[None, :]]), n_a + 1)[1:]
-        leg_a[-1] = W                       # the resample must END on W exactly
-        leg_b = W + np.linspace(0.0, 1.0, n_b + 1)[1:, None] * (S - W)
+        # The FIRST topside leg leaves the bilge arc, so it is resampled off
+        # the dense arc; the rest are straight and are stepped directly. The
+        # resample must END on the vertex EXACTLY — an arc-length walk lands
+        # near it, not on it, and "near" is what makes a knuckle vanish.
+        legs = [_resample(np.vstack([arc[m:], TOP[0][None, :]]),
+                          counts[0] + 1)[1:]]
+        legs[0][-1] = TOP[0]
+        prev = TOP[0]
+        for j, v in enumerate(TOP[1:] + [S], start=1):
+            legs.append(prev + np.linspace(
+                0.0, 1.0, counts[j] + 1)[1:, None] * (v - prev))
+            prev = v
         lo_s = lo_res if lo_res is not None else _resample(lo, n_lo + 1)
-        return np.vstack([lo_s, leg_a, leg_b])
+        return np.vstack([lo_s] + legs)
     hi = np.vstack([arc[m:], S[None, :]])
     lo_s = lo_res if lo_res is not None else _resample(lo, n_lo + 1)
     return np.vstack([lo_s, _resample(hi, n_hi + 1)[1:]])
@@ -1435,7 +1493,7 @@ def _resample(poly: np.ndarray, n: int) -> np.ndarray:
 def _sections_batch(K: np.ndarray, C: np.ndarray, S: np.ndarray,
                     W: np.ndarray, rho: float, n_lo: int,
                     n_hi: int, knuckle: bool = False,
-                    notch=None) -> np.ndarray:
+                    notch=None, chain=None) -> np.ndarray:
     """`sample_section` over a STACK of control points: (k, n_lo+n_hi+1, 2).
 
     `sample_section` STAYS THE DEFINITION. This is that function with the
@@ -1460,14 +1518,24 @@ def _sections_batch(K: np.ndarray, C: np.ndarray, S: np.ndarray,
     accounts for 241 of the 282 sections an evaluation builds, and every one
     of them shares (rho, n_lo, n_hi) with all the others.
     """
-    if knuckle and n_hi < 2:
-        raise ValueError("a knuckle section needs n_hi >= 2 to carry both "
-                         "the waterline vertex and the sheer")
+    # THE TOPSIDE VERTEX LIST, batched (Phase 5). `chain` is (k, n, 2) —
+    # one (n, 2) stack per interior vertex, ascending in z — and
+    # `knuckle=True` with no chain is the one-vertex spelling that Phase 3
+    # used. `sample_section` stays the definition; this is that loop with
+    # the station axis broadcast in, so the k = 1 samples are bit-identical
+    # to the knuckle's own.
+    TOP = ([W] if knuckle and chain is None
+           else list(chain) if chain is not None else [])
+    k = len(TOP)
+    if k and n_hi < k + 1:
+        raise ValueError(f"a section with {k} topside knuckle(s) needs "
+                         f"n_hi >= {k + 1} to carry each vertex and the "
+                         f"sheer")
     if notch is not None and n_lo < 2:
         raise ValueError("a tunnel section needs n_lo >= 2 to carry the "
                          "crown, the floor and the bilge")
-    n_a = max(1, n_hi // 2)
-    n_b = n_hi - n_a
+    counts = _leg_counts(n_hi, k)
+    knuckle = bool(k)
     if notch is not None:
         # the tunnel W, batched: wall leg crown->floor (exact vertices,
         # degenerate to repeated keel points where the notch has no
@@ -1503,13 +1571,13 @@ def _sections_batch(K: np.ndarray, C: np.ndarray, S: np.ndarray,
         else:
             lo = K[:, None, :] + t_lo[None, :, None] * (C - K)[:, None, :]
         if knuckle:
-            t_a = np.linspace(0.0, 1.0, n_a + 1)[1:]
-            t_b = np.linspace(0.0, 1.0, n_b + 1)[1:]
-            leg_a = (C[:, None, :]
-                     + t_a[None, :, None] * (W - C)[:, None, :])
-            leg_b = (W[:, None, :]
-                     + t_b[None, :, None] * (S - W)[:, None, :])
-            return np.concatenate([lo, leg_a, leg_b], axis=1)
+            legs, prev = [], C
+            for j, V in enumerate(TOP + [S]):
+                t_j = np.linspace(0.0, 1.0, counts[j] + 1)[1:]
+                legs.append(prev[:, None, :]
+                            + t_j[None, :, None] * (V - prev)[:, None, :])
+                prev = V
+            return np.concatenate([lo] + legs, axis=1)
         t_hi = np.linspace(0.0, 1.0, n_hi + 1)[1:]
         hi = C[:, None, :] + t_hi[None, :, None] * (S - C)[:, None, :]
         return np.concatenate([lo, hi], axis=1)
@@ -1547,15 +1615,19 @@ def _sections_batch(K: np.ndarray, C: np.ndarray, S: np.ndarray,
         lo_res = None
     lo = np.concatenate([K[:, None, :], arc[:, :m + 1]], axis=1)
     if knuckle:
-        leg_a = _resample_batch(
-            np.concatenate([arc[:, m:], W[:, None, :]], axis=1),
-            n_a + 1)[:, 1:]
-        leg_a[:, -1] = W                    # end on W exactly, as the scalar
-        t_b = np.linspace(0.0, 1.0, n_b + 1)[1:]
-        leg_b = W[:, None, :] + t_b[None, :, None] * (S - W)[:, None, :]
+        legs = [_resample_batch(
+            np.concatenate([arc[:, m:], TOP[0][:, None, :]], axis=1),
+            counts[0] + 1)[:, 1:]]
+        legs[0][:, -1] = TOP[0]             # end on it exactly, as the scalar
+        prev = TOP[0]
+        for j, V in enumerate(TOP[1:] + [S], start=1):
+            t_j = np.linspace(0.0, 1.0, counts[j] + 1)[1:]
+            legs.append(prev[:, None, :]
+                        + t_j[None, :, None] * (V - prev)[:, None, :])
+            prev = V
         lo_s = (lo_res if lo_res is not None
                 else _resample_batch(lo, n_lo + 1))
-        return np.concatenate([lo_s, leg_a, leg_b], axis=1)
+        return np.concatenate([lo_s] + legs, axis=1)
     hi = np.concatenate([arc[:, m:], S[:, None, :]], axis=1)
     lo_s = lo_res if lo_res is not None else _resample_batch(lo, n_lo + 1)
     return np.concatenate([lo_s,
@@ -1654,6 +1726,10 @@ class Hull:
                                                    s["z_chine"])
         self.y_sheer, self.z_sheer = s["y_sheer"], s["z_sheer"]
         self.y_wl, self.A_sac = s["y_wl"], s["A"]
+        #: The second chine's station curves (Phase 5). Present on every
+        #: hull; they coincide with the chine->sheer line unless ch2_y > 0,
+        #: and only `has_second_chine` decides whether anything reads them.
+        self.y_ch2, self.z_ch2 = s["y_ch2"], s["z_ch2"]
         self.z_crown, self.y_tun = s["z_crown"], s["y_tun"]
         #: rho(x) — the bilge radius per station. `roundness` remains the
         #: hull's NOMINAL (aft) value that every legacy caller reads; this
@@ -1708,7 +1784,8 @@ class Hull:
             float(self.roundness_x[i]), n_lo, n_hi,
             knuckle=self.has_wl_knuckle,
             notch=None if (_N := self._section_start_notch()) is None
-            else _N[i])
+            else _N[i],
+            chain=None if (_C := self._topside_chain()) is None else _C[i])
 
     def section_control(self, i: int) -> tuple[np.ndarray, ...]:
         """(K, P0, P1, P2, S): the section as two legs and ONE quadratic arc.
@@ -1759,12 +1836,48 @@ class Hull:
         on the chine->sheer line and every consumer keeps its old shape."""
         return float(grammar.named(self.params).get("dwl", 0.0)) > 0.0
 
-    def _knuckle_W(self):
-        """(n, 2) waterline points, or None on a legacy hull — the exact
-        argument `_immersed`/`_immersed_batch` take for the fifth leg."""
-        if not self.has_wl_knuckle:
+    @property
+    def has_second_chine(self) -> bool:
+        """True when a SECOND chine breaks the topside (Phase 5, PV-4).
+
+        Gated on `ch2_y > 0` and not on `ch2_z`: at zero offset the vertex
+        lies exactly ON the chine->sheer line it would interrupt, so it is
+        not a chine, and a hull that took the multi-chine CODE PATH to
+        arrive at the same numbers would still be a different hull as far
+        as this project's fences are concerned. Same discipline as `dwl`,
+        the tunnel and the split.
+        """
+        return float(grammar.named(self.params).get("ch2_y", 0.0)) > 0.0
+
+    def _topside_chain(self):
+        """(n, k, 2) interior topside vertices, ASCENDING IN z, or None.
+
+        The topside runs from the bilge arc's exit up to the sheer, and
+        everything between is a knuckle: the design-waterline vertex when
+        `dwl > 0`, the second chine when `ch2_y > 0`, both when both. This
+        is the "knuckle list" `docs/audit/HULL-DESIGN-AUDIT.md` asked for
+        and the argument `_immersed`/`_immersed_batch` walk.
+
+        None — not an empty array — on a legacy hull, so the integrals take
+        the k = 0 path they always took.
+        """
+        legs = []
+        if self.has_wl_knuckle:
+            legs.append(np.stack([self.y_wl, np.zeros(self.n_stations)],
+                                 axis=1))
+        if self.has_second_chine:
+            legs.append(np.stack([self.y_ch2, self.z_ch2], axis=1))
+        if not legs:
             return None
-        return np.stack([self.y_wl, np.zeros(self.n_stations)], axis=1)
+        C = np.stack(legs, axis=1)                       # (n, k, 2)
+        if C.shape[1] > 1:
+            # ASCENDING z per station. The clip walks the chain assuming
+            # it climbs; an out-of-order pair would make `leg_cut`
+            # extrapolate off the end of a leg and return a half-breadth
+            # that is not on the hull.
+            order = np.argsort(C[:, :, 1], axis=1)
+            C = np.take_along_axis(C, order[:, :, None], axis=1)
+        return C
 
     def _tunnel_notch(self):
         """(n, 2) [y_tun, crown_height] rows, or None without a tunnel —
@@ -1832,13 +1945,26 @@ class Hull:
         if cached is None:
             # a negative or out-of-range index: `_section_points` keeps its
             # old numpy indexing semantics rather than becoming a KeyError.
-            n = ((2 if (self.has_wl_knuckle
-                        or self._section_start_notch() is not None) else 1)
-             if float(np.max(self.roundness_x)) <= 0.0
-             else SECTION_FILLET_SAMPLES)
+            n = (self._hard_chine_samples()
+                 if float(np.max(self.roundness_x)) <= 0.0
+                 else SECTION_FILLET_SAMPLES)
             cached = self._section_points(i, n, n)
             self._sections[i] = cached
         return cached
+
+    def _hard_chine_samples(self) -> int:
+        """Samples per half on a square-bilge hull, from what must be PINNED.
+
+        One is enough for a plain chine. Every interior topside vertex and
+        the tunnel's crown/floor each need their own leg, and the sampler
+        refuses n_hi below that rather than quietly dropping a knuckle —
+        which is the whole reason this count is derived instead of being
+        the literal 2 it was while exactly one knuckle existed.
+        """
+        chain = self._topside_chain()
+        k = 0 if chain is None else int(chain.shape[1])
+        return max(1, k + 1, 2 if self._section_start_notch() is not None
+                   else 1)
 
     def _prime_sections(self) -> None:
         """Fill `_sections` for EVERY station, in one `_sections_batch` call.
@@ -1846,8 +1972,7 @@ class Hull:
         `_section_points` stays the definition and this is the batch of it;
         the equality is fenced at exactly 0.0 (see `_sections_batch`).
         """
-        n = ((2 if (self.has_wl_knuckle
-                        or self._section_start_notch() is not None) else 1)
+        n = (self._hard_chine_samples()
              if float(np.max(self.roundness_x)) <= 0.0
              else SECTION_FILLET_SAMPLES)
         zero = np.zeros(self.n_stations)
@@ -1857,7 +1982,9 @@ class Hull:
             np.stack([self.y_sheer, self.z_sheer], axis=1),
             np.stack([self.y_wl, zero], axis=1),
             self.roundness_x, n, n, knuckle=self.has_wl_knuckle,
-            notch=self._section_start_notch())
+            notch=self._section_start_notch(),
+            chain=None if (_C := self._topside_chain()) is None
+            else np.moveaxis(_C, 1, 0))
         self._stack = pts
         for i in range(self.n_stations):
             self._sections[i] = pts[i]
@@ -1906,11 +2033,11 @@ class Hull:
         b_wl:      waterline half-breadth [m]
         zc_half:   z-centroid of immersed half-section [m]
         """
-        W = self._knuckle_W()
+        W = self._topside_chain()
         N = self._tunnel_notch()
         H = self._split_hole()
         return _immersed(*self.section_control(i), wl,
-                         W=None if W is None else W[i],
+                         chain=None if W is None else W[i],
                          notch=None if N is None else N[i],
                          hole=None if H is None else H[i])
 
@@ -1937,7 +2064,8 @@ class Hull:
         arithmetic. 574 of the 738 calls an evaluation makes come from this
         method, 41 at a time, all at one waterline.
         """
-        return _immersed_batch(*self._controls(), wl, W=self._knuckle_W(),
+        return _immersed_batch(*self._controls(), wl,
+                               chain=self._topside_chain(),
                                notch=self._tunnel_notch(),
                                hole=self._split_hole())
 
@@ -2579,7 +2707,8 @@ def _split_at_z(P0: np.ndarray, P1: np.ndarray, P2: np.ndarray, z: float):
     return P0, Q1, X
 
 
-def _immersed(K, P0, P1, P2, S, wl: float, W=None, notch=None, hole=None):
+def _immersed(K, P0, P1, P2, S, wl: float, chain=None, notch=None,
+              hole=None):
     """Immersed half-area, waterline half-breadth and z-centroid, EXACTLY.
 
     NO SAMPLING. The immersed region is a polygon on the section's control
@@ -2615,24 +2744,39 @@ def _immersed(K, P0, P1, P2, S, wl: float, W=None, notch=None, hole=None):
     elif wl <= P2[1]:
         q0, q1, q2 = _split_at_z(P0, P1, P2, wl)
         pts, seg = [K, P0, q2], (q0, q1, q2)
-    elif W is not None:
-        # THE WATERLINE KNUCKLE (Phase 3, slice 2): the topside is TWO legs,
-        # P2 -> W (carrying the derived flare that delivers B(x)) and
-        # W -> S (the designed topside law). W is None on every legacy
-        # section, and this branch does not exist for them — the four-case
-        # clip above and below is byte-for-byte the pre-knuckle function.
-        if wl <= W[1]:
-            pts, seg = [K, P0, P2, leg_cut(P2, W)], (P0, P1, P2)
-        elif wl <= S[1]:
-            pts, seg = [K, P0, P2, W, leg_cut(W, S)], (P0, P1, P2)
-        else:
-            pts, seg = [K, P0, P2, W, S], (P0, P1, P2)
-            wl = float(S[1])
-    elif wl <= S[1]:
-        pts, seg = [K, P0, P2, leg_cut(P2, S)], (P0, P1, P2)
     else:
-        pts, seg = [K, P0, P2, S], (P0, P1, P2)
-        wl = float(S[1])
+        # THE TOPSIDE IS A KNUCKLE LIST (Phase 5), and the special cases it
+        # replaces are recovered as its k = 0 and k = 1 members.
+        #
+        # `W` was the ONE waterline knuckle of Phase 3: the topside became
+        # two legs, P2 -> W (carrying the derived flare that delivers B(x))
+        # and W -> S. A DOUBLE-CHINE hull needs a second breakpoint at a
+        # height nobody pinned to z = 0, and writing that as a third
+        # branch beside the other two is how a four-case clip becomes an
+        # eight-case one. So the interior vertices are a LIST, ascending in
+        # z, and the walk below is one loop over it:
+        #
+        #   k = 0  legacy round-bilge / single-chine — no interior vertex
+        #   k = 1  the waterline knuckle (dwl > 0), OR a second chine alone
+        #   k = 2  both, ordered by height
+        #
+        # The loop reproduces the branches it replaces EXPRESSION FOR
+        # EXPRESSION, which is why the 1e-12 fences on the pre-Phase-5
+        # kernel still hold at exactly 0.0: at k = 0 the single pass is the
+        # old `wl <= S[1]` / else pair, and at k = 1 the two passes are the
+        # old `wl <= W[1]` / `wl <= S[1]` / else triple.
+        chain = [] if chain is None else list(np.asarray(chain,
+                                                        float))
+        pts, seg = [K, P0, P2], (P0, P1, P2)
+        prev = P2
+        for v in chain + [S]:
+            if wl <= v[1]:
+                pts.append(leg_cut(prev, v))
+                break
+            pts.append(v)
+            prev = v
+        else:                                       # never cut: wet to sheer
+            wl = float(S[1])
     b_wl = float(pts[-1][0])
     poly = np.vstack(pts + [np.array([0.0, wl])])
     a_p, gy, gz = _signed_polygon(poly)
@@ -2752,8 +2896,8 @@ def _split_at_z_rows(P0: np.ndarray, P1: np.ndarray, P2: np.ndarray,
 
 
 def _immersed_batch(K: np.ndarray, P0: np.ndarray, P1: np.ndarray,
-                    P2: np.ndarray, S: np.ndarray, wl, W=None, notch=None,
-                    hole=None):
+                    P2: np.ndarray, S: np.ndarray, wl, chain=None,
+                    notch=None, hole=None):
     """`_immersed` over a stack of sections: (a, b_wl, zc), each (n,).
 
     `_immersed` STAYS THE DEFINITION. This is the same four-case clip, the
@@ -2789,29 +2933,27 @@ def _immersed_batch(K: np.ndarray, P0: np.ndarray, P1: np.ndarray,
     if live.all():
         sel = None
         Kv, P0v, P1v, P2v, Sv, wv = K, P0, P1, P2, S, w
-        Wv = W
+        Cv = chain
         m = n
     else:
         sel = np.flatnonzero(live)
         Kv, P0v, P1v, P2v, Sv = (A[sel] for A in (K, P0, P1, P2, S))
-        Wv = W[sel] if W is not None else None
+        Cv = chain[sel] if chain is not None else None
         wv = w[sel]
         m = sel.size
 
-    # THE FOUR CASES, in the scalar function's order. With a KNUCKLE the
-    # topside is two legs and the count is five; `_immersed` stays the
-    # definition for both shapes, and W is None on every legacy call so
-    # the four-case path below is untouched byte for byte.
+    # THE CLIP, in the scalar function's order, with the topside walked as
+    # a KNUCKLE LIST (Phase 5). `_immersed` stays the definition; this is
+    # that loop with the station axis broadcast in.
+    #
+    # k = 0 recovers the legacy four-case clip and k = 1 the Phase-3
+    # knuckle, EXPRESSION FOR EXPRESSION — which is why the two hand-written
+    # branches this replaced are gone rather than kept beside it. Two
+    # branches that must agree are this codebase's recurring defect; one
+    # loop that specialises is not.
+    k = 0 if Cv is None else int(Cv.shape[1])
     c1 = wv <= P0v[:, 1]                            # cut on the keel leg
     c2 = ~c1 & (wv <= P2v[:, 1])                    # cut inside the bilge arc
-    if Wv is not None:
-        c3a = ~c1 & ~c2 & (wv <= Wv[:, 1])          # cut on the P2->W leg
-        c3b = ~c1 & ~c2 & ~c3a & (wv <= Sv[:, 1])   # cut on the W->S leg
-        c3 = c3a | c3b
-    else:
-        c3a = c3b = None
-        c3 = ~c1 & ~c2 & (wv <= Sv[:, 1])           # cut on the topside leg
-    c4 = ~(c1 | c2 | c3)                            # fully immersed to sheer
 
     v1 = np.empty((m, 2))
     v2 = np.empty((m, 2))
@@ -2837,58 +2979,48 @@ def _immersed_batch(K: np.ndarray, P0: np.ndarray, P1: np.ndarray,
         v2[j] = q2
         v3[j] = q2
         Q0[j], Q1[j], Q2[j] = q0, q1, q2
-    j34 = np.flatnonzero(c3 | c4)
+    below = c1 | c2
+    j34 = np.flatnonzero(~below)
     if j34.size:
         v2[j34] = P2v[j34]
         Q0[j34], Q1[j34], Q2[j34] = P0v[j34], P1v[j34], P2v[j34]
-    if Wv is not None:
-        v3b = np.empty((m, 2))
-        if c3a.any():
-            j = np.flatnonzero(c3a)
-            A, B = P2v[j], Wv[j]
-            t = ((wv[j] - A[:, 1]) / (B[:, 1] - A[:, 1]))[:, None]
-            v3[j] = A + t * (B - A)
-            v3b[j] = v3[j]                          # padding: repeat vertex
-        if c3b.any():
-            j = np.flatnonzero(c3b)
-            v3[j] = Wv[j]
-            A, B = Wv[j], Sv[j]
-            t = ((wv[j] - A[:, 1]) / (B[:, 1] - A[:, 1]))[:, None]
-            v3b[j] = A + t * (B - A)
-        if c4.any():
-            j = np.flatnonzero(c4)
-            v3[j] = Wv[j]
-            v3b[j] = Sv[j]
-            weff[j] = Sv[j, 1]                      # wl = float(S[1])
-        j12 = np.flatnonzero(c1 | c2)
-        if j12.size:
-            v3b[j12] = v3[j12]                      # padding: repeat vertex
-        poly = np.empty((m, 6, 2))
-        poly[:, 0] = Kv
-        poly[:, 1] = v1
-        poly[:, 2] = v2
-        poly[:, 3] = v3
-        poly[:, 4] = v3b
-        poly[:, 5, 0] = 0.0
-        poly[:, 5, 1] = weff
-    else:
-        if c3.any():
-            j = np.flatnonzero(c3)
-            A, B = P2v[j], Sv[j]
-            t = ((wv[j] - A[:, 1]) / (B[:, 1] - A[:, 1]))[:, None]
-            v3[j] = A + t * (B - A)
-        if c4.any():
-            j = np.flatnonzero(c4)
-            v3[j] = Sv[j]
-            weff[j] = Sv[j, 1]                      # wl = float(S[1])
 
-        poly = np.empty((m, 5, 2))
-        poly[:, 0] = Kv
-        poly[:, 1] = v1
-        poly[:, 2] = v2
-        poly[:, 3] = v3
-        poly[:, 4, 0] = 0.0
-        poly[:, 4, 1] = weff
+    # THE TOPSIDE WALK. `tops` is the chain's interior vertices followed by
+    # the sheer, so there are k + 1 legs starting at P2. A row that already
+    # cut lower down (c1/c2) is `done` from the start and every slot repeats
+    # its last real vertex — padding that is AREA-NEUTRAL BY CONSTRUCTION,
+    # exactly as the Phase-3 code documented: a repeated vertex contributes
+    # `y*z - y*z == 0.0` to the shoelace and `(y + y) * 0.0 == 0.0` to the
+    # centroid moment.
+    tops = (Sv[:, None, :] if k == 0
+            else np.concatenate([Cv, Sv[:, None, :]], axis=1))
+    V = np.empty((m, k + 1, 2))
+    done = below.copy()
+    pad = v3.copy()
+    prev = P2v
+    for jj in range(k + 1):
+        top = tops[:, jj]
+        cut_here = ~done & (wv <= top[:, 1])
+        dz = top[:, 1] - prev[:, 1]
+        t = ((wv - prev[:, 1]) / np.where(dz == 0.0, 1.0, dz))[:, None]
+        cutpt = prev + t * (top - prev)
+        Vj = np.where(cut_here[:, None], cutpt, top)
+        Vj = np.where(done[:, None], pad, Vj)
+        V[:, jj] = Vj
+        pad = Vj
+        done = done | cut_here
+        prev = top
+    # Never cut anywhere: wet to the sheer, and the scalar path clamps the
+    # closing height to S[1] rather than to the requested wl.
+    weff = np.where(done, wv, Sv[:, 1])
+
+    poly = np.empty((m, k + 5, 2))
+    poly[:, 0] = Kv
+    poly[:, 1] = v1
+    poly[:, 2] = v2
+    poly[:, 3:3 + k + 1] = V
+    poly[:, k + 4, 0] = 0.0
+    poly[:, k + 4, 1] = weff
 
     py, pz = poly[:, :, 0], poly[:, :, 1]
     qy, qz = np.roll(py, -1, axis=1), np.roll(pz, -1, axis=1)
@@ -2943,10 +3075,10 @@ def _immersed_batch(K: np.ndarray, P0: np.ndarray, P1: np.ndarray,
                             (a_v * zc_v - a_h * z_h)
                             / np.where(dead, 1.0, new_tot))
             a_v = np.where(dead, 0.0, new_tot)
-    # the waterplane half-breadth is the LAST cut vertex: v3 on the
-    # four-case shape, v3b when the knuckle adds the fifth leg (for the
-    # padded c1/c2 rows v3b repeats v3, so the read is uniform)
-    b_v = v3b[:, 0] if Wv is not None else v3[:, 0]
+    # The waterplane half-breadth is the LAST slot of the topside walk.
+    # Every row reaches it: a row that cut lower down carries its cut
+    # forward as padding, so the read is uniform at any chain length.
+    b_v = V[:, -1, 0]
     if sel is None:
         return a_v, np.ascontiguousarray(b_v), zc_v
     a_out[sel] = a_v

@@ -506,11 +506,16 @@ def test_the_counts_the_docstrings_quote_are_the_counts_the_tuples_have():
         f"FAMILIES is now {len(F.FAMILIES)}; update the module docstring and "
         f"the comment above the tuple in the SAME change, or they become a "
         f"second, wrong copy of this number")
-    assert len(F.families(candidacy=F.Candidacy.EXCLUDED)) == 24
-    assert len(F.proposable()) == len(F.FAMILIES) - 24
+    # 24 -> 25 on 2026-08-28: `wedge_multichine` moved CANDIDATE ->
+    # EXCLUDED when Phase 5 landed the multi-chine section law it was
+    # waiting on. The capability arriving REMOVED a candidate, because
+    # what made it a candidate was buildability and this library forbids
+    # buildability as a candidacy argument.
+    assert len(F.families(candidacy=F.Candidacy.EXCLUDED)) == 25
+    assert len(F.proposable()) == len(F.FAMILIES) - 25
     # The docstring line-wraps, so compare on whitespace-normalised text.
     src = " ".join((F.__doc__ or "").split())
-    assert "24 of the 31 families are `EXCLUDED`" in src
+    assert "25 of the 31 families are `EXCLUDED`" in src
 
 
 # ------------------------------------------- the bridge to hull_ast.Typology
@@ -563,9 +568,19 @@ def test_the_two_ast_typologies_are_the_grammars_reach_and_the_library_says_so()
     about the code that fixes it. Candidacy is untouched: buildable is not an
     argument for the mission, and all three stay EXCLUDED on the physics.
     """
+    # UPDATED 2026-08-28, per this test's own standing instruction, and
+    # for the second time. Phase 5 / BUILD-PLAN PV-4 put a KNUCKLE LIST in
+    # the topside (genes ch2_z/ch2_y, Gate MULTI-CHINE), so the family
+    # whose ONLY recorded absence was the multi-chine section law is now
+    # buildable — and `wedge_multichine`'s own candidacy_reason had named
+    # that change as the blocker in advance ("reachable by the same
+    # grammar change"). Its candidacy moved CANDIDATE -> EXCLUDED in the
+    # same commit, because the argument that made it a candidate was a
+    # BUILDABILITY argument, which the clause below forbids; what is left
+    # of the row is the planing wedge.
     yes = sorted(f.key for f in F.FAMILIES if f.expressible is F.Expressible.YES)
     assert yes == ["full_displacement", "hard_chine_displacement",
-                   "moderate_displacement"], yes
+                   "moderate_displacement", "wedge_multichine"], yes
     for key in yes:
         assert F.BY_KEY[key].candidacy is F.Candidacy.EXCLUDED, (
             f"{key}: a buildable family must still be judged on the physics; "
@@ -893,3 +908,32 @@ def test_the_deadrise_bound_is_not_declared_twice():
     assert checked >= 1, (
         "no formlib family cites grammar.PARAMS beta_mid any more — either "
         "the citation was dropped or this fence is guarding nothing")
+
+
+def test_missing_is_a_TUPLE_on_every_row_not_a_parenthesised_string():
+    """MEASURED 2026-08-28: five rows carried `missing=(_M_X)`.
+
+    Python reads that as the STRING, not a one-tuple, and everything
+    downstream then counts CHARACTERS: `FormFamily.__post_init__` reported
+    "288 missing item(s)", `unexpressible()` returned a string for those
+    keys, and `" ".join(fam.missing)` would have spaced out every letter.
+    The affected rows were slender_displacement (288), round_bilge_
+    displacement (264), wave_piercing_monohull (410), semi_displacement_
+    chine_aft (264) and quadrimaran (295) — and the numbers in brackets are
+    exactly their marker's character counts, which is how it was found.
+
+    This is the `${VAR:-0}` failure in a different costume: a container
+    that is the wrong TYPE still supports len() and iteration, so nothing
+    complained. It is fenced by type rather than by count so that a sixth
+    row cannot reintroduce it.
+    """
+    for fam in F.FAMILIES:
+        assert isinstance(fam.missing, tuple), (
+            f"{fam.key}: `missing` is {type(fam.missing).__name__}, not a "
+            f"tuple — a single marker needs a trailing comma "
+            f"(`missing=(_M_X,)`) or Python hands you the string and every "
+            f"len() downstream counts characters")
+        for item in fam.missing:
+            assert isinstance(item, str) and len(item) > 20, (
+                f"{fam.key}: a missing-capability entry should be one of "
+                f"the module's _M_* prose markers, got {item!r}")

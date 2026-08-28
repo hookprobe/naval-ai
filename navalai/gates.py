@@ -562,6 +562,17 @@ GATES = [
     # on a denominator that moved 23%. The kernel therefore compares NEWTONS
     # at equal speed, through one sanctioned comparator, and this row is the
     # fence.
+    # PHASE 5 / BUILD-PLAN PV-4. `docs/audit/geometry-representation.md` read
+    # "multi-chine NO" and the consequence was measured as a capability gap:
+    # the grammar reached TWO of the five standard body plans and the two it
+    # missed are the double-chine forms. The topside is now a KNUCKLE LIST
+    # rather than a hand-written special case per breakpoint -- k = 0 recovers
+    # the legacy clip and k = 1 the Phase-3 waterline knuckle, expression for
+    # expression, which is why the pre-Phase-5 fences still hold at exactly
+    # 0.0 instead of at a tolerance.
+    Gate("Gate MULTI-CHINE", "the topside is a knuckle list: a second chine "
+                             "is an exact vertex, and k=0/1 are unchanged",
+         "tests/test_multichine.py"),
     Gate("Gate CFD-CMP", "CFD comparisons are in newtons, above the scatter, "
                          "on matched meshes -- or refused",
          "tests/test_cfd_compare.py"),

@@ -250,12 +250,29 @@ def test_the_loop_never_steps_outside_the_feasible_set_once_inside():
     # record as a broken loop. The property under test (never step out of
     # the feasible set once inside) is box-agnostic; the DRAW box is where
     # the product actually searches.
+    # THE SEED MUST BE ARITY-STABLE, and 2026-08-28 is why. This drew
+    # `rng.random(grammar.N_PARAMS)`, which consumes one uniform per gene
+    # INCLUDING the post-hoc rows pinned to (0, 0) in the DRAW box — so
+    # appending the two Phase-5 second-chine genes shifted the stream and
+    # this test seeded from a DIFFERENT HULL. It then archived 8 attempts
+    # of 150 and went red, with no gate changed and no operator touched.
+    # That is the same class as the 98-test incident `_LEGACY_DRAW_ROWS`
+    # was built for: a draw over N_PARAMS re-rolls history at every append.
+    # `grammar.sample` draws for CORE genes only, so it cannot move again.
+    #
+    # WHAT THE SHIFTED SEED FOUND, recorded rather than lost: on that hull
+    # 146 of 150 nudges raised `section: area unreachable` (x = 1.377 m,
+    # draft 0.537 m, deadrise pinned at 12.0 deg) and the search returned
+    # None. `_clip` projects (Cp, lcb) into the deliverable bands, and on
+    # that seed it is not enough — a real, pre-existing brittleness of the
+    # operator, exposed by accident and NOT introduced by Phase 5. It is
+    # not repaired here because this test is about the feasible-set
+    # property, not about the repair table's coverage.
     rng = np.random.default_rng(5)
     seed = None
     while seed is None:
-        x = grammar.DRAW_LOW + rng.random(grammar.N_PARAMS) * (
-            grammar.DRAW_HIGH - grammar.DRAW_LOW)
-        g = dict(zip(grammar.NAMES, map(float, x)))
+        X = grammar.sample(1, rng)
+        g = dict(zip(grammar.NAMES, map(float, np.asarray(X, float)[0])))
         c = inspect_genome(g)
         if c and c.engineering == "L0-ok":
             seed = g

@@ -204,19 +204,19 @@ def test_the_knuckle_is_an_exact_vertex_and_hydro_agrees_both_ways():
         W = np.array([h.y_wl[i], 0.0])
         assert float(np.min(np.linalg.norm(sec - W, axis=1))) == 0.0
 
-    Wn = h._knuckle_W()
+    Wn = h._topside_chain()
     K, P0, C, P2, S = h._controls()
     for wl in (-0.2, -0.05, 0.0, 0.08, 5.0):
-        ab, bb, zb = _immersed_batch(K, P0, C, P2, S, wl, W=Wn)
+        ab, bb, zb = _immersed_batch(K, P0, C, P2, S, wl, chain=Wn)
         for i in range(0, h.n_stations, 7):
-            a, b, z = _immersed(K[i], P0[i], C[i], P2[i], S[i], wl, W=Wn[i])
+            a, b, z = _immersed(K[i], P0[i], C[i], P2[i], S[i], wl, chain=Wn[i])
             assert (a, b, z) == (ab[i], bb[i], zb[i])
     _, b0, _ = h.hydro_arrays(0.0)
     assert np.allclose(b0, h.y_wl, atol=1e-12)
 
     # and a LEGACY hull's immersed path is untouched: W is None there
     h0 = Hull(grammar.vector(REFERENCE_HULL))
-    assert not h0.has_wl_knuckle and h0._knuckle_W() is None
+    assert not h0.has_wl_knuckle and h0._topside_chain() is None
 
 
 def test_an_impossible_request_is_delivered_as_measured_deviation():
@@ -246,7 +246,7 @@ def test_the_arity_event_is_lawful():
     # split pair (test_split) and the rho(x) pair (test_rho_x) appended
     # seven more across Phases 3-4 — each suite owns its own genes'
     # lawfulness, this one pins the total
-    assert grammar.N_PARAMS == 34
+    assert grammar.N_PARAMS == 36
     for g in ("dwl", "cwp_x", "rb_transom", "rb_stem"):
         assert g in grammar.POST_HOC_DEFAULTS
         i = grammar.NAMES.index(g)

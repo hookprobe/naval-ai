@@ -27,7 +27,7 @@ WHAT THIS FILE IS NOT.
   that owns them, exactly as `docs/research/HULL-FORM-RULES.md` R4 quotes them.
 - It is NOT a menu of forty options. A library that implies every drawn form
   is reachable would send NSGA-II hunting deep-V deadrise on a solar boat, so
-  `candidacy` is a REQUIRED field with a REQUIRED reason, and 24 of the 31
+  `candidacy` is a REQUIRED field with a REQUIRED reason, and 25 of the 31
   families are `EXCLUDED` with the reason attached.
 
 PROVENANCE IS THE POINT. Every band carries a `Basis` and a `source`, because a
@@ -766,7 +766,11 @@ MISSION = Mission(
 # THE LIBRARY
 #
 # Ordered by group, as the drawings order them. Read the `candidacy` column
-# first: 24 of the 31 are EXCLUDED and the reason is on the row. (This comment
+# first: 25 of the 31 are EXCLUDED and the reason is on the row. 24 until
+# 2026-08-28, when `wedge_multichine` moved CANDIDATE -> EXCLUDED: Phase 5
+# landed the multi-chine section law that row was waiting on, which dissolved
+# its candidacy argument rather than confirming it (the argument was
+# BUILDABILITY, which is never a candidacy argument here). (This comment
 # said "30" until the tuple was counted rather than remembered; `main()` prints
 # the live count, and `test_formlib.py` now asserts the two agree.)
 
@@ -799,11 +803,28 @@ _DGEM = "hull-designs-gemini.png"
 # demihull spacing into the production wave-interference term, so the
 # separation marker's premise is dead. What genuinely remains inexpressible
 # is stated below, in present-tense truth.
-_M_SECTION = ("a section whose SHAPE varies freely with x: deadrise warp is "
-              "forward-only and `flare`/`roundness` are single scalars "
-              "applied at every station, so no family needing per-station "
-              "section-shape control (NPL-style varying sections, multi-chine "
-              "transitions) can be built")
+# RE-VERDICTED 2026-08-28, twice, and NARROWED to present-tense truth
+# (PLM section 3 step 7). Two of the three clauses this marker used to
+# carry are now false and were measured false, not argued away:
+#   * "`roundness` is a single scalar applied at every station" — RETIRED
+#     by rho(x) (genes rho_bow/rho_len, Gate RHO-X): the bilge warps along
+#     the hull, so a U-forward / V-aft family IS drawable.
+#   * "multi-chine transitions cannot be built" — RETIRED by Phase 5 /
+#     BUILD-PLAN PV-4 (genes ch2_z/ch2_y, Gate MULTI-CHINE): the topside
+#     is a knuckle LIST and a second chine is an exact vertex of the
+#     sampled section.
+# What genuinely remains is the FLARE half and the deadrise warp, and the
+# marker now says only that. A stale marker is worse than no marker: it
+# keeps a family reading Expressible.NO after the capability shipped,
+# which is the 2026-08-11 defect (four documents asserting work was
+# outstanding that was already done) wearing a registry's clothes.
+_M_SECTION = ("a section whose FLARE varies with x: `flare` is a single "
+              "scalar applied at every station and deadrise warp is "
+              "forward-only, so a family needing per-station flare control "
+              "(NPL-style varying sections) cannot be built. The bilge "
+              "radius and the chine COUNT are no longer part of this: "
+              "rho(x) warps the one and the Phase-5 knuckle list adds the "
+              "other")
 _M_SECOND_HULL = ("a second hull as GEOMETRY: hull count and separation live "
                   "in mission.VesselConfig and the physics evaluates n "
                   "IDENTICAL translated demihulls (interference + "
@@ -876,7 +897,7 @@ FAMILIES: tuple[FormFamily, ...] = (
             "is not a monohull — its slenderness and fine-entry rules "
             "transfer whole"),
         expressible=Expressible.PARTIAL,
-        missing=(_M_LB_BAND),
+        missing=(_M_LB_BAND,),
         drawings=(_D000, _DEXP, _D004),
         proportions={
             "l_over_b": _b(6.0, 12.0, Basis.APPROX,
@@ -959,7 +980,7 @@ FAMILIES: tuple[FormFamily, ...] = (
             "SECTION: MINIMIZES WETTED SURFACE AREA', 003, gemini panel 4); "
             "ADJACENT rather than TARGET because the topology is a catamaran"),
         expressible=Expressible.NO,
-        missing=(_M_SECTION),
+        missing=(_M_SECTION,),
         drawings=(_D000, _D003, _D004, _DEXP, _DGEM),
         proportions={
             "l_over_b": _NPL_L_OVER_B,
@@ -1058,7 +1079,7 @@ FAMILIES: tuple[FormFamily, ...] = (
             "Fn 0.2-0.3 in coastal service it costs reserve buoyancy forward "
             "and returns nothing"),
         expressible=Expressible.NO,
-        missing=(_M_FLARE),
+        missing=(_M_FLARE,),
         drawings=(_D000, _DGEM),
         proportions={
             "l_over_b": _b(7.0, 12.0, Basis.APPROX, "practice; no anchor"),
@@ -1113,7 +1134,7 @@ FAMILIES: tuple[FormFamily, ...] = (
             "along the length — is recorded as a grammar gap, not as a "
             "candidate hull"),
         expressible=Expressible.NO,
-        missing=(_M_SECTION),
+        missing=(_M_SECTION,),
         drawings=(_D003, _DGEM),
         proportions={
             "l_over_b": _b(3.5, 6.0, Basis.APPROX, "practice; no anchor"),
@@ -1131,17 +1152,37 @@ FAMILIES: tuple[FormFamily, ...] = (
             "Several chines approximate a round bilge in flat sheet, so the "
             "girth and the separation penalty both fall while the hull stays "
             "developable and buildable."),
-        candidacy=Candidacy.CANDIDATE,
+        # RE-VERDICTED 2026-08-28, CANDIDATE -> EXCLUDED, and the reason is
+        # that the row's own argument expired in the best possible way.
+        # It was a CANDIDATE because the multi-chine section law was the
+        # buildable approximation to the round bilge — i.e. on
+        # BUILDABILITY, which this library's own rule says is never a
+        # candidacy argument. Phase 5 landed that law (Gate MULTI-CHINE)
+        # and thereby dissolved the argument: a knuckle list is a section
+        # law available to EVERY family, not a property that distinguishes
+        # this one. What is left of the row is the planing wedge, and a
+        # wedge is excluded on exactly the grounds every other planing
+        # device is.
+        candidacy=Candidacy.EXCLUDED,
         candidacy_reason=(
             "THE VERDICT ATTACHES TO THE MULTI-CHINE SECTION LAW AND NOT TO "
             "THE PLANING WEDGE, and the two are one panel only because 000 "
-            "draws them as one. A multi-chine demihull is the buildable "
-            "APPROXIMATION to the round bilge the mission wants, reachable by "
-            "the same grammar change (more section points) rather than by a "
-            "new topology. A wedge — a flat lifting surface aft — is a planing "
-            "device and is EXCLUDED on the same grounds as every other one"),
-        expressible=Expressible.NO,
-        missing=(_M_SECTION,),
+            "draws them as one. The section law LANDED on 2026-08-28 (Phase "
+            "5 / PV-4, genes ch2_z/ch2_y, Gate MULTI-CHINE) and is now "
+            "available to every family, so it no longer distinguishes this "
+            "one — and it never was a candidacy argument, because 'it is "
+            "what we can build' is not one. What remains is the wedge: a "
+            "flat lifting surface aft is a planing device and is EXCLUDED "
+            "on the same grounds as every other one"),
+        # RE-VERDICTED 2026-08-28: NO -> YES. This row's own
+        # candidacy_reason named the blocker exactly — "reachable by the
+        # same grammar change (more section points)" — and that change
+        # landed as Phase 5 / PV-4 (Gate MULTI-CHINE). The section law is
+        # no longer what stops this family; nothing is. The WEDGE half
+        # stays excluded on planing grounds, which is a candidacy verdict
+        # and not an expressibility one, and the two must not be confused.
+        expressible=Expressible.YES,
+        missing=(),
         drawings=(_D000, _DEXP),
         proportions={
             "l_over_b": _b(3.0, 8.0, Basis.APPROX, "practice; no anchor"),
@@ -1587,7 +1628,7 @@ FAMILIES: tuple[FormFamily, ...] = (
             "not the stated topology; four hulls multiply the wetted surface "
             "that already dominates resistance at Fn 0.2-0.3"),
         expressible=Expressible.NO,
-        missing=(_M_SECOND_HULL),
+        missing=(_M_SECOND_HULL,),
         drawings=(_DGEM,),
         proportions={
             "l_over_b": _b(10.0, 20.0, Basis.APPROX, "practice; no anchor"),

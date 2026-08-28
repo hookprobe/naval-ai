@@ -115,7 +115,7 @@ def test_the_split_composes_with_the_designed_waterline():
 
 
 def test_the_arity_event_is_lawful():
-    assert grammar.N_PARAMS == 34      # + the Phase-3 rho(x) pair
+    assert grammar.N_PARAMS == 36      # + the Phase-3 rho(x) pair
     for gname in ("split_w", "split_len"):
         assert gname in grammar.POST_HOC_DEFAULTS
         i = grammar.NAMES.index(gname)

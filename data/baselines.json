@@ -1,6 +1,6 @@
 {
   "_README": {
-    "generated_utc": "2026-08-28T14:14:21Z",
+    "generated_utc": "2026-08-28T15:38:07Z",
     "generation": {
       "frozen_suite": "flywheel.frozen_suite \u2014 BENCHMARK_PROBES + held-out wedge",
       "harvest_seed": 21,
@@ -26,37 +26,37 @@
   },
   "gm": {
     "best_coverage_2sigma": 1.0,
-    "best_median_rel_err": 0.3044793022853751,
-    "best_wall_clock_s": 1.5989167500010808,
+    "best_median_rel_err": 0.3486592773011086,
+    "best_wall_clock_s": 1.6902670419949573,
     "coverage_2sigma": 1.0,
     "coverage_2sigma_seeds": [
       1.0,
       1.0,
-      0.9259259259259259,
       1.0,
-      0.8888888888888888,
+      1.0,
+      1.0,
       0.9629629629629629,
       1.0,
-      0.8518518518518519
+      1.0
     ],
-    "ensemble_coverage_2sigma": 0.9814814814814814,
-    "ensemble_median_rel_err": 0.28092335897744325,
+    "ensemble_coverage_2sigma": 1.0,
+    "ensemble_median_rel_err": 0.3355914047242041,
     "err_kind": "spread-normalised",
-    "frozen_ood_rate": 0.2962962962962963,
-    "median_rel_err": 0.3044793022853751,
+    "frozen_ood_rate": 0.25925925925925924,
+    "median_rel_err": 0.3486592773011086,
     "median_rel_err_seeds": [
-      0.3044793022853751,
-      0.28443237129323096,
-      0.25475655390895646,
-      0.15862594316414477,
-      0.2774143466616556,
-      0.39860909309558235,
-      0.4297717615816348,
-      0.242827763460694
+      0.3486592773011086,
+      0.33629864232957046,
+      0.4513625815264578,
+      0.33141627813030655,
+      0.2999553554431961,
+      0.33488416711883773,
+      0.3547215611430536,
+      0.32507421394088787
     ],
     "n_frozen": 27,
     "n_train": 120,
-    "seed_spread": 2.709340937610128,
+    "seed_spread": 1.5047658704394573,
     "seeds": [
       21,
       22,
@@ -68,45 +68,45 @@
       28
     ],
     "suite": "frozen_suite",
-    "suite_fingerprint": "fe8c9b431b0c25ac",
-    "targets_fingerprint": "92ed09822ecdef09",
+    "suite_fingerprint": "c2250673c214bc97",
+    "targets_fingerprint": "3c104f19f2c02897",
     "transform": "identity",
-    "utc": 1787926352.546241,
-    "wall_clock_s": 1.5989167500010808
+    "utc": 1787931374.753083,
+    "wall_clock_s": 1.6902670419949573
   },
   "rt": {
     "best_coverage_2sigma": 1.0,
-    "best_median_rel_err": 0.1575085511269653,
-    "best_wall_clock_s": 1.4849455419971491,
+    "best_median_rel_err": 0.20905621530868393,
+    "best_wall_clock_s": 1.5845712500013178,
     "coverage_2sigma": 1.0,
     "coverage_2sigma_seeds": [
       1.0,
-      0.9629629629629629,
       1.0,
       1.0,
       1.0,
-      0.9629629629629629,
       1.0,
-      0.9629629629629629
+      1.0,
+      1.0,
+      1.0
     ],
     "ensemble_coverage_2sigma": 1.0,
-    "ensemble_median_rel_err": 0.16601232820017714,
+    "ensemble_median_rel_err": 0.141345227676134,
     "err_kind": "relative",
-    "frozen_ood_rate": 0.3333333333333333,
-    "median_rel_err": 0.1575085511269653,
+    "frozen_ood_rate": 0.25925925925925924,
+    "median_rel_err": 0.20905621530868393,
     "median_rel_err_seeds": [
-      0.1575085511269653,
-      0.17451610527338896,
-      0.09057505422872016,
-      0.23077232535154252,
-      0.12085730704135245,
-      0.22006066943080357,
+      0.20905621530868393,
+      0.12608495529355312,
+      0.09141618568171508,
+      0.11478133436730374,
+      0.1322133939681578,
+      0.19295142143120197,
       0.1504770613841102,
-      0.22811897559458746
+      0.16718892308028846
     ],
     "n_frozen": 27,
     "n_train": 120,
-    "seed_spread": 2.5478574351034466,
+    "seed_spread": 2.2868621541108447,
     "seeds": [
       21,
       22,
@@ -118,45 +118,45 @@
       28
     ],
     "suite": "frozen_suite",
-    "suite_fingerprint": "fe8c9b431b0c25ac",
-    "targets_fingerprint": "8b19eb1c2f055c10",
+    "suite_fingerprint": "c2250673c214bc97",
+    "targets_fingerprint": "9c6a188443ec85bc",
     "transform": "log",
-    "utc": 1787926354.0809238,
-    "wall_clock_s": 1.4849455419971491
+    "utc": 1787931376.388577,
+    "wall_clock_s": 1.5845712500013178
   },
   "wh_per_nm": {
-    "best_coverage_2sigma": 0.9629629629629629,
-    "best_median_rel_err": 0.11689577721756779,
-    "best_wall_clock_s": 2.1431847919957363,
-    "coverage_2sigma": 0.9629629629629629,
+    "best_coverage_2sigma": 1.0,
+    "best_median_rel_err": 0.10717148525670059,
+    "best_wall_clock_s": 2.3787995419988874,
+    "coverage_2sigma": 1.0,
     "coverage_2sigma_seeds": [
-      0.9629629629629629,
-      0.9629629629629629,
       1.0,
       1.0,
       1.0,
-      0.9629629629629629,
       1.0,
-      0.9629629629629629
+      1.0,
+      1.0,
+      1.0,
+      1.0
     ],
-    "ensemble_coverage_2sigma": 0.9814814814814814,
-    "ensemble_median_rel_err": 0.16249965726553364,
+    "ensemble_coverage_2sigma": 1.0,
+    "ensemble_median_rel_err": 0.12914017301465563,
     "err_kind": "relative",
-    "frozen_ood_rate": 0.2962962962962963,
-    "median_rel_err": 0.11689577721756779,
+    "frozen_ood_rate": 0.2222222222222222,
+    "median_rel_err": 0.10717148525670059,
     "median_rel_err_seeds": [
-      0.11689577721756779,
-      0.17452068627575296,
-      0.09057790962447883,
-      0.23076301474000235,
-      0.12085820535411745,
-      0.22005371504346197,
+      0.10717148525670059,
+      0.12608126923223462,
+      0.09144150370236406,
+      0.11473130786243098,
+      0.13219907679707663,
+      0.19294402350272175,
       0.15047862825531433,
-      0.22816122647878484
+      0.16716973458588008
     ],
     "n_frozen": 27,
     "n_train": 120,
-    "seed_spread": 2.5476743247521165,
+    "seed_spread": 2.1100268006390355,
     "seeds": [
       21,
       22,
@@ -168,10 +168,10 @@
       28
     ],
     "suite": "frozen_suite",
-    "suite_fingerprint": "fe8c9b431b0c25ac",
-    "targets_fingerprint": "2a97350f3335ae58",
+    "suite_fingerprint": "c2250673c214bc97",
+    "targets_fingerprint": "032fecf3097cd528",
     "transform": "log",
-    "utc": 1787926350.897522,
-    "wall_clock_s": 2.1431847919957363
+    "utc": 1787931373.012178,
+    "wall_clock_s": 2.3787995419988874
   }
 }

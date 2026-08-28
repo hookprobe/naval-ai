@@ -104,7 +104,7 @@ def test_the_tunnel_tapers_to_nothing_forward():
 
 
 def test_the_arity_event_is_lawful():
-    assert grammar.N_PARAMS == 34      # + split pair, + the rho(x) pair
+    assert grammar.N_PARAMS == 36      # + split pair, + the rho(x) pair
     for g in ("tun_w", "tun_crown", "tun_len"):
         assert g in grammar.POST_HOC_DEFAULTS
         i = grammar.NAMES.index(g)

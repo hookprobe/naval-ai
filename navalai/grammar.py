@@ -485,6 +485,42 @@ PARAMS = [
     ("rho_len",    "-",     0.0,  0.60, "fraction of LWL over which the "
                                         "bilge warps toward rho_bow. 0 = "
                                         "one roundness, stem to stern"),
+    # PHASE 5 -- THE SECOND CHINE, i.e. the two body plans this grammar
+    # could not draw at all. `docs/audit/geometry-representation.md` reads
+    # "multi-chine NO" and `docs/BUILD-PLAN.md` PV-4 names the consequence:
+    # the kernel reaches TWO of the five standard body plans, and the two
+    # it misses are the double-chine forms. Multi-chine is the PLYWOOD
+    # answer to a round bilge, which is why this is also the honest
+    # replacement for the `roundness = 0` pin that sheet-built typologies
+    # currently carry -- that pin is a stopgap correct for the unroller we
+    # have, not a principle (BUILD-PLAN PV-4).
+    #
+    # The section is one chine: keel -> C (turn of bilge, filleted by rho)
+    # -> [W at the design waterline, when dwl > 0] -> sheer. A double-chine
+    # hull puts a SECOND breakpoint on the topside, and the machinery for a
+    # topside breakpoint already exists -- it is what the dwl knuckle is.
+    # So the second chine is the SAME construction with its height freed
+    # from z = 0, and the topside becomes a knuckle LIST rather than a
+    # special case (the shape `docs/audit/HULL-DESIGN-AUDIT.md` asked for:
+    # "Section = knuckle list, rho(x), multi-chine").
+    #
+    #   ch2_z : height of the second chine, as a fraction of the run from
+    #           the first chine C to the sheer S. Inert while ch2_y = 0.
+    #   ch2_y : how far the chine stands OUTBOARD of the straight C -> S
+    #           line, as a fraction of the local half-beam. **0.0 is the
+    #           proven no-op**: the vertex then lies exactly on the line it
+    #           interrupts, so it is not a chine at all, and the whole
+    #           branch is gated on `ch2_y > 0` so that no legacy hull takes
+    #           a different code path (not merely the same numbers -- the
+    #           same CODE, which is the standard `dwl`, the tunnel and the
+    #           split were each held to).
+    ("ch2_z",      "-",     0.0,  1.0,  "second chine height, as a "
+                                        "fraction of chine -> sheer. Inert "
+                                        "while ch2_y is 0"),
+    ("ch2_y",      "-",     0.0,  0.25, "second chine offset outboard of "
+                                        "the chine -> sheer line, as a "
+                                        "fraction of local half-beam. "
+                                        "0 = no second chine"),
 ]
 
 N_PARAMS = len(PARAMS)
@@ -550,6 +586,11 @@ _LEGACY_DRAW_ROWS = {
     # a random un-designed bilge warp is not a hull anyone asked for
     "rho_bow": (0.0, 0.0),
     "rho_len": (0.0, 0.0),
+    # and the second chine, for the same reason as all five before it: a
+    # random un-designed breakpoint on the topside is not a hull anyone
+    # asked for, and the seeded streams must not move
+    "ch2_z": (0.0, 0.0),
+    "ch2_y": (0.0, 0.0),
 }
 for _nm, (_lo, _hi) in _LEGACY_DRAW_ROWS.items():
     _i = NAMES.index(_nm)
@@ -965,7 +1006,12 @@ POST_HOC_DEFAULTS: dict[str, float] = {"beta_transom": 0.0, "beta_run": 0.0,
                                        # Phase 3: no warp -> one roundness.
                                        # rho_bow is inert at rho_len 0, and
                                        # 0.0 keeps it meaningful anyway.
-                                       "rho_bow": 0.0, "rho_len": 0.0}
+                                       "rho_bow": 0.0, "rho_len": 0.0,
+                                       # Phase 5: ch2_y = 0 puts the vertex
+                                       # ON the line it would interrupt, so
+                                       # there is no second chine and ch2_z
+                                       # is unreachable code
+                                       "ch2_z": 0.0, "ch2_y": 0.0}
 
 
 def pad_genome(g) -> np.ndarray:

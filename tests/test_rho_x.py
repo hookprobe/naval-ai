@@ -73,13 +73,13 @@ def test_the_area_coefficients_are_per_station():
 
 
 def test_the_arity_event_is_lawful():
-    assert grammar.N_PARAMS == 34
+    assert grammar.N_PARAMS == 36
     for gname in ("rho_bow", "rho_len"):
         assert gname in grammar.POST_HOC_DEFAULTS
         i = grammar.NAMES.index(gname)
         assert grammar.DRAW_LOW[i] == grammar.DRAW_HIGH[i] == 0.0
-    x34 = grammar.vector(REFERENCE_HULL)
-    assert np.array_equal(grammar.pad_genome(x34[:32]), x34)
+    x36 = grammar.vector(REFERENCE_HULL)
+    assert np.array_equal(grammar.pad_genome(x36[:34]), x36)
 
 
 def test_the_ladder_runs_a_warped_bilge_hull_end_to_end():
