@@ -2175,6 +2175,132 @@ run the reconciler.
 
 ## 16 · Roadmap
 
+### 2026-08-28 — THE CONSOLIDATED CLOSE-OUT PLAN (read this before the dated sections below)
+
+**Why this subsection is first.** Everything under it is still true and
+still ordered, but it was written when the open set was large. The open
+set is now small enough to state exhaustively, and the useful question
+has changed from *what do we build* to *what is actually left, and what
+is each remaining item WAITING ON*. Measured, not recalled:
+`python scripts/reconcile_gaps.py` on 2026-08-28 reports **123 rows: 117
+closed, 3 open, 1 needs-human, 2 retired.** Five ledger rows are RED by
+record (2M, 2U, 4F, 6D, 0E5C-CAP) — RED by record is the honest state of
+a bar with no measurement behind it, not a regression.
+
+**The organising finding: almost nothing left is CODE.** Sorting every
+remaining item by its blocker gives four buckets, and only the first is
+work this tree can finish by itself:
+
+| bucket | what blocks it | items |
+|---|---|---|
+| **A** | nothing — buildable now | 9 items, below |
+| **B** | one open physics question (the pressure over-prediction) | every remaining L1 anchor, Gate 2M's number |
+| **C** | compute hours + the owner's approval to spend them | F16, F17, the three P3 runs |
+| **D** | a human doing something no agent can do | I13, N6 |
+
+That is the plan's real shape. Bucket A is finite and is being worked
+one item at a time. Buckets C and D do not become smaller by writing more
+code, and pretending otherwise is how this repo previously accumulated
+four documents claiming work was outstanding that was already done.
+
+#### Bucket A — buildable now, in order
+
+1. **P1-8, the theory-first trigger.** `planner.plan()` must refuse an L3
+   experiment when (a) closed-form theory already answers the question or
+   (b) `cfd_kb.same_geometry()` shows the surface was solved at that
+   speed, recording the refusal in `p.rejected` rather than dropping it.
+   The preflight library exists (`navalai/cfd/preflight.py`); the planner
+   does not consult it. This is the single highest-leverage unspent item
+   in the audit: it is the one that stops a run being bought.
+2. **P1-10a, Fn-squared cost scheduling into `planner.py`** — order
+   candidate experiments by knowledge-per-hour, not by list position.
+3. **P2-12, the minimum-resolvable-delta bar.** A CFD-informed comparison
+   whose delta is inside the +/-2.5% window scatter must be reported as
+   UNRESOLVED. This is finding R2's own defect written as a rule: the
+   v1->v2->v3 ladder claimed three improvements, each of which was
+   smaller than the noise it was measured against.
+4. **P2-14, aft-mutation ordering for bluff families** in the search —
+   R2's direction is CORRELATED and safe to use as a search PRIOR (which
+   only changes what is tried first) even though it is not safe as a
+   prediction.
+5. **P2-15, `DriveLaw` vertical axis.** P2 is REPEATABLE — the
+   near-surface layer carries a 16-30% wake deficit and the prop belongs
+   in the deep layer — and it is prose. A z/T axis field makes it a
+   design variable the ladder can see.
+6. **Handoff item 4 — the Ct denominator decision.** MEASURED: nothing
+   kernel-side reads the anchor book's `ct` (the `ct` symbols in
+   `pipeline.py`, `evaluate.py` and `gate2m.py` are the ladder's own).
+   The decision is therefore cheap and should be FENCED rather than
+   merely written down: **the kernel compares NEWTONS at equal speed**,
+   because the book's Ct denominator is each run's own STL wetted area
+   and v2/v3 read 42.14 vs 34.28 m2 for the same hull one edit apart.
+7. **Phase 3 remainder — the multi-chine knuckle list.** One knuckle
+   lands (`has_wl_knuckle`); the grammar owes the list form.
+8. **The hookprobe 70-80% split loft** (`scripts/hookprobe_hull.py`),
+   which failed on arch-morph folds (8, then 635 self-intersections).
+   Phase 4B's `y_split` unblocked the kernel side; the loft script has
+   not been re-run against it.
+9. **Retire this plan's own stale ordering** where a dated subsection
+   below now contradicts a measurement (PLM §3 step 7).
+
+#### Bucket B — the ONE physics question, and what it holds up
+
+**The pressure over-prediction is not a KCS problem and it is not a
+run-length problem.** Measured across four independent families: KCS
+pressure 2.32x with viscous 1.161x (`runs/kcs_s1`, 3.40 flow-throughs,
+drift 0.31%); canonical case-a 5.81x pressure with viscous 0.82x
+(`navalai/cfd_kb.py`); `runs/beach` and `runs/val_coarse5` windows
+spanning 2.6-6.0x on the same signal; and on 16 Gate-2U grammar hulls
+viscous drift is 0.00-0.67% while pressure drifts 3.08-21.82%. **The
+viscous half is right everywhere and the pressure half is wrong
+everywhere.**
+
+Consequence for the plan, and it is a re-ordering: **every remaining L1
+anchor and Gate 2M's number are DOWNSTREAM of this, not beside it.** The
+audit's Deliverable H listed the c06 L1-vs-RANS comparison as free; it
+was attempted and refused precisely because publishing 3.14x would have
+encoded this open solver defect as a hull-family property. Do not buy
+another anchor until the pressure question moves.
+
+The cheapest experiment that could move it is **Wigley-vs-Michell**: a
+hull with an analytic wave-resistance answer, so the pressure half can be
+compared against theory instead of against another RANS run. It needs the
+owner's approval to spend the hours (bucket C).
+
+#### Bucket C — needs compute hours and an explicit approval
+
+| item | what it buys | cost |
+|---|---|---|
+| F16 / Gate 2M | a settled GCI triplet — the only thing that turns Gate 2M from RED-by-record into a number | ~69 h (21x the coarse grid; the cell ratio under-budgets by 75%) |
+| F17 / Gate 2U | `mesh_robustness.py --solve` against the bar it actually claims; the clean-checkMesh proxy MEASURED as not predictive in either direction | hours x N hulls |
+| Wigley-vs-Michell | bucket B's discriminator | cheap |
+| the 5-kn mission point | converts R9 from HYPOTHESIS; re-prices the fins/appendage objective | cheap (large timesteps) |
+| a second benchmark anchor (Fridsma / DSYHS) | KCS shares no chine, transom or spray physics with the SKUs, so Gate 2M green is NOT small-craft validation | expensive |
+
+These are listed with prices so the owner can buy them individually. None
+is started without that approval.
+
+#### Bucket D — needs a human
+
+- **I13** — Gate 4 clause 3 wants a RECORDED non-expert session producing
+  a hull that passes the full ladder. An agent cannot be the non-expert.
+- **N6** — NEEDS-HUMAN by construction: the predicate is "a document
+  quotes a number from a run directory that has since been purged", and
+  deciding that requires reading prose semantics. The ledger's own
+  refusal (`"watermark": "NONE"`) is the mechanical half; the rest is
+  editorial care by whoever writes the sentence.
+
+#### What is NOT in this plan, deliberately
+
+The CFD lane is a parallel session's (`navalai/cfd/*` beyond preflight,
+`scripts/harvest_cfd_anchors.py`, `data/cfd_anchors.json`, `runs/*`,
+`tests/test_cfd_kb.py`). Audit items **P1-7** (extend-on-drift, two-strike
+no-progress, the live divergence classifier), **P1-9** (per-run Kelvin
+auto-validation) and the **velocity ramp** in `make_case.py` are theirs
+and belong on `docs/HANDOFF-TO-PARALLEL-SESSION.md`, not here. Two
+sessions writing the same file is the 391-line incident in
+`docs/LESSONS.md`; disjoint file ownership is what has kept them apart.
+
 ### 2026-08-20 — the math-contract consolidation, and where the suite stands
 
 **This subsection is the plan's alignment with the day's research.** Its
