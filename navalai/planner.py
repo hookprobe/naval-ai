@@ -257,7 +257,8 @@ class Plan:
 
 def plan(question: str, quantities: frozenset[str], priors: dict[str, Belief],
          target_sigma_rel: float = 0.10, budget: Budget = MAC_M5,
-         cond: Condition | None = None, max_steps: int = 6) -> Plan:
+         cond: Condition | None = None, max_steps: int = 6,
+         stl_sha: str | None = None) -> Plan:
     """Greedily pick experiments by information gain per second until the target.
 
     Greedy is the right algorithm here and not a shortcut: information gain in
@@ -271,6 +272,11 @@ def plan(question: str, quantities: frozenset[str], priors: dict[str, Belief],
       - nothing admissible is left inside the budget;
       - no remaining experiment gains anything (every one is vaguer than what
         is already believed).
+
+    `stl_sha`, when given, is the surface the question is about, and it turns
+    on the second half of the theory-first trigger below: a run of THIS exact
+    surface at THIS speed already in the anchor book makes an L3 grid a
+    purchase of a number the project already owns.
     """
     cond = cond or Condition(lwl=7.2786, speed=2.196)
     p = Plan(question=question, target_sigma_rel=target_sigma_rel,
@@ -279,6 +285,33 @@ def plan(question: str, quantities: frozenset[str], priors: dict[str, Belief],
     for exp in pool:
         if not exp.admissible:
             p.rejected.append((exp, "; ".join(str(r) for r in exp.refusals)))
+
+    # THEORY FIRST, THEN THE BOOK, THEN A SOLVE (CFD audit P1-8). The
+    # owner's methodology principle — "known water behaviour should be
+    # known PRIOR to any simulation; simulation is for what we don't
+    # know" — belongs exactly here, at the one place in the tree where an
+    # expensive run is chosen. It bites on L3 ONLY: the cheap tiers cost
+    # milliseconds and there is nothing to save by refusing them, while
+    # an L3 grid is hours.
+    #
+    # A refusal here is RECORDED, not hidden: it lands in `rejected` with
+    # its reason, so a reader sees the run that was NOT bought and why —
+    # which is the difference between a policy and a silent omission.
+    from .cfd import preflight as _pf
+    _blocked: list[str] = []
+    _th = _pf.theory_answers(question)
+    if _th:
+        _blocked.append(f"theory already answers this: {_th.detail}")
+    if stl_sha:
+        _prior = _pf.already_measured(stl_sha, speed_ms=float(cond.speed))
+        if _prior and _prior.data.get("same_speed"):
+            _blocked.append(_prior.detail)
+    if _blocked:
+        why = "; ".join(_blocked)
+        for exp in list(pool):
+            if exp.tier == "L3" and exp.admissible:
+                p.rejected.append((exp, why))
+        pool = [e for e in pool if e.tier != "L3"]
 
     def met() -> bool:
         return all(p.beliefs[q].sigma_rel <= target_sigma_rel

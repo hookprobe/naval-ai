@@ -226,7 +226,33 @@ def test_property_random_genomes_are_gated_cheaply_with_attribution():
     t0 = time.perf_counter()
     l0 = [grammar.check(x) for x in X]
     t_l0 = (time.perf_counter() - t0) / N
-    n_ok = sum(r.ok for r in l0)
+    # THE PASS-RATE CLAIM IS MEASURED ON THE **DRAW** BOX, NOT THE LEGAL
+    # ONE, AND 2026-08-28 IS WHY. The uniform legal draw above went to
+    # **0/600** — through no change to any gate. The genome reached 34
+    # genes (dwl/cwp_x/rb_* , tunnel, split, rho_bow/rho_len), every one
+    # appended under POST_HOC_DEFAULTS at a proven no-op and pinned at
+    # (0.0, 0.0) in `_LEGACY_DRAW_ROWS` so recorded populations do not
+    # move. `LOW`/`HIGH` are the LEGAL envelope, where those 11 genes are
+    # ACTIVE, so a uniform legal draw now asks for a tunnel AND a split
+    # AND a fuller waterline AND a warped section at once, on the same
+    # hull, at independently random magnitudes. Almost none of those
+    # boats exist, and refusing them is the gate working.
+    #
+    # This is the SAME defect that took the surrogate to a 0.79 median
+    # error the same week: the held-out arm drew post-hoc genes active
+    # from the uniform legal box while `sample_valid` pins them at their
+    # no-ops, so it scored retrains on a hull class the training set
+    # structurally cannot contain (0.79 -> 0.146 once matched). Draw from
+    # the box you claim a rate over.
+    #
+    # The legal-box sample above is KEPT and still carries the funnel's
+    # SHAPE claims (attribution, cost) — it is the honest stress case, and
+    # a gate that cannot attribute a refusal on a wild genome is broken
+    # whatever its pass rate.
+    Xd = rng.uniform(grammar.DRAW_LOW, grammar.DRAW_HIGH,
+                     size=(N, grammar.N_PARAMS))
+    l0d = [grammar.check(x) for x in Xd]
+    n_ok = sum(r.ok for r in l0d)                 # MEASURED 5/600 = 0.83%
     # Floor 0.01 -> 0.002 on 2026-08-26. `sac_exponents` now inverts the
     # ACTUAL a(x) with pmb/r_stem (audit finding D.4), so a UNIFORM draw
     # over the full 23-gene box mostly asks for contradictions — pmb 0.45
@@ -245,7 +271,11 @@ def test_property_random_genomes_are_gated_cheaply_with_attribution():
     # L0 is milliseconds-per-genome (generous bar: this box runs 4-6 ms
     # under load; the phase-0 single-call bar of ~1 ms lives elsewhere)
     assert t_l0 < 0.05, f"L0 at {1e3 * t_l0:.1f} ms/genome"
-    reps = [screen(x, 2.57, 1.0) for x, r in zip(X, l0) if r.ok]
+    # The writer screen is exercised on the DRAW-box passers for the same
+    # reason the rate is: the legal box has none, and a hull with a tunnel
+    # and a split and a warped section at once is not the population any
+    # writer downstream of this gate will ever be handed.
+    reps = [screen(x, 2.57, 1.0) for x, r in zip(Xd, l0d) if r.ok]
     assert reps, "no L0 passer in 600 draws — the box collapsed"
     for rep in reps:
         assert rep.verdict in (Verdict.SAFE, Verdict.MARGINAL,

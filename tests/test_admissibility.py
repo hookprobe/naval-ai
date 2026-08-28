@@ -163,8 +163,17 @@ def dev_stream(campaign_hulls):
     # f38618a9e8e994f304f8a5009d033db6e89646025d45c8e85f1a12710c560511;
     # arity 32 (the Phase-4B split pair), hull 152 round-tripping to
     # 0.0636 / 0.0648 for the FOURTH consecutive event:
+    # 027577658b4cd38aba407779068096da3acaf178037d183a714b60eaad2b03e0.
+    # RE-RECORDED 2026-08-28 for arity 32 -> 34 (the rho(x) pair,
+    # rho_bow/rho_len). FIFTH consecutive event, and the round trip is
+    # again IDENTICAL: hull 152 screens to sheer ridge 0.0636 and bottom
+    # panel 0.0648 cells, verdict DANGEROUS, hull cell 0.0424 m, exactly
+    # as at all four prior events. That the sha moves while the hulls do
+    # not is the POINT of it covering the full vectors: two appended
+    # no-op columns are a real change to the stream's identity and a
+    # non-change to its geometry, and the guard is what tells them apart.
     assert population.genome_sha256(np.asarray(X, float)) == (
-        "027577658b4cd38aba407779068096da3acaf178037d183a714b60eaad2b03e0"), (
+        "cf909c702ebd83c9b582df6ec50fb0fa14aa92f9245f5b6bd030db88e0318bb7"), (
         "the development stream moved — re-derive SUB_CELL_HULL and "
         "re-record this sha alongside the bounds change that moved it")
     return X

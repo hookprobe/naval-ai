@@ -949,3 +949,92 @@ def test_a_clean_import_is_not_repaired_and_says_so(tmp_path):
     rep = diagnose(str(written), origin=IMPORTED)
     assert rep.found["winding_conflicts"] == 0
     assert rep.found["boundary_edges"] == 0
+
+
+# --------------------------------------------------------------------------
+# CFD audit P1-8: THEORY FIRST, THEN THE BOOK, THEN A SOLVE.
+#
+# THE INCIDENT THIS EXISTS FOR. The audit found ~30 findings that were
+# correct and PROSE-ONLY, and the most expensive class was the one where
+# a closed form already answered the question a solve was about to be
+# bought for. `preflight.theory_answers` and `preflight.already_measured`
+# were written and then had NO CALLER for a day — a bar that exists and
+# is not consulted, which §16 names as this repository's defect class
+# (nine incidents on 2026-08-20 alone). The planner is the ONE place in
+# the tree where an L3 grid is chosen, so the bar belongs here or nowhere.
+#
+# The measured prices that make it worth a gate: an L3 grid is hours to
+# ~69 h for a triplet, while `lambda = 2*pi*U^2/g` and the ITTC-57 line
+# are microseconds. A refusal is RECORDED on `Plan.rejected`, never
+# silently dropped, because the audit's other recurring defect was
+# unmeasured things being reported as fine.
+# --------------------------------------------------------------------------
+
+def _loose_priors():
+    """A resistance belief far too vague for the 10% target, so an L3 grid
+    is genuinely WANTED — otherwise the test proves nothing when it does
+    not appear."""
+    from navalai.planner import Belief
+    return {"resistance": Belief("resistance", 900.0, 400.0, tier="prior")}
+
+
+def test_theory_first_refuses_an_l3_grid_for_a_question_theory_answers():
+    """A wavelength question must not buy a RANS grid."""
+    from navalai import planner as pl
+
+    q = frozenset({"resistance"})
+    theory_q = pl.plan("what is the transverse wavelength at this speed?",
+                       q, _loose_priors())
+    open_q = pl.plan("how does this stern's wave system interact with the "
+                     "tunnel?", q, _loose_priors())
+
+    assert not any(e.tier == "L3" for e, *_ in theory_q.steps), (
+        "the planner bought an L3 grid for a question closed-form theory "
+        "answers (lambda = 2*pi*U^2/g) — the audit's P1-8 trigger is not "
+        f"firing: {[e.name for e, *_ in theory_q.steps]}")
+    assert any(e.tier == "L3" for e, _ in theory_q.rejected), (
+        "the L3 candidates were dropped SILENTLY. A run that was not "
+        "bought must be visible with its reason on Plan.rejected, or the "
+        "policy is indistinguishable from an omission")
+    assert any("theory already answers" in why
+               for _, why in theory_q.rejected)
+    # ... and the trigger must not be a blanket ban: an open question is
+    # exactly what a solve is for, so L3 must still be reachable.
+    assert any(e.tier == "L3" for e, *_ in open_q.steps) or \
+        any(e.tier == "L3" and "theory already answers" not in why
+            for e, why in open_q.rejected), (
+        "P1-8 removed L3 from a question with NO closed form — that is a "
+        "ban on CFD, not a theory-first policy")
+
+
+def test_theory_first_refuses_a_resolve_of_a_surface_already_in_the_book():
+    """The same STL at the same speed buys a second sample, not a number."""
+    from navalai import cfd_kb
+    from navalai import planner as pl
+
+    book = cfd_kb.anchors(settled_only=True)
+    if not book:
+        import pytest
+        pytest.skip("no settled anchors in data/cfd_anchors.json")
+    name, a = sorted(book.items())[0]
+    sha, speed = a.get("stl_sha256"), a.get("speed_ms")
+    if not sha or not speed:
+        import pytest
+        pytest.skip(f"anchor {name} carries no sha/speed to re-query")
+
+    q = frozenset({"resistance"})
+    cond = pl.Condition(lwl=float(a.get("lwl_m") or 7.2786),
+                        speed=float(speed))
+    again = pl.plan("what is this hull's total resistance?", q,
+                    _loose_priors(), cond=cond, stl_sha=sha)
+    fresh = pl.plan("what is this hull's total resistance?", q,
+                    _loose_priors(), cond=cond, stl_sha="0" * 64)
+
+    assert not any(e.tier == "L3" for e, *_ in again.steps), (
+        f"the planner re-bought a grid for surface {sha[:12]} at "
+        f"{speed} m/s, which {name} already measured")
+    assert any("already solved at this speed" in why
+               for _, why in again.rejected)
+    assert any(e.tier == "L3" for e, *_ in fresh.steps), (
+        "an UNMEASURED surface must still be able to buy a grid — "
+        "otherwise the book's identity check is not what refused")
