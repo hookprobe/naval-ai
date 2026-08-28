@@ -554,6 +554,17 @@ GATES = [
     # not a cost variable, fidelity is, and it is measured.
     Gate("Gate G", "APSE: similitude/ITTC-78/cost/planner/evidence",
          "tests/test_stageG.py"),
+    # CFD knowledge audit R2 + handoff item 4 (2026-08-28). The hookprobe
+    # ladder read three aft-edit improvements out of 3034 -> 2998 -> 2966 N;
+    # each step is 1.1-1.2% against a 2.5% window scatter, and v2 carries 19%
+    # more cells than v3. Separately, v2/v3 read 42.14 vs 34.28 m2 wetted for
+    # the SAME hull (20 096 vs 152 126 facets), so every Ct in the book sits
+    # on a denominator that moved 23%. The kernel therefore compares NEWTONS
+    # at equal speed, through one sanctioned comparator, and this row is the
+    # fence.
+    Gate("Gate CFD-CMP", "CFD comparisons are in newtons, above the scatter, "
+                         "on matched meshes -- or refused",
+         "tests/test_cfd_compare.py"),
     # BuildPlan 2 V2.1 -- the arrangement grammar and its algebraic gate. The
     # suite found FIVE defects in a module that had never been executed, the
     # worst of which let the reference layout PASS L0-A while the saloon stood

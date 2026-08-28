@@ -208,7 +208,8 @@ different Gate 2M numbers came to circulate at once (gap J1).
 | Gate D | waves/RAO response + dynamics + CFD post | `tests/test_stageD.py` (19 tests) |
 | Gate E | latent-space evolution + latent GP | `tests/test_stageE.py` (3 tests) |
 | Gate F | panel unroll/DXF + Pareto dash + handoff receipt | `tests/test_stageF.py` (14 tests) |
-| Gate G | APSE: similitude/ITTC-78/cost/planner/evidence | `tests/test_stageG.py` (53 tests) |
+| Gate G | APSE: similitude/ITTC-78/cost/planner/evidence | `tests/test_stageG.py` (55 tests) |
+| Gate CFD-CMP | CFD comparisons are in newtons, above the scatter, on matched meshes -- or refused | `tests/test_cfd_compare.py` (6 tests) |
 | Gate V2.1 | arrangement grammar: envelope, spaces, deck zones, and an L0-A that names the space it refuses | `tests/test_arrangement.py` (42 tests) |
 | Gate V3.0 | governance compiles to a parameter box and to constraint rows, ratchets only tighter, and the ladder never imports it | `tests/test_policy.py` (55 tests) |
 | Gate 6P | the product surface: scope guards refuse what does not govern, and the mission contract binds | `tests/test_gapfix_product.py` (28 tests) |

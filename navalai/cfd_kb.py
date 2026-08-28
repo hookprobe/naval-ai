@@ -16,7 +16,10 @@ scripts/harvest_cfd_anchors.py) and answers three questions:
      hull of this family expect? (Design guidance: 78-83% pressure on
      the bluff families across Fn 0.33-0.48 means the drag levers are
      AFT — transom clearance, eased shoulder — before any new run.)
-  3. `l1_anchor_ratio(family)` — how far off is the L1 prediction known
+  3. `compare(a, b)` — difference two anchors in NEWTONS, through every
+     comparability clause at once, or refuse. See COMPARE_UNITS for why
+     the book's Ct is not a kernel-consumable quantity.
+  4. `l1_anchor_ratio(family)` — how far off is the L1 prediction known
      to be for this family? (hb19: RANS total = ~1.57x the L1 chain at
      Fn 0.33, single grid, no GCI — a research anchor, sigma stated
      WIDE.)
@@ -202,3 +205,55 @@ def l1_anchor_ratio(family: str):
                    f"anchored families are {fams}; anchoring a new one "
                    f"needs one settled run of one of its hulls plus its "
                    f"L1 reference")
+
+
+#: THE DENOMINATOR DECISION (handoff item 4, 2026-08-28). The book's `ct`
+#: is each run's own STL wetted area, and MEASURED: `hookprobe_v2` and
+#: `hookprobe_v3` read 42.14 and 34.28 m2 for the same hull one edit
+#: apart, because v2 is a 20 096-facet export and v3 is 152 126. A 23%
+#: denominator swing sits under every Ct in the book and dwarfs the ~1%
+#: deltas the campaign was trying to read.
+#:
+#: So the kernel's rule is: **compare NEWTONS at equal speed.** Not
+#: "prefer newtons" — the book's Ct is not a kernel-consumable quantity
+#: at all until one wetted-area definition exists, and `ct_trusted` is a
+#: fence around the records, not a fix for the denominator. This constant
+#: is the single home of that decision and `compare()` below is its only
+#: sanctioned comparator.
+COMPARE_UNITS = "newtons"
+
+
+def compare(name_a: str, name_b: str):
+    """Difference two anchors, in NEWTONS, or refuse and say why.
+
+    THE INCIDENT (audit finding R2, and it is this project's own): the
+    hookprobe ladder recorded v1 -> v2 -> v3 as 3034 -> 2998 -> 2966 N
+    and read three aft-edit improvements out of it. Each step is 1.1-1.2%
+    — INSIDE the +/-2.5% window scatter — and v2 additionally carries 24%
+    more cells than v3, so the mesh differs by twenty times the effect
+    claimed across it. The direction was defensible; three numbers were
+    not.
+
+    Every clause that makes that judgement lives in
+    `cfd/preflight.ab_comparable` and had no caller. This is the caller,
+    and it is deliberately the ONLY way the kernel differences two runs:
+    a comparison that has to go through here cannot quietly become a
+    subtraction of two `total_n` fields somewhere else.
+    """
+    from .cfd import preflight as _pf
+
+    book = _book().get("anchors", {})
+    for n in (name_a, name_b):
+        if n not in book:
+            return Refusal(f"{n!r} is not in the anchor book "
+                           f"({sorted(book)})")
+    a, b = book[name_a], book[name_b]
+    verdict = _pf.ab_comparable(a, b)
+    if not verdict:
+        return Refusal(f"{name_a} vs {name_b}: {verdict.detail}")
+    ta, tb = float(a["total_n"]), float(b["total_n"])
+    return {"units": COMPARE_UNITS, "a": name_a, "b": name_b,
+            "a_total_n": ta, "b_total_n": tb, "delta_n": tb - ta,
+            "delta_rel": verdict.data["delta"],
+            "speed_ms": float(a["speed_ms"]),
+            "basis": verdict.detail}
