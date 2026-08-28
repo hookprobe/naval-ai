@@ -42,7 +42,7 @@ Deliverable C.
 | R7 | At Fn 0.477 the hookprobe rides its own bow wave — λ=16.9 m > Lwl 11.8 m, one trough spanning the aft half — the hump, VISUALIZED matching theory | v3_10kn wave profile; case.info wavelength | DOMAIN-VALIDATED |
 | R8 | 10-kn resistance is ≥3860 N and RISING (drift 11.5% at 3.09 FT) — quotable only as UNDER-RUN; the transient 3391 N read at 2.37 FT was a false plateau | runs/hookprobe_v3_10kn | OBSERVED, refused as an anchor |
 | R9 | The solar reframe: at Fn 0.24 the hierarchy INVERTS to ~55% viscous, fins (48% of wetted) cost ~¼ of power, motor right-sizes to 6–8 kW | PROPULSION-INTEGRATION §6 | HYPOTHESIS — a SCALING across the hump, not a run; the 5-kn measured point is the highest-value missing run in the corpus |
-| R10 | Fn 0.956 fixed-attitude "resistance" (75.8 kN, 95% pressure) is not a resistance prediction in any usable sense — planing regime, fixed attitude, layers failed (0.1% coverage) | runs/hookprobe_v5_20kn | OBSERVED as data; INVALID as a prediction — the book must flag it (P0-2) |
+| R10 | **RETRACTED 2026-08-28 — and for a better reason than this audit found.** The Fn 0.956 record was called invalid here for fixed attitude and a failed layer stack (0.1% coverage). The CFD session then found the disqualifying fault: the run sat in a 53.2 m tank against its OWN 67.8 m wave, so the box held 0.78 of ONE wavelength and the wave that makes the pressure drag could not form. `ct_trusted` is now false and the domain rule is a gate row (Gate 2E, commit 75f5f85). The record stays IN the book on purpose — a reader meeting the number elsewhere must be able to find out why it is dead. **The supported hookprobe envelope is Fn 0.24-0.48, calm-resistance records only**; the corrected 147.5 m re-run died at t=20.3 with forces still decaying 3.7x and is refused by the harvester. Nothing may cite a 20-kn or Fn ~0.95 hookprobe number. | runs/hookprobe_v5_20kn; handoff §3 | RETRACTED |
 | R11 | Michell's slenderness assumption is violated by the median admissible hull (L/B 3.96, 5–95% 2.39–7.44) and nothing flags it; only Fn gates the wave model | resistance.michell_rw receipt, 4000-draw census | REPEATABLE, un-encoded (under-constraint) |
 | R12 | Catamaran interference has no single optimum s/Lwl — it moves with Fn, worth up to 60% of the wave term (−25.2% at s/L 0.30 Fn 0.25; +59.7% at s/L 0.20 Fn 0.40) | resistance experiments (Wigley demihull) | REPEATABLE (numerical); encoded as physics, absent as an optimizer prior |
 | R13 | Kelvin transverse wavelength matched theory on the computed wake (10.77 m at 8 kn) — the campaign's stated validation anchor, and the least overfit finding available | campaign doc; case.info | DOMAIN-VALIDATED; un-automated (P1-9) |
@@ -324,6 +324,33 @@ CFD — flagged as the first benchmark computation to run after P0).
 **P4 — frozen** until the corpus crosses the Deliverable-E thresholds.
 
 ---
+
+---
+
+## ADDENDUM 2026-08-28 — what the parallel CFD session changed under this audit
+
+This audit was written against the tree as it stood; two of its entries
+have since been overtaken by measurement, and one deliverable item was
+re-priced. Recorded here rather than edited away, because the audit is a
+dated record and the correction is the interesting part.
+
+1. **R10 retracted on the domain, not the attitude** (see the row above).
+   The audit's Deliverable-B validity column for that record named the
+   right verdict for the wrong reason. The domain/wavelength rule now
+   exists as Gate 2E — a rule this audit did not know to ask for.
+2. **`ct_trusted` gained a second clause.** This audit added the
+   facet-count test (>= 100k) after tracing the v2/v3 wetted-area gap to
+   two different surfaces. The CFD session added `domain_wavelengths >=
+   1.5` beside it, which is what actually caught the 20-kn record. Both
+   clauses are needed and neither implies the other.
+3. **P3's "free" item is not free** (see `navalai/cfd_kb.py`'s
+   `L1_REFERENCE_N` note): the c06 L1-vs-RANS comparison was attempted,
+   the genome had moved, the pre-upgrade genome was reconstructed, and
+   the decomposition then refused the anchor on a better ground — the
+   5.81x pressure ratio is the project's open pressure over-prediction,
+   not a hull-family property. Deliverable H's P3 ordering should read:
+   the pressure over-prediction is a PREREQUISITE, not a peer, of every
+   remaining L1 anchor.
 
 *Method note (protocol §47): reconstructed from docs/research/*,
 docs/LESSONS.md, docs/HULL-KB.md, docs/audit/HULL-DESIGN-AUDIT.md, the
