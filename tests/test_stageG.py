@@ -1038,3 +1038,84 @@ def test_theory_first_refuses_a_resolve_of_a_surface_already_in_the_book():
     assert any(e.tier == "L3" for e, *_ in fresh.steps), (
         "an UNMEASURED surface must still be able to buy a grid — "
         "otherwise the book's identity check is not what refused")
+
+
+# --------------------------------------------------------------------------
+# CFD audit P1-10a: the tank length is a function of SPEED, and the cost
+# model has to know.
+#
+# THE INCIDENT, 2026-08-28. `cfd.case.domain_x_bounds` landed the rule
+# that the tank must contain the ship's own wave (>= 1.5 lambda astern,
+# >= 0.5 lambda ahead) after `runs/hookprobe_v5_20kn` was measured to
+# hold 0.78 of ONE wavelength in a 53.2 m box against a 67.8 m wave.
+# `fidelity` went on pricing every grid against a fixed 4.5 Lwl, written
+# out as a LITERAL in six places — the number-declared-twice defect, and
+# this time the second copy was silently wrong the moment the first
+# moved.
+#
+# MEASURED consequence at Fn 0.95 on an 11.8 m hull: 288 836 cells /
+# 3.87 h predicted against 792 126 cells / 29.12 h — a 7.5x
+# under-prediction, because the domain multiple enters TWICE (the cell
+# count and the flow-through length), so wall-clock goes as its SQUARE.
+# A plan that under-prices a run by 7.5x does not fit the machine.
+# --------------------------------------------------------------------------
+
+def test_the_cost_models_tank_is_the_generators_tank():
+    """One rule, fenced against the generator rather than transcribed."""
+    import math
+
+    from navalai import fidelity
+    from navalai.cfd.case import domain_x_bounds
+    from navalai.constants import G_OPENFOAM, G_STANDARD
+
+    lwl = 11.8
+    for fn in (0.15, 0.26, 0.33, 0.48, 0.52, 0.60, 0.80, 0.95):
+        u = fn * math.sqrt(G_STANDARD * lwl)
+        x0, x1 = domain_x_bounds(lwl, u)
+        got, want = fidelity.domain_lwl(fn), (x1 - x0) / lwl
+        # The residual is EXACTLY G_OPENFOAM / G_STANDARD and nothing
+        # else: case.py sizes the tank with the g it writes into the
+        # OpenFOAM case (deliberate, so the box and the solver agree),
+        # while Fn here is taken against standard gravity. 0.034%.
+        assert abs(got - want) / want < 1e-3, (
+            f"Fn {fn}: fidelity says {got:.4f} Lwl, the generator builds "
+            f"{want:.4f} — the cost model is pricing a different tank "
+            f"than the one run-case.sh will mesh")
+    assert G_OPENFOAM != G_STANDARD  # the residual has a named source
+
+
+def test_below_the_hump_every_recorded_estimate_is_bit_identical():
+    """The rule is a MAX, so it must not move the design point."""
+    from navalai import fidelity
+
+    for fn in (0.10, 0.20, 0.26, 0.33, 0.40, 0.48):
+        assert fidelity.domain_lwl(fn) == fidelity.DOMAIN_LWL, (
+            f"Fn {fn} moved the tank off {fidelity.DOMAIN_LWL} Lwl. Every "
+            f"cost this project has recorded was measured there; a rule "
+            f"that shifts them retroactively invalidates the ledger")
+
+
+def test_the_high_froude_bill_rises_as_the_square_of_the_domain():
+    """Cells AND flow-through both scale; the wall-clock is the product."""
+    import math
+
+    from navalai.fidelity import Condition, FidelitySpec, estimate
+    from navalai.constants import G_STANDARD
+
+    lwl, spec = 11.8, FidelitySpec(mesh_density=1.0)
+    lo = estimate(Condition(lwl=lwl,
+                            speed=0.26 * math.sqrt(G_STANDARD * lwl)), spec)
+    hi = estimate(Condition(lwl=lwl,
+                            speed=0.95 * math.sqrt(G_STANDARD * lwl)), spec)
+    from navalai.fidelity import DOMAIN_LWL, domain_lwl
+    f = domain_lwl(0.95) / DOMAIN_LWL
+    assert hi.cells / lo.cells == pytest.approx(f, rel=0.01)
+    assert hi.wall_s / lo.wall_s == pytest.approx(f * f, rel=0.02), (
+        "the domain multiple must enter the bill twice — once through the "
+        "cell count and once through the length of a flow-through. "
+        f"Got {hi.wall_s / lo.wall_s:.2f}x against {f * f:.2f}x")
+    # And the RESOLUTION must not move: case.py holds dx and adds x cells,
+    # so a longer tank is not a finer one.
+    from navalai.fidelity import cells_per_wavelength
+    assert hi.cells_per_wavelength == pytest.approx(
+        cells_per_wavelength(0.95, 1.0), rel=1e-6)

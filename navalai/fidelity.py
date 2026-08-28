@@ -159,8 +159,8 @@ STATED_FINE = Budget(max_wall_s=5 * 3600, max_ram_gb=20.0, np_procs=10,
 def cells_per_wavelength(fn: float, mesh_density: float) -> float:
     """Closed form: cells across one transverse wave, from Fn and density alone.
 
-        lambda = 2 pi Fn^2 L,   dx_fs = 4.5 L / nx / 2^2
-        =>  cells/wavelength = 2 pi Fn^2 * 4 * nx / 4.5
+        lambda = 2 pi Fn^2 L,   dx_fs = DOMAIN_LWL L / nx / 2^2
+        =>  cells/wavelength = 2 pi Fn^2 * 4 * nx / DOMAIN_LWL
 
     The Lwl cancels — the same Froude-similarity that makes geometric scale
     free. What does NOT cancel is Fn, and it enters SQUARED, which is the
@@ -178,7 +178,7 @@ def cells_per_wavelength(fn: float, mesh_density: float) -> float:
     twice, found by the two copies drifting apart.
     """
     nx = background_counts(mesh_density, True)[0]
-    return 2.0 * math.pi * fn**2 * 4.0 * nx / 4.5
+    return 2.0 * math.pi * fn**2 * 4.0 * nx / DOMAIN_LWL
 
 
 def density_that_clears_wave_resolution(
@@ -227,7 +227,8 @@ def density_for_wave_resolution(fn: float,
     # and its own inverse disagreed by 5.6%). The base is imported from the
     # mesh writer, the only place it is declared.
     from .cfd.case import _NX_BASE
-    return bar * 4.5 / (2.0 * math.pi * fn**2 * 4.0 * float(_NX_BASE))
+    return bar * DOMAIN_LWL / (2.0 * math.pi * fn**2 * 4.0
+                                * float(_NX_BASE))
 
 
 @dataclass(frozen=True)
@@ -346,12 +347,23 @@ def estimate(cond: Condition, spec: FidelitySpec,
     the hull at fixed Froude number and every number below is unchanged. That is
     `similitude`'s point, arriving here as arithmetic rather than as an opinion.
     """
-    cells = spec.cells()
+    # THE BOX GROWS WITH THE WAVE, AND SO DOES THE BILL. `cfd.case` sizes
+    # the tank from `domain_x_bounds` at FIXED dx — the x count follows the
+    # length — so cells scale with the domain multiple and the cell SIZE
+    # (hence every resolution number below) does not. Below Fn ~0.52 this
+    # factor is exactly 1.0 and the estimate is bit-identical to every one
+    # recorded before 2026-08-28.
+    dom = domain_lwl(cond.fn)
+    domain_factor = dom / DOMAIN_LWL
+    cells = int(round(spec.cells() * domain_factor))
     dz = free_surface_dz(cond, spec)
     dt = COURANT_EFFICIENCY * MAX_ALPHA_CO * dz / max(cond.speed, 1e-6)
-    # Run length in flow-throughs of the 4.5 Lwl domain — Froude-similar, so
+    # Run length in flow-throughs of the ACTUAL domain — Froude-similar, so
     # the STEP COUNT is scale-invariant even though dt and T both are not.
-    sim_time = spec.flow_throughs * 4.5 * cond.lwl / max(cond.speed, 1e-6)
+    # A flow-through of a longer tank is a longer flow-through: this is the
+    # second place the Fn^2 domain enters, and together with the cell count
+    # it makes wall-clock scale as the SQUARE of the domain multiple.
+    sim_time = spec.flow_throughs * dom * cond.lwl / max(cond.speed, 1e-6)
     steps = int(round(sim_time / dt))
 
     # CELL_STEP_S is measured AT np=NP_REFERENCE, so the correction is the
@@ -373,7 +385,13 @@ def estimate(cond: Condition, spec: FidelitySpec,
 
     ram = cells * BYTES_PER_CELL / 1e9
     ram_sigma = cells * BYTES_PER_CELL_SIGMA / 1e9
-    cpw = cond.wavelength / (4.5 * cond.lwl / background_counts(
+    # cpw uses DOMAIN_LWL and not `dom` ON PURPOSE: `background_counts`
+    # returns the count for the NOMINAL tank, and case.py holds dx at that
+    # value while adding x cells for the longer box. The cell size is the
+    # invariant, so the resolution of the wave is unchanged by the domain
+    # opening — only the number of cells is. Substituting `dom` here would
+    # report a longer tank as a FINER one.
+    cpw = cond.wavelength / (DOMAIN_LWL * cond.lwl / background_counts(
         spec.mesh_density, spec.symmetric)[0] / 2 ** 2)
 
     return CostEstimate(
@@ -381,7 +399,8 @@ def estimate(cond: Condition, spec: FidelitySpec,
         wall_s=wall, wall_s_sigma=wall_sigma, ram_gb=ram, ram_gb_sigma=ram_sigma,
         cells_per_wavelength=cpw,
         basis={
-            "cells": f"background x {spec.refine_factor:.2f} measured on KCS",
+            "cells": f"background x {spec.refine_factor:.2f} measured on KCS"
+                     f" x {domain_factor:.3f} domain (tank {dom:.2f} Lwl)",
             "wall": f"{CELL_STEP_S * 1e6:.1f} us/cell-step measured on "
                     f"runs/kcs_sym, np={budget.np_procs}",
             "ram": "ASSUMED 1.5 kB/cell — never measured, owed",
@@ -389,10 +408,51 @@ def estimate(cond: Condition, spec: FidelitySpec,
 
 
 # Domain length as a multiple of Lwl, from `cfd.case`: x in [-2.5 L, 2.0 L].
+#: The hull-scale tank bounds, in Lwl — `cfd.case._DOMAIN_X`. Named here so
+#: `domain_lwl` reads as the rule rather than as four magic numbers, and so
+#: the fence has something to compare.
+_DOMAIN_X_FRAC = (-2.5, 2.0)
+
 DOMAIN_LWL = 4.5
 # A tank resonance within this factor of the wave period contaminates the force
 # signal at the frequency we are trying to measure. Declared, basis='approx'.
 SEICHE_SEPARATION = 3.0
+
+
+def domain_lwl(fn: float) -> float:
+    """The tank length in Lwl at this Froude number — the SCHEDULING rule.
+
+    CFD audit P1-10a, and it landed as a live number-declared-twice: on
+    2026-08-28 `cfd.case.domain_x_bounds` made the tank length a function
+    of SPEED (the tank must contain the ship's own wave: >= 1.5 lambda
+    astern, >= 0.5 lambda ahead), and this module went on pricing every
+    grid against a fixed 4.5 Lwl written out as a literal in six places.
+    A cost model that does not know the box grew UNDER-PREDICTS by the
+    ratio, and MEASURED at Fn 0.95 that ratio is 2.8x — the difference
+    between a plan that fits the machine and one that does not.
+
+    Scale-free by construction, which is why it takes Fn and not (L, U):
+    lambda/Lwl = 2 pi Fn^2, so every term below is a pure number and the
+    length cancels exactly as `similitude` says it must.
+
+        downstream / L = max(2.5, 1.5 * 2 pi Fn^2)
+        upstream   / L = max(1.0, 0.5 * 2 pi Fn^2) + 1.0
+
+    Below Fn ~0.52 the hull terms bind and this returns exactly
+    DOMAIN_LWL, so every estimate this project has ever recorded is
+    bit-identical. Above it the cost rises as Fn^2 — which is the
+    scheduling consequence: high-Froude runs are expensive for a reason
+    that has nothing to do with the timestep, and a planner ordering
+    experiments by knowledge-per-hour has to see it.
+
+    `test_fidelity` fences this against `domain_x_bounds` itself rather
+    than trusting the transcription; the two must agree at every Fn.
+    """
+    lam_over_l = 2.0 * math.pi * max(0.0, float(fn)) ** 2
+    downstream = max(-_DOMAIN_X_FRAC[0], 1.5 * lam_over_l)
+    upstream = max(_DOMAIN_X_FRAC[1] - 1.0, 0.5 * lam_over_l) + 1.0
+    return downstream + upstream
+
 
 
 def wave_speed(wavelength: float, depth: float,
@@ -438,7 +498,7 @@ def tank_mode_periods(cond: Condition, depth: float | None = None,
     Froude number alone.
     """
     depth = _tank_depth(cond, depth)
-    L_tank = DOMAIN_LWL * cond.lwl
+    L_tank = domain_lwl(cond.fn) * cond.lwl
     out: dict[int, float] = {}
     for n in range(1, n_max + 1):
         lam = 2.0 * L_tank / n
@@ -465,7 +525,8 @@ def tank_resonance_check(cond: Condition,
     modes = tank_mode_periods(cond)
     depth = _tank_depth(cond, None)
     t_w = cond.wavelength / max(cond.speed, 1e-6)
-    sim = spec.flow_throughs * DOMAIN_LWL * cond.lwl / max(cond.speed, 1e-6)
+    sim = (spec.flow_throughs * domain_lwl(cond.fn) * cond.lwl
+           / max(cond.speed, 1e-6))
     if not modes:
         return (float("inf"), t_w,
                 "every tank mode is BLOCKED (c <= U): no finite resonance "
@@ -473,8 +534,8 @@ def tank_resonance_check(cond: Condition,
                 "lengthen the domain or add outlet damping")
     # The selected mode: nearest to blocking, c(lambda) = 2 U.
     def _c_gap(n: int) -> float:
-        return abs(wave_speed(2.0 * DOMAIN_LWL * cond.lwl / n, depth,
-                              cond.g) - 2.0 * cond.speed)
+        return abs(wave_speed(2.0 * domain_lwl(cond.fn) * cond.lwl / n,
+                              depth, cond.g) - 2.0 * cond.speed)
     n_sel = min(modes, key=_c_gap)
     t_res = modes[n_sel]
     t_slow = max(modes.values())
