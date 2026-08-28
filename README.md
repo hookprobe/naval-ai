@@ -237,6 +237,7 @@ different Gate 2M numbers came to circulate at once (gap J1).
 | Gate 2Y | population identity: (arity, seed) not seed alone, an undeclared seed is UNKNOWN and never silently development, and NO committed artifact may draw from the validation or held-out seed | `tests/test_population_split.py` (20 tests) |
 | Gate 2N | physics sanity: a force must have the right sign, a finite magnitude, and a defensible ratio to the cheap model — and an unreadable history is never a result | `tests/test_physics_sanity.py` (11 tests) |
 | Gate 2W | the case writer consults the physics floors it was given: cells-per-wavelength and the Reynolds regime decide before a mesh is sized | `tests/test_case_wiring.py` (18 tests) |
+| Gate 2E | the tank contains the ship's OWN wave: the domain length scales with 2*pi*U^2/g, not with hull length alone, and the design point is left bit-identical | `tests/test_domain_wavelength.py` (4 tests) |
 | Gate 2X | h011/h012: the geometry is provably clean, and no measured descriptor separates the failures from the passers — a criterion that does not separate is not a criterion | `tests/test_h011_h012_invariant.py` (15 tests) |
 | Gate 2H | surface repair on the import boundary, and generated geometry refused rather than healed | `tests/test_mesh_repair.py` (9 tests) |
 | Gate 2G | KCS benchmark geometry: present and accepted (scripts/fetch_benchmark_geom.py) | `tests/test_benchmark_geom.py` (4 tests) |

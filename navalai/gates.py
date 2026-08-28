@@ -849,6 +849,14 @@ GATES = [
     Gate("Gate 2W", "the case writer consults the physics floors it was "
          "given: cells-per-wavelength and the Reynolds regime decide before "
          "a mesh is sized", "tests/test_case_wiring.py"),
+    # MEASURED 2026-08-28: a 24 s Fn 0.95 solve produced a drag number for a
+    # tank 0.78 of one wavelength long, and case.info printed
+    # domain_length_m=53.19 beside wavelength_m=67.82 without comparing them.
+    # The DEPTH had scaled with the wave since it was written; the LENGTH had
+    # not. This row owns the x-axis half of the deep-water discipline.
+    Gate("Gate 2E", "the tank contains the ship's OWN wave: the domain length "
+         "scales with 2*pi*U^2/g, not with hull length alone, and the design "
+         "point is left bit-identical", "tests/test_domain_wavelength.py"),
     # h011/h012 meshed-and-failed deterministically in two independent
     # campaigns while the screen called them SAFE. This row owns whatever
     # invariant that investigation PROVED.
