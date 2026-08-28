@@ -28,6 +28,12 @@ REFERENCE = {
 }
 
 
+def _stl_sha256(path) -> str:
+    """The surface's identity, the same digest `case.info` records."""
+    import hashlib
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", required=True)
@@ -127,6 +133,25 @@ def main() -> None:
                                          symmetric=args.symmetric,
                                          lts=False if args.transient else None,
                                          n_layers=n_layers)
+
+    # ---- PREFLIGHT (CFD-audit P1): the cheap questions, before the hours.
+    # Advisory by design — this script writes a case, it does not own the
+    # operator's judgement — but SILENCE was the defect: `same_geometry`
+    # answered "has this surface been solved?" from the day the book
+    # landed and nothing asked it, on a corpus where 3 of 11 records
+    # share a surface with another record.
+    if args.stl and args.lwl:
+        from navalai.cfd import preflight as _pf
+        try:
+            _sha = _stl_sha256(args.stl)
+        except Exception:                                   # noqa: BLE001
+            _sha = ""
+        _prior = _pf.already_measured(_sha, speed_ms=args.speed)
+        if _prior:
+            print(f"PREFLIGHT: {_prior.detail}")
+        _start = _pf.start_is_survivable(args.speed, args.lwl)
+        if not _start:
+            print(f"PREFLIGHT WARNING: {_start.detail}")
 
     motion = None
     if args.free_motion:

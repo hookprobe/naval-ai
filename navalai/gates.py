@@ -241,6 +241,16 @@ GATES = [
     # The owner's CFD-distillation directive (2026-08-28): the campaigns'
     # measured behaviour, harvested into a committed book before any purge
     # can lose it (gap N6), consumed with surrogate-honesty refusals.
+    # CFD-audit P1, 2026-08-28: the cheap questions asked before the
+    # expensive ones — theory, then the book, then a solve — plus the two
+    # free checks the project had the inputs for and never ran (Kelvin
+    # wavelength; A/B mesh-match against the family scatter).
+    Gate("Gate PREFLIGHT", "before a solve is bought: theory answers what "
+         "it can, a surface already solved is recognised, the family band "
+         "speaks, an impulsive start above the measured Fn ceiling is "
+         "refused — and after it, Kelvin validates and an A/B is only "
+         "attributable when the meshes match",
+         suite="tests/test_preflight.py"),
     Gate("Gate CFD-KB", "the CFD anchor book: every record honest about "
          "settledness and GCI, unsettled records never support a "
          "prediction, family bands refuse outside measured Fn support, "
