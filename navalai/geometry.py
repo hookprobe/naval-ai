@@ -638,7 +638,30 @@ def _deadrise(p: dict, x: np.ndarray) -> np.ndarray:
     return beta
 
 
-def _fillet_coeffs(rho: float) -> tuple[float, float]:
+def _roundness_x(p: dict, x: np.ndarray) -> np.ndarray:
+    """rho(x): the bilge radius along the length (Phase 3).
+
+    THE SAME WARP LAW AS THE FLARE, deliberately — this kernel should
+    have ONE shape of "a thing that changes toward the bow", not three
+    that a reader has to compare. Constant aft of (1 - rho_len)*L, then
+    quadratic to `rho_bow` at the stem.
+
+    `rho_len` = 0 returns the constant `roundness` array, so every hull
+    drawn before this existed is bit-identical.
+    """
+    rho = float(p["roundness"])
+    ln = float(p.get("rho_len", 0.0))
+    out = np.full_like(np.asarray(x, dtype=float), rho)
+    if ln > 0.0:
+        L = float(p["LWL"])
+        w0 = L - ln * L
+        fwd = np.asarray(x, dtype=float) > w0
+        frac = (np.asarray(x, dtype=float)[fwd] - w0) / (ln * L)
+        out[fwd] += (float(p.get("rho_bow", rho)) - rho) * frac ** 2
+    return np.clip(out, 0.0, 1.0)
+
+
+def _fillet_coeffs(rho):
     """(c1, c2) of the section-area quadratic, from the bilge roundness.
 
     The fillet is the quadratic Bezier with control points C + rho*(K - C),
@@ -688,7 +711,14 @@ def _stations(params: np.ndarray, x: np.ndarray) -> dict:
     p = grammar.named(_require_finite(params))
     L, B, T, D = p["LWL"], p["BWL"], p["T"], p["D"]
     x = np.asarray(x, dtype=float)
-    c1, c2 = _fillet_coeffs(p["roundness"])
+    # PER-STATION FILLET COEFFICIENTS. `_fillet_coeffs` is elementwise
+    # already (2 - rho^2/3, 1 - rho^2/3), so the array flows through the
+    # section quadratic and the dwl joint solve untouched; only A_mid
+    # needs a scalar, and it needs the rho AT THE MAX-AREA STATION —
+    # taking the hull's nominal roundness there would define A_mid on a
+    # section the hull does not have when the warp reaches x_mb.
+    rho_x = _roundness_x(p, x)
+    c1, c2 = _fillet_coeffs(rho_x)
 
     zk = _keel(p, x)
     d = -zk
@@ -767,7 +797,9 @@ def _stations(params: np.ndarray, x: np.ndarray) -> dict:
         raise GeometryError(
             f"section: flare {p['flare']:.1f} deg consumes the whole "
             f"{0.5 * B:.3f} m half-beam at the max-area station")
-    A_mid = (K_mid * yc_mid * (c1 * d_mid - c2 * m_mid * yc_mid)
+    c1_mid, c2_mid = _fillet_coeffs(
+        float(_roundness_x(p, np.array([xm_val]))[0]))
+    A_mid = (K_mid * yc_mid * (c1_mid * d_mid - c2_mid * m_mid * yc_mid)
              + d_mid ** 2 * f_mid)
     if not (A_mid > 0.0):
         raise GeometryError("section: non-positive maximum sectional area")
@@ -1079,6 +1111,7 @@ def _stations(params: np.ndarray, x: np.ndarray) -> dict:
                if _split_on else np.zeros_like(x))
     return {"x": x, "z_keel": zk, "d": d, "beta": beta, "m": m, "f": f, "K": K,
             "z_crown": z_crown, "y_tun": y_tun, "y_split": y_split,
+            "rho_x": rho_x,
             "y_chine": yc, "z_chine": zc, "y_wl": y_wl,
             "y_sheer": y_sheer, "z_sheer": zs, "a": a, "A": A, "A_mid": A_mid,
             "c1": c1, "c2": c2}
@@ -1454,7 +1487,13 @@ def _sections_batch(K: np.ndarray, C: np.ndarray, S: np.ndarray,
     else:
         wall = floor = None
         n_w = 0
-    if rho <= 0.0:
+    # rho MAY BE PER STATION (Phase 3). A hull whose bilge warps carries
+    # a whole array here; the hard-chine fast path is taken only when
+    # EVERY station is square, and a rho = 0 station inside a filleted
+    # hull degenerates correctly on the fillet path (P0 = P2 = C, so the
+    # arc collapses onto the chine and the resample returns the leg).
+    rho = np.asarray(rho, dtype=float)
+    if float(rho.max()) <= 0.0:
         t_lo = np.linspace(0.0, 1.0, n_lo + 1)
         if notch is not None:
             t_r = np.linspace(0.0, 1.0, (n_lo - n_w) + 1)[1:]
@@ -1474,8 +1513,9 @@ def _sections_batch(K: np.ndarray, C: np.ndarray, S: np.ndarray,
         t_hi = np.linspace(0.0, 1.0, n_hi + 1)[1:]
         hi = C[:, None, :] + t_hi[None, :, None] * (S - C)[:, None, :]
         return np.concatenate([lo, hi], axis=1)
-    P0 = C + rho * (K - C)
-    P2 = C + rho * (W - C)
+    _r = rho[:, None] if rho.ndim else rho
+    P0 = C + _r * (K - C)
+    P2 = C + _r * (W - C)
     m = max(128, 2 * max(n_lo, n_hi))
     # `_bezier`'s coefficients off the ONE shared parameter grid: the
     # per-element products are the scalar path's, in the scalar path's order,
@@ -1615,6 +1655,10 @@ class Hull:
         self.y_sheer, self.z_sheer = s["y_sheer"], s["z_sheer"]
         self.y_wl, self.A_sac = s["y_wl"], s["A"]
         self.z_crown, self.y_tun = s["z_crown"], s["y_tun"]
+        #: rho(x) — the bilge radius per station. `roundness` remains the
+        #: hull's NOMINAL (aft) value that every legacy caller reads; this
+        #: is what the geometry actually uses.
+        self.roundness_x = s["rho_x"]
         self.y_split = s["y_split"]
         self._f, self._m = s["f"], s["m"]
         self._sections = {}
@@ -1661,7 +1705,8 @@ class Hull:
             (self.y_chine[i], self.z_chine[i]),
             (self.y_sheer[i], self.z_sheer[i]),
             (self.y_wl[i], 0.0),
-            self.roundness, n_lo, n_hi, knuckle=self.has_wl_knuckle,
+            float(self.roundness_x[i]), n_lo, n_hi,
+            knuckle=self.has_wl_knuckle,
             notch=None if (_N := self._section_start_notch()) is None
             else _N[i])
 
@@ -1697,7 +1742,7 @@ class Hull:
             C = np.stack([self.y_chine, self.z_chine], axis=1)
             S = np.stack([self.y_sheer, self.z_sheer], axis=1)
             W = np.stack([self.y_wl, zero], axis=1)
-            rho = self.roundness
+            rho = self.roundness_x[:, None]      # per station (Phase 3)
             c = (K, C + rho * (K - C), C, C + rho * (W - C), S)
             # READ-ONLY: these rows are handed out to `_immersed`, which must
             # not be able to write back into another station's control points.
@@ -1789,7 +1834,8 @@ class Hull:
             # old numpy indexing semantics rather than becoming a KeyError.
             n = ((2 if (self.has_wl_knuckle
                         or self._section_start_notch() is not None) else 1)
-             if self.roundness <= 0.0 else SECTION_FILLET_SAMPLES)
+             if float(np.max(self.roundness_x)) <= 0.0
+             else SECTION_FILLET_SAMPLES)
             cached = self._section_points(i, n, n)
             self._sections[i] = cached
         return cached
@@ -1802,14 +1848,15 @@ class Hull:
         """
         n = ((2 if (self.has_wl_knuckle
                         or self._section_start_notch() is not None) else 1)
-             if self.roundness <= 0.0 else SECTION_FILLET_SAMPLES)
+             if float(np.max(self.roundness_x)) <= 0.0
+             else SECTION_FILLET_SAMPLES)
         zero = np.zeros(self.n_stations)
         pts = _sections_batch(
             np.stack([zero, self.z_keel], axis=1),
             np.stack([self.y_chine, self.z_chine], axis=1),
             np.stack([self.y_sheer, self.z_sheer], axis=1),
             np.stack([self.y_wl, zero], axis=1),
-            self.roundness, n, n, knuckle=self.has_wl_knuckle,
+            self.roundness_x, n, n, knuckle=self.has_wl_knuckle,
             notch=self._section_start_notch())
         self._stack = pts
         for i in range(self.n_stations):
@@ -1849,7 +1896,7 @@ class Hull:
         yc = float(self.y_chine[i])
         f, m = float(self._f[i]), float(self._m[i])
         K = 1.0 - m * f
-        c1, c2 = _fillet_coeffs(self.roundness)
+        c1, c2 = _fillet_coeffs(float(self.roundness_x[i]))
         return 0.5 * (K * yc * (c1 * d - c2 * m * yc) + d * d * f)
 
     def immersed_section(self, i: int, wl: float = 0.0):
@@ -1998,7 +2045,8 @@ class Hull:
             dense = sample_section((0.0, s["z_keel"][i]),
                                    (s["y_chine"][i], s["z_chine"][i]),
                                    (s["y_sheer"][i], s["z_sheer"][i]),
-                                   (s["y_wl"][i], 0.0), rho, 8 * nz, 8 * nz,
+                                   (s["y_wl"][i], 0.0),
+                                   float(s["rho_x"][i]), 8 * nz, 8 * nz,
                                    knuckle=self.has_wl_knuckle,
                                    notch=(0.0, s["z_crown"][i],
                                           s["y_tun"][i])
@@ -2394,14 +2442,16 @@ class Hull:
             (lerp(self.y_sheer[i - 1], self.y_sheer[i]),
              lerp(self.z_sheer[i - 1], self.z_sheer[i])),
             (lerp(self.y_wl[i - 1], self.y_wl[i]), 0.0),
-            self.roundness, n_lo, n_hi, knuckle=self.has_wl_knuckle,
+            float(self.roundness_x[i]), n_lo, n_hi,
+            knuckle=self.has_wl_knuckle,
             notch=(None if (_N := self._section_start_notch()) is None
                    else (1 - f) * _N[i - 1] + f * _N[i]))
 
     def _section_at(self, xv: float) -> np.ndarray:
         n = ((2 if (self.has_wl_knuckle
                         or self._section_start_notch() is not None) else 1)
-             if self.roundness <= 0.0 else SECTION_FILLET_SAMPLES)
+             if float(np.max(self.roundness_x)) <= 0.0
+             else SECTION_FILLET_SAMPLES)
         return self._section_at_rows(xv, n, n)
 
     def _sections_at_rows_batch(self, xs: np.ndarray, n_lo: int,
@@ -2442,7 +2492,8 @@ class Hull:
         # The body that used to be inlined here now lives in `_sections_batch`
         # so the STATION-indexed memo can share it instead of copying it.
         _N = self._section_start_notch()
-        return _sections_batch(K, C, S, W, self.roundness, n_lo, n_hi,
+        return _sections_batch(K, C, S, W, lerp(self.roundness_x),
+                               n_lo, n_hi,
                                knuckle=self.has_wl_knuckle,
                                notch=None if _N is None
                                else (1 - f[:, None]) * _N[i - 1] +

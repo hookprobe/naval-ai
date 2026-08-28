@@ -464,6 +464,27 @@ PARAMS = [
     ("split_len",  "-",     0.0,  0.80, "fraction of LWL the split runs "
                                         "forward from the transom. 0 = no "
                                         "split"),
+    # rho(x) — THE BILGE RADIUS VARIES ALONG THE LENGTH (Phase 3's named
+    # remainder; audit table row "Section = knuckle list, rho(x),
+    # multi-chine | 5 fixed control points, ONE GLOBAL rho"). Real hulls
+    # do not carry one bilge shape stem to stern: the corpus holds
+    # `round_bilge` and `hard_chine` as SEPARATE families precisely
+    # because a hull that softens forward (a hard-chine planing bottom
+    # aft running into a rounded entry) was not expressible — it had to
+    # pick one. The warp law is the flare warp's, exactly, so there is
+    # one shape of "a thing that changes toward the bow" in this kernel:
+    #
+    #     rho(x) = roundness                                  x <= (1-L_r)L
+    #     rho(x) = roundness + (rho_bow - roundness) frac^2    forward
+    #
+    # `rho_len` = 0 disables the warp and every hull drawn before this
+    # existed is bit-identical. Both are lawful post-hoc appends.
+    ("rho_bow",    "-",     0.0,  1.0,  "bilge roundness AT THE STEM; "
+                                        "reached over the forward rho_len "
+                                        "of the hull"),
+    ("rho_len",    "-",     0.0,  0.60, "fraction of LWL over which the "
+                                        "bilge warps toward rho_bow. 0 = "
+                                        "one roundness, stem to stern"),
 ]
 
 N_PARAMS = len(PARAMS)
@@ -525,6 +546,10 @@ _LEGACY_DRAW_ROWS = {
     # and the split pair, for the same reason
     "split_w": (0.0, 0.0),
     "split_len": (0.0, 0.0),
+    # the rho warp is pinned for the same reason as its four predecessors:
+    # a random un-designed bilge warp is not a hull anyone asked for
+    "rho_bow": (0.0, 0.0),
+    "rho_len": (0.0, 0.0),
 }
 for _nm, (_lo, _hi) in _LEGACY_DRAW_ROWS.items():
     _i = NAMES.index(_nm)
@@ -936,7 +961,11 @@ POST_HOC_DEFAULTS: dict[str, float] = {"beta_transom": 0.0, "beta_run": 0.0,
                                        "tun_w": 0.0, "tun_crown": 0.0,
                                        "tun_len": 0.0,
                                        # Phase 4B: no wall, no hole
-                                       "split_w": 0.0, "split_len": 0.0}
+                                       "split_w": 0.0, "split_len": 0.0,
+                                       # Phase 3: no warp -> one roundness.
+                                       # rho_bow is inert at rho_len 0, and
+                                       # 0.0 keeps it meaningful anyway.
+                                       "rho_bow": 0.0, "rho_len": 0.0}
 
 
 def pad_genome(g) -> np.ndarray:
