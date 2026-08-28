@@ -49,6 +49,45 @@ FN_SUPPORT = 0.08
 #: moving (the audit's P0-3; this repo's recurring number-declared-twice
 #: defect, which had produced a hardcoded 1.57 beside a book that already
 #: held 1733.47 N).
+#: WHY `c06_case_a_n5` IS NOT HERE, recorded so the next session does not
+#: re-derive it. The audit named it "the one L1-vs-RANS comparison buyable
+#: without any new CFD" — a SETTLED run of a GRAMMAR-EMITTED hull, the
+#: only anchor whose L1 side this tree can compute at all. ATTEMPTED
+#: 2026-08-28 and REFUSED: the run's manifest records genome sha
+#: 9163220c..., today's canonical case-a hashes bb47e95d..., and the
+#: hull's wetted area reads 6.401 m2 against the manifest's 6.733. The
+#: genome moved when the canonical cases were upgraded to critic-passing
+#: forms (commit 4bca549) — legitimately, and with a full suite behind
+#: it, but it means the solved hull and the computable hull are DIFFERENT
+#: BOATS. The naive ratio is 3.03x and it is meaningless: it compares an
+#: old surface's RANS against a new surface's L1.
+#:
+#: THE FREE PATH WAS TAKEN AND IT REFUSES TOO, for a better reason. The
+#: pre-upgrade genome was reconstructed from `git show 4bca549^` and its
+#: L1 computed at the run's own condition (903.3 kg, 2.0578 m/s, rho
+#: 998.8): total 119.91 N = 55.82 wave + 64.09 friction, against the
+#: settled RANS 376.95 N = 324.53 pressure + 52.42 viscous.
+#:
+#:     ratio RANS/L1   3.14x        (hb19 measures 1.57x)
+#:     viscous half    0.82x        — the L1 friction is the right size
+#:     pressure half   5.81x        — and this is the whole discrepancy
+#:
+#: A 5.8x pressure ratio is NOT a property of this hull family: it is the
+#: same unexplained pressure over-prediction this project has measured
+#: and not closed (CFD.md §2: KCS pressure 2.32x too high with a 36%
+#: batch error while viscous sits at 1.161x; CLAUDE.md's beach/val_coarse
+#: windows span 2.6-6.0x on the same signal). Publishing 3.14x as "the L1
+#: gap for canonical case a" would encode an open SOLVER defect as a hull
+#: property — the defect class this book exists to prevent.
+#:
+#: Identity is also not confirmed: the reconstructed genome hashes
+#: 84b932a6 against the manifest's 9163220c (the digest covers the full
+#: vector and the arity has moved 16 -> 32 since), and its wetted area
+#: reads 6.844 m2 against the manifest's 6.733, a 1.6% gap. Close, not
+#: equal.
+#:
+#: So the entry stays out, and what it is waiting on is named: the
+#: pressure over-prediction, not another run.
 L1_REFERENCE_N = {
     "hb19_7kn": {"l1_total_n": 1103.0, "rel_sigma": 0.25,
                  "basis": "the L1 chain (ITTC-57 friction x form-factor "
