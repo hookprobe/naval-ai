@@ -162,7 +162,7 @@ different Gate 2M numbers came to circulate at once (gap J1).
 
 | Gate | Scope | Verified by |
 |---|---|---|
-| Gate PROP | propulsion integration: motor power and prop space are constraint rows; transom Froude, bilge-keel span and pitch entry are measured reports | `tests/test_propulsion.py` (16 tests) |
+| Gate PROP | propulsion integration: motor power and prop space are constraint rows; transom Froude, bilge-keel span and pitch entry are measured reports | `tests/test_propulsion.py` (20 tests) |
 | Gate MORPH | morphological plausibility: a hull must LOOK like a boat, judged on descriptors measured against 58 published hulls (89-92% of L0-valid generated hulls fail; 0 of 58 real ones do) | `tests/test_morphology.py` (16 tests) |
 | Gate HULL-KB | the reference corpus is learned and reconstruction is proven: KB citations resolve, and the measured cruiser / warped-V / split-topology reconstructions stand | `tests/test_hull_kb.py` (6 tests) |
 | Gate BARGE | a houseboat is a rectangle: the widened envelope draws it, the frozen DRAW box protects history, and the pointed bow stays reachable | `tests/test_barge_bow.py` (6 tests) |
@@ -208,7 +208,7 @@ different Gate 2M numbers came to circulate at once (gap J1).
 | Gate D | waves/RAO response + dynamics + CFD post | `tests/test_stageD.py` (19 tests) |
 | Gate E | latent-space evolution + latent GP | `tests/test_stageE.py` (3 tests) |
 | Gate F | panel unroll/DXF + Pareto dash + handoff receipt | `tests/test_stageF.py` (14 tests) |
-| Gate G | APSE: similitude/ITTC-78/cost/planner/evidence | `tests/test_stageG.py` (55 tests) |
+| Gate G | APSE: similitude/ITTC-78/cost/planner/evidence | `tests/test_stageG.py` (58 tests) |
 | Gate CFD-CMP | CFD comparisons are in newtons, above the scatter, on matched meshes -- or refused | `tests/test_cfd_compare.py` (6 tests) |
 | Gate V2.1 | arrangement grammar: envelope, spaces, deck zones, and an L0-A that names the space it refuses | `tests/test_arrangement.py` (42 tests) |
 | Gate V3.0 | governance compiles to a parameter box and to constraint rows, ratchets only tighter, and the ladder never imports it | `tests/test_policy.py` (55 tests) |
