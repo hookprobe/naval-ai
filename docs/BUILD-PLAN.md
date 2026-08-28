@@ -2203,6 +2203,34 @@ one item at a time. Buckets C and D do not become smaller by writing more
 code, and pretending otherwise is how this repo previously accumulated
 four documents claiming work was outstanding that was already done.
 
+#### Bucket A — CLOSED 2026-08-28, same day it was written
+
+**All nine items landed, each with a gate test and its measured incident
+in the commit.** The list is kept with its outcomes rather than deleted,
+because what the items COST and what they FOUND is the useful part — and
+because a plan that goes on listing finished work is the 2026-08-11
+defect (four documents asserting outstanding work that was already done).
+
+| # | item | outcome |
+|---|---|---|
+| 1 | P1-8 theory-first trigger | `planner.plan()` refuses an L3 grid when theory answers it or the surface was already solved at that speed, and RECORDS the refusal (Gate G) |
+| 2 | P1-10a Fn scheduling | found a live second copy: `fidelity` was pricing a 4.5 Lwl tank the generator no longer builds. **7.5x under-prediction at Fn 0.95** (the domain multiple enters twice) |
+| 3 | P2-12 resolvable delta | Gate CFD-CMP. `compare(v2, v3)` REFUSES — 19% mesh gap on a 1% claim; `compare(v3, v4)` still reports +978.9 N |
+| 4 | P2-14 aft-mutation prior | direction only, 49% of the weighted draw, non-bluff searches bit-identical |
+| 5 | P2-15 wake-deficit field | `DriveLaw.wake_anchored`; `None` (not False) for an unanchored stern |
+| 6 | handoff item 4 | the kernel compares NEWTONS at equal speed, single-sourced at `cfd_kb.COMPARE_UNITS` |
+| 7 | multi-chine (PV-4) | the topside is a KNUCKLE LIST; k=0/k=1 recover the legacy and Phase-3 clips expression for expression |
+| 8 | the hookprobe form | closed better than planned — the loft script's own "not expressible" section had SPECIFIED Phase 4B's split, so the grammar draws the schematic directly (tier L1, GM 2.451 m) |
+| 9 | retire stale ordering | this table |
+
+Two defects fell out of doing the work, both fenced: five `FormFamily`
+rows carried `missing=(_M_X)` — a parenthesised STRING, so `len()`
+counted characters and the registry reported "288 missing item(s)" — and
+`test_morphology`'s seed was drawn over `N_PARAMS`, so every arity event
+silently reseeded it.
+
+<details><summary>The original bucket-A list, as written</summary>
+
 #### Bucket A — buildable now, in order
 
 1. **P1-8, the theory-first trigger.** `planner.plan()` must refuse an L3
@@ -2242,6 +2270,8 @@ four documents claiming work was outstanding that was already done.
    not been re-run against it.
 9. **Retire this plan's own stale ordering** where a dated subsection
    below now contradicts a measurement (PLM §3 step 7).
+
+</details>
 
 #### Bucket B — the ONE physics question, and what it holds up
 
