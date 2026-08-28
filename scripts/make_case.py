@@ -78,6 +78,15 @@ def main() -> None:
                      "--triplet pins its own value and ignores this.")
     ap.add_argument("--stl", help="external hull STL (KCS/JBC calibration); "
                                   "metres, WL at z=0, x in [0, LWL]")
+    ap.add_argument("--wave-height", type=float, default=None,
+                    help="incident WAVE HEIGHT [m] for a seakeeping case. The "
+                         "mesh bands are sized off Lwl for a ship's own wake "
+                         "(+-0.025 Lwl refined, +-0.09 Lwl ungraded core); a "
+                         "2 m sea is 4x that and its crests then ride in the "
+                         "coarse graded blocks. MEASURED: sigFpe at t=5.95 "
+                         "with every field healthy, twice, on meshes with "
+                         "different morphing bands. Give this and the bands "
+                         "cover the wave instead.")
     ap.add_argument("--lwl", type=float,
                     help="waterline length [m], required with --stl")
     args = ap.parse_args()
@@ -93,7 +102,10 @@ def main() -> None:
                 args.np_procs, symmetric=args.symmetric,
                                          free_motion=motion,
                                          lts=False if args.transient else None,
-                                         n_layers=n_layers)
+                                         n_layers=n_layers,
+                                         wave_amplitude_m=(
+                                             0.5 * args.wave_height
+                                             if args.wave_height else None))
     elif args.case:
         import numpy as np
 

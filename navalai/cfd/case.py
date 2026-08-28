@@ -441,7 +441,30 @@ def sixdof_properties(mass_kg: float, cog: tuple[float, float, float],
     return {
         "mass": m, "cog_x": cog[0], "cog_y": cog[1], "cog_z": cog[2],
         "ixx": m * k_roll ** 2, "iyy": i_pitch, "izz": m * k_yaw ** 2,
-        "inner": 0.05 * lwl, "outer": 0.17 * lwl,
+        # THE BLEND BAND ABSORBS THE MOTION, AND IT WAS TOO NARROW TO.
+        # MEASURED 2026-08-28 on `runs/hookprobe_seas_free` (8 t hull released
+        # in heave+pitch, 2 m head seas): the hull rode correctly — heave
+        # oscillating at the 4.5 s wave period, amplitude growing with the wave
+        # ramp — and interFoam then died at t=6 inside
+        # `GAMGSolver::solveCoarsestLevel` on every rank with deltaT HEALTHY at
+        # 0.0140 s and Courant max 5.18. A singular pressure matrix with a
+        # healthy timestep is not the pathological-cell signature and not a
+        # Courant collapse; it is a degenerate cell arriving from mesh motion.
+        #
+        # At 0.17 lwl the band ran 0.592 -> 2.013 m, i.e. 1.42 m of blend, and
+        # it lies ENTIRELY inside the free-surface refinement region where
+        # `fs_dz` is 16.6 mm. By t=6 the body was at +-60 mm heave and 1.24 deg
+        # pitch (+-130 mm at the ends), so the thinnest cells in the mesh were
+        # being asked to absorb a displacement several times their own height.
+        # Widening the band spreads the same motion over ~4x the cells without
+        # touching the physics: the rigid zone still covers the boundary-layer
+        # stack, and `outer` at 0.45 lwl = 5.3 m stays far inside the tank
+        # (half-width 1.5 lwl, depth >= 1.0 lwl).
+        #
+        # `inner` is raised only to 0.06 so the whole prism stack plus the
+        # first refined cells move RIGIDLY with the hull rather than being
+        # deformed at all — a layer cell is 1.5 mm and has no strain to give.
+        "inner": 0.06 * lwl, "outer": 0.45 * lwl,
         "c_lin": c_lin, "c_ang": c_ang,
     }
 
@@ -2131,7 +2154,8 @@ def write_resistance_case_from_stl(stl_path: str | Path, lwl: float,
                                    free_motion: dict | None = None,
                                    lts: bool | None = None,
                                    n_layers: int | None = None,
-                                   allow_collapsed_bands: bool = False) -> dict:
+                                   allow_collapsed_bands: bool = False,
+                                   wave_amplitude_m: float | None = None) -> dict:
     """Same case generator, but for EXTERNAL geometry (KCS/JBC calibration).
 
     The STL must be watertight, in metres, with the free surface at z=0 and
@@ -2197,7 +2221,8 @@ def write_resistance_case_from_stl(stl_path: str | Path, lwl: float,
     stl_sha = hashlib.sha256(data).hexdigest()
     info = _write_case_dicts(out, stl_sha, lwl, speed, end_time, scale,
                              np_procs, symmetric, free_motion, lts, n_layers,
-                             allow_collapsed_bands=allow_collapsed_bands)
+                             allow_collapsed_bands=allow_collapsed_bands,
+                             wave_amplitude_m=wave_amplitude_m)
     # The receipt goes in whether or not anything was wrong, so a reader can
     # tell "checked and clean" from "never checked".
     with (out / "case.info").open("a") as fh:
@@ -2735,7 +2760,8 @@ def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
                       free_motion: dict | None = None,
                       lts: bool | None = None,
                       n_layers: int | None = None,
-                      allow_collapsed_bands: bool = False) -> dict:
+                      allow_collapsed_bands: bool = False,
+                      wave_amplitude_m: float | None = None) -> dict:
     # REFUSE BEFORE WRITING ANYTHING. This is the one seam both entry points
     # pass through, so the guard sits here rather than in either caller.
     # MEASURED 2026-08-20: below scale 0.40 this function raised
@@ -2816,6 +2842,28 @@ def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
     # 0.055L draft with margin); za covers the crest.
     zh = -_Z_BANDS["hull"] * lwl
     za = _Z_BANDS["wave"] * lwl
+    # AN INCIDENT WAVE SETS THE MESH, NOT THE SHIP'S OWN WAKE.
+    # MEASURED 2026-08-28 on `runs/hookprobe_seas_free` (2 m head seas, T 4.5 s,
+    # 9 s ramp): interFoam raised sigFpe at t=5.95 with EVERY field healthy —
+    # Courant 5.16, interface Courant 0.76, alpha in [-9e-6, 1.0007], Phase-1
+    # constant to 6 digits — and it did so at the SAME instant on two meshes
+    # whose morphing bands differed by 3.3x, which is what ruled the mesh
+    # motion out. The bands are sized off `lwl` for a ship's own wake: the
+    # snappy refinement box is +-0.025 lwl = +-0.296 m and the ungraded core
+    # reaches +-0.09 lwl = +-1.07 m. The incident wave passed the refined box
+    # at t=2.66 s and was at 223% of it (0.661 m) when the solve died, so the
+    # crests were being carried by the coarse graded blocks above the core.
+    #
+    # This is the THIRD instance of one defect class in this campaign, after
+    # the tank that could not hold the ship's own wave (`domain_x_bounds`) and
+    # the depth rule that already scaled correctly: a wave case must be sized
+    # by the wave it is asked to carry. `wave_amplitude_m` is that size when a
+    # caller supplies it, and None leaves every calm-water case bit-identical.
+    if wave_amplitude_m:
+        # cover crest and trough with 20% margin, and never SHRINK a band
+        _need = 1.2 * float(wave_amplitude_m)
+        za = max(za, _need)
+        zh = min(zh, -_need)
     # ONE BASE MESH, UNIFORMLY REFINED. Every count derives from nx, so the
     # three grids are the same mesh at three resolutions rather than three
     # separately-rounded meshes.
@@ -2998,7 +3046,10 @@ def _write_case_dicts(out: Path, stl_sha: str, lwl: float, speed: float,
         fs_x0=_FS_BOX["x0"] * lwl, fs_x1=_FS_BOX["x1"] * lwl,
         fs_y0=0.0 if symmetric else -_FS_BOX["y"] * lwl,
         fs_y1=_FS_BOX["y"] * lwl,
-        fs_z0=-_FS_BOX["z"] * lwl, fs_z1=_FS_BOX["z"] * lwl,
+        # the REFINED box tracks the same wave the core band was sized for;
+        # 0.025 lwl is a ship-wake number and is 4x too small for 2 m seas.
+        fs_z0=-max(_FS_BOX["z"] * lwl, 1.2 * (wave_amplitude_m or 0.0)),
+        fs_z1=max(_FS_BOX["z"] * lwl, 1.2 * (wave_amplitude_m or 0.0)),
         # locationInMesh: in the air, far upstream of the hull. The old
         # (-2.0L, 0.35L) sat ABOVE the new tank roof and off a round multiple
         # of the cell size; both are mesh-generation failures.
