@@ -11,7 +11,37 @@ schematic, which is where this design comes from):
 
 and between B and C a MORPHING TRANSITION ZONE where the single hull splits.
 
-WHY THIS IS NOT EXPRESSIBLE IN `navalai.grammar`, stated plainly so nobody
+~~WHY THIS IS NOT EXPRESSIBLE IN `navalai.grammar`~~ **SUPERSEDED
+2026-08-28 — IT IS EXPRESSIBLE NOW, AND THIS SECTION PREDICTED EXACTLY THE
+CHANGE THAT MADE IT SO.** Read on: the paragraph below asks for "an INNER
+boundary beside the outer one: area becomes the integral of
+(y_outer - y_inner) dz, and at t == 0 it reduces to today's expression
+exactly", under "the same '0 is a provable no-op' discipline". That is
+`split_w`/`split_len` and `Hull._split_hole`, landed as Phase 4B, to the
+letter — including the no-op discipline and the reduction at zero.
+
+MEASURED 2026-08-28, the whole schematic through the grammar and the
+ladder: LWL 11.8, BWL 4.2, T 0.75; axe bow (`r_stem` 0, `stem_depth`
+0.45, `forefoot` 0.5); deep-V forward warping to U midships (`rho_bow`
+0.05, `rho_len` 0.45, `roundness` 0.85 — Phase 3's rho(x)); twin
+demihulls aft (`split_w` 0.55, `split_len` 0.35). `grammar.check` returns
+**OK**, `Hull._split_hole()` is present with y_split up to 2.78 m, and
+`evaluate` reaches **tier L1** with GM 2.451 m and Rt 7816.9 N. Cp and
+lcb must be taken inside `cp_band`/`lcb_band` — the SAC has to be
+deliverable — which is a constraint on the designer, not on the kernel.
+`tests/test_split.py` holds this as a gate so the claim cannot go stale
+again in the other direction.
+
+The section is kept, struck through rather than deleted, for two reasons:
+PLM section 3 step 7 requires a superseded item to carry the measurement
+that superseded it, and this is the most useful kind of record a project
+can have — a correctly-specified gap, written down before the work, and
+closed by exactly the thing that was asked for.
+
+The original text follows, and it remains an accurate description of the
+kernel AS IT WAS:
+
+WHY THIS WAS NOT EXPRESSIBLE IN `navalai.grammar`, stated plainly so nobody
 tries to fit it there before the kernel is generalised. The genome carries ONE
 moulded surface -- keel, bilge, sheer -- and `geometry._halfbreadth_at`
 documents the assumption it rests on: "z increases monotonically along a
@@ -21,6 +51,7 @@ walks outboard. Section C-C does not. Aft of the split each half-section spans
 y in [t(x), b(x)] -- it starts at the TUNNEL WALL, not at the centreline -- and
 the transverse section stops being simply connected. No combination of the 23
 genes produces that, because none of them can put a hole in a section.
+(The genome is 36 genes now, and `split_w` is exactly that hole.)
 
 So the generalisation the kernel needs is an INNER boundary beside the outer
 one: area becomes the integral of (y_outer - y_inner) dz, and at t == 0 it

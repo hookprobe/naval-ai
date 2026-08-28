@@ -130,3 +130,65 @@ def test_the_ladder_runs_a_split_hull_end_to_end():
     ev = evaluate(grammar.vector(dict(REFERENCE_HULL, **SPLIT)),
                   MissionSpec())
     assert ev.tier == "L1" and ev.hydro is not None and ev.gm_m is not None
+
+
+def test_the_grammar_draws_the_hookprobe_schematic_the_script_called_impossible():
+    """`scripts/hookprobe_hull.py` said the owner's own schematic was NOT
+    expressible in the grammar, and specified the fix that would make it so:
+
+        "the generalisation the kernel needs is an INNER boundary beside
+         the outer one: area becomes the integral of (y_outer - y_inner)
+         dz, and at t == 0 it reduces to today's expression exactly"
+
+    That is `split_w`/`split_len` and `Hull._split_hole`, to the letter,
+    including the no-op discipline. This test is the receipt, and it is
+    here rather than in the script so that the claim cannot go stale in
+    the OTHER direction: a capability the registry or a docstring denies
+    after it ships is the 2026-08-11 defect, and it is caught by asserting
+    the capability, not by re-reading the prose.
+
+    The three features of the schematic, each from a different phase:
+      axe bow           r_stem 0 + stem_depth + forefoot
+      deep-V -> U       rho(x)          (Phase 3)
+      twin demihulls    split_w/len     (Phase 4B)
+    """
+    from navalai.evaluate import evaluate, sample_valid
+    from navalai.geometry import cp_band, lcb_band
+    from navalai.mission import MissionSpec
+
+    X, _ = sample_valid(1, MissionSpec(), seed=5)
+    g = grammar.named(np.asarray(X, float)[0]).copy()
+    g.update(dict(LWL=11.8, BWL=4.2, T=0.75, D=2.0,
+                  r_stem=0.0, stem_depth=0.45, forefoot=0.5,
+                  rho_bow=0.05, rho_len=0.45, roundness=0.85,
+                  split_w=0.55, split_len=0.35, r_transom=0.45))
+    # Cp and lcb are taken inside the DELIVERABLE bands. That is a
+    # constraint on the designer and not on the kernel: `sac.target`
+    # refuses a curve the family cannot deliver rather than delivering a
+    # silently different one, which is the honest behaviour.
+    lo, hi = cp_band(g["LWL"], g["x_mb"], g["r_transom"], g["r_stem"],
+                     g["pmb"])
+    g["Cp"] = 0.5 * (lo + hi)
+    l_lo, l_hi = lcb_band(g["LWL"], g["x_mb"], g["r_transom"], g["Cp"],
+                          g["r_stem"], g["pmb"])
+    g["lcb"] = 0.5 * (max(l_lo, -3.0) + min(l_hi, 3.0))
+
+    x = grammar.vector(g)
+    rep = grammar.check(x)
+    assert rep.ok, f"the hookprobe schematic no longer passes L0: {rep.violations}"
+
+    h = Hull(x)
+    assert h._split_hole() is not None, (
+        "the stern carries no hole — the demihulls are the whole point of "
+        "this form, and without them it is an ordinary monohull")
+    assert float(np.max(h.y_split)) > 1.0
+    # rho(x) must actually deliver the V-forward / U-aft transition.
+    assert float(h.roundness_x[-1]) < 0.2 < float(h.roundness_x[0]), (
+        "the bilge does not warp from a deep-V entry to a rounded "
+        "midbody; SECTION A-A and SECTION B-B of the schematic are the "
+        "same shape")
+    ev = evaluate(x, MissionSpec())
+    assert ev.tier == "L1" and ev.hydro is not None and ev.gm_m is not None, (
+        "the form draws but does not FLOAT up the ladder — expressible is "
+        "not the same as evaluable, and the claim being retired is about "
+        "both")
