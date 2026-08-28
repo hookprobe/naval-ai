@@ -154,3 +154,73 @@ def test_the_divergence_signature_is_named_while_the_solve_still_runs():
     slow = pf.diagnose_divergence(dt_now=1e-10, dt_healthy=1e-3,
                                   courant_max=0.4)
     assert not slow and "limiter is working" in slow.detail
+
+
+# ===========================================================================
+# P2 — the priors reach the places a designer actually reads
+# ===========================================================================
+
+
+def test_the_l1_gap_is_stated_in_every_resistance_answer():
+    """P2-11. The book holds ONE RANS anchor for a family this project
+    actively designs and the ladder reads ~36% low against it. Until now
+    nothing surfaced that: not the result, not the report, not the
+    critic. It is a NOTE — `cfd_kb.l1_anchor_ratio` carries its own
+    "never apply this inside the ladder" — but a silent 1.57x is the
+    unmeasured-metric-assumed-good defect wearing a measurement."""
+    from navalai import grammar
+    from navalai.geometry import Hull
+    from navalai.reference import REFERENCE_HULL
+    from navalai.resistance import total_resistance
+
+    r = total_resistance(Hull(grammar.vector(REFERENCE_HULL)), 2.5, 20.0, 0.45)
+    anchor = [n for n in r.method_notes if "CFD ANCHOR" in n]
+    assert anchor, "the measured L1 gap is not stated anywhere in the answer"
+    note = anchor[0]
+    assert "not applied" in note and "NO GCI" in note
+    assert "hb19_7kn" in note, "the note does not name the case it rests on"
+
+
+def test_michells_slenderness_assumption_is_reported_not_refused():
+    """P2-13. The model has TWO assumptions and only Fn gated it. The
+    median admissible hull is L/B 3.96 over 4000 draws — the violation is
+    the CENTRE of the box, so a bar would refuse the product's own hulls
+    on a model with no replacement here."""
+    from navalai.resistance import MICHELL_SLENDERNESS_LB, flow_regime
+
+    beamy = flow_regime(2.5, 10.0, beam=3.2)          # L/B 3.13
+    assert beamy.l_over_b < MICHELL_SLENDERNESS_LB
+    assert beamy.slender_ok is False
+    assert beamy.valid, "slenderness must NOT flip validity"
+    assert any("L/B" in e and "REPORTED, never refused" in e
+               for e in beamy.envelope)
+
+    slender = flow_regime(2.5, 10.0, beam=1.5)        # L/B 6.7
+    assert slender.slender_ok and not any("L/B" in e
+                                          for e in slender.envelope)
+
+    # unknown beam: reported as unknown, never scored as a failure
+    unknown = flow_regime(2.5, 10.0)
+    assert unknown.l_over_b is None and unknown.slender_ok is True
+
+
+def test_the_propulsion_report_reaches_the_evaluation():
+    """P2-15. `propulsion.assess` had NO caller in navalai/ — the module
+    written because the owner's eye caught what the pipeline did not
+    measure was itself unmeasured. houseboat19's transom Froude (1.42 at
+    5 kn, 1.99 at 7) is the number that started it."""
+    from navalai import grammar
+    from navalai.evaluate import evaluate
+    from navalai.mission import MissionSpec
+    from navalai.reference import REFERENCE_HULL
+
+    ev = evaluate(grammar.vector(REFERENCE_HULL), MissionSpec())
+    rep = ev.propulsion_report
+    assert rep is not None, "the propulsion report is still inert"
+    assert rep.transom_fn > 0 and rep.transom_fn_clean_bar == 2.5
+    assert rep.drive == "shaft"
+    assert rep.d_prop_min_m > 0 and rep.d_prop_max_m > 0
+    assert 0.0 <= rep.chine_span_frac <= 1.0
+    # a report is an assessment aid, never a row: the vector is unchanged
+    from navalai.evaluate import CONSTRAINT_NAMES
+    assert len(ev.g) == len(CONSTRAINT_NAMES)

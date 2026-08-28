@@ -198,15 +198,49 @@ class FlowRegime:
     michell_ok: bool          # the wave half: Fn <= FN_MICHELL_MAX
     ittc57_ok: bool           # the friction half: Re >= RE_TRANSITION_ONSET
     envelope: tuple[str, ...] = ()   # every model that is out of its support
+    #: L/B of the hull this regime was derived for, when the caller knows
+    #: it; None when only a speed and a length were given.
+    l_over_b: float | None = None
+    #: Michell's own SLENDERNESS assumption, which is not a Froude bound.
+    #: True when unknown — an unmeasured quantity is reported, never
+    #: scored as a failure (this repo's rule), and `envelope` says so.
+    slender_ok: bool = True
 
     @property
     def valid(self) -> bool:
-        """True only when BOTH halves of the L1 model may answer."""
+        """True only when BOTH halves of the L1 model may answer.
+
+        SLENDERNESS IS REPORTED, NOT REFUSED, and the asymmetry is
+        deliberate. Michell's derivation assumes beam << length, and
+        MEASURED over 4000 grammar draws the median admissible hull is
+        L/B 3.96 (5th-95th 2.39-7.44) with the reference hull at 3.13 —
+        i.e. the assumption is violated by the CENTRE of the design box,
+        not by its edge. Making it a hard clause would refuse the
+        product's own hulls on a model this project has no replacement
+        for; leaving it silent is what the CFD audit found (a Froude
+        bound presented as "the" validity envelope). So it enters
+        `envelope` with its number, sigma is inflated by the caller, and
+        the decision to bound it stays the operator's.
+        """
         return self.michell_ok and self.ittc57_ok
 
 
-def flow_regime(speed: float, lwl: float, rho: float = RHO_FRESH) -> FlowRegime:
-    """Derive AXIS 3 from a speed and a waterline length. No declaration."""
+#: Below this L/B, Michell's thin-ship derivation (beam << length) is
+#: being applied outside the shape it assumes. 4.0 is where the measured
+#: grammar median sits (3.96 over 4000 draws), so the note fires on
+#: roughly half the design box — which is the honest reading, not a
+#: tuned threshold. It bounds NOTHING; see FlowRegime.valid.
+MICHELL_SLENDERNESS_LB = 4.0
+
+
+def flow_regime(speed: float, lwl: float, rho: float = RHO_FRESH,
+                beam: float | None = None) -> FlowRegime:
+    """Derive AXIS 3 from a speed and a waterline length. No declaration.
+
+    `beam` is optional: given it, the SLENDERNESS half of Michell's
+    validity is reported too (the CFD audit's finding that only Fn gated
+    a model with two assumptions).
+    """
     u, ell = float(speed), float(lwl)
     fn = u / math.sqrt(G * ell) if ell > 0.0 else float("inf")
     re = u * ell / nu_water(rho)
@@ -237,7 +271,22 @@ def flow_regime(speed: float, lwl: float, rho: float = RHO_FRESH) -> FlowRegime:
             f"into a bar would move the friction number on hulls inside "
             f"today's design box and that is a measured decision, not a "
             f"drive-by one. Recorded as owed.")
-    return FlowRegime(fn=fn, re=re, michell_ok=michell_ok,
+    lb = (float(ell) / float(beam)
+          if beam is not None and float(beam) > 0.0 else None)
+    slender_ok = True
+    if lb is not None and lb < MICHELL_SLENDERNESS_LB:
+        slender_ok = False
+        viol.append(
+            f"Michell thin-ship: L/B {lb:.2f} < {MICHELL_SLENDERNESS_LB} — "
+            f"the derivation assumes beam << length and this hull is not "
+            f"slender in that sense. REPORTED, never refused: MEASURED over "
+            f"4000 grammar draws the median admissible hull is L/B 3.96 "
+            f"(5th-95th 2.39-7.44), so a bar here would refuse the middle "
+            f"of the product's own design box on a model with no "
+            f"replacement in this tree. The wave half of this answer "
+            f"carries more error than its sigma states.")
+    return FlowRegime(l_over_b=lb, slender_ok=slender_ok,
+                      fn=fn, re=re, michell_ok=michell_ok,
                       ittc57_ok=ittc57_ok, envelope=tuple(viol))
 
 
@@ -1206,7 +1255,11 @@ def total_resistance(hull: Hull, speed: float, wetted: float, cb: float,
     # nothing that reads it changes meaning: at Re >= RE_TRANSITION_ONSET —
     # true of every hull in today's design box, by 3.6x at the worst corner —
     # `flow.valid` is identically the old expression.
-    flow = flow_regime(speed, lwl, rho)
+    # THE BEAM IS PASSED so Michell's SECOND assumption is reported too:
+    # `beam` above is the floated waterline beam (or the design beam via
+    # the E7 fallback), and until now `flow_regime` saw only speed and
+    # length — a two-assumption model gated on one (CFD audit, R11).
+    flow = flow_regime(speed, lwl, rho, beam=beam)
     valid = flow.valid
     if not valid:
         # The band is meaningless outside the model's regime; say so with a
@@ -1236,6 +1289,34 @@ def total_resistance(hull: Hull, speed: float, wetted: float, cb: float,
             "superposition checks prove the term is self-consistent, not that "
             "it is right",
         )
+    # THE MEASURED GAP IS SAID OUT LOUD (CFD audit P2-11). The book holds
+    # one RANS anchor for a family this project actively designs — the
+    # bluff-stern houseboat, where the settled run measures ~1.57x this
+    # chain at Fn 0.33 — and until now NOTHING surfaced it: not this
+    # result, not the design report, not the critic. A tier that is known
+    # to run 36% low on a family, silently, is the "unmeasured metric
+    # assumed good" defect wearing a measurement.
+    #
+    # It is a NOTE, never a multiplier: `cfd_kb.l1_anchor_ratio` carries
+    # its own prohibition ("NEVER apply this inside the ladder"), the
+    # anchor is single-grid with no GCI, and the family of THIS hull is
+    # not known here — so the note states the anchor's existence and its
+    # domain, and the reader decides whether their hull is in it.
+    try:
+        from . import cfd_kb as _kb
+        _anch = _kb.l1_anchor_ratio("bluff_stern_houseboat")
+        if _anch:
+            notes = notes + (
+                f"CFD ANCHOR (report-tier, not applied): the one settled "
+                f"RANS anchor for a bluff-stern houseboat measures "
+                f"{_anch['ratio']:.2f}x this L1 chain at Fn "
+                f"{_anch['fn']:.2f} (+/-{100 * _anch['rel_sigma']:.0f}%, "
+                f"single grid, NO GCI, case {_anch['case']}). If this hull "
+                f"is of that family, expect the ladder to read low by "
+                f"about that factor; if it is not, the anchor does not "
+                f"speak for it and no other family is anchored.",)
+    except Exception:                                       # noqa: BLE001
+        pass                    # a missing book is not a resistance error
     return ResistanceResult(speed, fn, rw, rf, total, cw, cf, sigma,
                             valid=valid,
                             regime=("displacement" if fn <= FN_MICHELL_MAX

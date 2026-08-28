@@ -326,6 +326,16 @@ class Evaluation:
     # The critic's named findings for the `shape` row (2026-08-26) — the
     # REPORT half; the margin itself is g["shape"]. Empty = plausible.
     shape_findings: tuple = ()
+    #: The propulsion REPORT — transom Froude, bilge-keel span, pitch
+    #: entry, disc sizes, the drive the rows were measured against.
+    #: These are assessment aids, deliberately not constraint rows (an
+    #: immersed transom at displacement speed is a costed choice, not an
+    #: invalid design), but until 2026-08-28 `propulsion.assess` had NO
+    #: CALLER anywhere in navalai/ — the module that exists because the
+    #: owner's eye caught what the pipeline did not measure was itself
+    #: unmeasured (CFD audit P2-15). None when the ladder stopped before
+    #: L1, which is the one honest reason not to have one.
+    propulsion_report: object | None = None
     # Tier L3, when a RECORDED campaign has been read for this hull. Empty is
     # the honest default: "no evidence at this tier", never a placeholder drag.
     cfd: dict = field(default_factory=dict)
@@ -494,6 +504,25 @@ def sample_valid(n: int, mission: MissionSpec, seed: int = 0,
         X.append(x)
         y.append(val)
     return np.array(X), np.array(y)
+
+
+class _PropAssessView:
+    """The four fields `propulsion.assess` reads off an Evaluation.
+
+    A VIEW, not a second Evaluation: `assess` is documented as a reader
+    of a FINISHED evaluation, and the finished object does not exist yet
+    at the point the ladder can afford to build the report. Passing the
+    four parts it actually consumes keeps the reader contract intact
+    without inventing a half-built Evaluation for it to read.
+    """
+
+    __slots__ = ("wl", "energy", "resistance", "tier")
+
+    def __init__(self, wl, energy, resistance, tier):
+        self.wl = wl
+        self.energy = energy
+        self.resistance = resistance
+        self.tier = tier
 
 
 def _declared_lwl_m(params) -> float:
@@ -1602,7 +1631,18 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
         "lcb_delivered_pct": float(hs.lcb_pct_lwl),
         "lcb_basis": lcb_basis,
     }
+    # THE PROPULSION REPORT GETS A CALLER (CFD audit P2-15). `assess`
+    # reads a FINISHED evaluation, so it is built here from the parts the
+    # ladder already holds; a failure to build it is recorded as absence,
+    # never as a passing default — an unmeasurable report is not a good
+    # one, and the rows above are unaffected either way.
+    try:
+        _prop_report = propulsion.assess(
+            hull, _PropAssessView(wl, en, res, tier="L1"), energy_spec)
+    except Exception:                                       # noqa: BLE001
+        _prop_report = None
     ev = Evaluation(
+        propulsion_report=_prop_report,
         ok=len(viol) == 0, tier="L1", violations=tuple(viol), hydro=hs, wl=wl,
         weights=wb, masses=agg, gm_m=gm_m, gm_l_m=gm_l_m,
         trim_deg=trim, list_deg=heel, resistance=res, energy=en, g=g,

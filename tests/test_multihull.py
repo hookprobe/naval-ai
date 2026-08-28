@@ -236,7 +236,12 @@ def test_total_resistance_monohull_is_bit_identical_to_the_bare_michell_call(
     xs, zs, Y = Hull(ref_hull, n_stations=ns).offsets_grid(nz=nz, wl=wl)
     assert res.rw == michell_rw(xs, zs - wl, Y, 2.5, RHO_WATER)
     assert res.n_hulls == 1 and res.separation_m is None
-    assert res.method_notes == ()
+    # notes carry no CATAMARAN clause on a monohull — the bit-identity
+    # claim is about the NUMBERS and the multihull terms, and the
+    # report-tier CFD anchor note (P2-11) is neither. Asserting an empty
+    # tuple made this test a fence against any future note at all, which
+    # is not what it exists to guard.
+    assert not any("catamaran" in n for n in res.method_notes)
     assert "n_theta" not in res.grid          # the monohull grid dict is intact
     assert res.valid is (res.fn <= FN_MICHELL_MAX)
     assert res.flow is not None and res.flow.ittc57_ok
