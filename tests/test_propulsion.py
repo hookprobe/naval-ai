@@ -269,3 +269,76 @@ def test_the_report_carries_the_drive_and_the_as_applied_levers():
     rep = propulsion.assess(Hull(x), ev, m.energy)
     assert rep.drive == "outboard"
     assert rep.tunnel_recess_m == 0.0
+
+
+# --------------------------------------------------------------------------
+# CFD audit P2-15: the wake-deficit layer becomes a FIELD, not a note.
+#
+# THE MEASUREMENT. hookprobe v1, v2 and v3 at 8 kn — three hulls, one
+# campaign — all read the same thing at the prop plane: 0.70-0.84 of boat
+# speed at 0.2 m below the static waterline, 99-107% at 0.4 m. It
+# REPEATED across all three and survived the v2 fin-TE taper, which makes
+# it the strongest measured feature-to-flow link in this tree.
+#
+# THE DEFECT IT FIXES. Until 2026-08-28 the rule lived inside a DriveLaw
+# `note` string, where the ladder could not read it, no report carried
+# it, and no test could fail on it. A design rule that only a human can
+# apply is not encoded — it is documented, which is a different thing.
+# --------------------------------------------------------------------------
+
+def test_the_wake_depth_rule_is_a_number_a_reader_gets_not_a_note():
+    from navalai import propulsion as pr
+
+    assert pr.WAKE_CLEAN_DEPTH_M > pr.WAKE_DEFICIT_DEPTH_M
+    # The nondimensional form must be the quotient, never a second copy.
+    assert pr.WAKE_CLEAN_DEPTH_FRAC_LWL == pytest.approx(
+        pr.WAKE_CLEAN_DEPTH_M / pr.WAKE_REFERENCE_LWL_M)
+    # ... and it must reproduce the measurement at the measured length.
+    assert pr.wake_clean_depth_m(pr.WAKE_REFERENCE_LWL_M) == pytest.approx(
+        pr.WAKE_CLEAN_DEPTH_M)
+
+
+def test_only_the_tunnel_stern_carries_a_wake_verdict():
+    """An unmeasured stern gets None — not False, and not a guess."""
+    from navalai import propulsion as pr
+
+    anchored = [a for a, law in pr.DRIVE_LAWS.items() if law.wake_anchored]
+    assert anchored == [pr.DriveArchitecture.TUNNEL], (
+        "the wake deficit was measured on the hookprobe TUNNEL stern and "
+        "nowhere else. A transom-hung leg and a pod sit in different "
+        "flow; claiming the tunnel's anchor over them is a defect "
+        f"measured at a configuration the product never runs: {anchored}")
+
+
+def test_an_unanchored_stern_returns_none_rather_than_a_verdict():
+    from navalai import propulsion as pr
+    from navalai.evaluate import sample_valid
+
+    X, _ = sample_valid(1, MissionSpec(), seed=11)
+    h = Hull(np.asarray(X, float)[0])
+    # Float it properly rather than guessing a waterline: the verdict is
+    # a depth comparison, so a fabricated wl would be a fabricated answer.
+    wl = float(evaluate(np.asarray(X, float)[0], MissionSpec()).wl)
+    out = pr.axis_clears_wake_deficit(
+        h, wl, pr.DRIVE_LAWS[pr.DriveArchitecture.OUTBOARD])
+    assert out is None, (
+        "an outboard leg got a wake verdict from a tunnel measurement. "
+        "'I could not measure this' must not read as 'this is fine' — "
+        "nor as 'this is broken'")
+    tun = pr.axis_clears_wake_deficit(
+        h, wl, pr.DRIVE_LAWS[pr.DriveArchitecture.TUNNEL])
+    assert isinstance(tun, bool), "the anchored stern must give a verdict"
+
+
+def test_the_axis_convention_is_the_centred_disc_and_is_single_sourced():
+    """The shallowest-admissible reading would fire on every boat afloat."""
+    from navalai import propulsion as pr
+
+    # Centred in the column it may use: half of (column + recess).
+    assert pr.prop_axis_depth_m(0.8, 0.0) == pytest.approx(0.40)
+    assert pr.prop_axis_depth_m(0.8, 0.2) == pytest.approx(0.50)
+    # A recess DEEPENS the axis — that is the whole point of the recess,
+    # and a sign error here would report the tunnel as making things
+    # worse.
+    assert pr.prop_axis_depth_m(0.8, 0.2) > pr.prop_axis_depth_m(0.8, 0.0)
+    assert pr.prop_axis_depth_m(-1.0, -1.0) == 0.0

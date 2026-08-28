@@ -87,6 +87,28 @@ PROP_IMMERSION_FRACTION = 1.0 - TIP_CLEARANCE_FRACTION - GROUNDING_MARGIN_FRACTI
 #: architectures override — see DRIVE_LAWS.)
 PROP_STATION_FRAC = 0.12
 
+#: THE WAKE-DEFICIT LAYER, and the depth that clears it. MEASURED on the
+#: hookprobe campaign (v1, v2 and v3 at 8 kn, three independent hulls,
+#: docs/research/HOOKPROBE-CFD-CAMPAIGN.md inflow tables): at 0.2 m below
+#: the static waterline the tunnel inflow carries a 16-30% deficit
+#: (0.70-0.84 of boat speed); at 0.4 m it arrives at 99-107%. The rule
+#: "put the prop axis in the deep layer" is the strongest measured
+#: feature-to-flow link in this tree — it REPEATED on all three hulls and
+#: survived the v2 fin-TE taper — and until 2026-08-28 it existed only as
+#: prose inside a DriveLaw note, where nothing could read it.
+#:
+#: NONDIMENSIONALISED BY LWL, and the assumption is stated because it is
+#: an assumption: the campaign hull is 11.8 m on the waterline, so 0.4 m
+#: is 0.0339 Lwl. Scaling a near-surface wake by length is a geometric
+#: similarity argument, not a measured scaling law — nobody has run this
+#: at a second length. It is therefore a REPORT, never a constraint row:
+#: an unmeasured quantity occupying an NSGA-II dimension is a defect this
+#: repository has already shipped once.
+WAKE_REFERENCE_LWL_M = 11.8
+WAKE_DEFICIT_DEPTH_M = 0.20        # 0.70-0.84 U0 here
+WAKE_CLEAN_DEPTH_M = 0.40          # 99-107% U0 here
+WAKE_CLEAN_DEPTH_FRAC_LWL = WAKE_CLEAN_DEPTH_M / WAKE_REFERENCE_LWL_M
+
 
 # ---------------------------------------------------------------------------
 # Drive architecture (P6, 2026-08-27). The audit's H chain: the propulsion
@@ -117,6 +139,13 @@ class DriveLaw:
     allows_recess: bool      # may a tunnel recess buy diameter?
     allows_below_keel: bool  # may the disc hang below the keel line?
     note: str
+    #: Has the wake-deficit layer been MEASURED for this stern? Only the
+    #: tunnel stern has (hookprobe v1-v3). False means the depth report
+    #: is withheld rather than guessed: a transom-hung leg and a pod sit
+    #: in different flow, and asserting a tunnel measurement over them is
+    #: the "defect measured at a configuration the product never runs"
+    #: failure, run backwards.
+    wake_anchored: bool = False
 
 
 DRIVE_LAWS: dict[DriveArchitecture, DriveLaw] = {
@@ -145,7 +174,8 @@ DRIVE_LAWS: dict[DriveArchitecture, DriveLaw] = {
              "carries a fin/hull wake deficit (0.70-0.84 U0). Configuration"
              "-specific numbers, not a general bar — but the DESIGN rule "
              "they support is general: put the prop axis in the deep "
-             "layer, not under the surface deficit"),
+             "layer, not under the surface deficit",
+        wake_anchored=True),
 }
 
 
@@ -244,6 +274,51 @@ def max_prop_diameter_m(immersion_m: float, tunnel_recess_m: float = 0.0,
             + max(0.0, below_keel_m))
 
 
+def prop_axis_depth_m(immersion_m: float,
+                      tunnel_recess_m: float = 0.0) -> float:
+    """Depth of the disc axis below the static waterline, by CONVENTION.
+
+    The convention, single-sourced here so it cannot be re-derived two
+    ways: the disc is centred in the column it is allowed to use, so the
+    axis sits at half of (water column at the prop station + any tunnel
+    recess). It is a geometric read of the floated surface, tier L0.
+
+    This is deliberately NOT the shallowest admissible axis (tip just
+    under the waterline). That reading would report every stern as
+    sitting in the deficit layer and a bar that fires on everything is as
+    dead as one that fires on nothing — the lesson `max_prop_diameter_m`
+    above already paid for.
+    """
+    return 0.5 * (max(0.0, float(immersion_m))
+                  + max(0.0, float(tunnel_recess_m)))
+
+
+def wake_clean_depth_m(lwl_m: float) -> float:
+    """Depth at which the campaign measured clean inflow, scaled by length.
+
+    See WAKE_CLEAN_DEPTH_FRAC_LWL for the measurement and for why the
+    length scaling is an assumption rather than a result.
+    """
+    return WAKE_CLEAN_DEPTH_FRAC_LWL * max(0.0, float(lwl_m))
+
+
+def axis_clears_wake_deficit(hull, wl: float, law: "DriveLaw",
+                             tunnel_recess_m: float = 0.0):
+    """Is the prop axis in the deep layer? None when nothing measured it.
+
+    Returns None — not False — for a stern whose wake has never been
+    solved. An unmeasured metric reported as a verdict is exactly the
+    `${VAR:-0}` failure the CFD receipts taught this project: "I could
+    not measure this" must not read as "this is fine", and it must not
+    read as "this is broken" either.
+    """
+    if not getattr(law, "wake_anchored", False):
+        return None
+    imm = prop_immersion_m(hull, wl, law.station_frac)
+    lwl = float(hull.x[-1] - hull.x[0])
+    return prop_axis_depth_m(imm, tunnel_recess_m) >= wake_clean_depth_m(lwl)
+
+
 def wetted_chine_span_frac(hull, wl: float, n: int = 81) -> float:
     """Fraction of LWL where the chine is submerged: bilge-keel real estate.
 
@@ -298,6 +373,12 @@ class PropulsionReport:
     bilge_keel_min_span_frac: float
     alpha_e_deg: float         # L0
     forefoot_drop_frac: float  # L0; positive = deeper than midships (axe)
+    #: The wake-deficit reading (audit P2-15). L0 geometry against a
+    #: MEASURED depth; `axis_clears_wake_deficit` is None when this stern
+    #: has no anchor, and that is an answer, not a gap.
+    prop_axis_depth_m: float
+    wake_clean_depth_m: float
+    axis_clears_wake_deficit: bool | None
 
 
 ROW_MOTOR = "motor_power"
@@ -338,6 +419,11 @@ def assess(hull, ev, spec) -> PropulsionReport:
         bilge_keel_min_span_frac=BILGE_KEEL_MIN_SPAN_FRAC,
         alpha_e_deg=pitch_entry_report(hull, wl)[0],
         forefoot_drop_frac=pitch_entry_report(hull, wl)[1],
+        prop_axis_depth_m=prop_axis_depth_m(imm, recess),
+        wake_clean_depth_m=wake_clean_depth_m(
+            float(hull.x[-1] - hull.x[0])),
+        axis_clears_wake_deficit=axis_clears_wake_deficit(
+            hull, wl, law, recess),
     )
 
 
