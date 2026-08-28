@@ -56,19 +56,34 @@ OUT = ROOT / "data" / "cfd_anchors.json"
 #: benchmarks/kcs.py (kcs*: the KRISO container ship, slender cargo).
 #: Mesh-sweep, smoke and zb_* diagnostics are deliberately NOT anchors —
 #: they measured the MESH, not a hull.
-CASES: dict[str, str] = {
-    "hookprobe_cruise_n10": "hookprobe_hybrid",   # v1
-    "hookprobe_v2": "hookprobe_hybrid",
-    "hookprobe_v3": "hookprobe_hybrid",
-    "hookprobe_v3_10kn": "hookprobe_hybrid",
-    "hookprobe_v3_seas": "hookprobe_hybrid",
-    "hookprobe_v4": "hookprobe_hybrid_appendaged",
-    "hookprobe_v5_20kn": "hookprobe_hybrid",
-    "hb19_7kn": "bluff_stern_houseboat",
-    "kcs": "slender_cargo_benchmark",
-    "kcs_s1": "slender_cargo_benchmark",
-    "c06_case_a_n5": "canonical_case_a",
+#: (family, run_type). RUN_TYPE is the field the audit's P0-2 demands: a
+#: wave-loads record and a calm-water resistance record are DIFFERENT
+#: MEASUREMENTS, and the seas run's nominal "speed" label invited reading
+#: it as a Fn 0.24 resistance point (it has ZERO forward speed — native
+#: waveModels carries no mean current). A mesh study is a third thing.
+#: Only `calm_resistance` records may support a resistance prediction.
+CASES: dict[str, tuple[str, str]] = {
+    "hookprobe_cruise_n10": ("hookprobe_hybrid", "calm_resistance"),   # v1
+    "hookprobe_v2": ("hookprobe_hybrid", "calm_resistance"),
+    "hookprobe_v3": ("hookprobe_hybrid", "calm_resistance"),
+    "hookprobe_v3_10kn": ("hookprobe_hybrid", "calm_resistance"),
+    "hookprobe_v3_seas": ("hookprobe_hybrid", "wave_loads"),
+    "hookprobe_v4": ("hookprobe_hybrid_appendaged", "calm_resistance"),
+    "hookprobe_v5_20kn": ("hookprobe_hybrid", "calm_resistance"),
+    "hb19_7kn": ("bluff_stern_houseboat", "calm_resistance"),
+    "kcs": ("slender_cargo_benchmark", "calm_resistance"),
+    "kcs_s1": ("slender_cargo_benchmark", "calm_resistance"),
+    "c06_case_a_n5": ("canonical_case_a", "calm_resistance"),
 }
+
+#: Below this achieved layer coverage the near-wall mesh is not a boundary
+#: layer, so the VISCOUS component is not a measurement of friction — the
+#: run remains valid for pressure/wave behaviour. MEASURED on
+#: `hookprobe_v5_20kn`: layers failed at ~0.1% coverage and the book
+#: published a viscous force anyway (audit P0-2). The bar is the campaign
+#: doc's own "a wall model without a boundary-layer mesh is a different
+#: simulation".
+VISCOUS_VALID_MIN_COVERAGE = 0.50
 
 
 def _case_info(case: pathlib.Path) -> dict:
@@ -93,7 +108,7 @@ def main() -> int:
         old = json.loads(OUT.read_text())
         book["anchors"] = old.get("anchors", {})
 
-    for name, family in CASES.items():
+    for name, (family, run_type) in CASES.items():
         case = ROOT / "runs" / name
         if not case.exists():
             if name in book["anchors"]:
@@ -107,6 +122,27 @@ def main() -> int:
             continue
         info = _case_info(case)
         lwl = float(r.get("lwl") or info.get("lwl") or 0.0)
+        # LAYER COVERAGE decides whether the viscous half is a measurement.
+        try:
+            _cov = float(info.get("layers_achieved", "nan"))
+        except ValueError:
+            _cov = float("nan")
+        cov = (_cov / float(info.get("n_layers", "1"))
+               if _cov == _cov and _cov > 1.0 else _cov)
+        viscous_valid = bool(cov == cov and cov >= VISCOUS_VALID_MIN_COVERAGE)
+        # Ct IS COMPARABLE ONLY WITHIN A SURFACE CLASS. MEASURED: v2 and v3
+        # are the "same" hull one edit apart and their STL wetted areas read
+        # 42.14 vs 34.28 m2 — because v2 is a 20096-facet export and v3 is
+        # 152126. The denominator is not wrong; the surfaces are different
+        # objects, and a Ct compared across them is a comparison of
+        # triangulations. The flag carries the facet count that decides it.
+        _facets = 0
+        for _line in (case / "case.info").read_text().splitlines():
+            if _line.startswith("bow_patch_facets") and " of " in _line:
+                try:
+                    _facets = int(_line.split(" of ")[1].split()[0])
+                except (ValueError, IndexError):
+                    _facets = 0
         u = float(r["speed"])
         fn = u / math.sqrt(G_STANDARD * lwl) if lwl > 0 else None
         total = abs(float(r["drag_n"]))
@@ -125,8 +161,14 @@ def main() -> int:
             "pressure_n": pres,
             "viscous_n": abs(float(r["viscous_n"])),
             "pressure_fraction": pres / total if total > 0 else None,
+            "run_type": run_type,
             "ct": float(r.get("ct") or 0.0) or None,
             "wetted_m2": float(r.get("s_wetted_m2") or 0.0) or None,
+            "surface_facets": _facets or None,
+            # a Ct is trusted only against records of the same surface class
+            "ct_trusted": bool(_facets >= 100_000),
+            "layer_coverage": None if cov != cov else float(cov),
+            "viscous_valid": viscous_valid,
             "settled": bool(r["settled"]),
             "settle_reasons": list(r.get("reasons") or ()),
             "single_grid_no_gci": True,

@@ -1051,10 +1051,19 @@ def form_factor(cb: float, lwl: float, beam: float, t: float) -> FormFactor:
     Returns a `FormFactor`, not a float, because a bare 0.4500 cannot say
     whether Watanabe produced it or the clamp did.
 
-    RANS CROSS-CHECK (2026-08-27, from runs/kcs_s1 via docs/research/CFD.md
-    §2): at KCS proportions this estimate gives 1 + k = 1.094 with
-    sigma_k 0.05, and the settled RANS viscous drag measured 1.161x the
-    ITTC-57 flat plate — 0.017 OUTSIDE one sigma. Read it both ways: the
+    RANS CROSS-CHECK (2026-08-27, from docs/research/CFD.md §2): at KCS
+    proportions this estimate gives 1 + k = 1.094 with sigma_k 0.05, and
+    the RANS viscous drag measured 1.161x the ITTC-57 flat plate — 0.017
+    OUTSIDE one sigma. PROVENANCE CORRECTED 2026-08-28 (the CFD audit's
+    P0-3): this sentence said "the SETTLED RANS viscous drag" while
+    naming `runs/kcs_s1`, which `data/cfd_anchors.json` records as
+    settled: false (two 35% batch-error reasons). The 1.161 is quoted
+    from the research record's component decomposition, whose own drift
+    on the VISCOUS component is 1.15% with a 1.7% batch error — the
+    viscous half of that run is the stable half, which is why the
+    decomposition stands while the run's TOTAL does not. The settled
+    sibling `runs/kcs` is a different case (0.392 pressure fraction) and
+    is NOT the source of this number. Read it both ways: the
     estimate's order is corroborated by an independent viscous-resolving
     method on a real hull, and the sigma is marginal rather than generous,
     so do not narrow it without a second anchor.

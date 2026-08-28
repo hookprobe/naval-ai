@@ -16,6 +16,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from navalai import cfd_kb
 
 BOOK = Path(__file__).resolve().parents[1] / "data" / "cfd_anchors.json"
@@ -72,15 +74,63 @@ def test_out_of_support_queries_are_refused_by_name():
     r2 = cfd_kb.pressure_fraction_band("no_such_family", fn=0.38)
     assert not r2 and "no_such_family" in r2.reason
     r3 = cfd_kb.l1_anchor_ratio("hookprobe_hybrid")
-    assert not r3 and "hb19" in r3.reason
+    assert not r3 and "bluff_stern_houseboat" in r3.reason
 
 
-def test_the_hb19_l1_anchor_carries_its_sigma_and_its_basis():
+def test_the_l1_anchor_is_COMPUTED_from_the_book_not_stored():
+    """P0-3: the ratio was a hardcoded 1.57 beside a book that already
+    held 1733.47 N — this repo's recurring number-declared-twice defect,
+    which cannot notice its own sources moving. It is now derived, and
+    this test asserts the derivation rather than the value."""
     row = cfd_kb.l1_anchor_ratio("bluff_stern_houseboat")
-    assert row and row["ratio"] == 1.57
+    assert row, getattr(row, "reason", "")
+    book = json.loads(BOOK.read_text())["anchors"][row["case"]]
+    assert row["rans_total_n"] == book["total_n"], (
+        "the ratio's numerator is not the book's own measurement")
+    assert row["ratio"] == pytest.approx(
+        book["total_n"] / row["l1_total_n"], rel=1e-12)
+    assert 1.4 < row["ratio"] < 1.8          # the measured neighbourhood
     assert row["rel_sigma"] >= 0.2, (
         "a single-grid anchor with a narrow sigma is a lie about GCI")
-    assert "no GCI" in row["basis"]
+    assert "NO GCI" in row["basis"] or "no GCI" in row["basis"]
+
+
+def test_a_wave_loads_record_never_answers_a_resistance_question():
+    """P0-2: the seas run has ZERO forward speed under a nominal speed
+    label and a 132% batch error — "wrong measurement type", not merely
+    unsettled. It must not reach a resistance query even if it settles."""
+    doc = json.loads(BOOK.read_text())["anchors"]
+    seas = doc.get("hookprobe_v3_seas")
+    assert seas and seas["run_type"] == "wave_loads"
+    assert "hookprobe_v3_seas" not in cfd_kb.anchors(settled_only=False)
+    assert "hookprobe_v3_seas" in cfd_kb.anchors(settled_only=False,
+                                                 run_type=None)
+
+
+def test_a_failed_layer_stack_invalidates_the_viscous_half_only():
+    """P0-2: the 20-kn record shipped a viscous force from a stack that
+    achieved ~0.1% coverage. The record stays (it is real pressure/wave
+    data) and says so."""
+    doc = json.loads(BOOK.read_text())["anchors"]
+    v5 = doc.get("hookprobe_v5_20kn")
+    assert v5 is not None
+    assert v5["viscous_valid"] is False, (
+        "a viscous number from a failed layer stack is published as a "
+        "measurement of friction")
+    # and a well-layered settled run is flagged valid
+    assert doc["hookprobe_v3"]["viscous_valid"] is True
+
+
+def test_ct_is_flagged_untrusted_on_a_coarse_surface():
+    """P0-1: v2 and v3 are one edit apart and their STL wetted areas read
+    42.14 vs 34.28 m2 — because v2 is a 20096-facet export and v3 is
+    152126. The denominator is not wrong; the surfaces are different
+    objects, so a Ct compared across them compares triangulations."""
+    doc = json.loads(BOOK.read_text())["anchors"]
+    assert doc["hookprobe_v2"]["ct_trusted"] is False
+    assert doc["hookprobe_v3"]["ct_trusted"] is True
+    assert doc["hookprobe_v2"]["surface_facets"] < 50_000
+    assert doc["hookprobe_v3"]["surface_facets"] > 100_000
 
 
 def test_same_geometry_finds_prior_runs_by_sha_and_refuses_without_one():

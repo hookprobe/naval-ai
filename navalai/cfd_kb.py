@@ -42,13 +42,20 @@ _BOOK_PATH = pathlib.Path(__file__).resolve().parents[1] / "data" / "cfd_anchors
 #: outside it the book refuses rather than interpolates across a hump.
 FN_SUPPORT = 0.08
 
-#: The hb19 L1-anchor ratio: RANS 1733 N settled vs the L1 chain's ~1103 N
-#: at 7 kn (docs/HULL-KB.md, runs/hb19_7kn in the anchor book). SINGLE
-#: GRID, NO GCI — the sigma is the honest half of the number.
-L1_ANCHOR = {
-    "bluff_stern_houseboat": {"ratio": 1.57, "rel_sigma": 0.25,
-                              "basis": "runs/hb19_7kn settled vs L1 at "
-                                       "Fn 0.33; single grid, no GCI"},
+#: The L1 REFERENCE each anchored family is compared against — the L1
+#: chain's own total at that anchor's condition, in newtons. THE RATIO IS
+#: NOT STORED: it is computed from this and the book's measured total, so
+#: the number cannot be a second copy that fails to notice its own sources
+#: moving (the audit's P0-3; this repo's recurring number-declared-twice
+#: defect, which had produced a hardcoded 1.57 beside a book that already
+#: held 1733.47 N).
+L1_REFERENCE_N = {
+    "hb19_7kn": {"l1_total_n": 1103.0, "rel_sigma": 0.25,
+                 "basis": "the L1 chain (ITTC-57 friction x form-factor "
+                          "band + Michell wave) at 7 kn on the houseboat19 "
+                          "genome, docs/HULL-KB.md; the CFD side is "
+                          "runs/hb19_7kn, single grid, NO GCI — the sigma "
+                          "is the honest half of the number"},
 }
 
 
@@ -66,14 +73,25 @@ def _book() -> dict:
     return json.loads(_BOOK_PATH.read_text())
 
 
-def anchors(family: str | None = None, settled_only: bool = True) -> dict:
+def anchors(family: str | None = None, settled_only: bool = True,
+            run_type: str | None = "calm_resistance") -> dict:
     """The raw records, optionally filtered. Unsettled records are DATA
-    (they exist, honestly labelled) but never support a prediction."""
+    (they exist, honestly labelled) but never support a prediction.
+
+    `run_type` defaults to `calm_resistance` because a wave-loads record
+    and a resistance record are DIFFERENT MEASUREMENTS: the seas run
+    carries zero forward speed under a nominal speed label, and its 132%
+    batch error is "wrong measurement type", not "unsettled". Pass None
+    to see every kind.
+    """
     out = {}
     for name, a in _book().get("anchors", {}).items():
         if settled_only and not a.get("settled"):
             continue
         if family is not None and a.get("family") != family:
+            continue
+        if run_type is not None and a.get("run_type", "calm_resistance") \
+                != run_type:
             continue
         out[name] = a
     return out
@@ -115,13 +133,33 @@ def pressure_fraction_band(family: str, fn: float):
 
 
 def l1_anchor_ratio(family: str):
-    """The measured RANS/L1 ratio for a family, or a Refusal. NEVER apply
-    this inside the ladder — it is a report-tier expectation whose sigma
-    is as much the answer as its value."""
-    row = L1_ANCHOR.get(family)
-    if row is None:
-        return Refusal(f"no L1 anchor measured for family {family!r} — the "
-                       f"only anchored family is "
-                       f"{sorted(L1_ANCHOR)} (hb19); anchoring a new "
-                       f"family needs one settled run of one of its hulls")
-    return dict(row)
+    """The measured RANS/L1 ratio for a family, COMPUTED from the book.
+
+    NEVER apply this inside the ladder — it is a report-tier expectation
+    whose sigma is as much the answer as its value. Returns a Refusal
+    when the family has no anchor with a stored L1 reference, or when the
+    anchor that would carry it is not a settled calm-water record.
+    """
+    book = _book().get("anchors", {})
+    for case, ref in L1_REFERENCE_N.items():
+        a = book.get(case)
+        if a is None or a.get("family") != family:
+            continue
+        if not a.get("settled") or a.get("run_type") != "calm_resistance":
+            return Refusal(f"{case} is not a settled calm-water record; a "
+                           f"ratio taken from it would compare a "
+                           f"prediction against a transient")
+        l1 = float(ref["l1_total_n"])
+        if l1 <= 0.0:
+            return Refusal(f"{case} has no positive L1 reference")
+        return {"ratio": float(a["total_n"]) / l1,
+                "rans_total_n": float(a["total_n"]),
+                "l1_total_n": l1,
+                "fn": a.get("fn"),
+                "rel_sigma": float(ref["rel_sigma"]),
+                "basis": ref["basis"], "case": case}
+    fams = sorted({book[c]["family"] for c in L1_REFERENCE_N if c in book})
+    return Refusal(f"no L1 anchor measured for family {family!r} — the "
+                   f"anchored families are {fams}; anchoring a new one "
+                   f"needs one settled run of one of its hulls plus its "
+                   f"L1 reference")

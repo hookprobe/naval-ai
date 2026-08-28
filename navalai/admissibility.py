@@ -614,7 +614,15 @@ def screen(hull: Hull | np.ndarray, speed: float = 2.57,
     # 4 of 4) before the hexes-only fix. NOT VERIFIED for these hulls: no
     # re-mesh with the band moved has been run. Do not quote it as established.
     draft = float(-zk.min())
-    add(Metric.of("draft_over_hull_cell", draft / cell, "cells", Basis.DERIVED,
+    # BASIS FOLLOWS THE DEMOTION (2026-08-28, the CFD audit's P0-5). The
+    # note below has said "DEMOTED TO A RECEIPT" since 2026-08-19, but the
+    # basis stayed DERIVED — so `Metric.votes` was still True and only the
+    # absent thresholds kept it silent. A future edit adding a
+    # `danger_below=` would have re-armed a predictor measured 0-for-4.
+    # `Basis.DIAGNOSTIC` is this module's own word for "reported, does not
+    # vote", and every other retired metric already carries it.
+    add(Metric.of("draft_over_hull_cell", draft / cell, "cells",
+                  Basis.DIAGNOSTIC,
                   f"design draft in level-{_HULL_REFINE[1]} hull cells; below "
                   f"{sc['fs_band_m'] / cell:.3f} the keel is inside the "
                   f"tightest free-surface z-refinement box. DEMOTED TO A "
