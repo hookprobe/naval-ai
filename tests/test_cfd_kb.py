@@ -14,6 +14,7 @@ the ladder.
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 
 import pytest
@@ -142,3 +143,43 @@ def test_same_geometry_finds_prior_runs_by_sha_and_refuses_without_one():
         assert hits and all(a["stl_sha256"] == sha for a in hits.values())
     assert not cfd_kb.same_geometry("")
     assert not cfd_kb.same_geometry("deadbeef" * 8)
+
+
+def test_a_tank_too_short_for_its_own_wave_is_never_ct_trusted():
+    """MEASURED 2026-08-28: `hookprobe_v5_20kn` was published `ct_trusted`.
+
+    Its tank was 53.2 m and its own transverse wave 67.8 m — the box held
+    0.78 of ONE wavelength, so the wave that makes the pressure drag could
+    not form and the Ct was about the box. Both numbers were already written
+    to the same `case.info` (`domain_length_m` beside `wavelength_m`) and
+    nothing compared them. `navalai.cfd.case.domain_x_bounds` (Gate 2E) stops
+    such a case being GENERATED; this row stops one already on disk being
+    TRUSTED.
+    """
+    doc = json.loads(BOOK.read_text())["anchors"]
+    for name, rec in doc.items():
+        lam = rec.get("domain_wavelengths")
+        if lam is not None and lam < 1.5:
+            assert not rec["ct_trusted"], (
+                f"{name}: tank holds {lam:.2f} of its own wavelength and is "
+                f"still ct_trusted — the Ct describes the domain, not the hull")
+
+
+def test_no_record_carries_a_diverged_force_history():
+    """MEASURED 2026-08-28: the re-run published **1.19e192 N** as a drag.
+
+    `hookprobe_v5_20kn_big` died at t=20.3 and the averaging window swallowed
+    the blow-up. The record looked complete — lwl, speed and Froude number
+    beside it — so nothing downstream would have questioned it. Ct > 1 is
+    impossible for a hull (this book's own range is 0.003-0.034), which is the
+    cheapest true statement separating a physical result from wreckage.
+    """
+    doc = json.loads(BOOK.read_text())["anchors"]
+    for name, rec in doc.items():
+        total = rec["total_n"]
+        assert math.isfinite(total), f"{name}: non-finite drag in the book"
+        ct = rec.get("ct")
+        if ct is not None:
+            assert ct < 1.0, (
+                f"{name}: Ct {ct:.3e} is not physically possible for a hull; "
+                f"a diverged run must be refused, not published")

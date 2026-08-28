@@ -69,7 +69,15 @@ CASES: dict[str, tuple[str, str]] = {
     "hookprobe_v3_10kn": ("hookprobe_hybrid", "calm_resistance"),
     "hookprobe_v3_seas": ("hookprobe_hybrid", "wave_loads"),
     "hookprobe_v4": ("hookprobe_hybrid_appendaged", "calm_resistance"),
+    # RETRACTED, and kept in the book on purpose: a 53.2 m tank against its
+    # own 67.8 m wave (0.78 lambda). `domain_wavelengths` now demotes it
+    # rather than deleting it, because a reader who meets this Fn 0.96 record
+    # elsewhere must be able to find out WHY it is not to be used.
     "hookprobe_v5_20kn": ("hookprobe_hybrid", "calm_resistance"),
+    # the re-run in the corrected 147.5 m tank (2.17 lambda). It died at
+    # t=20.3 with forces still decaying 3.7x, so it is unsettled and stays
+    # that way in the book — the domain is right, the run is short.
+    "hookprobe_v5_20kn_big": ("hookprobe_hybrid", "calm_resistance"),
     "hb19_7kn": ("bluff_stern_houseboat", "calm_resistance"),
     "kcs": ("slender_cargo_benchmark", "calm_resistance"),
     "kcs_s1": ("slender_cargo_benchmark", "calm_resistance"),
@@ -145,8 +153,42 @@ def main() -> int:
                     _facets = 0
         u = float(r["speed"])
         fn = u / math.sqrt(G_STANDARD * lwl) if lwl > 0 else None
+        # domain adequacy, from the two receipts the case writer already
+        # records. None (not 0, not "fine") when either is missing: an
+        # unmeasurable quantity is never a passing one.
+        try:
+            _dom_len = float(info["domain_length_m"])
+            _lam = float(info["wavelength_m"])
+            _domain_lambda = _dom_len / _lam if _lam > 0 else None
+        except (KeyError, ValueError):
+            _domain_lambda = None
         total = abs(float(r["drag_n"]))
         pres = abs(float(r["pressure_n"]))
+        # A DIVERGED RUN IS NOT A RECORD. MEASURED 2026-08-28:
+        # `hookprobe_v5_20kn_big` died at t=20.3 and its force history carries
+        # the blow-up, so the averaging window published **1.19e192 N** into
+        # this book as a drag. Nothing downstream would have questioned it —
+        # the record looked complete, with an lwl, a speed and a Froude number
+        # beside it. Ct > 1 is impossible for a hull (this book's own range is
+        # 0.003-0.034), so it is the cheapest true statement that separates a
+        # physical result from numerical wreckage. Refused with a reason
+        # printed, never silently clamped: the run may still be worth a human
+        # reading its log, and the book must not be the thing that hides it.
+        _ct_check = (total / (0.5 * 1025.0 * u * u * float(r["s_wetted_m2"]))
+                     if (u > 0 and float(r.get("s_wetted_m2") or 0) > 0)
+                     else None)
+        if (not math.isfinite(total) or not math.isfinite(pres)
+                or (_ct_check is not None and _ct_check > 1.0)):
+            print(f"{name}: REFUSED — diverged force history "
+                  f"(total {total:.3e} N, Ct "
+                  f"{'inf' if _ct_check is None else f'{_ct_check:.3e}'}); "
+                  f"the run needs a log read, not a book entry")
+            # and EVICT any entry a previous harvest wrote. The book is loaded
+            # from disk and updated in place, so `continue` alone would leave
+            # the bad record standing — refusing to write is not the same as
+            # refusing to publish.
+            book["anchors"].pop(name, None)
+            continue
         book["anchors"][name] = {
             "family": family,
             "stl_sha256": info.get("stl_sha256"),
@@ -162,11 +204,34 @@ def main() -> int:
             "viscous_n": abs(float(r["viscous_n"])),
             "pressure_fraction": pres / total if total > 0 else None,
             "run_type": run_type,
-            "ct": float(r.get("ct") or 0.0) or None,
+            # NaN IS NOT A NUMBER AND NOT VALID JSON. `float(x) or None`
+            # passes NaN straight through (NaN is truthy), so the book carried
+            # `"ct": NaN` for kcs — unparseable by any strict JSON reader and
+            # silently false to a lenient one. An unmeasurable Ct is None.
+            "ct": (_ct if (_ct := float(r.get("ct") or 0.0))
+                   and math.isfinite(_ct) else None),
             "wetted_m2": float(r.get("s_wetted_m2") or 0.0) or None,
             "surface_facets": _facets or None,
-            # a Ct is trusted only against records of the same surface class
-            "ct_trusted": bool(_facets >= 100_000),
+            # DID THE TANK CONTAIN THE SHIP'S OWN WAVE?
+            # MEASURED 2026-08-28: `hookprobe_v5_20kn` entered this book with
+            # ct_trusted=True on a tank of 53.2 m holding a 67.8 m wave — 0.78
+            # of ONE wavelength. Both numbers were already written to the same
+            # case.info (`domain_length_m` beside `wavelength_m`) and nothing
+            # compared them, here or in the case writer. A wave that does not
+            # fit cannot form, so the Ct was about the box; the run is now
+            # retracted (docs/research/HOOKPROBE-CFD-CAMPAIGN.md) and
+            # `navalai.cfd.case.domain_x_bounds` + Gate 2E stop it being
+            # generated again. This field stops it being TRUSTED again, which
+            # matters for the runs already on disk and for any case built
+            # before that fix.
+            "domain_wavelengths": _domain_lambda,
+            # a Ct is trusted only against records of the same surface class,
+            # and only when the domain could hold the wave that makes it. The
+            # 1.5 bar separates every good run in this book (3.1-12.6) from the
+            # retracted one (0.78) with a wide margin; it is not tuned to it.
+            "ct_trusted": bool(_facets >= 100_000
+                               and (_domain_lambda is None
+                                    or _domain_lambda >= 1.5)),
             "layer_coverage": None if cov != cov else float(cov),
             "viscous_valid": viscous_valid,
             "settled": bool(r["settled"]),
