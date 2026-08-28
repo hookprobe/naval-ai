@@ -44,7 +44,8 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from navalai.cfd.post import settled_drag                        # noqa: E402
-from navalai.constants import G_STANDARD                         # noqa: E402
+from navalai.constants import (G_STANDARD,                       # noqa: E402
+                               RHO_SEA_HOLTROP)                  # noqa: E402
 
 OUT = ROOT / "data" / "cfd_anchors.json"
 
@@ -174,7 +175,8 @@ def main() -> int:
         # physical result from numerical wreckage. Refused with a reason
         # printed, never silently clamped: the run may still be worth a human
         # reading its log, and the book must not be the thing that hides it.
-        _ct_check = (total / (0.5 * 1025.0 * u * u * float(r["s_wetted_m2"]))
+        _ct_check = (total / (0.5 * RHO_SEA_HOLTROP * u * u
+                              * float(r["s_wetted_m2"]))
                      if (u > 0 and float(r.get("s_wetted_m2") or 0) > 0)
                      else None)
         if (not math.isfinite(total) or not math.isfinite(pres)
