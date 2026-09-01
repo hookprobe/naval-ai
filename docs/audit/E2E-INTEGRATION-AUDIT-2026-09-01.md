@@ -203,3 +203,127 @@ descriptors describe the hull the ladder floats) and `Gate PF`/`BARGE`.
 A full trace of one such run, with every receipt, is reproducible from
 `docs/audit/` — the script is short enough to rewrite; the values in §1 are
 what it printed.
+
+---
+
+## 7 · Round two — the gap sweep, and the small-boat flow
+
+The first pass fixed seams found by reading and by one flow trace. This pass
+built the instrument (`scripts/gap_sweep.py`, Gate SWEEP) and drove a SMALL
+boat end to end, which is a different population and found different things.
+
+### 7.1 · What the register actually holds
+
+`python scripts/reconcile_gaps.py`: **123 rows, 117 closed, 3 open, 1
+needs-human, 2 retired** — unchanged by this audit, which is the point. The
+four non-closed rows are **not code**:
+
+| row | blocker | price |
+|---|---|---|
+| F16 (Gate 2M) | compute | ~69 h for a settled GCI triplet |
+| F17 (Gate 2U) | compute | hours × N hulls, `mesh_robustness --solve` |
+| I13 | a human — an agent cannot be the non-expert | — |
+| N6 | a human — the predicate would have to read prose semantics | — |
+
+Gate 2M and Gate 2U come up for **review on 2026-09-06**. The gate ladder is
+`exit 0`: five RED gates (2M, 2U, 4F, 6D, 0E5C-CAP), all carried by
+`data/gate-ledger.json` with watermark, owner and review date, and no new red.
+
+**So an "automated fixer" cannot close a single remaining register gap**, and
+one that claimed to would be the failure the ledger exists to prevent. The
+code-shaped gaps live at the SEAMS, which the register does not model — every
+one of F1–F19 was a seam, and none was a row.
+
+### 7.2 · Round-two defect register
+
+| ID | Sev | Subsystem | Defect | Evidence | Fix | Status |
+|---|---|---|---|---|---|---|
+| F20 | P1 | ladder | a 200 t brief CRASHED the optimizer | `parse_mission` clamps to 200 000 kg; `select_stock_thickness_m` raises out of `evaluate` and out of `_score`; `pareto_front` dies | the scantling refusal returns as an `Evaluation` carrying the rule's words verbatim | **FIXED** `ca46d9a` |
+| F21 | P1 | mission | the brief could not state its ENGINE | "60 kW outboard" → `motor_kw` 15.0 (the default), while `motor_power` is a live row binding 497 of 720 candidates | kW + hp parsed, clamped and announced | **FIXED** `e037185` |
+| F22 | P1 | search | an empty front said NOTHING | 720 evaluations, 0 designs, empty array; the binding row was computed 720 times and discarded | `ParetoResult.why_empty()` off a per-row tally | **FIXED** `e037185` |
+| F23 | P1 | geometry → cfd | delivered designs produce a NON-WATERTIGHT STL | 3 of 6 front members of the 8 m launch; 13 open edges; 0 of 30 sampled hulls | root cause located; CONTRACT held by the `meshclose` probe; welded emit deferred | **CONTRACT HELD** `4daac14` |
+| F24 | P2 | certify | meshability SAFE did not cover closure | `eligible True, meshability SAFE` for a hull the case writer refuses | `does_not_cover` names it; a cheap check was measured and REFUSED as a false-green | **NAMED** `4daac14` |
+| F25 | P3 | geometry → hydrostatics | the split's BM is not converged at 41 stations | −0.532% alone, −1.506% with dwl, vs ≤0.052% for every other feature | measured, and the probe is COUPLED to the split's withheld status — it turns P1 on promotion | **RECORDED** `eb85a7b` |
+| F26 | P2 | grammar | two gene boxes jointly exclude a region one was widened to reach | see below | — | **OPEN** |
+
+### 7.3 · F26 — the transom the grammar can draw and cannot float
+
+`r_transom` was widened to 0.92 on 2026-08-26 expressly to reach the published
+planing canon (`morphology_families.HARD_CHINE_PLANING` records
+`transom_area_ratio` **0.8–0.94**, De Luca & Pensa 2017 Table 1). MEASURED
+2026-09-01: the largest `r_transom` whose DELIVERABLE LCB band still intersects
+the `lcb` gene's own ±3 %LWL box:
+
+| Cp | 0.55 | 0.62 | 0.69 | 0.78 | 0.90 |
+|---|---|---|---|---|---|
+| max `r_transom` | 0.47–0.54 | 0.55–0.61 | 0.64–0.70 | 0.77–0.80 | 0.92 |
+
+At `r_transom` 0.85 the deliverable band is **entirely outside** the gene box
+at every `x_mb` from 0.42 to 0.60 (e.g. −13.4 … −9.0 %LWL), so the hull is
+L0-refused for EVERY value of `lcb`. The mission-driven Cp for a planing
+dinghy at Fn 0.54 is 0.673–0.710, which caps the transom at ~0.65–0.70. **The
+planing canon is expressible in one gene and refused by another.**
+
+`LCB_BAND_PCT_LWL = 3.0` states its own provenance: *"displacement-hull
+practice (Holtrop's own lcb regressor spans roughly −4..+2% for the merchant
+hulls behind it) … a PRACTICE figure, basis approx."* It is being applied to
+planing hulls, whose LCB is legitimately far aft. That is the shape of two
+defects this tree has already fixed — the demihull L/B false positive
+(a 58-monohull corpus condemning demihulls) and the barge critic bands (which
+made "every houseboat mission's shape row unsatisfiable BY CONSTRUCTION").
+
+**NOT FIXED, and the reason is evidence, not effort.** The in-idiom repair is
+a regime-specific band beside `morphology._FAMILY_BAR` and
+`grammar.PROPORTION_BANDS` — and this tree holds **no sourced planing LCB
+range**. The families table records transom area, deadrise at three stations
+and L/B, and no LCB. Widening a band without a source is the one move this
+repository forbids. What is owed is the evidence: an LCB/LCG range from the
+planing series already cited (Naples NSS, Clement & Blount, Keuning), after
+which the band is a two-line change beside the ones that precede it.
+
+### 7.4 · The small boat, end to end
+
+**"8 m river launch, 6 knots, 2 tonne, category C, 2 berths"** — the product
+line's own size. 36 designs from 720 candidates (238 feasible); chosen
+LWL 8.75 m, BWL 2.93 m, T 0.724 m, Cp 0.621; floats at 0.310 m with 0.973 m of
+freeboard, GM 0.698 m, trim −0.40°; 298.4 ± 47.1 N at 6 kn (Fn 0.333); 303.4
+Wh/NM at 1.82 kW. **All eleven constraint rows satisfied**, critic plausible
+(score 1.000), verdict **MARGINAL** (`rules` thin; delivered Cp 0.620 misses
+the 0.599 target). Production: 15 mm ply, STEP solid exported, CFD-eligible
+(score 0.781), meshability SAFE, prop 0.218 m needed against 0.514 m
+available, transom Fn 2.76 against a 2.5 clean bar.
+
+Two production truths the run surfaced, both CORRECT REFUSALS stated by the
+system in its own words:
+
+- **it is not sheet-buildable.** roundness 0.776, so `unroll.hull_panels` and
+  `buildability.shell_complexity` both refuse — *"a radiused bilge is doubly
+  curved and not developable from flat sheet, which is a fact about the
+  material."* The kit line's developability is a POLICY row, applied only when
+  a constitution is compiled; an ungoverned run is free to draw a moulded
+  hull. That is the design, and `certify.buildability` carries the refusal.
+- **3 of its 6 front members cannot be meshed** (F23).
+
+**"6 m dinghy with an outboard, 8 knots, 900 kg"** — refused, and the refusal
+is right. Fn 0.536 is semi-planing; a 15 kW motor's 12 kW continuous rating
+cannot push it (`motor_power` worst on 373 of 720). With the engine raised the
+blockers become `rules`, `gm`, `prop_space`, `bend_radius` — a plywood
+displacement product line declining a planing dinghy. The same hull designs at
+6 kn (27 members, GM 0.49 m) and 5 kn (18 members). What was broken was the
+SILENCE, and that is fixed.
+
+### 7.5 · The mechanism, and what it is honestly for
+
+`scripts/gap_sweep.py` — 12 probes, 4.0 s, Gate SWEEP. It is a SEARCH beside
+the suite's ratchet: a property swept over a generated population rather than
+a pinned answer. It caught its own first version making the error it exists to
+catch (comparing 401-station descriptors against 41-station integrals and
+calling the difference a defect), and that mistake led to F25.
+
+It cannot close a compute-blocked or human-blocked gap, and it does not
+pretend to. What it does is make the seam class — the class that produced
+every defect in this document — mechanically checkable on every push, with the
+ledger's own rule: a declared finding is carried with its number and its
+reason, a new one fails, a stale declaration fails, and **nothing above P3 may
+be merely declared**.
+
