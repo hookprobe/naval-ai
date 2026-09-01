@@ -478,7 +478,8 @@ class MissionInfeasible(RuntimeError):
 
 def sample_valid(n: int, mission: MissionSpec, seed: int = 0,
                  explore_post_hoc: bool = False,
-                 quantity: str = "wh_per_nm", policy=None):
+                 quantity: str = "wh_per_nm", policy=None,
+                 repair_shape: bool = False):
     """Sample n hulls that clear L0 AND produce a finite L1 evaluation.
 
     Returns (X, y) for surrogate training — the flywheel's data feed.
@@ -633,12 +634,79 @@ def sample_valid(n: int, mission: MissionSpec, seed: int = 0,
                   + (str(ev.violations[0])[:44] if ev.violations
                      else f"stopped at {ev.tier}"))
             continue
+        # THE DIRECTED REPAIR, OPT-IN — and it fixes the DISTRIBUTION rather
+        # than filtering its output.
+        #
+        # MEASURED 2026-09-01 by the ROUND 3 product test: this feed is
+        # uniform-in-box over sixteen correlated genes, so its yield of
+        # SHAPE-PLAUSIBLE hulls is 0-12% (Gate MORPH records the same thing
+        # from the other side: "89-92% of L0-valid generated hulls fail; 0 of
+        # 58 real ones do"). `ui/server.get_model` fits the served generator
+        # on this population, and the consequence reached the user: measured
+        # on two briefs, `/generate` returned 12 hulls of which **0 were
+        # shape-plausible and 0 were fully valid**. The panel showed twelve
+        # objects the product's own critic says are not boats.
+        #
+        # The tree already had the answer and only the optimizer used it.
+        # `morphology_search.search` is a DIRECTED repair — it moves the genes
+        # known to drive the descriptor that failed — and measured on this
+        # feed it takes the plausible fraction from 1/12 to 11/12 at 40
+        # iterations for 0.11 s per repaired hull. Fitting a generator on the
+        # repaired population teaches it the plausible manifold; filtering at
+        # serve time would only hide the draws, which is the move ROUND 3 §29
+        # forbids.
+        #
+        # DEFAULT FALSE, so every seeded stream, sealed manifest, surrogate
+        # feed and pinned fixture draws exactly what it always drew. A hull
+        # the climb cannot rescue is KEPT AS DRAWN rather than discarded: the
+        # feed must return `n` hulls, and silently truncating the tail would
+        # be the same distortion in the other direction.
+        if repair_shape:
+            x = _repair_shape_inplace(x, mission, rng, lo, hi)
+            ev = evaluate(x, mission, policy=policy)
+            if ev.energy is None:
+                _note("repair lost the energy report")
+                continue
         val = {"wh_per_nm": ev.energy.wh_per_nm,
                "gm": ev.gm_m,
                "rt": ev.resistance.total}[quantity]
         X.append(x)
         y.append(val)
     return np.array(X), np.array(y)
+
+
+#: Climb iterations the feed's repair is allowed. MEASURED on 12 draws for the
+#: 16 m houseboat brief: 20 -> 10/12 plausible, 40 -> 11/12, 60 -> 11/12, at
+#: 0.08 / 0.11 / 0.15 s per repaired hull. 40 is where the yield stops
+#: improving, so it is where the cost stops being worth paying.
+_FEED_REPAIR_ITERATIONS = 40
+
+
+def _repair_shape_inplace(x, mission, rng, lo, hi):
+    """Climb one drawn genome to morphological plausibility, or return it.
+
+    Judged by the MISSION's family and searched inside the SAME box the draw
+    came from — the two things `optimize._DrawBoxSampling` was measured
+    getting wrong (it climbed the general bands, in the grammar box, and then
+    clipped into the mission's, destroying 9 of 9 repaired seeds).
+    """
+    from .morphology_search import inspect as _insp
+    from .morphology_search import search as _climb
+    fam = getattr(mission, "hull_family", None)
+    g = dict(zip(grammar.NAMES, map(float, x)))
+    try:
+        cand = _insp(g, fam, (lo, hi))
+        if cand is not None and cand.ok:
+            return x
+        best, _archive = _climb(
+            g, iterations=_FEED_REPAIR_ITERATIONS,
+            rng=np.random.default_rng(int(rng.integers(2 ** 31))),
+            family=fam, bounds=(lo, hi))
+        if best is not None and best.ok:
+            return np.clip(grammar.vector(best.genome), lo, hi)
+    except Exception:                                        # noqa: BLE001
+        pass          # a repair that cannot run leaves the draw as it is
+    return x
 
 
 class _PropAssessView:

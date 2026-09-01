@@ -1053,18 +1053,51 @@ def mission_cp_band(mission, lwl_lo: float,
     mission alike (audit P0-C: no requirements->targets stage; the
     requirements module was a post-hoc scorecard).
 
-    The band is the target's span across the LWL window the search is
-    actually allowed (the hint's ±tolerance, post-policy), sampled at the
-    window's ends and interior points because the practice table is
-    piecewise, widened by PRISMATIC_TOLERANCE on both sides — the same
-    tolerance the delivered-Cp acceptance measures against. A mission with
-    no length hint has no design Froude number and returns None: choosing a
-    target from a length the mission never stated would be the fabrication
-    defect, not form-follows-function.
+    A BOX IS A PRACTICE BAND, NOT A CONFORMANCE TOLERANCE, and using the
+    second as the first is what this function did.
+
+    It returned `prismatic_target(fn) ± PRISMATIC_TOLERANCE`, and that
+    constant's own comment in `limits.py` says what it is: *"the plate-P1
+    acceptance bar ... a TOLERANCE on the kernel's aim, NOT A DESIGN BAND:
+    the kernel either delivers the prismatic it was asked for or it does
+    not."* Bounding the SEARCH by it means the search may only ever propose
+    hulls already at the target, which is not a search.
+
+    MEASURED 2026-09-01 by the ROUND 3 product test, and it is why every
+    mission's funnel collapsed at the `shape` row:
+
+        brief             this box            plausible / valid of 25
+        16 m houseboat    [0.524, 0.551]            0  /  0
+        10 m boat         [0.596, 0.623]            0  /  0
+        9 m hard chine    [0.610, 0.637]            1  /  0
+
+    while the SAME draw with `formlib.cp_envelope` gave 2/1, 6/2 and 6/1. The
+    repaired plausible hulls measured Cp 0.553-0.731 — which is
+    `formlib.CP_VS_FN`'s own band at that Froude number, 0.55-0.72, and is
+    disjoint from the box above. The tree held TWO Cp-versus-Fn relations,
+    the morphology critic agreed with one of them, and the one that BOUNDED
+    THE SEARCH was the outlier. The proven `liveaboard-barge` parent sits at
+    Cp 0.92 and this box excluded it by a factor of 1.67.
+
+    So the box is now `formlib.cp_envelope` over the Froude window the search
+    is allowed — the practice BAND, with its own provenance — and
+    `prismatic_target` keeps its job unchanged: it is the TARGET
+    `Evaluation.targets` reports conformance against. A box bounds what the
+    search may PROPOSE; a target measures what it DELIVERED. They were the
+    same number and they are different questions.
+
+    A mission with no length hint has no design Froude number and returns
+    None: choosing a target from a length the mission never stated would be
+    the fabrication defect, not form-follows-function.
     """
     if not mission.lwl_hint_m or mission.cruise_speed_kn <= 0.0:
         return None
-    ls = np.linspace(max(lwl_lo, 1e-6), max(lwl_hi, 1e-6), 9)
-    cps = [prismatic_target(knots_to_fn(mission.cruise_speed_kn, float(L)))
-           for L in ls]
-    return (min(cps) - PRISMATIC_TOLERANCE, max(cps) + PRISMATIC_TOLERANCE)
+    # the Froude WINDOW the length hint allows: a longer hull is slower in Fn
+    fn_lo = knots_to_fn(mission.cruise_speed_kn, max(lwl_hi, 1e-6))
+    fn_hi = knots_to_fn(mission.cruise_speed_kn, max(lwl_lo, 1e-6))
+    if not fn_hi > fn_lo:
+        fn_hi = fn_lo + 1e-9
+    env = formlib.cp_envelope(
+        formlib.Band(fn_lo, fn_hi, formlib.Basis.APPROX,
+                     "the Froude window this mission's length hint allows"))
+    return (env.low, env.high)

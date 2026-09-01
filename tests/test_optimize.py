@@ -660,8 +660,33 @@ def test_form_follows_function_the_mission_chooses_the_prismatic_R11():
                            ("fast", fast_tender), ("none", unhinted)]}
     # The practice curve orders them: faster brief -> fuller prismatic, and
     # the bands must actually SEPARATE, not merely shift.
-    assert box["slow"][1] < box["coastal"][0], box
-    assert box["coastal"][1] < box["fast"][0], box
+    # ORDERED, NOT DISJOINT — and the difference is a defect this test used to
+    # encode. It asserted `box["slow"][1] < box["coastal"][0]`, which only
+    # held because the box was `prismatic_target(fn) ± PRISMATIC_TOLERANCE`,
+    # i.e. a CONFORMANCE tolerance used as a search box. `limits.py` says what
+    # that constant is: "a TOLERANCE on the kernel's aim, NOT A DESIGN BAND".
+    #
+    # MEASURED 2026-09-01 by the ROUND 3 product test: that box gave 0 of 25
+    # shape-plausible hulls on every brief, because the plausible hulls sit at
+    # Cp 0.553-0.731 and the box for a 16 m houseboat was [0.524, 0.551] —
+    # which also excludes this tree's own proven `liveaboard-barge` parent at
+    # Cp 0.92 by a factor of 1.67. The box is now `formlib.cp_envelope`, the
+    # practice band.
+    #
+    # Practice bands OVERLAP by design, and formlib says so about its own
+    # neighbouring table: "Deliberately OVERLAPPING at the edges: a
+    # semi-displacement form at Fn 0.38 and a displacement form at Fn 0.38 are
+    # both real, and forcing a hard cut would make the gate refuse honest
+    # rows." So the property that survives is what this test was always FOR —
+    # a faster brief searches a fuller prismatic — expressed as a strict
+    # ORDERING of both edges rather than a gap between the bands.
+    for lo_name, hi_name in (("slow", "coastal"), ("coastal", "fast")):
+        assert box[lo_name][0] < box[hi_name][0], (lo_name, hi_name, box)
+        assert box[lo_name][1] < box[hi_name][1], (lo_name, hi_name, box)
+    # and they must genuinely differ, not merely be ordered by a rounding
+    assert box["slow"] != box["coastal"] != box["fast"], box
+    # a faster brief may not search a FINER prismatic than a slower one can
+    assert box["fast"][0] > box["slow"][0] + 0.05, box
     # No hint -> no design Froude -> the full gene box, the explicit
     # exploration mode, bit-identical to what every caller always had.
     assert box["none"] == (float(grammar.LOW[j]), float(grammar.HIGH[j])), box
