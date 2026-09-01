@@ -58,6 +58,7 @@ widget.
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import math
 import os
@@ -104,7 +105,10 @@ def _app_file(name: str) -> bytes:
 
 
 _model_lock = threading.Lock()
-_model: HullGenerator | None = None
+# mission_key -> generator. It was a SINGLE model fit on the default
+# mission, which is why `/generate` drew hulls of the wrong SIZE for every
+# brief that stated one (see `get_model`).
+_model: dict[str, HullGenerator] | None = None
 _mission_default = MissionSpec()
 _pareto_cache: dict | None = None
 _pareto_lock = threading.Lock()
@@ -192,23 +196,56 @@ def get_pareto(mission: MissionSpec | None = None) -> dict:
         return _pareto_cache[key]
 
 
-def get_model() -> HullGenerator:
-    """The generator, from the FACTORY — no implementation knob in this file.
+def get_model(mission: MissionSpec | None = None) -> HullGenerator:
+    """The generator for THIS mission, from the FACTORY — no implementation
+    knob in this file.
 
     It used to read `HullFamilyModel.fit(X, k=4, seed=1)`, and `k` is a GMM
     word. A diffusion model has no `k`, so the "drop-in upgrade slot" PLM lists
     as READY would have required editing this line — which means there was no
     slot. `NAVALAI_GENERATOR` selects the implementation; the server names
     none.
+
+    IT WAS ONE GLOBAL MODEL FIT ON `_mission_default`, AND THAT IS THE SAME
+    DEFECT gap I9 FIXED FOR THE SCORE (see `generate_payload`: "the panel's own
+    mission box did nothing to /generate ... That is not a slow feature; it is
+    a wrong answer"). The score was wired to the mission; the DRAW was not.
+    MEASURED 2026-09-01 on the brief "16 m x 4 m recreational houseboat,
+    5 knots, 6 tonne, category C" — which parses `lwl_hint_m` 16.0 and
+    `bwl_hint_m` 4.0, both of which `sample_valid` HONOURS as draw bounds — the
+    top-8 hulls `/generate` returned were LWL 11.71 .. 19.97 m and BWL
+    2.20 .. 4.81 m. The user asked for 16 x 4 and was offered a 2.2 m-beam
+    11.7 m hull, because the candidate distribution had never been told the
+    brief; the mission only re-ranked what a default-mission model produced.
+    `optimize.pareto_front` (POST /pareto) has honoured both hints as box
+    bounds since P2-A, so the two production design routes disagreed about the
+    same brief.
+
+    Keyed by `mission_key` and bounded by `MAX_POOLS`, exactly as `get_pool`
+    and `get_pareto` are, and for the same reasons — a cache keyed on user
+    input with no ceiling is a memory leak with a request behind it, and a
+    second ceiling declared here would be the number-declared-twice defect.
+    THE COST IS DECLARED, NOT HIDDEN: a mission the server has not seen now
+    pays a ~1 s model fit on top of the ~1.5 s pool score, and
+    `generate_payload` already reports `live` and `elapsed_ms` for exactly
+    that.
     """
     global _model
+    mission = _mission_default if mission is None else mission
+    key = mission_key(mission)
     with _model_lock:
         if _model is None:
-            X, _y = sample_valid(150, _mission_default, seed=11,
+            _model = {}
+        hit = _model.get(key)
+        if hit is None:
+            X, _y = sample_valid(150, mission, seed=11,
                                  explore_post_hoc=True)
-            _model = make_generator(
+            hit = make_generator(
                 X, kind=os.environ.get("NAVALAI_GENERATOR", "gmm"), seed=1)
-        return _model
+            if len(_model) >= MAX_POOLS:
+                _model.pop(next(iter(_model)))       # oldest insertion, FIFO
+            _model[key] = hit
+        return hit
 
 
 def _score(X: np.ndarray, mission: MissionSpec) -> np.ndarray:
@@ -219,19 +256,58 @@ def _score(X: np.ndarray, mission: MissionSpec) -> np.ndarray:
     return np.array(vals, float)
 
 
+#: The only MissionSpec fields a cache key may ignore: prose. Two briefs whose
+#: wording differs but whose parsed numbers agree score identically, and keying
+#: on the text would make the cache miss on a retyped sentence. EVERY OTHER
+#: FIELD IS PART OF THE KEY, and it is a deny-list rather than an allow-list
+#: for the reason below.
+_KEY_EXCLUDED_FIELDS = frozenset({"name", "notes"})
+
+
 def mission_key(mission: MissionSpec) -> str:
     """Identity of a mission for pool caching — everything the score depends on.
 
-    `name` and `notes` are excluded deliberately: two briefs whose prose differs
-    but whose parsed numbers agree score identically, and keying on the text
-    would make the cache miss on a retyped sentence.
+    IT ENUMERATED FIVE OF SIXTEEN FIELDS BY HAND AND THE CLAIM WAS FALSE.
+    MEASURED 2026-09-01 during the end-to-end integration audit:
+
+        key(MissionSpec()) == key(MissionSpec(hull_family="barge",
+                                              bwl_hint_m=4.0))     -> True
+        key(MissionSpec()) == key(a CATAMARAN MissionSpec)          -> True
+
+    and the score genuinely differs across all three — the barge family moves
+    the `shape` constraint row from -0.1280 to -0.2892, and the catamaran does
+    not produce an energy report at all (`_score` gives it 1e9). So a
+    catamaran request was served the MONOHULL pool and the MONOHULL Pareto
+    front, labelled with the catamaran's own `mission` receipt. `vessel`,
+    `payload`, `hull_family`, `bwl_hint_m`, `waters`, `windage`, `berths` and
+    `air_draft_max_m` were all invisible to the key: every one of them was
+    added to `MissionSpec` after this function was written, which is exactly
+    why a hand-written allow-list is the wrong shape here.
+
+    So the key is now DERIVED from the dataclass and excludes only prose
+    (`_KEY_EXCLUDED_FIELDS`). A field added to `MissionSpec` tomorrow is in the
+    key by default; forgetting to add it is no longer possible. Nested specs
+    (`energy`, `vessel`, `payload`) go in whole via `dataclasses.asdict`, and
+    anything unserialisable is keyed by its `repr` rather than dropped —
+    dropping is the defect this replaces.
     """
-    e = mission.energy
-    return json.dumps([mission.displacement_target_kg, mission.cruise_speed_kn,
-                       mission.design_category, mission.crew,
-                       mission.lwl_hint_m,
-                       [getattr(e, f) for f in sorted(
-                           type(e).__dataclass_fields__)]], sort_keys=True)
+    def _plain(o):
+        if dataclasses.is_dataclass(o) and not isinstance(o, type):
+            return {k: _plain(v) for k, v in sorted(
+                dataclasses.asdict(o).items())}
+        if isinstance(o, dict):
+            return {str(k): _plain(v) for k, v in sorted(o.items())}
+        if isinstance(o, (list, tuple)):
+            return [_plain(v) for v in o]
+        if isinstance(o, (str, int, float, bool)) or o is None:
+            return o
+        return repr(o)
+
+    return json.dumps(
+        {f: _plain(getattr(mission, f, None))
+         for f in sorted(type(mission).__dataclass_fields__)
+         if f not in _KEY_EXCLUDED_FIELDS},
+        sort_keys=True, default=repr)
 
 
 # How many distinct missions keep a scored pool. Small and explicit: each pool
@@ -261,7 +337,7 @@ def get_pool(mission: MissionSpec | None = None) -> dict:
             _pool = {}
         hit = _pool.get(key)
         if hit is None:
-            model = get_model()
+            model = get_model(mission)
             t0 = time.perf_counter()
             ref = model.sample(N_REF, seed=6)
             cand = model.sample(N_CAND, seed=7)

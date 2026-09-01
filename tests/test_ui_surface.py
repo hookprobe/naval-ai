@@ -438,3 +438,95 @@ def test_the_delivery_route_is_rendered_not_recomputed():
                                     "hull_length_m": 26.0})["route"]
     assert outside["mode"] == "REFUSED"
     assert "24.0" in outside["refusal"]
+
+
+# ---------------------------------------------------------------------------
+# 15 · THE POOL CACHE'S IDENTITY, AND WHAT THE GENERATOR IS TOLD
+#      (2026-09-01, the end-to-end integration audit)
+# ---------------------------------------------------------------------------
+
+def test_the_pool_key_covers_every_field_the_score_depends_on():
+    """MEASURED: a catamaran was served the MONOHULL pool.
+
+    `mission_key` enumerated FIVE of MissionSpec's SIXTEEN fields by hand,
+    under a docstring claiming it was "everything the score depends on", so:
+
+        key(MissionSpec()) == key(MissionSpec(hull_family="barge",
+                                              bwl_hint_m=4.0))     -> True
+        key(MissionSpec()) == key(a catamaran MissionSpec)          -> True
+
+    while the score differs across all three — the barge family moves the
+    `shape` constraint row from -0.1280 to -0.2892, and the catamaran produces
+    no energy report at all, so `_score` gives it 1e9. The request was answered
+    from another mission's cache and labelled with its own receipt.
+
+    Every one of the eight invisible fields (`vessel`, `payload`,
+    `hull_family`, `bwl_hint_m`, `waters`, `windage`, `berths`,
+    `air_draft_max_m`) was added to `MissionSpec` AFTER the key was written,
+    which is why the key is now DERIVED from the dataclass and excludes only
+    prose. This test is the fence on that: a new field is in the key by
+    default, and a field added to the exclusion list has to be argued for
+    here.
+    """
+    import sys
+    sys.path.insert(0, str(ROOT / "ui"))
+    import server as S
+
+    from navalai.mission import MissionSpec, VesselConfig
+
+    assert S._KEY_EXCLUDED_FIELDS == frozenset({"name", "notes"}), (
+        "a field excluded from the pool key is a field two different missions "
+        "can collide on — argue for it here, in the test, not silently")
+    base = MissionSpec()
+    assert S.mission_key(base) != S.mission_key(
+        MissionSpec(hull_family="barge", bwl_hint_m=4.0))
+    assert S.mission_key(base) != S.mission_key(
+        MissionSpec(vessel=VesselConfig(topology="catamaran",
+                                        separation_over_lwl=0.35)))
+    # prose really is excluded: a retyped brief must still hit the cache
+    assert S.mission_key(base) == S.mission_key(
+        MissionSpec(name="a different name", notes="retyped"))
+    # and every non-excluded field genuinely moves the key
+    for f in sorted(type(base).__dataclass_fields__):
+        if f in S._KEY_EXCLUDED_FIELDS:
+            continue
+        cur = getattr(base, f)
+        alt = {"displacement_target_kg": 9999.0, "cruise_speed_kn": 11.0,
+               "design_category": "B", "crew": 9, "lwl_hint_m": 17.0,
+               "bwl_hint_m": 4.0, "hull_family": "barge", "berths": 7,
+               "air_draft_max_m": 3.3, "waters": "coastal",
+               "windage": 1.5}.get(f)
+        if alt is None or alt == cur:
+            continue
+        moved = MissionSpec(**{f: alt})
+        assert S.mission_key(base) != S.mission_key(moved), (
+            f"{f} does not move the pool key, so two missions differing only "
+            f"in {f} share a scored pool")
+
+
+def test_the_generator_is_told_the_mission_not_only_the_scorer():
+    """MEASURED: the brief said 16 m x 4 m and the panel offered 2.2 m of beam.
+
+    `get_model()` fit ONE generator on `_mission_default` and `get_pool` only
+    re-scored its samples, so `/generate` for
+    "16 m x 4 m recreational houseboat, 5 knots, 6 tonne, category C" returned
+    hulls of LWL 11.71..19.97 m and BWL 2.20..4.81 m. This is gap I9's own
+    defect — "the panel's own mission box did nothing to /generate ... that is
+    not a slow feature, it is a wrong answer" — fixed for the SCORE and not for
+    the DRAW. `sample_valid` honours both hints; the generator was simply never
+    given them.
+    """
+    import sys
+    sys.path.insert(0, str(ROOT / "ui"))
+    import server as S
+
+    from navalai.mission import MissionSpec
+
+    a = MissionSpec(lwl_hint_m=16.0, bwl_hint_m=4.0)
+    b = MissionSpec(lwl_hint_m=8.0, bwl_hint_m=2.4)
+    assert S.get_model(a) is not S.get_model(b), (
+        "two missions of different SIZE share a generator — the draw is not "
+        "conditioned, only the ranking is")
+    assert S.get_model(a) is S.get_model(MissionSpec(lwl_hint_m=16.0,
+                                                     bwl_hint_m=4.0)), (
+        "the generator cache misses on an identical mission")
