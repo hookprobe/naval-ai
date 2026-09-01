@@ -386,11 +386,94 @@ class Evaluation:
     # `g.keys()` so that a consumer can see the vector's shape on an evaluation
     # that never got as far as building one.
     g_names: tuple[str, ...] = CONSTRAINT_NAMES
+    def binding_rows(self) -> tuple[tuple[str, ...], tuple[str, ...]]:
+        """(measured violations, UNMEASURABLE rows), worst measured first.
+
+        WHY THE TWO ARE SEPARATED, and it is a diagnosis defect that cost a
+        whole product report. `INFEASIBLE_G` (1e3) is what a row takes when
+        its quantity DOES NOT EXIST — a heel angle for a hull whose upright
+        equilibrium is unstable, a shape margin on a hull whose descriptors
+        cannot be computed. That is right (gap E11: undefined must never be
+        reported as ideal). But 1e3 is also, mechanically, the LARGEST number
+        in the vector, so any consumer that asks "which row is furthest from
+        satisfaction?" gets the UNMEASURABLE one every time.
+
+        MEASURED 2026-09-01 by the ROUND 3 product test, on 25 candidates for
+        a 10 m brief: 10 of them were reported as dying on `list`. Every one
+        had NEGATIVE GM (-0.03 to -0.81 m) — so the upright equilibrium does
+        not exist, `list_deg` is None and `g["list"]` is the sentinel, while
+        `g["gm"]` carries a real, ranked, actionable violation of 0.48 to
+        1.26. The funnel sent the reader to the heel angle when the lever was
+        the metacentric height, and the heel angle is not even a number.
+
+        So: a MEASURED violation is the answer to "what is wrong", and an
+        unmeasurable row is the answer to "what could not be judged". They
+        are different questions and a consumer must not merge them.
+        """
+        g = self.g or {}
+        measured, unmeasurable = [], []
+        for k in self.g_names:
+            v = g.get(k)
+            if v is None or not (v > 0.0):
+                continue
+            (unmeasurable if v >= INFEASIBLE_G else measured).append(k)
+        measured.sort(key=lambda k: -float(g[k]))
+        return tuple(measured), tuple(unmeasurable)
+
+    def worst_row(self) -> str | None:
+        """The row a reader should act on: the worst MEASURED violation, or
+        an unmeasurable one only when nothing was measurable."""
+        measured, unmeasurable = self.binding_rows()
+        if measured:
+            return measured[0]
+        return unmeasurable[0] if unmeasurable else None
+
     # What governance decided about THIS design: the compiled constitution's
     # name, the delivery route with its RCD article, and the AI Act
     # consequence. Empty when no policy was applied — an empty dict is "no
     # governance was asked", never "governance said yes".
     policy: dict = field(default_factory=dict)
+
+
+#: Draws the feed will spend PER REQUESTED CANDIDATE before it refuses the
+#: mission. `grammar.sample` has allowed exactly this budget per sample since
+#: it was written; this feed had NO cap at all, which is the whole defect.
+#:
+#: CALIBRATED, not chosen. MEASURED 2026-09-01 over the seven product-test
+#: briefs, draws per ACCEPTED candidate:
+#:
+#:     P1 8.3 | P2 6.5 | P3 5.9 | P4 22.5 | P5 10.8 | P6 5.9
+#:     P7 (an impossible mission) — 0 accepted in 4000 draws
+#:
+#: 200 is ~9x the worst feasible mission, so no real brief can trip it, and an
+#: impossible one is refused in seconds instead of never.
+_FEED_TRIES_PER_SAMPLE = 200
+
+
+class MissionInfeasible(RuntimeError):
+    """The feed could not find valid hulls for this mission, and says why.
+
+    THE DEFECT THIS REPLACES. `sample_valid`'s loop was `while len(X) < n:`
+    with no bound, so a mission with no feasible hull SPUN FOREVER. MEASURED
+    2026-09-01 by the product test: the brief "30 m submarine, 40 knots, 500
+    tonne, category A" hung the harness — 0 accepted in 4000 draws, and the
+    loop had no reason to stop. A product that cannot say no does not hang;
+    it says no (ROUND 3 §4).
+
+    The refusal carries the TALLY of what refused the draws, because "no
+    valid hull" is not an answer a user can act on and "1481 of them failed
+    freeboard.abs" is.
+    """
+
+    def __init__(self, wanted, got, tries, refusals, mission=None):
+        self.wanted, self.got, self.tries = wanted, got, tries
+        self.refusals = dict(refusals)
+        top = ", ".join(f"{k} x{v}" for k, v in
+                        sorted(refusals.items(), key=lambda kv: -kv[1])[:5])
+        super().__init__(
+            f"the design feed found {got} of {wanted} valid hulls in {tries} "
+            f"draws and gave up: this mission has no reachable design space "
+            f"in the grammar's own box. What refused the draws: {top or 'nothing recorded'}")
 
 
 def sample_valid(n: int, mission: MissionSpec, seed: int = 0,
@@ -497,7 +580,34 @@ def sample_valid(n: int, mission: MissionSpec, seed: int = 0,
     _post = {grammar.NAMES.index(k): float(v)
              for k, v in grammar.POST_HOC_DEFAULTS.items()
              if k in grammar.NAMES}
+    # A TOPOLOGY THE LADDER CANNOT EVALUATE IS KNOWN FROM THE MISSION ALONE,
+    # so it is refused BEFORE the first draw. MEASURED 2026-09-01: the brief
+    # "12 m trimaran, 8 knots, 5 tonne" spent 800 draws to discover a fact
+    # that `VesselConfig.is_evaluable` answers for free, and the real reason
+    # then ranked SIXTH in the tally behind five L0 rows that would have
+    # refused any hull anyway. A refusal that has to out-count the noise is a
+    # refusal the reader will misread.
+    if vessel_cfg is not None and not getattr(vessel_cfg, "is_evaluable", True):
+        raise MissionInfeasible(
+            n, 0, 0,
+            {f"topology {vessel_cfg.topology.value!r} is not implemented: "
+             f"the grammar carries exactly one moulded surface, so a centre "
+             f"hull that differs from its amas cannot be built from this "
+             f"genome": 1},
+            mission)
+
+    # BOUNDED, AND IT SAYS WHY IT STOPPED. See `MissionInfeasible`.
+    _budget = _FEED_TRIES_PER_SAMPLE * max(1, int(n))
+    _tries = 0
+    _refused: dict[str, int] = {}
+
+    def _note(reason: str) -> None:
+        _refused[reason] = _refused.get(reason, 0) + 1
+
     while len(X) < n:
+        if _tries >= _budget:
+            raise MissionInfeasible(n, len(X), _tries, _refused, mission)
+        _tries += 1
         x = np.empty(grammar.N_PARAMS)
         # EXACTLY as many uniforms as there are CORE genes, in their original
         # order, so the bit-stream matches the arity this feed had before any
@@ -512,10 +622,16 @@ def sample_valid(n: int, mission: MissionSpec, seed: int = 0,
             # grammar._explore_post_hoc_inplace for the whole argument.
             grammar._explore_post_hoc_inplace(
                 x, grammar._explore_rng(rng), grammar.features_for(mission))
-        if not grammar.check(x, vessel=vessel_cfg).ok:
+        _rep = grammar.check(x, vessel=vessel_cfg)
+        if not _rep.ok:
+            _note("L0 " + (str(_rep.violations[0]).split(":")[0]
+                           if _rep.violations else "refused"))
             continue
         ev = evaluate(x, mission, policy=policy)
         if ev.energy is None:
+            _note("no energy report: "
+                  + (str(ev.violations[0])[:44] if ev.violations
+                     else f"stopped at {ev.tier}"))
             continue
         val = {"wh_per_nm": ev.energy.wh_per_nm,
                "gm": ev.gm_m,

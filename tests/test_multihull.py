@@ -1126,3 +1126,102 @@ def test_the_6_6_ladder_and_the_rules_tier_vessel_fix_2026_08_19():
     e0 = evaluate(c.params, m0)
     f0 = [x for x in e0.rules["findings"] if x["rule_id"] == "R-MHS"][0]
     assert f0["passed"] is False and "mission.windage" in f0["note"]
+
+
+def test_the_brief_can_ASK_for_a_catamaran():
+    """MEASURED 2026-09-01 by the ROUND 3 product test: "14 m catamaran,
+    8 knots, 7 tonne" parsed to `topology=monohull, n_hulls=1`.
+
+    The word was never read. A customer asking for a catamaran got a MONOHULL
+    — banded by monohull L/B, floated on a monohull waterplane, judged by
+    "ISO 12217-1 metacentric floor (a MONOHULL proxy)" and priced by a
+    resistance model with no interference term — silently, and with the word
+    "catamaran" sitting in the brief the whole time.
+
+    Everything needed was already there and unreachable from prose:
+    `VesselConfig`, `hydrostatics.vessel_terms`, `catamaran_interference`,
+    `grammar.L_OVER_B_BAND_DEMIHULL`, the multihull GZ clauses. Same shape as
+    `EnergySpec.motor_kw` (a live field the brief could not set) and as the
+    UI pool key that served a catamaran the monohull pool: a capability whose
+    only missing piece was the sentence that asks for it.
+    """
+    from navalai.mission import parse_mission
+
+    m = parse_mission("14 m catamaran, 8 knots, 7 tonne, category C, 4 berths")
+    assert m.vessel.topology.value == "catamaran"
+    assert m.vessel.n_hulls == 2
+    assert grammar.hull_role(m.vessel).name == "DEMIHULL"
+    # a spacing is MANDATORY for a multihull and the brief did not state one,
+    # so one is assumed AND SAID — a default nobody is told about is the
+    # defect this repository keeps finding
+    assert m.vessel.separation_over_lwl > 0.0
+    assert "spacing ASSUMED" in m.notes and "s/L" in m.notes
+
+    # the vocabulary, and the monohull default it must not disturb
+    for brief in ("12 m twin hull solar cruiser, 6 knots, 5 tonne",
+                  "10 m cat, 7 knots, 3 tonne"):
+        assert parse_mission(brief).vessel.n_hulls == 2, brief
+    assert parse_mission("16 m x 4 m houseboat, 5 knots, "
+                         "6 tonne").vessel.topology.value == "monohull"
+
+
+def test_the_catamaran_reaches_the_PHYSICS_not_only_the_receipt():
+    """A topology in a JSON field is not a catamaran. MEASURED after wiring:
+    the same 14 m brief with and without the word produces
+
+        n_hulls              2                    vs 1
+        separation_m         3.81 m               vs 0.0
+        beam_overall_wl_m    5.77 m               vs 4.21 m
+        i_t (waterplane)     142.7 m^4            vs 34.4 m^4
+        stability criterion  a MULTIHULL clause    vs "a MONOHULL proxy"
+        resistance           n_hulls 2, spacing    vs 1, None
+    """
+    from navalai.evaluate import evaluate, sample_valid
+    from navalai.mission import parse_mission
+
+    cat = parse_mission("14 m catamaran, 8 knots, 7 tonne, category C")
+    mono = parse_mission("14 m boat, 8 knots, 7 tonne, category C")
+    Xc, _ = sample_valid(2, cat, seed=5, explore_post_hoc=True)
+    Xm, _ = sample_valid(2, mono, seed=5, explore_post_hoc=True)
+    ec = evaluate(np.asarray(Xc, float)[0], cat)
+    em = evaluate(np.asarray(Xm, float)[0], mono)
+
+    assert ec.vessel["n_hulls"] == 2 and em.vessel["n_hulls"] == 1
+    assert ec.vessel["separation_m"] > 0.0
+    assert em.vessel["separation_m"] == 0.0
+    assert ec.vessel["i_t_m4"] > 2.0 * em.vessel["i_t_m4"], (
+        "the parallel-axis waterplane term is what makes a catamaran stiff; "
+        "if it is not there the second hull is decoration")
+    assert "MONOHULL proxy" in em.vessel["stability_criterion"]
+    assert "MONOHULL proxy" not in ec.vessel["stability_criterion"], (
+        "a catamaran is being judged by a monohull stability proxy")
+    if ec.resistance is not None:
+        assert ec.resistance.n_hulls == 2
+        assert ec.resistance.separation_m is not None, (
+            "the wave-interference term was given no spacing, so the ladder "
+            "computed one isolated demihull")
+
+
+def test_a_topology_the_ladder_cannot_evaluate_is_refused_UP_FRONT():
+    """A trimaran is DECLARABLE and not EVALUABLE, and that is known from the
+    mission alone.
+
+    MEASURED: before this, "12 m trimaran" spent 800 draws to discover it,
+    and the real reason then ranked SIXTH in the refusal tally behind five L0
+    rows that would have refused any hull anyway. A refusal that has to
+    out-count the noise is one the reader will misread.
+    """
+    import time
+
+    from navalai.evaluate import MissionInfeasible, sample_valid
+    from navalai.mission import parse_mission
+
+    m = parse_mission("12 m trimaran, 8 knots, 5 tonne, category C")
+    assert m.vessel.topology.value == "trimaran"
+    t0 = time.perf_counter()
+    with pytest.raises(MissionInfeasible) as exc:
+        sample_valid(3, m, seed=5, explore_post_hoc=True)
+    assert time.perf_counter() - t0 < 5.0, "it is still drawing candidates"
+    assert exc.value.tries == 0, "it drew hulls to learn what the mission said"
+    assert "not implemented" in str(exc.value)
+    assert "trimaran" in str(exc.value)

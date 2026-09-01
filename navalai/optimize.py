@@ -403,6 +403,9 @@ class HullProblem(Problem):
         if b is None:
             b = self._binding = {"violated": {n: 0 for n in names},
                                  "worst": {n: 0 for n in names},
+                                 # rows that could not be JUDGED, kept apart
+                                 # from rows that were judged and failed
+                                 "unmeasurable": {},
                                  "evaluated": 0, "feasible": 0}
         G = np.asarray(Gc, float)
         b["evaluated"] += G.shape[0]
@@ -410,10 +413,27 @@ class HullProblem(Problem):
         b["feasible"] += int((~pos.any(axis=1)).sum())
         for j, n in enumerate(names):
             b["violated"][n] += int(pos[:, j].sum())
+        # A MEASURED VIOLATION OUTRANKS AN UNMEASURABLE ROW. `INFEASIBLE_G`
+        # is what a row takes when its quantity DOES NOT EXIST, and it is
+        # also mechanically the largest number in the vector — so a raw
+        # `argmax` names the unmeasurable row every time. MEASURED
+        # 2026-09-01: 10 of 25 candidates for a 10 m brief were reported as
+        # dying on `list`, and every one of them had NEGATIVE GM, so the
+        # upright equilibrium does not exist, the heel angle is not a number,
+        # and the actionable rows were `rules` and `shape`. Re-ranked, `list`
+        # disappears and `rules` goes 4 -> 12. See
+        # `Evaluation.binding_rows` for the one statement of this rule.
+        measured = np.where(G < INFEASIBLE_G, G, -np.inf)
         rows = np.flatnonzero(pos.any(axis=1))
-        if rows.size:
-            for j in np.asarray(G[rows].argmax(axis=1)).ravel():
-                b["worst"][names[int(j)]] += 1
+        for i in rows:
+            row = measured[i]
+            if np.isfinite(row).any() and float(np.nanmax(row)) > 0.0:
+                j = int(np.nanargmax(row))
+            else:                     # nothing measurable: name the sentinel
+                j = int(np.argmax(G[i]))
+                b["unmeasurable"][names[j]] = \
+                    b["unmeasurable"].get(names[j], 0) + 1
+            b["worst"][names[j]] += 1
 
 
 class LatentHullProblem(Problem):

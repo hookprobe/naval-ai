@@ -885,7 +885,8 @@ def test_the_binding_tally_counts_two_different_questions():
                                    "900 kg, category C"),
                      pop=48, gens=15, seed=3)
     b = r.binding
-    assert set(b) == {"violated", "worst", "evaluated", "feasible"}
+    assert set(b) == {"violated", "worst", "unmeasurable", "evaluated",
+                      "feasible"}
     assert set(b["violated"]) == set(b["worst"]) == set(CONSTRAINT_NAMES)
     assert sum(b["worst"].values()) <= b["evaluated"]
     for name, n in b["worst"].items():

@@ -953,3 +953,88 @@ def test_solar_generation_is_badged_as_unmeasured_not_left_unbadged():
     assert ev.badges["range_solar_nm_day"][2] == SIGMA_PROPAGATED_LOWER_BOUND
     assert ev.badges["wh_per_nm"][2] != SIGMA_PLACEHOLDER or \
         ev.resistance.uncertainty == 0.0
+
+
+def test_an_unmeasurable_row_does_not_outrank_a_measured_violation():
+    """`INFEASIBLE_G` is the largest number in the vector, so a raw `max(g)`
+    names the row that could NOT BE JUDGED every single time.
+
+    MEASURED 2026-09-01 by the ROUND 3 product test. On 25 candidates for the
+    brief "10 m recreational boat with an inboard, 7 knots, 3 tonne", ten were
+    reported as dying on `list`. Every one of those ten had NEGATIVE GM
+    (-0.03 to -0.81 m): the upright equilibrium does not exist, so `list_deg`
+    is None and `g["list"]` takes the sentinel — correctly, per gap E11,
+    because undefined must never be reported as ideal. Meanwhile `g["gm"]`
+    carried a real ranked violation of 0.48 to 1.26 and `rules` carried more.
+
+    The physics was right and the DIAGNOSIS was wrong: the funnel sent the
+    reader to a heel angle that is not a number, instead of to the
+    metacentric height that explains it. Re-ranked, `list` disappears from the
+    report entirely and `rules` goes from 4 to 12.
+
+    "What is wrong" and "what could not be judged" are different questions.
+    """
+    import numpy as np
+
+    from navalai.evaluate import INFEASIBLE_G, evaluate, sample_valid
+    from navalai.mission import parse_mission
+
+    m = parse_mission("10 m recreational boat with an inboard, 7 knots, "
+                      "3 tonne, category C, inland waters")
+    X, _y = sample_valid(25, m, seed=5, explore_post_hoc=True)
+    seen_sentinel = False
+    for x in np.asarray(X, float):
+        ev = evaluate(x, m)
+        if ev.ok or ev.hydro is None:
+            continue
+        measured, unmeasurable = ev.binding_rows()
+        # the two sets are disjoint, and every member of each really is one
+        assert not (set(measured) & set(unmeasurable))
+        for k in measured:
+            assert 0.0 < ev.g[k] < INFEASIBLE_G, (k, ev.g[k])
+        for k in unmeasurable:
+            assert ev.g[k] >= INFEASIBLE_G, (k, ev.g[k])
+            seen_sentinel = True
+        # and the reported worst row is a MEASURED one whenever one exists
+        if measured:
+            assert ev.worst_row() == measured[0]
+            assert ev.g[ev.worst_row()] < INFEASIBLE_G, (
+                "an unmeasurable row was reported as the thing to fix")
+        else:
+            assert ev.worst_row() in unmeasurable
+
+    assert seen_sentinel, (
+        "no candidate in this batch produced an unmeasurable row, so this "
+        "test did not exercise the ranking it exists for — pick a brief that "
+        "does")
+
+
+def test_a_negative_GM_hull_reports_gm_or_rules_and_never_list():
+    """The specific incident, held as itself.
+
+    A hull whose upright equilibrium is unstable must not be reported as
+    having a heel-angle problem: the heel angle is the CONSEQUENCE and it is
+    not even computable. `list` may still be VIOLATED (it is, at the
+    sentinel) — it must simply not be the row the reader is sent to.
+    """
+    import numpy as np
+
+    from navalai.evaluate import evaluate, sample_valid
+    from navalai.mission import parse_mission
+
+    m = parse_mission("10 m recreational boat with an inboard, 7 knots, "
+                      "3 tonne, category C, inland waters")
+    X, _y = sample_valid(25, m, seed=5, explore_post_hoc=True)
+    checked = 0
+    for x in np.asarray(X, float):
+        ev = evaluate(x, m)
+        if ev.gm_m is None or ev.gm_m >= 0.0:
+            continue
+        checked += 1
+        assert ev.list_deg is None, (
+            "a hull with negative GM reported a heel ANGLE — the equilibrium "
+            "that angle describes does not exist")
+        assert ev.worst_row() != "list", (
+            f"GM {ev.gm_m:.3f} m and the reader is sent to `list`")
+        assert ev.worst_row() in ev.g_names
+    assert checked, "no negative-GM hull in this batch to check"

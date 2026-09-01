@@ -1133,3 +1133,51 @@ def test_destructive_interference_also_shrinks_the_wet_deck_wave_field(
     assert energy["destructive"] < 1.0 < energy["constructive"], (
         f"the two spacings no longer straddle the no-interference case: "
         f"{energy}")
+
+
+def test_an_impossible_mission_is_REFUSED_and_never_spins():
+    """`sample_valid`'s loop was `while len(X) < n:` with NO bound.
+
+    MEASURED 2026-09-01 by the ROUND 3 product test: the brief "30 m
+    submarine, 40 knots, 500 tonne, category A" HUNG the harness. The feed
+    drew 4000 candidates, accepted 0, and had no reason to stop — the mission
+    has no reachable design space in the grammar's own box, and the loop's
+    only exit was success. A product that cannot say no does not hang; it
+    says no.
+
+    `grammar.sample` has allowed 200 tries per sample since it was written.
+    The feed had none, which is the same discipline present in one place and
+    absent in its neighbour.
+
+    THE BUDGET IS CALIBRATED, NOT CHOSEN. Draws per ACCEPTED candidate over
+    the seven product-test briefs: P1 8.3, P2 6.5, P3 5.9, P4 22.5, P5 10.8,
+    P6 5.9 — and P7, 0 accepted in 4000. 200 is ~9x the worst feasible
+    mission, so no real brief can trip it.
+
+    And the refusal CARRIES THE TALLY, because "no valid hull" is not
+    something a user can act on and "610 of them failed freeboard.abs" is.
+    """
+    import time
+
+    from navalai.evaluate import MissionInfeasible, sample_valid
+    from navalai.mission import parse_mission
+
+    t0 = time.perf_counter()
+    with pytest.raises(MissionInfeasible) as exc:
+        sample_valid(8, parse_mission("30 m submarine, 40 knots, 500 tonne, "
+                                      "category A"),
+                     seed=5, explore_post_hoc=True)
+    elapsed = time.perf_counter() - t0
+    assert elapsed < 60.0, (
+        f"the refusal took {elapsed:.0f} s — the cap is not bounding the loop")
+    e = exc.value
+    assert e.got == 0 and e.wanted == 8
+    assert e.tries == 200 * 8, e.tries
+    assert e.refusals, "the refusal records nothing about WHY it refused"
+    assert "freeboard" in str(e), str(e)
+
+    # and a FEASIBLE mission is untouched — the cap must not cost a real brief
+    X, _y = sample_valid(8, parse_mission("12 m river cruiser, 6 knots, "
+                                          "4 tonne, category C"),
+                         seed=5, explore_post_hoc=True)
+    assert len(X) == 8

@@ -18,6 +18,7 @@ import numpy as np
 from . import grammar
 from .energy import EnergySpec
 from .limits import PRISMATIC_TOLERANCE, prismatic_target
+from . import formlib  # for the sourced demihull spacing; see _CAT_SEPARATION_OVER_LWL
 from .formlib import Topology, knots_to_fn  # AXIS 1's enum has ONE home; see below
 
 DESIGN_CATEGORIES = ("A", "B", "C", "D")   # ISO 12217 / CE categories
@@ -194,6 +195,28 @@ _DEFAULTS = {"displacement_target_kg": 6000.0, "cruise_speed_kn": 5.0,
 # demihulls of each other is a GEOMETRY question and is answered against the
 # hull by `hydrostatics.vessel_terms`, which refuses an intersection.
 SEPARATION_OVER_LWL_BAND = (0.05, 2.0)
+
+# THE SPACING A BRIEF GETS WHEN IT SAYS "CATAMARAN" AND NOTHING ELSE.
+#
+# A spacing is MANDATORY — `VesselConfig` refuses a multihull without one, and
+# rightly: `hydrostatics.vessel_terms`' parallel-axis term and
+# `resistance.catamaran_interference` both need it, and a two-hull intention
+# with no spacing is a one-hull answer. So a brief that names a catamaran and
+# no beam must be given one, and the only honest way to do that is to take it
+# from what this tree already measured and to SAY SO in `notes`.
+#
+# PROVENANCE, and it is deliberately the DRAWN practice rather than the
+# theoretical optimum. `formlib` records both: the destructive-interference
+# optimum at Fn 0.30 is s/L 0.445 (`_S_OVER_L_BEST_FN030`, owned by
+# tests/test_phase1.py) and the worst case is 0.150 — but the two dimensioned
+# reference drawings sit at s/L 0.268 (008: B_oa 4.0 m, L/B_h 15.3) and 0.225
+# (009: B_oa 4.5 m, L/B_h 17.8), and formlib's own note says both are "well
+# below the 0.445 optimum this tree computes". Real catamarans in the
+# reference set are spaced by deck and berth width, not by wave cancellation.
+# 0.25 is the midpoint of those two DRAWN hulls; it is a DEFAULT that is said
+# out loud, never a recommendation, and a brief that states its own beam
+# should override it.
+_CAT_SEPARATION_OVER_LWL = 0.25
 
 
 # AXIS 1's enum IS `formlib.Topology`, IMPORTED AND NOT REDECLARED.
@@ -882,6 +905,51 @@ def parse_mission(text: str) -> MissionSpec:
             unparsed.append(f"motor {_mw:g} kW outside [{lo:g}, {hi:g}]; "
                             f"clamped to {kw:g}")
         m.energy = _replace(m.energy, motor_kw=kw)
+
+    # THE TOPOLOGY THE BRIEF NAMES, and until 2026-09-01 it named it into the
+    # void. MEASURED by the ROUND 3 product test: the brief "14 m catamaran,
+    # 8 knots, 7 tonne" parsed to `topology=monohull, n_hulls=1`. The word was
+    # never read, so a customer asking for a catamaran got a MONOHULL —
+    # designed by monohull L/B bands, floated by a monohull waterplane, judged
+    # by "ISO 12217-1 metacentric floor (a MONOHULL proxy)" and priced by a
+    # resistance model with no interference term — silently.
+    #
+    # The whole capability was already there and unreachable from prose:
+    # `VesselConfig`, `hydrostatics.vessel_terms`, `resistance.
+    # catamaran_interference`, `grammar.L_OVER_B_BAND_DEMIHULL`, the multihull
+    # GZ clauses. This is the same shape as `motor_kw` (a live field the brief
+    # could not set) and as the UI's pool key (a catamaran served the monohull
+    # pool) — a capability whose only missing piece was the sentence that asks
+    # for it.
+    #
+    # A TOPOLOGY THE LADDER CANNOT EVALUATE IS STILL PARSED, deliberately.
+    # `evaluate` refuses a trimaran BY NAME ("topology 'trimaran' is NOT
+    # IMPLEMENTED ... `grammar.PARAMS` carries exactly one moulded surface"),
+    # and a named refusal is strictly better than silently designing a
+    # monohull for someone who asked for three hulls.
+    _topo = None
+    if re.search(r"\b(?:catamarans?|cats?\b|twin[-\s]?hulls?|"
+                 r"demi[-\s]?hulls?)\b", t):
+        _topo = "catamaran"
+    elif re.search(r"\btrimarans?\b", t):
+        _topo = "trimaran"
+    elif re.search(r"\bquadrimarans?\b", t):
+        _topo = "quadrimaran"
+    if _topo is not None:
+        try:
+            m.vessel = VesselConfig(
+                topology=_topo, manning=m.vessel.manning,
+                separation_over_lwl=(0.0 if _topo == "monohull"
+                                     else _CAT_SEPARATION_OVER_LWL))
+            if _topo != "monohull":
+                unparsed.append(
+                    f"{_topo}: demihull spacing ASSUMED at s/L "
+                    f"{_CAT_SEPARATION_OVER_LWL:g} (drawn practice is "
+                    f"0.225-0.268; the destructive-interference optimum at "
+                    f"Fn 0.30 is {formlib._S_OVER_L_BEST_FN030:g}) — a "
+                    f"spacing this brief did not state")
+        except ValueError as _e:
+            unparsed.append(f"{_topo}: {_e}")
 
     if re.search(r"\boutboards?\b", t):
         m.energy = _replace(m.energy, drive="outboard")
