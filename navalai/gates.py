@@ -329,6 +329,18 @@ GATES = [
          "and a refused shape is SEEN: fixed cameras, descriptor sheet "
          "beside the pictures, written on refused hulls too",
          suite="tests/test_views.py"),
+    # THE PRODUCT'S FRONT DOOR, which had no gate and no tests at all until
+    # 2026-09-02. `docs/PRODUCTION_CORE.md` lists design_report.py as core,
+    # "the CLI face"; nothing in tests/ imported it. That is precisely how
+    # `--reference` came to be declared, documented in --help, and NEVER
+    # READ, while `--mission` certified the REFERENCE HULL under a header
+    # naming the user's brief -- a 2643 kg hull and a VERDICT: REFUSE for a
+    # 1.8 t plywood launch, none of it about the boat that was asked for.
+    Gate("Gate CLI", "the CLI face DESIGNS for a brief rather than grading "
+         "the reference hull under its name, says which of the front's "
+         "designs it is reporting and why, and refuses an impossible brief "
+         "with the rows that refused it instead of a plausible boat",
+         suite="tests/test_design_report_cli.py"),
     Gate("Gate UI-SEED", "the studio's default genome BUILDS before it is "
          "served, and a refused mesh is PAINTED in the viewport rather than "
          "leaving a blank stage with the reason in the response body",

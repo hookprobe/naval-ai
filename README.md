@@ -178,6 +178,7 @@ different Gate 2M numbers came to circulate at once (gap J1).
 | Gate PARENTS | the parent library is proven and the distortion operators deliver: parents pass their family critic, Lackenby clips into the deliverable band, rescale stays homothetic, and family missions seed the optimizer without touching recorded streams | `tests/test_parents.py` (8 tests) |
 | Gate HB16 | the 16 m liveaboard probe's refusals stay refusals: 3 t is refused naming the family, and the motor-power fix the old sentinel demanded stays landed | `tests/test_houseboat_16m.py` (8 tests) |
 | Gate G-VISUAL | the canonical views ship with every deliverable and a refused shape is SEEN: fixed cameras, descriptor sheet beside the pictures, written on refused hulls too | `tests/test_views.py` (4 tests) |
+| Gate CLI | the CLI face DESIGNS for a brief rather than grading the reference hull under its name, says which of the front's designs it is reporting and why, and refuses an impossible brief with the rows that refused it instead of a plausible boat | `tests/test_design_report_cli.py` (3 tests) |
 | Gate UI-SEED | the studio's default genome BUILDS before it is served, and a refused mesh is PAINTED in the viewport rather than leaving a blank stage with the reason in the response body | `tests/test_ui_seed_builds.py` (8 tests) |
 | Gate 0G | the ladder cannot be talked into passing | `tests/test_gate_integrity.py` (39 tests) |
 | Gate 0R | a missed clause is RED BY RECORD, never prose in a scope | `tests/test_red_by_record.py` (14 tests) |
