@@ -803,23 +803,50 @@ def evaluate(params: np.ndarray, mission: MissionSpec,
     # the genome's (the floated lwl_eff does not exist yet at selection).
     from .rules.iso12215 import bottom_panel_dims_mm
     _b_mm, _l_mm = bottom_panel_dims_mm(hull)
-    t_ply = select_stock_thickness_m(mission.displacement_target_kg,
-                                     float(p["LWL"]),
-                                     design_category=mission.design_category,
-                                     span_mm=_b_mm, l_mm=_l_mm)
-    for _ in range(3):
-        _wb_probe = weight_budget(p["LWL"], p["D"], shell, deck,
-                                  energy_spec, t_ply)
-        _disp_probe = max(_wb_probe.total_kg + _payload_kg,
-                          mission.displacement_target_kg)
-        _t_next = select_stock_thickness_m(
-            _disp_probe, float(p["LWL"]),
-            design_category=mission.design_category,
-            span_mm=_b_mm, l_mm=_l_mm)
-        if _t_next == t_ply:
-            break
-        t_ply = _t_next
-    else:
+    # A SCANTLING THAT NO STOCK SHEET SATISFIES IS A REFUSED DESIGN, NOT AN
+    # ABORTED POPULATION. `select_stock_thickness_m` RAISES when ISO 12215-5
+    # asks for more than the thickest sheet, and it is right to — "do not
+    # round the requirement down" is the whole point of that function. But it
+    # was called here OUTSIDE any guard, so the exception propagated through
+    # `evaluate` and out of `optimize._score`, which has none either.
+    #
+    # MEASURED 2026-09-01 by the end-to-end integration audit: the ordinary
+    # brief "200 tonne houseboat, 16 m, 5 knots" parses to a 200 000 kg target
+    # (the parser's own clamp) and `pareto_front` DIES with
+    # `ValueError: ISO 12215-5:2008 wants 31.2 mm ... thickest stock sheet is
+    # 25 mm` — the entire design run lost because one candidate could not be
+    # planked. That contradicts this function's own contract, stated forty
+    # lines above at the vessel-topology guard: "one bad design must not abort
+    # a whole NSGA-II population."
+    #
+    # The refusal keeps every word of the rule's message, so nothing is
+    # softened: what changes is WHO it stops.
+    _settled = True
+    try:
+        t_ply = select_stock_thickness_m(mission.displacement_target_kg,
+                                         float(p["LWL"]),
+                                         design_category=mission.design_category,
+                                         span_mm=_b_mm, l_mm=_l_mm)
+        for _ in range(3):
+            _wb_probe = weight_budget(p["LWL"], p["D"], shell, deck,
+                                      energy_spec, t_ply)
+            _disp_probe = max(_wb_probe.total_kg + _payload_kg,
+                              mission.displacement_target_kg)
+            _t_next = select_stock_thickness_m(
+                _disp_probe, float(p["LWL"]),
+                design_category=mission.design_category,
+                span_mm=_b_mm, l_mm=_l_mm)
+            if _t_next == t_ply:
+                break
+            t_ply = _t_next
+        else:
+            _settled = False
+    except ValueError as _e:
+        return Evaluation(
+            False, "L1", (f"scantling: {_e}",),
+            params=np.asarray(params), hull_lwl_m=float(p["LWL"]),
+            eval_ms=(time.perf_counter() - t0) * 1e3)
+    if not _settled:
         return Evaluation(
             False, "L1",
             (f"scantling: stock-sheet selection did not settle in 3 "

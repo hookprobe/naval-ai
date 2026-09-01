@@ -776,3 +776,48 @@ def test_the_third_objective_is_deck_efficiency_not_a_gm_band():
     # deck efficiency is scale-free-ish and bounded: a hull that turns
     # material into deck scores low, and no GM term can tax beam here
     assert 1.0 < F[2] < 20.0
+
+
+def test_a_design_the_ladder_cannot_PLANK_is_refused_not_raised():
+    """ONE BAD DESIGN MUST NOT ABORT A WHOLE POPULATION, and one did.
+
+    MEASURED 2026-09-01 by the end-to-end integration audit. The ordinary
+    brief "200 tonne houseboat, 16 m, 5 knots" parses to a 200 000 kg target
+    (the parser's own clamp), and `evaluate` called
+    `rules.iso12215.select_stock_thickness_m` OUTSIDE any guard. That function
+    RAISES when ISO 12215-5 asks for more than the thickest stock sheet, and
+    it is right to — "do not round the requirement down" is the whole point of
+    it — but the exception propagated through `evaluate`, through
+    `optimize._score` (which has no guard either) and out of `pareto_front`:
+
+        ValueError: ISO 12215-5:2008 wants 31.2 mm at mLDC 200000 kg,
+        LWL 17.6 m, category C, 400 mm span; thickest stock sheet is 25 mm
+
+    The whole design run died because ONE candidate could not be planked. That
+    contradicts `evaluate`'s own stated contract at the vessel-topology guard:
+    "one bad design must not abort a whole NSGA-II population."
+
+    Nothing is softened — the refusal carries the rule's message verbatim.
+    What changed is who it stops.
+    """
+    from navalai.mission import parse_mission
+    from tests.test_phase0 import mid_params
+
+    x = np.asarray(mid_params(), float)
+    ev = evaluate(x, MissionSpec(displacement_target_kg=200_000.0))
+    assert not ev.ok and ev.tier == "L1"
+    assert any(v.startswith("scantling: ISO 12215-5") for v in ev.violations), (
+        f"the scantling refusal is not named in the violations: "
+        f"{ev.violations}")
+    assert any("thickest stock sheet" in v for v in ev.violations), (
+        "the refusal dropped the rule's own words — the bar must not be "
+        "restated, it must be carried")
+
+    # and the search survives it: an empty front is the honest answer for a
+    # 200 t plywood houseboat, an exception is not an answer at all
+    res = pareto_front(parse_mission("200 tonne houseboat, 16 m, 5 knots"),
+                       pop=8, gens=2, seed=1)
+    assert res.X.shape[1] == grammar.N_PARAMS
+    assert res.X.shape[0] == 0, (
+        "a 200 t hull planked from 25 mm stock sheet passed the ladder — "
+        "then the refusal has been weakened, not relocated")

@@ -104,9 +104,28 @@ CLI. `certify` now reports the meshability verdict beside its eligibility
 
 **FIXED (7 commits):** F1, F3, F4, F5, F6, F7, F8, F10, F11, F12, F13, F18, F19.
 
-**REMAINING (code, this tree could do):** F2 — fold the second chine's
-knuckle wedge into the section solve, so `ch2_*` can be drawn. F14's remaining
-half — whether meshability should VETO CFD eligibility rather than only be
+**REMAINING (code, this tree could do).** F2 — fold the second chine's knuckle
+wedge into the section solve, so `ch2_*` can be drawn. NOT ATTEMPTED HERE, and
+the reason is proportion rather than difficulty: it is a fixed-point iteration
+inside `_stations`' section quadratic — the single most load-bearing function
+in the kernel, whose `_tnotch`/`rhs` path is shared with the tunnel, the split
+and the dwl joint solve — in exchange for enabling a gene that is currently
+withheld from every production stream, so nothing ships with the drift today.
+The derivation is done and is handed over rather than left to be rediscovered:
+
+    the knuckle redirects the topside leg below it from slope f (chine -> sheer)
+    to slope f + D, where   D = ch2_y * max(yc, y_sheer) / (ch2_z * (zs - zc))
+    the extra immersed HALF-area is 0.5 * h^2 * D,  h = -z_chine = d - m*yc
+    and since y_wl = K*yc + d*f = yc + f*h, the closed form's topside term
+    absorbs it as f -> f + D in BOTH `rhs = A - d*d*f` and `y_wl`.
+
+D is linear in yc and in f, both of which the solve produces, so a Picard
+iteration (solve, recompute D, re-solve) is the shape of the fix; two or three
+passes should suffice at a drift of at most 4.55% of the maximum section. The
+acceptance bar already exists: `Hull.sac_deviation_rel()` must fall below 1e-9
+and `ch2` must move from the WITHHELD set to BLIND in Gate REACHABILITY.
+
+F14's remaining half — whether meshability should VETO CFD eligibility rather than only be
 reported beside it; that is a bar change and needs its own calibration, and
 the screen's thresholds carry a recorded 16-gene transfer caveat.
 
