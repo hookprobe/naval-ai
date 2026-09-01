@@ -151,3 +151,49 @@ production draw**, so no shipped hull carries any of them, and
    generation is owed, and is not claimed here.
 4. **The `split` stern**: close the surface and resolve the BM discretisation
    *before* promoting it out of withheld.
+
+---
+
+## 6. Final validation — what was actually run, and what it said
+
+| instrument | result |
+|---|---|
+| `python -m navalai.gates` | **EXIT 0.** Every gate GREEN except the five RED-by-record ones |
+| `python -m pytest tests/ -q` | 2163 passed, 14 skipped (the one failure it found is fixed below) |
+| `python scripts/gap_sweep.py` | 13 probes, 3 declared P3 findings, no new seam defect |
+| `python scripts/product_test.py` | 6 of 6 feasible briefs deliver; the 7th refused by both routes |
+| `python scripts/reconcile_gaps.py` | 123 rows — 117 closed, 3 open, 1 needs-human, 2 retired |
+
+The five REDs are 4F, 2M, 2U, 6D and 0E5C-CAP — exactly the five §50 names,
+each carrying its watermark, owner and review date. **None was closed and no
+bar was moved anywhere in this round.**
+
+### Two defects the final validation itself found
+
+Running the instruments end to end found two things that reading them could
+not. Both are recorded here because they are the argument for running them.
+
+**1. The product's front door had no tests and no gate.**
+`test_every_test_file_is_owned_by_a_gate` failed on the new CLI test file, and
+the reason it was new is the finding: `docs/PRODUCTION_CORE.md` lists
+`design_report.py` as core, *"the CLI face"*, and **nothing in `tests/`
+imported it.** That is exactly how `--reference` came to be declared,
+documented in `--help`, and never read, while `--mission` certified the
+*reference hull* under a header naming the user's brief — a 2643 kg hull and a
+`VERDICT: REFUSE` for a 1.8 t plywood launch, none of it about the boat that
+was asked for. The CLI now designs (2240 kg, fairness 278.8 → 28.0, wetted
+19.0 → 13.1 m², `MARGINAL`), and **Gate CLI** owns it.
+
+**2. The gate registry carried this codebase's own recurring defect.**
+The ladder printed Gate 0E5C-CAP's scope and its ledger entry *on the same
+line*, and they disagreed: scope *"2 of 7 … no aft deadrise warp … beta_mid
+capped at 25 deg"* against a ledger recording *"3 of 7 series expressible"*
+and, in its own words, *"the count moved 2 → 3 of 7 on exactly this."* The
+scope described the PRE-fix state on three counts, and the stale copy is the
+one the ladder **prints**. A number declared twice, in the one place a reader
+goes to find out what is true. The scope now states the clause and names the
+ledger as the single home of the count — the gate stays RED, and nothing about
+its bar moved.
+
+Neither was visible to a green suite. The first needed the fence to be *run*;
+the second needed the scope and the ledger to be *printed together*.
