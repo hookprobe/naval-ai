@@ -162,7 +162,7 @@ different Gate 2M numbers came to circulate at once (gap J1).
 
 | Gate | Scope | Verified by |
 |---|---|---|
-| Gate PROP | propulsion integration: motor power and prop space are constraint rows; transom Froude, bilge-keel span and pitch entry are measured reports | `tests/test_propulsion.py` (25 tests) |
+| Gate PROP | propulsion integration: motor power and prop space are constraint rows; transom Froude, bilge-keel span and pitch entry are measured reports | `tests/test_propulsion.py` (27 tests) |
 | Gate MORPH | morphological plausibility: a hull must LOOK like a boat, judged on descriptors measured against 58 published hulls (89-92% of L0-valid generated hulls fail; 0 of 58 real ones do) | `tests/test_morphology.py` (19 tests) |
 | Gate HULL-KB | the reference corpus is learned and reconstruction is proven: KB citations resolve, and the measured cruiser / warped-V / split-topology reconstructions stand | `tests/test_hull_kb.py` (6 tests) |
 | Gate BARGE | a houseboat is a rectangle: the widened envelope draws it, the frozen DRAW box protects history, and the pointed bow stays reachable | `tests/test_barge_bow.py` (6 tests) |
@@ -196,7 +196,7 @@ different Gate 2M numbers came to circulate at once (gap J1).
 | Gate 1H | Holtrop-Mennen vs the 1982 worked example | `tests/test_holtrop.py` (57 tests) |
 | Gate 1C | the constraint vector: complete, ordered, finite, and no undefined state reported as ideal | `tests/test_constraints_honest.py` (23 tests) |
 | Gate 1P | the L1 physics core says what it actually computed | `tests/test_gapfix_physics.py` (27 tests) |
-| Gate 1b | NSGA-II Pareto front | `tests/test_optimize.py` (14 tests) |
+| Gate 1b | NSGA-II Pareto front | `tests/test_optimize.py` (16 tests) |
 | Gate 2 | Capytaine BEM (Hulme anchor) | `tests/test_phase2.py` (18 tests) |
 | Gate 2R | CFD reference parity + GCI honesty | `tests/test_cfd_reference_parity.py` (100 tests) |
 | Gate 2P | slamming pressure is measurable: a bow patch that partitions the hull, a function object that refuses to point at nothing, and a Wagner C_p guarded at both limits | `tests/test_slamming.py` (14 tests) |
