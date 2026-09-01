@@ -107,7 +107,7 @@ def test_the_probes_all_ran(findings):
     a passing one). This asserts the conversion is wired, so the sweep cannot
     report CLEAN because it crashed.
     """
-    assert len(gap_sweep._PROBES) >= 11, (
+    assert len(gap_sweep._PROBES) >= 12, (
         f"only {len(gap_sweep._PROBES)} probes are registered; the sweep's "
         f"value is its coverage of seams")
     broken = [f for f in findings if f.subsystem == "gap_sweep"]

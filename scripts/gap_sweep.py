@@ -763,6 +763,114 @@ def _stations():
 
 
 # ---------------------------------------------------------------------------
+# PROBE 12 — a hull whose moulded surface does not CLOSE must be refused, not
+# meshed. And the funnel must not promise a watertightness it never measured.
+#
+# MEASURED 2026-09-01 by the small-boat end-to-end validation. The brief
+# "8 m river launch, 6 knots, 2 tonne" designs fine -- 36 members, ok=True,
+# GM 0.698 m, MARGINAL -- and 3 of its first 6 front members produce an STL
+# that `cfd.case.write_resistance_case` REFUSES:
+#
+#     hull.stl is not a closed manifold and will not be meshed:
+#     13 open_or_nonmanifold_edges
+#
+# while `certify.cfd_candidate` reported `eligible True, score 0.781,
+# meshability SAFE`. 0 of 30 SAMPLED hulls fail; it is the optimizer's
+# boundary-seeking members that do.
+#
+# ROOT CAUSE, located exactly and NOT the first two things it looked like.
+# At the transom the section's rows 0 and 1 land at EXACTLY the same z
+# (-0.3674332138315444 on the recorded genome), because a raised keel
+# (rocker 0.506) meets a nearly-flat floor (beta_mid 1.61 deg). The transom
+# cap's bottom quad is then a LINE, both its triangles have area exactly 0.0,
+# and the two shells meet at the keel in a single PINCH POINT rather than
+# along a seam -- three edges used once each.
+#
+# Two hypotheses were tested and REFUTED before this one, which is why the
+# mechanism is written down: it is not the 1e-10 sliver bar (both cap
+# triangles are area 0.0 and are dropped at ANY bar, including `> 0.0`), and
+# keeping the degenerate cap triangles makes it WORSE, not better (3 open
+# edges become 20).
+#
+# The real fix is the one `Hull.closed_mesh`'s own docstring already names and
+# defers: "An indexed/welded emit would make the watertightness STRUCTURAL
+# instead of coincidental." Until that lands, what this probe holds is the
+# CONTRACT, which is intact: the production path refuses these hulls loudly
+# and fatally, so nothing meshes a hull with a hole in it.
+#
+# AND IT DOES NOT ADD A CHEAP CHECK TO `certify`, deliberately. Measured at
+# nx=40/nz=10 the same three hulls read ZERO open edges -- the pinch is
+# resolution-dependent -- so a coarse check would publish SAFE for a surface
+# the case writer rejects. That is the layer-table lie (docs/LESSONS.md defect
+# class 1) and the probe refuses to build one.
+# ---------------------------------------------------------------------------
+
+#: The recorded genome, front[1] of "8 m river launch, 6 knots, 2 tonne,
+#: category C" at pop 48 / gens 15 / seed 3 on 2026-09-01. Kept as LITERALS
+#: because a regression case that has to re-run an optimiser to reproduce
+#: itself is a regression case nobody runs.
+_OPEN_MESH_GENOME = {
+    "LWL": 8.8, "BWL": 3.4626696981, "T": 0.743523535, "D": 1.314298457,
+    "Cp": 0.620539462, "lcb": -0.3452242346, "x_mb": 0.5419134073,
+    "r_transom": 0.1634487547, "beta_mid": 1.609692412,
+    "beta_bow": 35.7950528328, "beta_len": 0.5708108257,
+    "roundness": 0.8091132278, "rocker": 0.5058216767,
+    "forefoot": 0.1722411011, "flare": 24.8680545543,
+    "sheer_rise": 0.2952470022, "beta_run": 0.0002412241,
+    "cwp_x": -4.54597e-05, "tun_crown": 0.0009897559, "ch2_z": 8.2599e-06,
+}
+
+
+@probe("meshclose", "an unclosed hull is REFUSED, never meshed")
+def _meshclose():
+    from navalai.geometry import open_edge_count
+    out = []
+    g = dict(grammar.POST_HOC_DEFAULTS)
+    g.update(_OPEN_MESH_GENOME)
+    x = grammar.vector(g)
+    try:
+        hull = Hull(x)
+        V, F = hull.closed_mesh(nx=80, nz=16)
+        open_edges = open_edge_count(V, F)
+    except Exception as e:                                   # noqa: BLE001
+        out.append(Finding("meshclose", "P2", "geometry",
+                           "the recorded open-mesh genome still builds",
+                           f"{type(e).__name__}: {e}"))
+        return out
+    if open_edges == 0:
+        out.append(Finding(
+            "meshclose", "P3", "geometry",
+            "the recorded transom-pinch genome still reproduces",
+            "it now closes at nx=80/nz=16. If `closed_mesh` was welded, "
+            "DELETE this probe and its genome in the same commit — a "
+            "regression case for a fixed defect is wallpaper."))
+        return out
+    # THE CONTRACT: the production path must REFUSE it.
+    import tempfile
+    from navalai.cfd.case import write_resistance_case
+    with tempfile.TemporaryDirectory() as td:
+        try:
+            write_resistance_case(hull, 3.0, pathlib.Path(td) / "case",
+                                  end_time=1.0, np_procs=1)
+            out.append(Finding(
+                "meshclose", "P0", "geometry -> cfd",
+                "a hull whose surface does not close is REFUSED by the case "
+                "writer",
+                f"the case was WRITTEN for a hull with {open_edges} open "
+                f"edges at nx=80/nz=16 — an open shell floods the interior "
+                f"and yields a complete, plausible, meaningless run"))
+        except ValueError as e:
+            if "closed manifold" not in str(e):
+                out.append(Finding(
+                    "meshclose", "P2", "geometry -> cfd",
+                    "the refusal NAMES the surface as the reason",
+                    f"refused, but for another reason: {str(e)[:120]}"))
+        except Exception:                                    # noqa: BLE001
+            pass          # a different environment failure is not this probe's
+    return out
+
+
+# ---------------------------------------------------------------------------
 # The driver.
 # ---------------------------------------------------------------------------
 

@@ -1746,6 +1746,34 @@ def _hole_rows(y_split):
     return np.asarray(y_split, float)
 
 
+def open_edge_count(verts, tris, decimals: int = 9) -> int:
+    """Edges used other than TWICE, after merging vertices by position.
+
+    THE ONE IN-MEMORY WATERTIGHTNESS TEST. `cfd.case.stl_watertight_report`
+    answers the same question about a FILE, which is the right place for the
+    surface actually handed to snappy — but it needs the file, so nothing that
+    only holds a mesh could ask. `certify` is exactly that caller, and until
+    2026-09-01 the CFD funnel could call a hull eligible whose STL
+    `write_resistance_case` then REFUSED as not closed.
+
+    Merging by position is not a nicety: `closed_mesh` emits an unindexed
+    soup (one stored vertex per triangle corner, 6x duplication), so
+    watertightness there is COINCIDENTAL — by coordinate equality — and this
+    function measures exactly that coincidence. It is the same keying
+    `stl_watertight_report` uses, at the same tolerance, which is why the two
+    agree; a THIRD rounding rule would be the number-declared-twice defect.
+    """
+    V = np.asarray(verts, float)
+    F = np.asarray(tris, int)
+    if F.size == 0:
+        return 0
+    _uniq, inv = np.unique(np.round(V, decimals), axis=0, return_inverse=True)
+    e = np.concatenate([inv[F[:, [0, 1]]], inv[F[:, [1, 2]]], inv[F[:, [2, 0]]]])
+    e.sort(axis=1)
+    _u, counts = np.unique(e, axis=0, return_counts=True)
+    return int((counts != 2).sum())
+
+
 def open_waterline_halfbreadth(b, y_split):
     """The waterplane strip a split stern actually offers: `b - min(y_split, b)`.
 

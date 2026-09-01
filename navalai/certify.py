@@ -703,7 +703,22 @@ def certify(params, mission: MissionSpec,
         _mesh = {"verdict": _adm.verdict.name,
                  "refused_by": list(_adm.refused_by),
                  "marginal_on": list(_adm.marginal_on),
-                 "refused_no_rescue": list(_adm.refused_no_rescue)}
+                 "refused_no_rescue": list(_adm.refused_no_rescue),
+                 # WHAT THIS VERDICT DOES NOT COVER, said here so SAFE is not
+                 # read as more than it is. MEASURED 2026-09-01: 3 of 6 front
+                 # members of "8 m river launch, 6 knots, 2 tonne" produce an
+                 # STL that `write_resistance_case` refuses as not a closed
+                 # manifold, while this screen reads SAFE — it judges mesh
+                 # QUALITY (cells, layers, radii), not surface CLOSURE. A
+                 # cheap closure check was measured and REFUSED: at
+                 # nx=40/nz=10 those same hulls read zero open edges, so it
+                 # would publish SAFE for a surface the case writer rejects,
+                 # which is the layer-table lie. The closure gate stays at the
+                 # case writer, where it is fatal and where the surface it
+                 # judges is the one snappy receives.
+                 "does_not_cover": "surface closure (watertightness) — see "
+                                   "cfd.case.stl_watertight_report, which is "
+                                   "FATAL at the case writer"}
     except Exception as _e:                                 # noqa: BLE001
         _mesh = {"verdict": "UNMEASURED",
                  "why": f"{type(_e).__name__}: {str(_e)[:120]}"}
