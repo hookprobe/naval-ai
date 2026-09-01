@@ -39,6 +39,8 @@ production draw stream until the wedge is folded in. See the gate ledger row
 
 from __future__ import annotations
 
+import math
+
 import numpy as np
 import pytest
 
@@ -128,8 +130,7 @@ def test_the_delivered_sac_is_the_commanded_sac(key):
     area change into the solve's target (`_stations`' `_tnotch`); this is the
     fence that says so."""
     h = Hull(_genome(**FEATURES[key]))
-    dev = h.sac_deviation()
-    rel = float(np.max(np.abs(dev) / np.maximum(h.A_sac, 1e-9)))
+    rel = h.sac_deviation_rel()
     assert rel < 1e-9, (
         f"{key}: the delivered sectional area departs from the target by "
         f"{rel:.3e} relative. A feature that silently changes displacement "
@@ -143,8 +144,9 @@ def test_the_second_chine_declares_its_sac_drift():
     and grows linearly with `ch2_y`, which is what makes it a known property
     rather than an unknown. MEASURED 2026-09-01 on this hull:
 
-        ch2_y 0.02 -> 4.60e-03 relative      ch2_y 0.10 -> 2.30e-02
-        ch2_y 0.25 (the gene ceiling) -> 5.75e-02
+        ch2_y 0.02 -> 3.64e-03 of the maximum section
+        ch2_y 0.10 -> 1.82e-02
+        ch2_y 0.25 (the gene ceiling) -> 4.55e-02
 
     `ch2_*` is pinned to 0 in `grammar.DRAW_LOW/DRAW_HIGH` and is drawn by no
     production stream, so no shipped hull carries this drift today. Folding
@@ -152,10 +154,9 @@ def test_the_second_chine_declares_its_sac_drift():
     holds the number and the ceiling.
     """
     prev = 0.0
-    for ch2_y, want in ((0.02, 4.60e-3), (0.10, 2.30e-2), (0.25, 5.75e-2)):
+    for ch2_y, want in ((0.02, 3.64e-3), (0.10, 1.82e-2), (0.25, 4.55e-2)):
         h = Hull(_genome(ch2_y=ch2_y, ch2_z=0.55))
-        rel = float(np.max(np.abs(h.sac_deviation())
-                           / np.maximum(h.A_sac, 1e-9)))
+        rel = h.sac_deviation_rel()
         assert rel == pytest.approx(want, rel=0.02), (
             f"ch2_y {ch2_y}: SAC drift {rel:.3e}, recorded {want:.3e}. If "
             f"this moved because the wedge was folded into the solve, this "
@@ -261,3 +262,40 @@ def test_a_designed_waterline_that_contradicts_the_sac_is_measured():
     h = Hull(_genome(**common, rb_stem=0.25, r_stem=0.0))
     hot = np.flatnonzero(np.abs(h.sac_deviation()) > 1e-9)
     assert hot.tolist() == [39, 40], hot.tolist()
+
+
+def test_the_relative_sac_deviation_is_scaled_by_the_MAXIMUM_section():
+    """A ratio taken against a fabricated denominator is not a measurement.
+
+    MEASURED 2026-09-01 by the flow trace, on the receipt this gate itself had
+    just added: `formcheck` reported `sac_deviation_max_m2` 0.00000 and
+    `sac_deviation_rel` **0.22629** for the SAME hull, because the relative
+    form divided each station's deviation by `max(A_local, 1e-9)` and the SAC
+    closes to ~1e-9 m^2 at the stem. An absolute error of 2.26e-10 m^2 was
+    published as 23%. On the dwl/SAC contradiction the same expression reads
+    4.3e+08.
+
+    This is `${_L_WANT:-1}` — dividing by an invented denominator — one level
+    up, and it is exactly the class this repository keeps finding
+    (docs/LESSONS.md defect class 1). The maximum sectional area is finite,
+    stable, and the natural scale of a sectional-area error.
+    """
+    h = Hull(_genome())                       # a legacy hull: dev ~ 1e-16 m^2
+    A = np.asarray(h.A_sac)
+    assert float(A.min()) < 1e-6, (
+        "this hull's SAC does not close to ~0 at the stem, so it cannot "
+        "demonstrate the defect — pick one that does")
+    naive = float(np.max(np.abs(h.sac_deviation()) / np.maximum(A, 1e-9)))
+    scaled = h.sac_deviation_rel()
+    assert scaled == pytest.approx(
+        float(np.max(np.abs(h.sac_deviation())) / float(A.max())))
+    assert scaled < 1e-12 <= max(naive, 1e-12) or scaled <= naive, (
+        "the maximum-scaled form must never exceed the local-scaled one on a "
+        "hull whose SAC closes to a point")
+    # and it REFUSES rather than reporting 0.0 when there is no section to
+    # scale by — 0.0 is the BEST possible value of this quantity (gap E11)
+    class _NoSection:
+        A_sac = np.zeros(5)
+        sac_deviation = Hull.sac_deviation
+        hydro_arrays = staticmethod(lambda *_a, **_k: (np.zeros(5),) * 3)
+    assert math.isnan(Hull.sac_deviation_rel(_NoSection()))

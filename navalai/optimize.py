@@ -51,6 +51,34 @@ class _DrawBoxSampling(Sampling):
                     else np.random.randint(2 ** 31))
         rng = np.random.default_rng(seed_int)
         X = grammar.sample(n_samples, rng)
+        # THE MISSION'S REQUESTED ARCHITECTURE (2026-09-01). `grammar.sample`
+        # draws the FROZEN LEGACY BOX, in which every architecture gene is
+        # pinned at zero — so a brief saying "protected prop" produced a front
+        # whose chosen hull had tun_w = tun_crown = tun_len = 0 while
+        # `propulsion` was asked to score its tunnel drive. MEASURED by the
+        # end-to-end flow trace, one commit after `sample_valid` learned to
+        # draw the same bundle: two production design routes, one able to
+        # express the architecture the mission declared and the other not.
+        #
+        # DRAWN FROM A SPAWNED GENERATOR and ONLY when a feature was asked
+        # for, exactly as the exploring stream does it, so every mission that
+        # requests none consumes this stream bit-identically to before —
+        # which is what keeps the seeded fixtures and sealed manifests
+        # standing.
+        # HALF the population, on the ODD rows, so it is DISJOINT from the
+        # shape-feasible climb below (which takes the even ones) and so the
+        # search still explores from the legacy distribution — the same
+        # argument, and the same split, the climb already makes. MEASURED and
+        # this is why it is a half and not all: seeding EVERY member with a
+        # tunnel returned an EMPTY front on the houseboat brief, because a
+        # tunnelled hull loses ~1/3 of its flotation solutions (the crown
+        # scales with the DESIGN draft and these hulls float at ~57% of it),
+        # and the population had no un-tunnelled members left to survive on.
+        _feat = grammar.features_for(getattr(problem, "mission", None))
+        if _feat:
+            _brng = np.random.default_rng(int(rng.integers(2 ** 31)))
+            for _row in X[1::2]:
+                grammar.apply_feature_bundles_inplace(_row, _brng, _feat)
         # P5 RETRIEVAL SEEDING (2026-08-27). A mission that DECLARES a hull
         # family starts up to a quarter of its population from the parent
         # library, distorted to the brief (homothetic rescale to the stated
@@ -67,8 +95,23 @@ class _DrawBoxSampling(Sampling):
             S = seed_for_mission(
                 mission, max(1, n_samples // 4),
                 np.random.default_rng(int(rng.integers(2 ** 31))))
+            # ON EVEN ROWS, so every parent seed is covered by the
+            # shape-feasibility climb below (which visits `range(0, len(X),
+            # 2)`). MEASURED 2026-09-01: `seed_for_mission` distorts a
+            # critic-CLEAN parent into critic-REJECTED seeds — the
+            # `liveaboard-barge` parent scores ok=True / 1.000, and of three
+            # seeds homothetically rescaled from 15.2 x 4.0 m to the brief's
+            # 16 x 4 m, TWO are refused (plan_waist 0.135 against the barge
+            # bar of 0.120; waterline_convexity 0.585 against 0.700). The
+            # barge band was calibrated just outside that one parent's own
+            # values (waist 0.105 -> 0.12), so a 5% rescale walks out of it.
+            # Placing the seeds where the climb can see them is the fix that
+            # uses machinery already here; the knife-edge band is recorded as
+            # a risk, not silently widened.
             for k in range(len(S)):
-                X[k] = S[k]
+                j = 2 * k
+                if j < len(X):
+                    X[j] = S[k]
         # SHAPE-FEASIBLE SEEDING (2026-08-27). `grammar.sample` draws the
         # legacy stream, whose every member is a lens hull the `shape` row
         # refuses — MEASURED at the server's live budget (pop 48, 15
@@ -86,16 +129,34 @@ class _DrawBoxSampling(Sampling):
         from .morphology import describe as _desc
         from .morphology import from_hull as _fh
         from .morphology_search import search as _climb
+        # THE CLIMB JUDGES BY THE MISSION'S FAMILY, because the row it is
+        # repairing does. MEASURED 2026-09-01: both this test and
+        # `morphology_search.inspect` used the GENERAL monohull bands while
+        # `evaluate`'s `shape` row uses `_FAMILY_BAR[mission.hull_family]`,
+        # and on a barge the two differ on exactly the three descriptors that
+        # table exists to relax (plan_waist 0.12 vs 0.02, waterline_convexity
+        # 0.70 vs 0.80, pmb_frac 0.98 vs 0.90). The repair was climbing toward
+        # a criterion the ladder does not score.
+        _fam = getattr(mission, "hull_family", None)
         for i in range(0, len(X), 2):
             try:
-                if _crit(_desc(_fh(_Hull(X[i])))).ok:
+                if _crit(_desc(_fh(_Hull(X[i]))), family=_fam).ok:
                     continue
             except (_GErr, ValueError):
                 continue
             g = dict(zip(grammar.NAMES, map(float, X[i])))
+            # AND INSIDE THE BOX THIS POPULATION WILL BE CLIPPED INTO.
+            # MEASURED 2026-09-01: the climb reached plausibility on 9 of 9
+            # seeds and the `np.clip` below destroyed ALL NINE, because it
+            # searched the grammar box and was then forced into the mission's
+            # (LWL 14.4-17.6, BWL 3.6-4.4, plus the Froude window on Cp).
+            # Repairing a hull and then moving it is not repairing it.
             best, _ = _climb(g, iterations=60,
                              rng=np.random.default_rng(
-                                 int(rng.integers(2 ** 31))))
+                                 int(rng.integers(2 ** 31))),
+                             family=_fam,
+                             bounds=(np.asarray(problem.xl, float),
+                                     np.asarray(problem.xu, float)))
             if best is not None:
                 X[i] = grammar.vector(best.genome)
         lo = np.asarray(problem.xl, float)

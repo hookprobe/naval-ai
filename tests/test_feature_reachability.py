@@ -222,3 +222,94 @@ def test_the_aft_prior_share_is_what_the_comment_claims():
     # and every aft gene is a real gene of the current grammar
     for nm in ms._AFT_GENES:
         assert nm in grammar.NAMES, nm
+
+
+def test_the_optimizer_can_draw_the_architecture_the_mission_declared():
+    """THE SECOND PRODUCTION DESIGN ROUTE, and it was still blind.
+
+    After `sample_valid` learned to draw a requested tunnel, the end-to-end
+    flow trace showed `optimize.pareto_front` still could not: its
+    `_DrawBoxSampling` draws the FROZEN LEGACY BOX through `grammar.sample`,
+    in which every architecture gene is pinned at zero. MEASURED on
+    "16 m x 4 m recreational houseboat with a protected prop": the front's
+    chosen hull had tun_w = tun_crown = tun_len = 0 while `propulsion` was
+    being asked to score its tunnel drive.
+
+    This asserts the WIRING — that the initial population can express the
+    architecture — and deliberately NOT that the front retains it. Whether a
+    tunnel survives selection depends on whether it earns its place against
+    the three objectives, and MEASURED on two briefs it does not: on both, a
+    hull that satisfies `prop_space` by other means dominates. That is the
+    search working, not a defect, and claiming otherwise would be reading a
+    design preference as a bug.
+    """
+    from navalai.optimize import HullProblem, _DrawBoxSampling
+    from navalai.geometry import Hull as _H  # noqa: F401
+
+    m = parse_mission("16 m x 4 m houseboat with a protected prop, 5 knots, "
+                      "6 tonne, category C")
+    prob = HullProblem(m)
+    X = _DrawBoxSampling()._do(
+        prob, 24, random_state=np.random.default_rng(3))
+    # THE CRITERION IS THE DRAWN CROWN AT THE PROP STATION, not "the genes
+    # are non-zero". The shape-repair climb's blind branch can pick any gene
+    # in the genome, so a tunnel gene wanders off zero on missions that never
+    # asked — MEASURED at tun_crown 0.021 / tun_len 0.031 with tun_w 0.000,
+    # which is not a weak tunnel, it is no tunnel. What `propulsion` reads,
+    # and therefore what counts as a tunnel existing, is the crown the hull
+    # actually carries where the disc sits.
+    from navalai import propulsion
+
+    def _drawn(rows):
+        out = []
+        for r in rows:
+            try:
+                out.append(propulsion.drawn_tunnel_recess_m(
+                    Hull(np.asarray(r, float))))
+            except Exception:                              # noqa: BLE001
+                out.append(0.0)
+        return np.asarray(out, float)
+
+    seeded = _drawn(X) > 1e-4
+    assert seeded.any(), (
+        "no member of the initial population carries the tunnel the mission "
+        "declared — the optimizer cannot express the architecture it is being "
+        "asked to design")
+    assert seeded.sum() < len(X), (
+        "EVERY member carries a tunnel. Seeding all of them returned an EMPTY "
+        "front (measured): a tunnelled hull loses about a third of its "
+        "flotation solutions, so the population must keep an un-tunnelled "
+        "half to search from — the same split the shape-feasible climb makes")
+    # a brief that does NOT ask gets no tunnel anywhere in its population
+    m0 = parse_mission("16 m x 4 m houseboat, 5 knots, 6 tonne, category C")
+    X0 = _DrawBoxSampling()._do(
+        HullProblem(m0), 24, random_state=np.random.default_rng(3))
+    assert not (_drawn(X0) > 1e-4).any()
+
+
+def test_the_tunnel_bundle_is_calibrated_against_flotation():
+    """The bundle's crown range is MEASURED, not chosen.
+
+    The crown is a fraction of the LOCAL DRAFT and these hulls float at ~57%
+    of their design draft, so a tall crown lands near the floated waterline
+    and `solve_to_displacement` stops converging. MEASURED on 120 legacy draws
+    under the 16 x 4 m / 6 t brief:
+
+        tun_crown   0.05  0.10  0.15  0.20  0.25  0.30  0.40
+        non-conv     30    39    49    56    62    64    72   of 120
+        (legacy draw, no tunnel: 0 of 120)
+
+    `tun_w` costs nothing measurable across 0.10..0.60 (39-40 of 120), so the
+    width is set by what a propeller needs and the CROWN is what is bought
+    carefully.
+    """
+    lo, span = grammar._EXPLORE_FEATURE_BUNDLES["tunnel"]["tun_crown"]
+    assert lo >= 0.05 and lo + span <= 0.25, (
+        f"tun_crown drawn over [{lo}, {lo + span}] — above ~0.25 more than "
+        f"half the population loses its flotation solution, and a bundle that "
+        f"makes the hull unfloatable is not exploration")
+    for nm in ("tun_w", "tun_crown", "tun_len"):
+        f, sp = grammar._EXPLORE_FEATURE_BUNDLES["tunnel"][nm]
+        assert f > 0.0, (
+            f"{nm} has a floor of 0 — a bundle that can draw a zero is a "
+            f"bundle that can draw NO tunnel while claiming to draw one")

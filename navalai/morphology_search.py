@@ -191,9 +191,33 @@ def is_bluff_stern(descriptors: dict) -> bool:
     return v is not None and float(v) >= BLUFF_SAC_TRANSOM
 
 
-def _clip(g: dict) -> dict:
-    lo = {n: float(v) for n, v in zip(grammar.NAMES, grammar.LOW)}
-    hi = {n: float(v) for n, v in zip(grammar.NAMES, grammar.HIGH)}
+def _bounds(bounds):
+    """(lo, hi) gene dicts — the caller's box, or the grammar's.
+
+    THE CLIMB MUST SEARCH INSIDE THE BOX IT WILL BE JUDGED IN. MEASURED
+    2026-09-01 by the end-to-end integration audit: `optimize._DrawBoxSampling`
+    climbed seeds to plausibility and then ran `np.clip(X, problem.xl,
+    problem.xu)` to force them into the MISSION's box (LWL 14.4-17.6 and
+    BWL 3.6-4.4 for a "16 m x 4 m" brief, plus the Froude window on Cp). The
+    climb reached plausibility on 9 of 9 seeds and the clip destroyed ALL
+    NINE — so the initial population was 0 of 24 shape-plausible for exactly
+    the missions the climb was added to serve, under a comment claiming "half
+    the initial population is climbed to plausibility".
+
+    Repairing a hull and then moving it is not repairing it. `bounds` is
+    None everywhere the climb is used standalone, which keeps the grammar box
+    and every recorded archive unchanged.
+    """
+    if bounds is None:
+        return ({n: float(v) for n, v in zip(grammar.NAMES, grammar.LOW)},
+                {n: float(v) for n, v in zip(grammar.NAMES, grammar.HIGH)})
+    lo, hi = bounds
+    return ({n: float(v) for n, v in zip(grammar.NAMES, lo)},
+            {n: float(v) for n, v in zip(grammar.NAMES, hi)})
+
+
+def _clip(g: dict, bounds=None) -> dict:
+    lo, hi = _bounds(bounds)
     out = {k: float(min(hi[k], max(lo[k], v))) for k, v in g.items() if k in lo}
     # PROJECT (Cp, lcb) INTO THE DELIVERABLE BANDS (2026-08-26). Since
     # `sac_exponents` inverts the actual a(x) with pmb/r_stem, a nudge that
@@ -227,9 +251,26 @@ def _clip(g: dict) -> dict:
     return out
 
 
-def inspect(genome: dict) -> Candidate | None:
-    """Build, describe and judge one genome. None when the kernel refuses it."""
-    g = _clip(genome)
+def inspect(genome: dict, family: str | None = None,
+            bounds=None) -> Candidate | None:
+    """Build, describe and judge one genome. None when the kernel refuses it.
+
+    `family` IS THE MISSION'S, and it must be, because the bars differ.
+    MEASURED 2026-09-01 by the end-to-end integration audit: this function
+    judged by the GENERAL (monohull-calibrated) bands while
+    `evaluate`'s `shape` constraint row — the row this whole repair operator
+    exists to satisfy — judges by `_FAMILY_BAR[mission.hull_family]`. On a
+    barge those differ on exactly the three descriptors the barge row was
+    added to relax: plan_waist 0.12 vs 0.02, waterline_convexity 0.70 vs
+    0.80, pmb_frac 0.98 vs 0.90. So the repair was climbing toward a
+    criterion the ladder does not use — and toward the very monohull bars
+    that `morphology._FAMILY_BAR` records as having made "every houseboat
+    mission's shape row unsatisfiable BY CONSTRUCTION".
+
+    None (the default) keeps the general bands, so every existing caller and
+    every recorded archive is unchanged.
+    """
+    g = _clip(genome, bounds)
     try:
         x = grammar.vector(g)
         rep = grammar.check(x)
@@ -237,7 +278,7 @@ def inspect(genome: dict) -> Candidate | None:
         d = describe(from_hull(hull))
     except (GeometryError, ValueError, ZeroDivisionError, KeyError):
         return None
-    c = critique(d)
+    c = critique(d, family=family)
     return Candidate(genome=g, ok=bool(c.ok and rep.ok), score=float(c.score),
                      pathologies=c.pathologies,
                      reasons=tuple(str(f) for f in c.findings),
@@ -246,10 +287,14 @@ def inspect(genome: dict) -> Candidate | None:
 
 
 def _nudge(genome: dict, cand: Candidate, step: float,
-           rng: np.random.Generator) -> dict:
-    """Move the genes that drive the descriptors this hull actually failed."""
-    lo = {n: float(v) for n, v in zip(grammar.NAMES, grammar.LOW)}
-    hi = {n: float(v) for n, v in zip(grammar.NAMES, grammar.HIGH)}
+           rng: np.random.Generator, bounds=None) -> dict:
+    """Move the genes that drive the descriptors this hull actually failed.
+
+    The STEP is scaled by the span of the box the caller is searching in, not
+    of the grammar: with a mission box of LWL 14.4-17.6 m, a step sized on the
+    grammar's 2.5-24 m span moves 2.6 m and saturates an edge on every move.
+    """
+    lo, hi = _bounds(bounds)
     out = dict(genome)
     moved = False
     for p in cand.pathologies:
@@ -282,7 +327,7 @@ def _nudge(genome: dict, cand: Candidate, step: float,
         for gene in picked:
             span = hi[gene] - lo[gene]
             out[gene] += rng.normal(0.0, 0.5 * step) * span
-    return _clip(out)
+    return _clip(out, bounds)
 
 
 def _derived_dwl(genome: dict, hull=None) -> dict | None:
@@ -330,14 +375,21 @@ def _derived_dwl(genome: dict, hull=None) -> dict | None:
 
 def search(seed_genome: dict, iterations: int = 400, step: float = 0.12,
            rng: np.random.Generator | None = None,
-           journal: Path | str | None = None) -> tuple[Candidate | None, list[Candidate]]:
+           journal: Path | str | None = None,
+           family: str | None = None,
+           bounds=None) -> tuple[Candidate | None, list[Candidate]]:
     """Hill-climb toward morphological plausibility, recording EVERY attempt.
 
     Returns `(best, archive)`. The archive is the training corpus: accepted and
     rejected alike, each with its descriptors and the named reason it failed.
+
+    `family` is the MISSION's hull family and is handed to every `inspect`
+    call, so the climb optimises the SAME criterion `evaluate`'s `shape` row
+    scores — see `inspect` for the measurement that made this necessary.
+    None keeps the general bands and every recorded archive unchanged.
     """
     rng = rng or np.random.default_rng(0)
-    cur = inspect(seed_genome)
+    cur = inspect(seed_genome, family, bounds)
     archive: list[Candidate] = []
     best = cur if (cur and cur.ok) else None
     cur_score = cur.score if cur else -1.0
@@ -350,7 +402,7 @@ def search(seed_genome: dict, iterations: int = 400, step: float = 0.12,
             {"WAIST", "WAVY-PLAN", "SPEARHEAD"} & set(cur.pathologies)):
         smart = _derived_dwl(cur.genome if cur else seed_genome)
         if smart is not None:
-            cand = inspect(smart)
+            cand = inspect(smart, family, bounds)
             if cand is not None:
                 archive.append(cand)
                 if cand.engineering == "L0-ok" and cand.score > cur_score:
@@ -371,7 +423,7 @@ def search(seed_genome: dict, iterations: int = 400, step: float = 0.12,
                 and float(cur.genome.get("dwl", 0.0) or 0.0) == 0.0):
             smart = _derived_dwl(cur.genome)
             if smart is not None:
-                cand = inspect(smart)
+                cand = inspect(smart, family, bounds)
                 if cand is not None:
                     archive.append(cand)
                     if (cand.engineering == "L0-ok"
@@ -380,8 +432,9 @@ def search(seed_genome: dict, iterations: int = 400, step: float = 0.12,
                     if cand.ok and (best is None
                                     or cand.score >= best.score):
                         best = cand
-        trial = _nudge(base, cur, step, rng) if cur else _clip(seed_genome)
-        cand = inspect(trial)
+        trial = (_nudge(base, cur, step, rng, bounds) if cur
+                 else _clip(seed_genome, bounds))
+        cand = inspect(trial, family, bounds)
         if cand is None:
             continue
         archive.append(cand)

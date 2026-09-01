@@ -1003,8 +1003,24 @@ _EXPLORE_FEATURE_BUNDLES = {
     # rounding error. `tun_crown` is a fraction of LOCAL DRAFT and the
     # crown must stay submerged at the floated state (the kernel refuses
     # otherwise, by name), so its ceiling here is well under the gene's.
-    "tunnel": {"tun_w": (0.20, 0.30), "tun_crown": (0.15, 0.25),
-               "tun_len": (0.15, 0.25)},
+    # CALIBRATED AGAINST FLOTATION, 2026-09-01, on 120 legacy draws under the
+    # 16 x 4 m / 6 t brief (the crown is a fraction of the LOCAL DRAFT, and
+    # these hulls float at ~57% of their design draft, so a tall crown ends up
+    # near the floated waterline and `solve_to_displacement` stops converging):
+    #
+    #     tun_crown   0.05  0.10  0.15  0.20  0.25  0.30  0.40
+    #     non-conv     30    39    49    56    62    64    72   of 120
+    #     (legacy draw, no tunnel: 0 of 120)
+    #
+    # `tun_w` costs nothing measurable (39-40 of 120 across 0.10..0.60), so
+    # the width is set by what a propeller needs and the CROWN is what is
+    # bought carefully. [0.08, 0.20] is a real tunnel — 0.056 to 0.14 m of
+    # crown on a 0.7 m draft, against the 0.1005 m that MEASURABLY turns
+    # houseboat19's single prop from refused to feasible — at ~1/3 of the
+    # population, which is why the bundle seeds HALF the initial population
+    # and not all of it (see optimize._DrawBoxSampling).
+    "tunnel": {"tun_w": (0.25, 0.25), "tun_crown": (0.08, 0.12),
+               "tun_len": (0.18, 0.20)},
 }
 
 
@@ -1023,6 +1039,36 @@ def features_for(mission) -> frozenset:
                                   or 0.0) > 0.0:
         want.add("tunnel")
     return frozenset(want)
+
+
+def apply_feature_bundles_inplace(cand: np.ndarray,
+                                  erng: np.random.Generator,
+                                  features) -> None:
+    """Write the REQUESTED architecture into one candidate, in place.
+
+    A whole bundle or nothing: `tun_w` alone leaves `tun_crown` at zero and
+    the notch has no height, so a partial bundle is not a weak tunnel, it is
+    no tunnel.
+
+    Separated from `_explore_post_hoc_inplace` so the OPTIMIZER can use it
+    too. MEASURED 2026-09-01 by the flow trace: after the exploring stream
+    learned to draw a requested tunnel, `optimize.pareto_front` still could
+    not — its `_FeasibleSampling` draws the LEGACY box through
+    `grammar.sample`, so the brief "16 m x 4 m houseboat with a protected
+    prop" returned a front whose chosen hull had tun_w = tun_crown =
+    tun_len = 0. Two production design routes, one asking for an
+    architecture and the other unable to draw it, is the same disagreement
+    the length hint had.
+
+    Consumes from `erng` ONLY when a feature was asked for, so a mission that
+    asks for none leaves every seeded stream bit-identical.
+    """
+    if not features:
+        return
+    for feat in sorted(features):
+        for nm, (floor, span) in _EXPLORE_FEATURE_BUNDLES.get(feat,
+                                                              {}).items():
+            cand[NAMES.index(nm)] = floor + span * erng.random()
 
 
 def _explore_post_hoc_inplace(cand: np.ndarray,
@@ -1047,13 +1093,7 @@ def _explore_post_hoc_inplace(cand: np.ndarray,
     spans = _EXPLORE_BLIND_SPANS
     for nm, hi in spans.items():
         cand[NAMES.index(nm)] = hi * erng.random()
-    # THE REQUESTED ARCHITECTURE, drawn as a whole bundle or not at all.
-    # Consumes from the exploring stream only when a feature was asked for,
-    # so a mission that asks for none draws exactly what it drew before.
-    for feat in sorted(features):
-        for nm, (floor, span) in _EXPLORE_FEATURE_BUNDLES.get(feat,
-                                                              {}).items():
-            cand[NAMES.index(nm)] = floor + span * erng.random()
+    apply_feature_bundles_inplace(cand, erng, features)
     i_fb = NAMES.index("flare_bow")
     lo_fb, hi_fb = LOW[i_fb], HIGH[i_fb]
     cand[i_fb] = lo_fb + (hi_fb - lo_fb) * erng.random()

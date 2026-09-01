@@ -379,8 +379,7 @@ def form_descriptors(params: np.ndarray, mission: MissionSpec | None = None
     # (docs/LESSONS.md class 1). 0.0 on every hull whose commands agree.
     _dev = hull.sac_deviation()
     scalars["sac_deviation_max_m2"] = float(np.max(np.abs(_dev)))
-    scalars["sac_deviation_rel"] = float(
-        np.max(np.abs(_dev) / np.maximum(np.asarray(hull.A_sac), 1e-9)))
+    scalars["sac_deviation_rel"] = hull.sac_deviation_rel()
     meta["kernel"]["sac_deviation"] = (
         "Hull.sac_deviation(): 2*hydro_arrays()[0] - A_sac, i.e. DELIVERED "
         "minus COMMANDED sectional area at the design waterline")

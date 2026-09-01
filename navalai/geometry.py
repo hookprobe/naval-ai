@@ -2223,6 +2223,26 @@ class Hull:
         a, _b, _zc = self.hydro_arrays(0.0)
         return 2.0 * np.asarray(a, float) - np.asarray(self.A_sac, float)
 
+    def sac_deviation_rel(self) -> float:
+        """`max |delivered - commanded|` as a fraction of the MAXIMUM section.
+
+        THE DENOMINATOR IS THE MAXIMUM AND NOT THE LOCAL AREA, and that is the
+        whole content of this method. MEASURED 2026-09-01 on the flow trace
+        that found it: a per-station `|dev| / max(A_local, 1e-9)` reported
+        **0.226** for an absolute deviation of 2.26e-10 m^2, because the SAC
+        closes to ~1e-9 m^2 at the stem and the ratio was being taken against
+        a fabricated floor. That is `${_L_WANT:-1}` dividing by an invented
+        denominator, one level up (docs/LESSONS.md defect class 1), and on the
+        dwl/SAC contradiction the same expression reads 4.3e+08 — a number
+        with no meaning at all. The hull's maximum sectional area is finite,
+        stable and the natural scale of a sectional-area error.
+        """
+        A = np.asarray(self.A_sac, float)
+        amax = float(np.max(A)) if A.size else 0.0
+        if not amax > 0.0:
+            return float("nan")     # no section: refuse, never report 0.0
+        return float(np.max(np.abs(self.sac_deviation())) / amax)
+
     def form_coefficients(self, n: int = 401) -> dict:
         """Cp, LCB, Cwp, LCF and Cm of the DELIVERED surface.
 
