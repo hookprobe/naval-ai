@@ -676,8 +676,41 @@ def certify(params, mission: MissionSpec,
                 0.0, 1.0 - 2.0 * buildability.get("non_developable_frac",
                                                   0.5))
         score = sum(parts.values()) / len(parts)
+    # WILL IT MESH? A REPORT, and deliberately not a conjunct of `eligible`.
+    #
+    # MEASURED 2026-09-01 by the end-to-end integration audit: this block
+    # returned `eligible: True, score 0.776` for a hull `admissibility.screen`
+    # calls DANGEROUS, so the funnel recommended buying hours of CFD for a
+    # surface `cfd.case.write_resistance_case` REFUSES at the mesh boundary —
+    # the screen has been fatal there since it was wired, and nothing at the
+    # SELECTION end had ever asked it. `docs/LIVE_SYSTEM_MAP.md` calls this
+    # dangling wire C-18 and believes it closed at the case writer; it was
+    # open at the other end.
+    #
+    # It is a REPORT because making meshability a conjunct is a BAR CHANGE
+    # that would move which designs are called CFD-worthy, and this project
+    # does not move a bar without its own calibration (the screen's own
+    # thresholds are campaign-calibrated on a 16-gene bank and carry a
+    # recorded transfer caveat). The information now reaches the reader,
+    # which is what was missing; whether it should VETO is the owner's call.
+    # An UNMEASURABLE screen is reported as such and never as SAFE — 0
+    # findings and "could not run" are different answers (docs/LESSONS.md
+    # defect class 1).
+    _mesh: dict = {}
+    try:
+        from .admissibility import screen as _adm_screen
+        _adm = _adm_screen(hull, speed=float(ev.energy.speed), scale=1.0)
+        _mesh = {"verdict": _adm.verdict.name,
+                 "refused_by": list(_adm.refused_by),
+                 "marginal_on": list(_adm.marginal_on),
+                 "refused_no_rescue": list(_adm.refused_no_rescue)}
+    except Exception as _e:                                 # noqa: BLE001
+        _mesh = {"verdict": "UNMEASURED",
+                 "why": f"{type(_e).__name__}: {str(_e)[:120]}"}
     cfd_candidate = {
         "score": round(score, 3), "eligible": eligible, "parts": parts,
+        # what the MESH boundary will say about this hull, ahead of time
+        "meshability": _mesh,
         "fidelity_tier": fid.tier,
         "fidelity_why": fid.why,
         "cfd_allowed": fid.cfd_allowed,

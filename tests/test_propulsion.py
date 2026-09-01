@@ -364,8 +364,11 @@ def test_the_axis_convention_is_the_centred_disc_and_is_single_sourced():
 
 
 # ---------------------------------------------------------------------------
-# Gate PROP-GEOM (2026-09-01): the levers the propulsion rows are scored with
-# must be levers the HULL carries, not numbers the spec declares.
+# GATE PROP, the geometry-coupling cases (2026-09-01): the levers the
+# propulsion rows are scored with must be levers the HULL carries, not
+# numbers the spec declares. These live under Gate PROP rather than under a
+# new gate name — `docs/audit/ALIGNMENT-2026-08-21.md` records what a gate
+# name declared twice costs, and this file already has an owner.
 # ---------------------------------------------------------------------------
 
 def _plain(**over):

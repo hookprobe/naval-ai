@@ -378,3 +378,53 @@ def test_loading_states_gate_the_verdict_on_seaworthiness_floors_R23():
     # the multihull's asymmetric-cargo gap is documented, and non-gating
     assert "ASYMMETRIC_PAYLOAD" in cert_c.loading
     assert "not representable" in cert_c.loading["ASYMMETRIC_PAYLOAD"]["refused"]
+
+
+def test_the_cfd_funnel_says_whether_the_hull_will_MESH():
+    """MEASURED 2026-09-01 by the end-to-end integration audit: `certify`
+    returned `eligible: True, score 0.776` for a hull `admissibility.screen`
+    calls DANGEROUS.
+
+    The screen has been FATAL at `cfd.case.write_resistance_case` since it was
+    wired there, so the funnel was recommending hours of CFD for a surface the
+    case writer refuses. `docs/LIVE_SYSTEM_MAP.md` calls this dangling wire
+    C-18 and believes it closed at the case writer; it was open at the
+    SELECTION end — nothing that DECIDES to buy a solve had ever asked the
+    question.
+
+    It is a REPORT and deliberately not a conjunct of `eligible`: making
+    meshability veto CFD-worthiness is a bar change, and the screen's own
+    thresholds carry a recorded transfer caveat (calibrated on a 16-gene
+    bank). What was missing is that the information reached the reader.
+
+    An UNMEASURABLE screen must read UNMEASURED and never SAFE — "no findings"
+    and "could not run" are different answers (docs/LESSONS.md defect class 1).
+    """
+    from navalai.evaluate import sample_valid
+    from navalai.mission import parse_mission
+
+    m = parse_mission("16 m x 4 m recreational houseboat, 5 knots, 6 tonne, "
+                      "category C")
+    X, _y = sample_valid(3, m, seed=5, explore_post_hoc=True)
+    seen = set()
+    for x in np.asarray(X, float):
+        cc = certify(x, m, with_gz=False).cfd_candidate
+        assert "meshability" in cc, (
+            "the CFD funnel does not say whether the hull will mesh — it can "
+            "still recommend a solve the case writer will refuse")
+        mesh = cc["meshability"]
+        assert mesh["verdict"] in ("SAFE", "MARGINAL", "DANGEROUS",
+                                   "REFUSED", "UNMEASURED"), mesh
+        seen.add(mesh["verdict"])
+        if mesh["verdict"] == "UNMEASURED":
+            assert mesh.get("why"), (
+                "an unmeasured screen must name what stopped it; a bare "
+                "UNMEASURED is the unmeasurable-scored-as-passing defect")
+        else:
+            # the metric that refused is NAMED, so the reader can act on it
+            assert isinstance(mesh["refused_by"], list)
+            if mesh["verdict"] == "DANGEROUS":
+                assert mesh["refused_by"], (
+                    "DANGEROUS with nothing named is a verdict nobody can "
+                    "act on")
+    assert seen, "no certification produced a meshability verdict at all"

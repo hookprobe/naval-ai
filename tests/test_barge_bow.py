@@ -70,11 +70,21 @@ def test_a_sixteen_by_four_houseboat_carries_its_beam():
     assert rep.ok, [str(v) for v in rep.violations]
 
     hull = Hull(x)
-    beam = 2.0 * hull.y_sheer
-    carried = float((beam >= 0.90 * 4.0).mean())
+    # THIS IS THE SHEER BEAM — THE DECK RECTANGLE — AND NOT THE WATERLINE.
+    # Named explicitly on 2026-09-01 because "beam carried" denotes two
+    # different quantities in this tree: the 88% below is the fraction of
+    # stations whose SHEER beam reaches 90% of BWL, while
+    # `morphology.beam_carried` is the same fraction of the WATERLINE plan and
+    # reads 0.5854 on this same family's proven parent. Both are real; a
+    # reader comparing 0.88 with 0.22 across them would report a regression
+    # that does not exist. That is the "two quantities, one name" error
+    # docs/LESSONS.md records at 240% of a volume.
+    sheer_beam = 2.0 * hull.y_sheer
+    beam = sheer_beam
+    carried = float((sheer_beam >= 0.90 * 4.0).mean())
     deck = hull.deck_area()
     assert carried >= 0.75, (
-        f"only {100 * carried:.0f}% of the waterline carries full beam "
+        f"only {100 * carried:.0f}% of the stations carry full SHEER beam "
         f"(pre-fix was 39%, post-fix 88%) — the spearhead is back")
     assert deck >= 55.0, (
         f"deck area {deck:.1f} m2 against 64.0 m2 for a 16x4 rectangle "
