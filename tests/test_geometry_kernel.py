@@ -985,3 +985,83 @@ def test_pmb_zero_is_bit_identical_and_the_gene_creates_parallel_midbody():
     assert flat[-1] > 0.35, (
         f"at pmb 0.45 a real parallel midbody must appear; measured "
         f"{flat[-1]:.3f} of the length at full area")
+
+
+def test_a_zero_area_triangle_with_distinct_vertices_is_the_SEAM():
+    """`closed_mesh` drops a triangle for TWO IDENTICAL VERTICES, never for a
+    small area — and the difference is a hole in the boat.
+
+    MEASURED 2026-09-01 by the small-boat end-to-end validation. The brief
+    "8 m river launch, 6 knots, 2 tonne" designs fine (36 front members,
+    ok=True, GM 0.698 m) and 3 of its first 6 members produced an STL that
+    `cfd.case.write_resistance_case` REFUSED as not a closed manifold, while
+    `certify` called them CFD-eligible. 0 of 30 SAMPLED hulls failed; it was
+    the optimizer's boundary-seeking members that did.
+
+    At the transom the section's rows 0 and 1 land at EXACTLY the same z
+    (a raised keel, rocker 0.506, meeting a nearly-flat floor, beta_mid
+    1.61 deg), so the cap's bottom quad is four points on a LINE. Its second
+    triangle has three DISTINCT vertices and zero area — and it is the SEAM,
+    the only face pairing the starboard shell's edge S[0,0]->S[0,1] with the
+    port shell's P[0,0]->P[0,1]. The old `area > 1e-10` bar dropped it and the
+    two shells met at a single PINCH POINT.
+
+    Degeneracy is a statement about VERTICES. A zero-area triangle with three
+    distinct vertices still pairs three edges.
+    """
+    g = dict(grammar.POST_HOC_DEFAULTS)
+    g.update({"LWL": 8.8, "BWL": 3.4626696981, "T": 0.743523535,
+              "D": 1.314298457, "Cp": 0.620539462, "lcb": -0.3452242346,
+              "x_mb": 0.5419134073, "r_transom": 0.1634487547,
+              "beta_mid": 1.609692412, "beta_bow": 35.7950528328,
+              "beta_len": 0.5708108257, "roundness": 0.8091132278,
+              "rocker": 0.5058216767, "forefoot": 0.1722411011,
+              "flare": 24.8680545543, "sheer_rise": 0.2952470022,
+              "beta_run": 0.0002412241, "cwp_x": -4.54597e-05,
+              "tun_crown": 0.0009897559, "ch2_z": 8.2599e-06})
+    h = Hull(grammar.vector(g))
+    # the pinch is RESOLUTION-DEPENDENT, which is why a cheap coarse check was
+    # measured and refused elsewhere: it must close at every shipped grid
+    for nx, nz in ((80, 16), (200, 40)):
+        V, F = h.closed_mesh(nx=nx, nz=nz)
+        assert geometry.open_edge_count(V, F) == 0, (
+            f"{nx}x{nz}: the transom pinch is back — an open shell floods the "
+            f"interior and `write_resistance_case` will refuse this hull")
+    # and the transom's first two rows really are at the same z, which is the
+    # condition that produces it; if this stops holding the case is no longer
+    # exercising the defect and a new genome is owed
+    jc = h.chine_row(16)
+    sec = h._section_at_rows(float(h.x[0]), jc, 16 - jc)
+    assert sec[0, 1] == sec[1, 1], (
+        "rows 0 and 1 no longer share a z at the transom — this genome has "
+        "stopped exercising the pinch, so it no longer guards it")
+
+
+def test_the_drop_rule_is_inert_on_every_hull_that_was_already_closed():
+    """The kept set under `area > 1e-10` is a strict SUBSET of the kept set
+    under the identical-vertex rule (identical vertices imply zero area), so
+    an equal triangle count PROVES the mesh is bit-identical.
+
+    MEASURED: reference 5232 tris at 80x16 and 32284 at 200x40 under both
+    rules, and four sampled hulls identical at both resolutions. Only the
+    hulls that were OPEN change.
+    """
+    from navalai.evaluate import sample_valid
+    from navalai.mission import MissionSpec
+    from navalai.reference import reference_params
+
+    hulls = [Hull(np.asarray(reference_params(), float))]
+    X, _y = sample_valid(3, MissionSpec(), seed=0, explore_post_hoc=True)
+    hulls += [Hull(x) for x in np.asarray(X, float)]
+    for h in hulls:
+        for nx, nz in ((80, 16), (200, 40)):
+            V, F = h.closed_mesh(nx=nx, nz=nz)
+            assert geometry.open_edge_count(V, F) == 0
+            # no triangle may carry two identical vertices: that is the only
+            # thing the rule drops, so anything emitted must be non-degenerate
+            P = V[F]
+            assert not (np.all(P[:, 0] == P[:, 1], axis=1).any()
+                        or np.all(P[:, 1] == P[:, 2], axis=1).any()
+                        or np.all(P[:, 0] == P[:, 2], axis=1).any()), (
+                "a triangle with two identical vertices was emitted — it "
+                "pairs no edges and is exactly what the rule drops")

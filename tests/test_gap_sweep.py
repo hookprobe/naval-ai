@@ -39,6 +39,19 @@ import gap_sweep                                             # noqa: E402
 #: the gate. Nothing above P3 may ever appear here: a P0/P1/P2 seam defect is
 #: a fix, not a record.
 DECLARED = {
+    ("meshclose", "split"): (
+        "the SPLIT STERN's moulded surface does not close at all — 57 open "
+        "edges at nx=80/nz=16 and 141 at 200x40 — because `closed_mesh` "
+        "builds a starboard shell, a port shell, a deck lid and two caps, and "
+        "the split's INNER WALLS and wet deck are drawn by none of them. The "
+        "hydrostatics integrate the hole (`awp ~ b - y_split`, "
+        "`ixx ~ b^3 - ys^3`); the mesh never learned to. Not live: the split "
+        "is WITHHELD from every production draw (Gate REACHABILITY) and "
+        "`write_resistance_case` refuses a non-watertight surface outright, "
+        "so the contract holds and nothing ships it. The probe is COUPLED to "
+        "reachability and turns P1 the day the split is promoted. This is the "
+        "SECOND recorded blocker on promoting the split; the first is its BM "
+        "discretisation below."),
     ("stations", "split"): (
         "the split stern's BM carries -0.532% of discretisation error at the "
         "shipped 41 stations, because `y_split` has a KINK at split_len*L "
@@ -107,7 +120,7 @@ def test_the_probes_all_ran(findings):
     a passing one). This asserts the conversion is wired, so the sweep cannot
     report CLEAN because it crashed.
     """
-    assert len(gap_sweep._PROBES) >= 12, (
+    assert len(gap_sweep._PROBES) >= 13, (
         f"only {len(gap_sweep._PROBES)} probes are registered; the sweep's "
         f"value is its coverage of seams")
     broken = [f for f in findings if f.subsystem == "gap_sweep"]

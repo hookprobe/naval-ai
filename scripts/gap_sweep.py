@@ -763,46 +763,31 @@ def _stations():
 
 
 # ---------------------------------------------------------------------------
-# PROBE 12 — a hull whose moulded surface does not CLOSE must be refused, not
-# meshed. And the funnel must not promise a watertightness it never measured.
+# PROBE 12 — every hull's moulded surface must CLOSE, and the recorded
+# transom-pinch hull is the ratchet on that.
 #
-# MEASURED 2026-09-01 by the small-boat end-to-end validation. The brief
-# "8 m river launch, 6 knots, 2 tonne" designs fine -- 36 members, ok=True,
-# GM 0.698 m, MARGINAL -- and 3 of its first 6 front members produce an STL
-# that `cfd.case.write_resistance_case` REFUSES:
+# THE DEFECT, FOUND 2026-09-01 and FIXED the same day. The brief "8 m river
+# launch, 6 knots, 2 tonne" designs fine — 36 front members, ok=True,
+# GM 0.698 m — and 3 of its first 6 members produced an STL that
+# `cfd.case.write_resistance_case` REFUSED as not a closed manifold, while
+# `certify.cfd_candidate` reported eligible/SAFE. 0 of 30 SAMPLED hulls
+# failed; it was the optimizer's boundary-seeking members that did.
 #
-#     hull.stl is not a closed manifold and will not be meshed:
-#     13 open_or_nonmanifold_edges
+# At the transom the section's rows 0 and 1 land at EXACTLY the same z, so the
+# cap's bottom quad is four points on a LINE. Its second triangle has three
+# DISTINCT vertices and zero area — and it is the SEAM, the only face pairing
+# the starboard shell's edge with the port shell's. `Hull.closed_mesh`'s
+# `area > 1e-10` bar dropped it, the two shells met at a PINCH POINT, and
+# three edges were left used once each.
 #
-# while `certify.cfd_candidate` reported `eligible True, score 0.781,
-# meshability SAFE`. 0 of 30 SAMPLED hulls fail; it is the optimizer's
-# boundary-seeking members that do.
+# The fix is in the kernel: a triangle is dropped for TWO IDENTICAL VERTICES,
+# never for a small area, because a zero-area triangle with three distinct
+# vertices still pairs three edges. Degeneracy is a statement about vertices.
 #
-# ROOT CAUSE, located exactly and NOT the first two things it looked like.
-# At the transom the section's rows 0 and 1 land at EXACTLY the same z
-# (-0.3674332138315444 on the recorded genome), because a raised keel
-# (rocker 0.506) meets a nearly-flat floor (beta_mid 1.61 deg). The transom
-# cap's bottom quad is then a LINE, both its triangles have area exactly 0.0,
-# and the two shells meet at the keel in a single PINCH POINT rather than
-# along a seam -- three edges used once each.
-#
-# Two hypotheses were tested and REFUTED before this one, which is why the
-# mechanism is written down: it is not the 1e-10 sliver bar (both cap
-# triangles are area 0.0 and are dropped at ANY bar, including `> 0.0`), and
-# keeping the degenerate cap triangles makes it WORSE, not better (3 open
-# edges become 20).
-#
-# The real fix is the one `Hull.closed_mesh`'s own docstring already names and
-# defers: "An indexed/welded emit would make the watertightness STRUCTURAL
-# instead of coincidental." Until that lands, what this probe holds is the
-# CONTRACT, which is intact: the production path refuses these hulls loudly
-# and fatally, so nothing meshes a hull with a hole in it.
-#
-# AND IT DOES NOT ADD A CHEAP CHECK TO `certify`, deliberately. Measured at
-# nx=40/nz=10 the same three hulls read ZERO open edges -- the pinch is
-# resolution-dependent -- so a coarse check would publish SAFE for a surface
-# the case writer rejects. That is the layer-table lie (docs/LESSONS.md defect
-# class 1) and the probe refuses to build one.
+# THIS PROBE IS NOW THE RATCHET, not the report. The genome is kept — it is
+# the only hull in the tree known to exercise the transom pinch — and the
+# property asserted is the one that matters going forward: IT CLOSES, at every
+# resolution the product writes, and the production path accepts it.
 # ---------------------------------------------------------------------------
 
 #: The recorded genome, front[1] of "8 m river launch, 6 knots, 2 tonne,
@@ -821,52 +806,126 @@ _OPEN_MESH_GENOME = {
 }
 
 
-@probe("meshclose", "an unclosed hull is REFUSED, never meshed")
+@probe("meshclose", "every moulded surface CLOSES, at every shipped resolution")
 def _meshclose():
     from navalai.geometry import open_edge_count
     out = []
     g = dict(grammar.POST_HOC_DEFAULTS)
     g.update(_OPEN_MESH_GENOME)
-    x = grammar.vector(g)
-    try:
-        hull = Hull(x)
-        V, F = hull.closed_mesh(nx=80, nz=16)
-        open_edges = open_edge_count(V, F)
-    except Exception as e:                                   # noqa: BLE001
-        out.append(Finding("meshclose", "P2", "geometry",
-                           "the recorded open-mesh genome still builds",
-                           f"{type(e).__name__}: {e}"))
-        return out
-    if open_edges == 0:
-        out.append(Finding(
-            "meshclose", "P3", "geometry",
-            "the recorded transom-pinch genome still reproduces",
-            "it now closes at nx=80/nz=16. If `closed_mesh` was welded, "
-            "DELETE this probe and its genome in the same commit — a "
-            "regression case for a fixed defect is wallpaper."))
-        return out
-    # THE CONTRACT: the production path must REFUSE it.
-    import tempfile
-    from navalai.cfd.case import write_resistance_case
-    with tempfile.TemporaryDirectory() as td:
+    cases = [("transom-pinch (recorded)", grammar.vector(g))]
+    for label, x in list(feature_cases())[:1 + len(FEATURES)]:
+        cases.append((label, x))
+    # Reachability decides SEVERITY, not whether the finding is reported: a
+    # feature no production stream can draw cannot ship an open shell today,
+    # and the same probe turns P1 the day it can. Same coupling as `stations`.
+    reachable = set(grammar.EXPLORE_BLIND_GENES) | {
+        gg for b in grammar._EXPLORE_FEATURE_BUNDLES.values() for gg in b}
+    for label, x in cases:
+        genes = set(FEATURES.get(label, {}))
+        live = (not genes) or genes <= reachable
         try:
-            write_resistance_case(hull, 3.0, pathlib.Path(td) / "case",
-                                  end_time=1.0, np_procs=1)
-            out.append(Finding(
-                "meshclose", "P0", "geometry -> cfd",
-                "a hull whose surface does not close is REFUSED by the case "
-                "writer",
-                f"the case was WRITTEN for a hull with {open_edges} open "
-                f"edges at nx=80/nz=16 — an open shell floods the interior "
-                f"and yields a complete, plausible, meaningless run"))
-        except ValueError as e:
-            if "closed manifold" not in str(e):
-                out.append(Finding(
-                    "meshclose", "P2", "geometry -> cfd",
-                    "the refusal NAMES the surface as the reason",
-                    f"refused, but for another reason: {str(e)[:120]}"))
+            hull = Hull(x)
         except Exception:                                    # noqa: BLE001
-            pass          # a different environment failure is not this probe's
+            continue                                 # a kernel refusal is not
+        for nx, nz in ((80, 16), (200, 40)):         # this probe's business
+            try:
+                V, F = hull.closed_mesh(nx=nx, nz=nz)
+                n = open_edge_count(V, F)
+            except Exception as e:                           # noqa: BLE001
+                out.append(Finding(
+                    "meshclose", "P2", "geometry",
+                    f"{label}: the moulded surface builds at {nx}x{nz}",
+                    f"{type(e).__name__}: {str(e)[:100]}"))
+                continue
+            if n:
+                out.append(Finding(
+                    "meshclose", "P1" if live else "P3", "geometry -> cfd",
+                    f"{label}: the moulded surface CLOSES at {nx}x{nz}",
+                    f"{n} edge(s) used other than twice. An open shell floods "
+                    f"the interior and yields a complete, plausible, "
+                    f"meaningless run; `write_resistance_case` refuses this "
+                    f"hull outright, so the contract holds. "
+                    + ("THIS FEATURE IS REACHABLE FROM PRODUCTION."
+                       if live else
+                       "Withheld from every production draw today "
+                       "(Gate REACHABILITY), so nothing ships it; close the "
+                       "surface BEFORE promoting it."),
+                    {"case": label}))
+    return out
+
+
+# ---------------------------------------------------------------------------
+# PROBE 13 — evidence recorded in the tree must be EXPRESSIBLE by the grammar,
+# or the gap must be stated.
+#
+# THE CLASS. This tree records published series data — the thing a bar is
+# supposed to be calibrated against — and separately bounds its genes. Nothing
+# checked that the second can reach the first, so a bound could silently
+# exclude the very canon the project cites.
+#
+# MEASURED 2026-09-01, and it is not hypothetical: `docs/research/
+# HULL-FORM-RULES.md` §7.3 tabulates eight published LCB centres (Petersson
+# 2020; Blount & McGrath) and **5 of the 8 lie outside the `lcb` gene's own
+# +-3 %LWL box**. Only Taylor — a low-speed series that fixes LCB at midships
+# BY CONSTRUCTION — NPL (whose range reaches -2.00) and DSYHS (whose 61-hull
+# SPREAD reaches +0.01, though its MEDIAN of -3.28 does not) survive. The research document
+# says the same thing in words ("a +-3% band applied around midships would
+# exclude every semi-displacement series in the table above") and the code
+# said the opposite: `mission_lcb_band`'s basis read "UNKNOWN target law — no
+# sourced Fn/topology->LCB relation in tree".
+#
+# The bar is NOT moved by this probe or by the commit that adds it — §7.3
+# reserves that decision — but the gap is now COUNTED, so it cannot widen
+# quietly and cannot be forgotten.
+# ---------------------------------------------------------------------------
+
+#: How many sourced LCB centres the `lcb` gene box may fail to express before
+#: this is a finding. MEASURED at 5 of 8 today. The number is a WATERMARK in
+#: the ledger's sense: it exists so a REGRESSION is visible, not to bless the
+#: shortfall.
+_LCB_UNEXPRESSIBLE_WATERMARK = 5
+
+
+@probe("evidence", "recorded series evidence is expressible, or the gap is counted")
+def _evidence():
+    from navalai import limits
+    out = []
+    lo_g = float(grammar.LOW[grammar.NAMES.index("lcb")])
+    hi_g = float(grammar.HIGH[grammar.NAMES.index("lcb")])
+    outside = []
+    for row in limits.LCB_SOURCED_CENTRES:
+        name, lo, hi = row[0], float(row[1]), float(row[2])
+        if not (hi >= lo_g and lo <= hi_g):
+            outside.append((name, lo, hi))
+    n = len(outside)
+    if n > _LCB_UNEXPRESSIBLE_WATERMARK:
+        out.append(Finding(
+            "evidence", "P1", "grammar",
+            "the lcb gene box expresses at least as much of the published "
+            "canon as it did when this was measured",
+            f"{n} of {len(limits.LCB_SOURCED_CENTRES)} sourced LCB centres "
+            f"are outside [{lo_g}, {hi_g}] %LWL, against a watermark of "
+            f"{_LCB_UNEXPRESSIBLE_WATERMARK} — this got WORSE: "
+            + "; ".join(f"{nm} {a:.2f}..{b:.2f}" for nm, a, b in outside)))
+    elif n < _LCB_UNEXPRESSIBLE_WATERMARK:
+        out.append(Finding(
+            "evidence", "P3", "grammar",
+            "the recorded watermark matches what the box now expresses",
+            f"only {n} of {len(limits.LCB_SOURCED_CENTRES)} sourced centres "
+            f"are now unexpressible, against a watermark of "
+            f"{_LCB_UNEXPRESSIBLE_WATERMARK}. If the box was widened on "
+            f"evidence, LOWER the watermark in the same commit — a stale "
+            f"watermark stops being a regression signal."))
+    # and the RECEIPT must not claim the evidence is absent
+    from navalai.mission import MissionSpec, mission_lcb_band
+    _lo, _hi, basis = mission_lcb_band(MissionSpec(lwl_hint_m=12.0,
+                                                   cruise_speed_kn=6.0))
+    if "UNKNOWN target law" in basis or "no sourced" in basis.lower():
+        out.append(Finding(
+            "evidence", "P2", "mission",
+            "the LCB receipt does not deny evidence the tree holds",
+            "mission_lcb_band's basis still says the relation is unknown, "
+            "while limits.LCB_SOURCED_CENTRES tabulates it"))
     return out
 
 

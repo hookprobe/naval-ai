@@ -2679,12 +2679,64 @@ class Hull:
         # watertightness is coincidental (see the docstring) is not a smaller
         # mesh, it is an open shell that lets the mesher flood the interior.
         def quad(a, b, c, d) -> None:
-            # split into two triangles; drop degenerate slivers
+            """Split into two triangles, dropping only a TRUE degeneracy.
+
+            THE TEST IS TWO IDENTICAL VERTICES, NOT A SMALL AREA, and the
+            difference is a hole. MEASURED 2026-09-01 by the small-boat
+            end-to-end validation: the brief "8 m river launch, 6 knots,
+            2 tonne" designs fine -- 36 front members, ok=True, GM 0.698 m --
+            and 3 of its first 6 members produced an STL that
+            `cfd.case.write_resistance_case` REFUSED as not a closed manifold.
+            0 of 30 SAMPLED hulls fail; it is the optimizer's
+            boundary-seeking members that do.
+
+            The mechanism, located exactly. At the transom the section's rows
+            0 and 1 land at EXACTLY the same z (-0.3674332138315444 on the
+            recorded genome) because a raised keel (rocker 0.506) meets a
+            nearly-flat floor (beta_mid 1.61 deg). The cap's bottom quad is
+            then four points on a LINE. Its first triangle has two IDENTICAL
+            vertices (S[0,0] and P[0,0] are both the keel at y = 0) and pairs
+            no edges, so dropping it is right. Its SECOND triangle
+            (keel, P[0,1], S[0,1]) has three DISTINCT vertices and zero area
+            -- and it is the SEAM: it is the only face that pairs the
+            starboard shell's edge S[0,0]->S[0,1] with the port shell's
+            P[0,0]->P[0,1]. The old `area > 1e-10` bar dropped it, the two
+            shells met at a single PINCH POINT instead of along a seam, and
+            three edges were left used once each.
+
+            A zero-area triangle with three distinct vertices still pairs
+            three edges. That is the whole rule: degeneracy is a statement
+            about VERTICES, and the area bar was answering a different
+            question.
+
+            MEASURED, both directions:
+
+                hull            area>1e-10        two-identical-vertices
+                failing  80x16   3 open, 5243     0 open, 5244
+                failing 200x40   7 open, 32311    0 open, 32316
+                reference 80x16  0 open, 5232     0 open, 5232
+                reference 200x40 0 open, 32284    0 open, 32284
+                4 sampled hulls  identical at both resolutions
+
+            The kept set under the old bar is a strict SUBSET of the kept set
+            under this one (identical vertices imply zero area, so anything
+            the old bar kept this rule keeps), so equal counts prove the mesh
+            is BIT-IDENTICAL on every hull that was already closed. What
+            changes is only the hulls that were open.
+
+            TWO HYPOTHESES WERE REFUTED FIRST and are recorded so nobody
+            re-tries them: it is NOT the sliver bar dropping one side of a
+            shared edge (both cap triangles at j = 0 are area 0.0 and are
+            dropped at ANY bar, including a strict `> 0.0`), and keeping ALL
+            degenerate cap triangles makes it WORSE -- 3 open edges become 20,
+            because that also keeps faces at other rows that pair nothing.
+            """
             for tri in ((a, b, c), (a, c, d)):
                 p = np.array(tri)
-                area = 0.5 * np.linalg.norm(np.cross(p[1] - p[0], p[2] - p[0]))
-                if area > 1e-10:
-                    tris.append((vid(p[0]), vid(p[1]), vid(p[2])))
+                if (np.array_equal(p[0], p[1]) or np.array_equal(p[1], p[2])
+                        or np.array_equal(p[0], p[2])):
+                    continue
+                tris.append((vid(p[0]), vid(p[1]), vid(p[2])))
 
         for i in range(nx - 1):
             for j in range(nz):
