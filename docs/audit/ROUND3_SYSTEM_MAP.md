@@ -98,3 +98,44 @@ for the funnel before and after.
 - **24** — the theory-first preflight gates `planner` (classified RESEARCH)
   and the `--stl` CLI, not `certify.cfd_candidate`, which is what actually
   decides that a solve is worth buying.
+
+---
+
+## ADDENDUM — 2026-09-02: three arrows repaired, one weak arrow re-described
+
+§3 of this map listed the weak arrows. Three of them carried traffic that was
+being dropped, and the drop was invisible to a fully green suite.
+
+| arrow | was | now |
+|---|---|---|
+| `mission → grammar box` | a brief's CONSTRUCTION METHOD had no field to land in; "plywood" reached nothing | `MissionSpec.build_method` → a compiled box (`roundness` pinned, flare/forefoot narrowed) |
+| `mission → sample_valid` | a REQUESTED architecture was held at its no-op default: 40 of 40 tunnel briefs drew no tunnel | feature bundles wired in, on a SPAWNED generator so every existing seeded brief is bit-identical |
+| `mission → propulsion credit` | `prop_tunnel_recess_m` unset ⇒ `min(declared, drawn)` = 0 on hulls drawing 0.15–0.25 m | unstated ≠ declared-zero, on the tunnel drive only |
+| `CFD case → anchor book` | `stl_sha256` + `case_dir` only — a result could not name its design | `genome_sha256` carried from `case.info`; `cfd_kb.same_design` |
+| `translate → vessel` | the degrade was NOTED, not PERFORMED | the refusal now sets the monohull floor and discards the prose inference |
+
+**The map's own §3.1 gap is now half-closed, and the remaining half is
+smaller than it was written.** A CFD anchor can name its design. The
+`geometry_hash` noted as missing is *less* load-bearing than that entry
+implied: `write_resistance_case` already cross-checks the manifest's
+displacement against the STL it actually writes, and refuses a genome that
+does not match the hull it is meshing ("the wrong manifest is two boats in one
+directory"). What is genuinely unrecorded is `n_stations` — geometry
+RESOLUTION, not geometry identity.
+
+**One arrow was re-described rather than repaired**, because the repair is
+Gate 6D's and §50 forbids closing it: `geometry → manufacturing`. The
+sheet-kit product class is real in the grammar and unreachable in production.
+Measured at the corner `kit_buildability`'s docstring names (flare 0,
+forefoot 0, warp ≤ +8°): **8.3–78 mm** at mission-drawn proportions, 152–1475
+mm on the `formcheck` reference cases, against a 5.0 mm bar. That is
+consistent with — not a refutation of — Gate 6D's recorded 124.1 mm watermark;
+several readings are BETTER than it. The corner is a joint corner including
+**proportions**, and the three dials the docstring names do not define it.
+
+**A new arrow was added to this map by the fix, and the sweep caught it
+immediately**: `mission → ui.server.mission_key`. `build_method` joined the
+cache key automatically (the key is derived from the dataclass) with no
+alternative value declared, so *"does it move the key?"* had gone unasked.
+Two briefs differing only in build method are different design problems and
+must not share a fitted generator.

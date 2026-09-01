@@ -120,3 +120,68 @@ a laboratory concern; it is what that endpoint serves.
    carries it, so sheet-buildability is never demanded of the design.
 4. **P3 buildable = 0** for the same reason as everyone else, but a catamaran
    demihull is the shape most likely to WANT sheet construction.
+
+---
+
+## ADDENDUM — 2026-09-02: the funnel, re-measured after the instrument was fixed
+
+Two corrections to this harness, both of which had made the product look worse
+than it is. Recorded here rather than silently restated, per PLM §3 step 7.
+
+**1. `buildable = 0` on all seven missions was an artefact of the meter.**
+The harness called `buildability.shell_complexity` — a GEOMETRY metric defined
+only on the two-strip ruled surface, which therefore refuses any hull with
+`roundness > 0` *by design* — and labelled that refusal "not sheet-developable".
+It had committed the mislabelled-metric defect it exists to catch.
+`kit_buildability` is the meter that answers the question, and it answers with
+a **route**. A mould boat is a boat.
+
+**2. The harness measured the SAMPLER, not the product.** NavalAI's design
+route is a search. Reporting `sample_valid`'s yield as "mission → valid design
+rate" priced a funnel nobody runs.
+
+| # | brief | feed (40 draws) | **SEARCH** | route |
+|---|---|---|---|---|
+| P1 | simple displacement monohull | 3 | **48** | mould |
+| P2 | coastal houseboat | 3 | **48** | mould |
+| P3 | catamaran | 7 | **48** | mould |
+| P4 | tunnel-stern river cruiser | **0** | **41** | mould |
+| P5 | hard-chine plywood launch | 2 | **45** | mould |
+| P6 | wave-piercing cruiser | 2 | **48** | mould |
+| P7 | impossible | refused | **0, refused** | — |
+
+`P4 = 0` was a statement about uniform draws, not about NavalAI: the same
+brief yields 41 designs from `pareto_front`, carrying a real drawn tunnel
+(`tun_w` 0.065). **Checked for the false green this invites** — P7 is refused
+by BOTH routes, the search reporting *"no design satisfied the brief in 1440
+candidates … freeboard=1440, gm=1440, …"*.
+
+### Three briefs that named an architecture, and three places it did not reach
+
+Every defect this round has one shape: **the brief says something, the parser
+hears it, and the design path draws as though it had not been said.**
+
+* **"plywood" reached nothing.** `roundness` drew uniform on [0, 1] while
+  `unroll.hull_panels` refuses `roundness > 0` by name — so every design served
+  for a plywood brief was provably un-kittable and the kit meter *raised*
+  instead of returning a number. Now `MissionSpec.build_method` compiles to a
+  **box**. This does **not** deliver kit boats: measured 8.3–78 mm against a
+  5.0 mm bar, and **Gate 6D is 25× out at 124.1 mm and was not touched**.
+* **"protected prop" was heard and not drawn.** 40 of 40 hulls carried
+  `tun_w = tun_crown = tun_len = 0`, and 9 died on `row:prop_space` — the exact
+  constraint a tunnel exists to satisfy. This was the **third** site of a
+  defect `apply_feature_bundles_inplace`'s own docstring already records twice.
+* **Unstated ≠ declared zero.** `prop_tunnel_recess_m` sat at its dataclass
+  default, so `min(declared, drawn)` credited 0.000 m on hulls drawing
+  0.15–0.25 m. Honest about its size: prop_space violations 28 → 23, and the
+  all-rows-ok rate stays 0 of 40. A correctness fix, **not** a rescue of P4.
+
+### The regression this campaign caused, and what it teaches
+
+Making prose "catamaran" parse broke a guard one file away.
+`translate.sanitize` appended *"monohull floor kept"* and **set nothing** —
+correct only while `parse_mission` never inferred a multihull. It then
+produced a CATAMARAN carrying a note saying it was a monohull. **The note was
+the only monohull in the result.** A guard that asserts a state instead of
+establishing it is a guard with a hidden premise, and this campaign changed
+the premise.
