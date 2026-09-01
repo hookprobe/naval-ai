@@ -522,3 +522,98 @@ CFD-informed optimize loop must hold deltas to that bar or it will tune on
 noise. And the owner's split stands: theory first (Kelvin wavelength,
 ITTC, hydrostatics — check, don't discover), simulation only for what has
 no formula (tunnel inflow, fin wakes, which cell folds first).
+
+## A GREEN SUITE IS NOT A WORKING SYSTEM: NINETEEN SEAM DEFECTS UNDER 2094 GREEN (2026-09-01)
+
+An end-to-end integration audit ran against a suite that was **2094 passed, 14
+skipped, 0 failed**. It found nineteen defects. Not one was a row in
+`docs/GAP-REGISTER.md`; not one was a bug inside a module. Every single one was
+an **agreement between two subsystems that nothing checked**:
+
+- `form_coefficients` measured a hull the ladder does not float — a split
+  stern reported **Cm 1.1514**, which is geometrically impossible, into the
+  critic, the certification and the design report;
+- a declared `prop_tunnel_recess_m` bought a **flat-bottomed** hull a bigger
+  propeller disc and a clean wake, while a hull that drew a real 0.247 m
+  tunnel got nothing for it;
+- a **catamaran was served the monohull pool** and the monohull Pareto front,
+  labelled with its own receipt, because the cache key enumerated 5 of
+  MissionSpec's 16 fields by hand;
+- the shape repair climbed the **general** morphology bands while the ladder
+  scored it on the **family's**, and then `np.clip` moved the hull it had just
+  repaired — 9 of 9 repaired seeds destroyed, initial population 0 of 24
+  plausible, under a comment claiming "half the initial population is climbed
+  to plausibility";
+- an ordinary brief — "200 tonne houseboat, 16 m, 5 knots", which the parser
+  itself clamps to 200 t — **crashed `pareto_front`** out of the ISO scantling
+  rule, losing a whole design run because one candidate could not be planked.
+
+**The transferable part is the SHAPE of the blind spot.** A unit test asks "is
+this module right?" and a gate asks "is this bar met?" Neither asks "do two
+modules agree about one object?", and that is where every one of these lived.
+The register has no row for it because the register models WORK, not SEAMS.
+
+So the answer is not more unit tests. `scripts/gap_sweep.py` (Gate SWEEP)
+takes a PROPERTY that must hold across a seam and sweeps it over a generated
+population: the suite is the ratchet, the sweep is the search. Twelve probes,
+4 seconds, and it uses the ledger's own rule — a declared finding is carried
+with its number and its reason, a new one fails, a stale declaration fails,
+and **nothing above P3 may be merely declared**.
+
+### The instrument caught itself first, and that is the warning
+
+`gap_sweep`'s first run reported seven P1 findings of 0.17–0.32%, every one on
+a hull with `r_stem`. They were not defects. The probe compared **401-station
+descriptors against 41-station ladder integrals** and attributed the grid
+difference to the model. Re-measured on a common grid the two agree to 1e-9,
+and the ladder's own integral converges onto the descriptor value
+(r_stem waterplane: 41 → 46.2695, 401 → 46.1813, 1601 → 46.1792 m²).
+
+That is this file's own "an instrument that partly measures how the
+measurement was taken", committed by the tool built to catch it, within a
+minute of it existing. **When a new checker fires, suspect the checker first.**
+
+### A DECISION IS MEASURED AT A CONFIGURATION TOO
+
+Defect class 6 says *beware a defect measured at a configuration the product
+never runs*. The mirror is just as expensive: `export.py` records a careful
+2026-08-13 measurement DECLINING to raise `Hull.n_stations` — 81 stations cost
+`evaluate()` +51% "and it buys the LADDER nothing — wetted +0.014%, displaced
+volume +0.006%". Every word of that is true, and it was measured two weeks
+before the SPLIT STERN existed. Re-measured against a 1281-station reference,
+the split's **BM carries −0.532% at 41 stations** (−1.506% with `dwl`), and BM
+drives GM, which is a safety floor.
+
+Nothing was wrong with the decision. What was missing is that a decision, like
+a defect, has a configuration — and the product grew past it silently. State
+the configuration a DECISION was taken at, and re-open it when the feature set
+moves.
+
+### Two refuted hypotheses before the right one, on one defect
+
+3 of 6 delivered designs for "8 m river launch" produce an STL the case writer
+refuses as not closed. Diagnosis went:
+
+1. *the 1e-10 sliver bar drops one side of a shared edge* — REFUTED: both
+   transom-cap triangles have area exactly 0.0 and are dropped at any bar,
+   including a strict `> 0.0`;
+2. *keep the degenerate cap triangles, then* — REFUTED by trying it: 3 open
+   edges became **20**;
+3. the truth: at the transom, section rows 0 and 1 land at **exactly** the
+   same z, so the cap's bottom quad is a LINE and the two shells meet at a
+   pinch point instead of a seam.
+
+Both wrong answers were plausible and both would have shipped. The cost of
+testing each was about a minute. **On this codebase, test the fix before you
+believe the diagnosis** — and when the fix makes it worse, that is information
+about the diagnosis, not about the fix.
+
+### And a cheap check that would have been a lie
+
+The obvious follow-up was to have `certify` check closure cheaply. Measured at
+nx=40/nz=10 the same three failing hulls read **zero** open edges — the pinch
+is resolution-dependent — so the cheap check would have published SAFE for a
+surface the case writer rejects. Not building it was the fix; naming what the
+verdict does NOT cover was the rest of it. A guard that can only be built
+wrong is better left unbuilt and declared.
+
