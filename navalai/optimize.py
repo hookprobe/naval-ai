@@ -7,7 +7,7 @@ material, stability margin. Constraints come from the ladder itself.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 from pymoo.algorithms.moo.nsga2 import NSGA2
@@ -364,6 +364,7 @@ class HullProblem(Problem):
         names = self.constraint_names
         F = np.full((len(X), 3), 1e9)
         Gc = np.full((len(X), len(names)), INFEASIBLE_G)
+        self._seen = getattr(self, "_seen", 0) + len(X)
         for i, x in enumerate(X):
             # Constraints come from the ladder itself, so a check added there
             # (trim and list, most recently) constrains the search immediately
@@ -375,8 +376,44 @@ class HullProblem(Problem):
                             provenance=self.provenance)
             if scored is not None:
                 F[i], Gc[i] = scored
+        self._tally(names, Gc)
         out["F"] = F
         out["G"] = Gc
+
+    def _tally(self, names, Gc) -> None:
+        """Count which constraint rows BOUND, so an empty front can say why.
+
+        AN EMPTY FRONT WITH NO EXPLANATION IS THE WORST ANSWER THIS PRODUCT
+        GIVES. MEASURED 2026-09-01 on the brief "6 m dinghy with an outboard,
+        8 knots, 900 kg": 720 evaluations, 0 designs, and an empty array
+        returned to the caller. The information the user needs was computed
+        720 times and thrown away every time — `motor_power` bound on 497 of
+        them and was the WORST row on 373, because a 6 m hull at 8 kn is
+        Fn 0.536 and a 15 kW motor's 12 kW continuous rating cannot push it.
+        With the engine raised to 60 kW the answer changes to `rules`,
+        `gm`, `prop_space` and `bend_radius`, which is a DIFFERENT and equally
+        actionable sentence.
+
+        Counting is all this does: `violated` is how many candidates each row
+        refused, `worst` is how many times it was the row furthest from
+        satisfaction. Neither is a verdict about the brief — it is the
+        arithmetic the caller needs to write one.
+        """
+        b = getattr(self, "_binding", None)
+        if b is None:
+            b = self._binding = {"violated": {n: 0 for n in names},
+                                 "worst": {n: 0 for n in names},
+                                 "evaluated": 0, "feasible": 0}
+        G = np.asarray(Gc, float)
+        b["evaluated"] += G.shape[0]
+        pos = G > 0.0
+        b["feasible"] += int((~pos.any(axis=1)).sum())
+        for j, n in enumerate(names):
+            b["violated"][n] += int(pos[:, j].sum())
+        rows = np.flatnonzero(pos.any(axis=1))
+        if rows.size:
+            for j in np.asarray(G[rows].argmax(axis=1)).ravel():
+                b["worst"][names[int(j)]] += 1
 
 
 class LatentHullProblem(Problem):
@@ -424,6 +461,39 @@ class ParetoResult:
     X: np.ndarray
     F: np.ndarray          # (wh_per_nm, build_area_m2, |GM - band middle|)
     n_evals: int
+    #: WHY, when X is empty — and useful even when it is not. See
+    #: `HullProblem._tally`: {"violated": {row: n}, "worst": {row: n},
+    #: "evaluated": n, "feasible": n}. Empty dict when nothing was tallied,
+    #: which is honest: it means no candidate reached the constraint vector,
+    #: never that nothing bound.
+    binding: dict = field(default_factory=dict)
+
+    def why_empty(self) -> str:
+        """One sentence a user can act on, or '' when the front is not empty.
+
+        Names the row that refused the most designs and the row that was
+        furthest from satisfaction, because they are DIFFERENT questions and
+        the answer to the second is usually the lever.
+        """
+        if len(self.X) or not self.binding:
+            return ""
+        b = self.binding
+        worst = sorted(b["worst"].items(), key=lambda kv: -kv[1])
+        viol = sorted(b["violated"].items(), key=lambda kv: -kv[1])
+        worst = [(k, v) for k, v in worst if v]
+        viol = [(k, v) for k, v in viol if v]
+        if not viol:
+            return (f"no design satisfied the brief, and no constraint row "
+                    f"was ever reached — every one of {b['evaluated']} "
+                    f"candidates was refused before the ladder built its "
+                    f"constraint vector (an L0 or flotation refusal).")
+        return (f"no design satisfied the brief in {b['evaluated']} "
+                f"candidates. The row furthest from satisfaction was "
+                f"{worst[0][0]!r} on {worst[0][1]} of them"
+                + (f"; the row that refused the most was {viol[0][0]!r} on "
+                   f"{viol[0][1]}" if viol[0][0] != worst[0][0] else "")
+                + f". Full count: "
+                + ", ".join(f"{k}={v}" for k, v in viol[:6]) + ".")
 
 
 def _front(res, n_var: int) -> tuple[np.ndarray, np.ndarray]:
@@ -460,7 +530,8 @@ def pareto_front(mission: MissionSpec, pop: int = 40, gens: int = 30,
     res = minimize(problem, algo, get_termination("n_gen", gens), seed=seed,
                    verbose=False)
     X, F = _front(res, problem.n_var)
-    return ParetoResult(X, F, pop * gens)
+    return ParetoResult(X, F, pop * gens,
+                        binding=getattr(problem, "_binding", {}) or {})
 
 
 def pareto_front_latent(mission: MissionSpec, genome, pop: int = 40,

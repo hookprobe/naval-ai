@@ -115,6 +115,10 @@ ENERGY_RANGES: dict[str, tuple[float, float]] = {
     "solar_yield_kwh_m2_day": (1.0, 7.0),
     "panel_packing": (0.1, 0.85),
     "panel_eff": (0.10, 0.30),
+    # A PROSE SANITY CLAMP, not a naval-architecture band — the same job the
+    # `battery_kwh` row above does, and stated the same way. Added 2026-09-01
+    # when the parser learned to read a stated engine size at all.
+    "motor_kw": (0.3, 1000.0),
     "prop_efficiency": (0.3, 0.75),
     "motor_efficiency": (0.7, 0.98),
     "cruise_hours_day": (1.0, 24.0),
@@ -822,6 +826,8 @@ def parse_mission(text: str) -> MissionSpec:
     if g := re.search(r"(\d+)" + _SEP + r"berths?\b", t):
         m.berths = int(g.group(1))
 
+    from dataclasses import replace as _replace
+
     solar = "solar" in t
     if g := re.search(_NUM + _SEP + r"kwh", t):
         # Clamped through the SHARED table: prose was the one writer of
@@ -833,7 +839,11 @@ def parse_mission(text: str) -> MissionSpec:
         if kwh != raw:
             unparsed.append(f"battery {raw:g} kWh outside [{lo:g}, {hi:g}]; "
                             f"clamped to {kwh:g}")
-        m.energy = EnergySpec(battery_kwh=kwh)
+        # `_replace`, not `EnergySpec(battery_kwh=...)`: constructing a fresh
+        # spec here DISCARDS every energy field parsed before this line, which
+        # made the block order load-bearing and invisible. Nothing set one
+        # earlier when this was written; the motor parse below does.
+        m.energy = _replace(m.energy, battery_kwh=kwh)
     if solar and m.energy.battery_kwh == 30.0:
         pass  # defaults already solar-electric
 
@@ -842,7 +852,37 @@ def parse_mission(text: str) -> MissionSpec:
     # lever it does not have; the vocabulary maps onto
     # propulsion.DriveArchitecture and anything unnamed stays the shaft
     # default.
-    from dataclasses import replace as _replace
+    # THE ENGINE THE BRIEF NAMES, and until 2026-09-01 it named it into the
+    # void. `EnergySpec.motor_kw` exists BECAUSE of the held houseboat16
+    # study's finding — "15 kW IS NOT EXPRESSIBLE ... declaring 15 kW would be
+    # silently dropped and NOTHING would check it" — and it is a LIVE
+    # constraint row (`propulsion.rows_for`'s `motor_power`). The field was
+    # added and the parser never learned to read it, so the brief still could
+    # not say it.
+    #
+    # MEASURED, and this is what made it worth fixing rather than noting: the
+    # brief "6 m dinghy with an outboard, 8 knots, 900 kg" returns an EMPTY
+    # FRONT, and `motor_power` is the binding row on 497 of 720 candidates and
+    # the WORST row on 373 — a 6 m hull at 8 kn is Fn 0.536, and the default
+    # 15 kW motor's 12 kW continuous rating cannot push it. The one lever that
+    # fixes the brief is the engine, and "60 kW outboard" parsed to 15.0.
+    #
+    # `kwh` is matched FIRST (above), so the battery keeps the ambiguous
+    # token; this pattern refuses a trailing 'h' for the same reason.
+    # Horsepower is accepted because that is how outboards are sold.
+    _mw = None
+    if g := re.search(_NUM + _SEP + r"k(?:ilo)?w(?!h)\b", t):
+        _mw = float(g.group(1))
+    elif g := re.search(_NUM + _SEP + r"(?:hp|horsepower|bhp)\b", t):
+        _mw = float(g.group(1)) * 0.745699872       # 1 hp (mechanical) in kW
+    if _mw is not None:
+        lo, hi = ENERGY_RANGES["motor_kw"]
+        kw = min(max(_mw, lo), hi)
+        if kw != _mw:
+            unparsed.append(f"motor {_mw:g} kW outside [{lo:g}, {hi:g}]; "
+                            f"clamped to {kw:g}")
+        m.energy = _replace(m.energy, motor_kw=kw)
+
     if re.search(r"\boutboards?\b", t):
         m.energy = _replace(m.energy, drive="outboard")
     elif re.search(r"\b(?:saildrive|sail\s*drive|pod\s*drive|azimuth)\b", t):

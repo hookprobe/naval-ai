@@ -821,3 +821,74 @@ def test_a_design_the_ladder_cannot_PLANK_is_refused_not_raised():
     assert res.X.shape[0] == 0, (
         "a 200 t hull planked from 25 mm stock sheet passed the ladder — "
         "then the refusal has been weakened, not relocated")
+
+
+def test_an_empty_front_says_WHY():
+    """AN EMPTY FRONT WITH NO EXPLANATION IS THE WORST ANSWER THIS PRODUCT
+    GIVES, and it was the answer.
+
+    MEASURED 2026-09-01 by the small-boat end-to-end validation. The brief
+    "6 m dinghy with an outboard, 8 knots, 900 kg" returns 0 designs from 720
+    evaluations. The information the user needs was computed 720 times and
+    discarded every time: `motor_power` is the row furthest from satisfaction
+    on 373 of them, because a 6 m hull at 8 kn is Fn 0.536 and a 15 kW motor's
+    12 kW continuous rating cannot push it.
+
+    The refusal itself is CORRECT — this is a plywood, displacement-hull
+    product line and a 6 m planing dinghy is outside it. What was missing is
+    the sentence that says so. Raise the engine and the answer CHANGES to
+    `rules`, which is a different and equally actionable sentence; that is the
+    property this test holds, because a diagnosis that always names the same
+    row is not a diagnosis.
+    """
+    from navalai.mission import parse_mission
+
+    slow = pareto_front(
+        parse_mission("6 m dinghy with an outboard, 8 knots, 900 kg, "
+                      "category C"), pop=48, gens=15, seed=3)
+    assert slow.X.shape[0] == 0, (
+        "this brief now produces designs — good, but then it can no longer "
+        "hold the empty-front contract; pick one that does not")
+    why = slow.why_empty()
+    assert "motor_power" in why, why
+    assert str(slow.binding["evaluated"]) in why
+    assert slow.binding["feasible"] == 0
+
+    powered = pareto_front(
+        parse_mission("6 m dinghy with an 80 hp outboard, 8 knots, 900 kg, "
+                      "category C"), pop=48, gens=15, seed=3)
+    if powered.X.shape[0] == 0:
+        assert "motor_power" not in powered.why_empty(), (
+            "with a 60 kW engine the binding row must MOVE — a diagnosis "
+            "that always names the same row is not a diagnosis")
+
+    # and a brief that DOES design says nothing, rather than inventing a
+    # reason for a front that exists
+    ok = pareto_front(parse_mission("8 m river launch, 6 knots, 2 tonne, "
+                                    "category C"), pop=48, gens=15, seed=3)
+    assert ok.X.shape[0] > 0 and ok.why_empty() == ""
+    assert ok.binding["feasible"] > 0
+
+
+def test_the_binding_tally_counts_two_different_questions():
+    """`violated` and `worst` are not the same number and must not be merged.
+
+    A row can refuse many designs while never being the one furthest from
+    satisfaction (it is marginal on all of them), and a row can be the worst
+    on few designs while being the actual blocker. The lever is usually the
+    second; the count is the first.
+    """
+    from navalai.evaluate import CONSTRAINT_NAMES
+    from navalai.mission import parse_mission
+
+    r = pareto_front(parse_mission("6 m dinghy with an outboard, 8 knots, "
+                                   "900 kg, category C"),
+                     pop=48, gens=15, seed=3)
+    b = r.binding
+    assert set(b) == {"violated", "worst", "evaluated", "feasible"}
+    assert set(b["violated"]) == set(b["worst"]) == set(CONSTRAINT_NAMES)
+    assert sum(b["worst"].values()) <= b["evaluated"]
+    for name, n in b["worst"].items():
+        assert n <= b["violated"][name], (
+            f"{name} was the WORST row {n} times but only violated "
+            f"{b['violated'][name]} times, which is impossible")

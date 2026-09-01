@@ -500,3 +500,60 @@ def test_a_drawn_tunnel_is_what_buys_the_single_prop_its_disc():
     assert tunnelled.g["prop_space"] < 0.0 and tunnelled.ok, (
         f"the drawn tunnel did not buy the disc: "
         f"{tunnelled.g.get('prop_space')} {tunnelled.violations}")
+
+
+def test_the_brief_can_state_the_engine_it_has():
+    """`EnergySpec.motor_kw` EXISTS because a brief could not say 15 kW, and
+    for months the brief still could not say it.
+
+    This module's own docstring records why the field was added: the held
+    houseboat16 study found "15 kW IS NOT EXPRESSIBLE — there is no
+    motor-power field anywhere in this codebase — so declaring 15 kW would be
+    silently dropped and NOTHING would check it." The FIELD landed. The PARSER
+    never learned to read it, so a user still could not declare an engine, and
+    `motor_kw` sat at its 15.0 default whatever the brief said.
+
+    MEASURED 2026-09-01, and this is why it matters rather than being tidy:
+    the brief "6 m dinghy with an outboard, 8 knots, 900 kg" returns an EMPTY
+    FRONT with `motor_power` the row furthest from satisfaction on 373 of 720
+    candidates — the one lever that addresses it is the engine, and
+    "60 kW outboard" parsed to 15.0.
+
+    Horsepower is accepted because that is how outboards are sold, and `kWh`
+    keeps the ambiguous token because the battery is matched first.
+    """
+    from navalai.mission import parse_mission
+
+    assert parse_mission(
+        "6 m dinghy with a 60 kW outboard, 8 knots").energy.motor_kw == 60.0
+    assert parse_mission(
+        "6 m dinghy, 8 knots, 60 kW motor").energy.motor_kw == 60.0
+    assert parse_mission(
+        "6 m dinghy with an 80 hp outboard, 8 knots"
+    ).energy.motor_kw == pytest.approx(80 * 0.745699872)
+    # the battery keeps kWh, and BOTH survive in one brief
+    m = parse_mission("16 m houseboat, 5 knots, 40 kWh battery, 25 kW motor")
+    assert (m.energy.battery_kwh, m.energy.motor_kw) == (40.0, 25.0)
+    # an unstated engine keeps the product's default, unchanged
+    assert parse_mission("16 m houseboat, 5 knots").energy.motor_kw == \
+        EnergySpec().motor_kw
+    # and an absurd one is CLAMPED AND SAID, never taken verbatim — the
+    # "999999 kWh battery" incident, applied to the motor
+    big = parse_mission("6 m dinghy with a 99999 kW outboard, 8 knots")
+    assert big.energy.motor_kw == 1000.0
+    assert "clamped" in big.notes and "99999" in big.notes
+
+
+def test_parsing_a_battery_no_longer_discards_the_rest_of_the_spec():
+    """`m.energy = EnergySpec(battery_kwh=...)` CONSTRUCTED a fresh spec,
+    silently discarding every energy field parsed before that line. Nothing
+    set one earlier when it was written; the motor parse does now, so the
+    order was load-bearing and invisible. It is a `replace` today.
+    """
+    from navalai.mission import parse_mission
+
+    m = parse_mission("16 m houseboat with a protected prop, 5 knots, "
+                      "40 kWh battery, 25 kW motor")
+    assert m.energy.battery_kwh == 40.0
+    assert m.energy.motor_kw == 25.0
+    assert m.energy.drive == "tunnel"
