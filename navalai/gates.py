@@ -263,6 +263,17 @@ GATES = [
          "for every feature that folds its area into the solve, and the two "
          "that do not DECLARE their drift",
          suite="tests/test_delivered_form.py"),
+    # THE SEARCH BESIDE THE RATCHET (2026-09-01). Nineteen seam defects were
+    # found against a 2094-green suite because a test pins a known answer and
+    # nothing swept a PROPERTY across a seam. `scripts/gap_sweep.py` does
+    # that; this row makes it run on every push, with the ledger's own rule —
+    # a declared finding is recorded with its number, a new one fails.
+    Gate("Gate SWEEP", "seam properties swept over the production flow: "
+         "descriptors vs ladder, the SAC contract, declared-vs-drawn levers, "
+         "cache identity, gene reachability, repair-vs-constraint, exception "
+         "containment, receipts, numbers declared twice, the two design "
+         "routes, and station convergence",
+         suite="tests/test_gap_sweep.py"),
     Gate("Gate REACHABILITY", "every post-hoc gene is classified BLIND, "
          "REQUESTED or WITHHELD-with-a-measurement; a mission that asks for "
          "a protected prop gets a hull that draws the tunnel, one that does "
