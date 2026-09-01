@@ -21,7 +21,7 @@ import json
 import math
 
 from .energy import EnergySpec
-from .mission import VesselConfig
+from .mission import Topology, VesselConfig
 from .evaluate import Evaluation
 from .limits import FREEBOARD_FLOOR_M, gm_floor
 from .mission import (DESIGN_CATEGORIES, ENERGY_RANGES, FIELD_RANGES,
@@ -121,7 +121,34 @@ def sanitize(raw: dict, floor: MissionSpec) -> MissionSpec:
             try:
                 m.vessel = VesselConfig(**v_kw)
             except (ValueError, TypeError) as e:
+                # THE DEGRADE IS PERFORMED, NOT ASSUMED. This branch used to
+                # append the note "monohull floor kept" and set nothing,
+                # relying on `parse_mission` never having inferred a
+                # multihull from the prose. MEASURED 2026-09-01, the moment
+                # that stopped being true: once the text path learned to read
+                # "catamaran" (with a sourced, disclosed spacing assumption),
+                # the brief "a solar catamaran" plus an LLM object of
+                # `{"topology": "catamaran"}` -- NO separation, which
+                # `VesselConfig` refuses by name -- produced a CATAMARAN
+                # carrying the note "monohull floor kept". The note was the
+                # only monohull in the result.
+                #
+                # A REFUSED EXPLICIT DECLARATION IS A STRONGER SIGNAL THAN A
+                # PROSE INFERENCE, and it degrades to the conservative
+                # topology on purpose: the model tried to state a vessel, the
+                # statement was invalid, and the floor for an invalid vessel
+                # is the one hull form the ladder can always evaluate.
+                # Manning is carried across because it was not what failed.
                 notes.append(f"LLM vessel rejected ({e}); monohull floor kept")
+                if m.vessel.topology is not Topology.MONOHULL:
+                    notes.append(
+                        f"the text-inferred "
+                        f"{m.vessel.topology.value} was DISCARDED with it — a "
+                        f"refused declaration degrades to the floor, it does "
+                        f"not fall back on prose")
+                    m.vessel = VesselConfig(topology=Topology.MONOHULL,
+                                            manning=m.vessel.manning,
+                                            separation_over_lwl=0.0)
     # Every field above was written with `setattr`, which bypasses
     # `__post_init__`. This is the structural exit gate: no spec leaves this
     # function un-clamped, whatever a future branch above forgets to bound.

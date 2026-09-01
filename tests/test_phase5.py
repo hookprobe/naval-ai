@@ -423,3 +423,53 @@ def test_declared_family_reaches_the_shape_critic():
     finally:
         morphology.shape_margin = orig
     assert called["family"] == "barge"
+
+
+def test_a_refused_vessel_declaration_does_not_fall_back_on_prose():
+    """The degrade is PERFORMED, not assumed — the regression that proved it
+    was only ever assumed.
+
+    MEASURED 2026-09-01. The refusal branch appended the note "monohull floor
+    kept" and SET NOTHING, relying on `parse_mission` never having inferred a
+    multihull from the brief text. The moment the text path learned to read
+    "catamaran" (with a sourced, disclosed spacing assumption), the brief
+    "a solar catamaran" plus an LLM object of `{"topology": "catamaran"}` --
+    no separation, which `VesselConfig` refuses BY NAME -- produced a
+    CATAMARAN at s/L 0.25 carrying the note "monohull floor kept". The note
+    was the only monohull in the result, which is the same defect class as a
+    receipt that reports the REQUESTED spec as achieved.
+
+    Two things must both hold, and asserting only the first is how this got
+    through the first time: the topology degrades, AND the record says why.
+    """
+    import json
+    from navalai.mission import Topology
+    from navalai.translate import translate
+
+    m = translate("a solar catamaran",
+                  llm=lambda p: json.dumps({"vessel": {"topology": "catamaran"}}))
+
+    # the degrade is real, not a note about a degrade
+    assert m.vessel.topology is Topology.MONOHULL
+    assert m.vessel.separation_over_lwl == 0.0
+
+    # ...and it is on the record, including that the PROSE inference was
+    # discarded rather than silently surviving
+    assert "LLM vessel rejected" in m.notes
+    assert "DISCARDED" in m.notes
+
+    # the guard must not fire on a VALID declaration
+    ok = translate("a solar catamaran",
+                   llm=lambda p: json.dumps(
+                       {"vessel": {"topology": "catamaran",
+                                   "separation_over_lwl": 0.22}}))
+    assert ok.vessel.topology is Topology.CATAMARAN
+    assert ok.vessel.separation_over_lwl == pytest.approx(0.22)
+
+    # ...nor on the prose path, which states its assumption instead of hiding
+    # it. This is the behaviour that CHANGED the premise above, so it is
+    # pinned here beside the guard it broke.
+    from navalai.mission import parse_mission
+    prose = parse_mission("12 m solar catamaran, 8 knots, 4 tonne, category C")
+    assert prose.vessel.topology is Topology.CATAMARAN
+    assert "ASSUMED" in prose.notes and "did not state" in prose.notes
