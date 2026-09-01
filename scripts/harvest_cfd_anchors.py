@@ -203,6 +203,16 @@ def main() -> int:
         book["anchors"][name] = {
             "family": family,
             "stl_sha256": info.get("stl_sha256"),
+            # WHICH DESIGN THIS RESULT BELONGS TO. `write_resistance_case`
+            # already verifies the manifest's genome against the hull it is
+            # meshing — it refuses a mismatch as "two boats in one
+            # directory" — and writes `manifest_genome_sha256` into
+            # case.info. The harvester read the STL hash and dropped the
+            # genome, so a CFD result in the book could not be traced back to
+            # the design that produced it (ROUND 3 §7). None on a `--stl`
+            # case, which is honest: an imported surface HAS no genome, and
+            # recording one would be worse than recording nothing.
+            "genome_sha256": info.get("manifest_genome_sha256"),
             "lwl_m": lwl,
             "speed_ms": u,
             "fn": fn,

@@ -183,3 +183,55 @@ def test_no_record_carries_a_diverged_force_history():
             assert ct < 1.0, (
                 f"{name}: Ct {ct:.3e} is not physically possible for a hull; "
                 f"a diverged run must be refused, not published")
+
+
+def test_a_cfd_result_can_name_the_DESIGN_that_produced_it():
+    """ROUND 3 §7: `mission -> genome -> geometry -> mesh -> CFD` must all
+    refer to the same vessel, and a CFD result from hull A must be impossible
+    to attach to hull B.
+
+    MEASURED 2026-09-01: an anchor record carried `stl_sha256` and `case_dir`
+    and NOTHING ELSE about identity, so a result in the book could not be
+    traced back to the design that produced it — even though
+    `cfd.case.write_resistance_case` had already VERIFIED the manifest's
+    genome against the hull it was meshing (it refuses a mismatch outright:
+    "the wrong manifest is two boats in one directory") and written
+    `manifest_genome_sha256` into case.info. The harvester read the surface
+    hash and dropped the design.
+
+    `same_design` is the twin of `same_geometry`, and the two are NOT the
+    same question: one genome can be exported at two station counts or two
+    STL resolutions, and one surface can be imported with no genome at all.
+    """
+    from navalai import cfd_kb
+
+    # an empty sha is refused by name — identity is the whole question
+    assert not cfd_kb.same_design("")
+    assert "identity" in cfd_kb.same_design("").reason
+
+    # an unknown design is refused, and the refusal SAYS how much of the book
+    # is traceable rather than implying the book is empty
+    miss = cfd_kb.same_design("00" * 32)
+    assert not miss
+    assert "carry a genome" in miss.reason
+
+    # every record that DOES carry one is a full sha and matches itself
+    book = cfd_kb._book().get("anchors", {})
+    for name, a in book.items():
+        g = a.get("genome_sha256")
+        if not g:
+            continue                # a `--stl` case has no design behind it
+        assert len(g) == 64, (name, g)
+        assert name in cfd_kb.same_design(g), name
+
+
+def test_the_harvester_records_the_genome_when_the_case_carries_one():
+    """The fix must be in the HARVESTER, not in a reader that re-derives it:
+    a book whose identity is reconstructed at read time is a book that
+    disagrees with itself the moment a case directory is purged."""
+    import pathlib
+
+    src = pathlib.Path("scripts/harvest_cfd_anchors.py").read_text()
+    assert '"genome_sha256": info.get("manifest_genome_sha256")' in src, (
+        "the harvester no longer carries the genome from case.info into the "
+        "record")

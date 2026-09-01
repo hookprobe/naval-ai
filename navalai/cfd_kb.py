@@ -151,6 +151,39 @@ def same_geometry(stl_sha: str):
     return hits
 
 
+def same_design(genome_sha256: str):
+    """Every recorded run of THIS DESIGN, by genome — settled or not.
+
+    The twin of `same_geometry`, which answers the same question about a
+    SURFACE. Both are needed and they are not the same question: one genome
+    can be exported at two station counts or two STL resolutions, and one
+    surface can be imported with no genome at all.
+
+    ROUND 3 §7 requires that a CFD result be traceable to the design that
+    produced it. Until 2026-09-01 it was not: `harvest_cfd_anchors` read
+    `stl_sha256` from case.info and dropped `manifest_genome_sha256`, even
+    though `write_resistance_case` had already verified the manifest's genome
+    against the hull it meshed (it refuses a mismatch as "two boats in one
+    directory").
+
+    A record with no genome is NOT a match for anything — an imported
+    benchmark surface has no design behind it, and matching it to one would
+    be the identity defect this function exists to close.
+    """
+    if not genome_sha256:
+        return Refusal("no genome sha given — identity is the whole question")
+    hits = {n: a for n, a in _book().get("anchors", {}).items()
+            if a.get("genome_sha256") == genome_sha256}
+    if not hits:
+        n_traced = sum(1 for a in _book().get("anchors", {}).values()
+                       if a.get("genome_sha256"))
+        return Refusal(
+            f"no run of design {genome_sha256[:12]}… in the book; "
+            f"{n_traced} of {len(_book().get('anchors', {}))} records carry a "
+            f"genome at all (a `--stl` case has none by construction)")
+    return hits
+
+
 def pressure_fraction_band(family: str, fn: float):
     """(lo, hi, provenance) over the settled anchors of this family within
     FN_SUPPORT of the queried Froude number — or a Refusal naming exactly
