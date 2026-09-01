@@ -704,6 +704,91 @@ LIST_LIMIT_DEG = 2.0
 # constraint. That is information about the reference hull.
 LCB_BAND_PCT_LWL = 3.0
 
+# THE SOURCED LCB CENTRES, AND WHY THEY ARE DATA HERE AND NOT A BAR.
+#
+# `docs/research/HULL-FORM-RULES.md` §7.3 tabulates where eight published
+# series actually put their LCB, and states the consequence in its own words:
+# *"`LCB_BAND_PCT_LWL` is a band of +-3% and the sources put the CENTRE at -5
+# to -12% depending on speed. Those are compatible statements only if the band
+# is applied around an Fn-dependent target — the same shape as
+# `prismatic_target(fn)` — and there is no `lcb_target(fn)` in `limits.py`.
+# A +-3% band applied around midships would exclude every semi-displacement
+# series in the table above."*
+#
+# MEASURED against the gene box on 2026-09-01: **5 of the 8 sourced centres
+# are outside `lcb`'s own bounds** — MARIN FDS, Series 64, the Southampton
+# demihull, the USCG hard chine and Blount's minimum-R/W locus. The three
+# that survive do so narrowly: Taylor sits at 0.0 because its series FIXES
+# LCB at midships by construction, NPL's range reaches -2.00 at one end, and
+# DSYHS overlaps only through the +0.01 tail of a 61-hull spread whose MEDIAN
+# (-3.28) is already outside. Counting DSYHS by its median rather than its
+# range gives 6 of 8, and that is how this comment first read — the sweep's
+# own probe caught the arithmetic.
+# The band's own comment above records this ladder's DELIVERED hulls at -6.47
+# and -7.86 %LWL, so the hulls this system naturally produces already sit
+# outside the band it judges them by.
+#
+# WHAT IS RECORDED HERE IS EVIDENCE, NOT AN OPTIMUM, and the distinction is
+# the whole reason this is a table of centres rather than an `lcb_target(fn)`
+# curve. Most of these rows are series DATA — where that series happened to
+# put its LCB — not a measured best. Only ONE row is a measured optimum
+# (Blount & McGrath §3.1's minimum-R/W locus at Fn 0.6). Fitting a target
+# curve through series data and calling it an optimum would manufacture a
+# recommendation nobody made, which is the same error as reading a search
+# result as a law (docs/LESSONS.md, "a negative result about the literature").
+#
+# AND MOVING THE BAR IS NOT THIS FILE'S DECISION TO TAKE ALONE. §7.3 says so
+# explicitly: *"Whether it is applied around midships or around a target is a
+# question for `limits.py`'s owner and is NOT answered here."* Centring the
+# band on an Fn-dependent target would move every seeded population and every
+# recorded front. So this lands the EVIDENCE and the RECEIPT; the bar is
+# unchanged and the decision is stated with its numbers.
+#
+# (name, lcb_lo, lcb_hi, fn_lo, fn_hi, source). Fn None means the source does
+# not state a Froude range, so the row informs the table and never a lookup.
+LCB_SOURCED_CENTRES: tuple[tuple, ...] = (
+    ("MARIN FDS semi-displacement transom stern",
+     -5.19, -5.05, 0.14, 1.30, "Petersson 2020 §6.1 (S5), series datum"),
+    ("DTMB Series 64 round bilge",
+     -6.56, -6.56, 0.06, 1.50, "Petersson 2020 §6.2 (S5), constant over 27 "
+                               "models spanning L/B 8.45-18.26"),
+    ("NPL round bilge",
+     -6.40, -2.00, 0.30, 1.20, "Petersson 2020 §6.4 (S5), series datum"),
+    ("Southampton catamaran demihull",
+     -6.40, -6.40, 0.20, 1.00, "Petersson 2020 §6.5 (S5), series datum"),
+    ("Taylor standard series",
+     0.00, 0.00, 0.0, 0.60, "Blount & McGrath App. A (S1); LCB/L 0.50 fot, "
+                            "FIXED BY CONSTRUCTION — a datum, not an optimum"),
+    ("USCG hard chine",
+     -12.00, -12.00, 0.0, 2.54, "Blount & McGrath App. A (S1), LCB/L 0.38 fot"),
+    ("semi-displacement minimum-R/W locus",
+     -10.00, -10.00, 0.55, 0.65, "Blount & McGrath §3.1 (S1) at L/vol^(1/3) "
+                                 "~ 9.0 — THE ONLY MEASURED OPTIMUM in this "
+                                 "table"),
+    ("DSYHS sailing-yacht canoe body, 61 hulls",
+     -7.90, 0.01, None, None, "DSYHS dataset (HULL-FORM-RULES §7.2), measured "
+                              "geometry; median -3.28"),
+)
+
+
+def lcb_sourced_span(fn: float) -> tuple[float, float, str] | None:
+    """(lo, hi, basis) over the sourced centres whose Fn range covers `fn`.
+
+    A statement of EVIDENCE — "this is where the published series put it" —
+    and never a target: see `LCB_SOURCED_CENTRES` for why this tree does not
+    fit a curve through series data. None when no source covers this Fn, which
+    is an answer and not a gap.
+    """
+    rows = [r for r in LCB_SOURCED_CENTRES
+            if r[3] is not None and r[3] <= float(fn) <= r[4]]
+    if not rows:
+        return None
+    lo = min(r[1] for r in rows)
+    hi = max(r[2] for r in rows)
+    return lo, hi, (f"{len(rows)} published series covering Fn {fn:.2f}: "
+                    + "; ".join(f"{r[0]} {r[1]:.2f}..{r[2]:.2f}" if r[1] != r[2]
+                                else f"{r[0]} {r[1]:.2f}" for r in rows))
+
 
 # PRISMATIC COEFFICIENT AS A FUNCTION OF DESIGN FROUDE NUMBER.
 #

@@ -241,7 +241,7 @@ one of F1–F19 was a seam, and none was a row.
 | F20 | P1 | ladder | a 200 t brief CRASHED the optimizer | `parse_mission` clamps to 200 000 kg; `select_stock_thickness_m` raises out of `evaluate` and out of `_score`; `pareto_front` dies | the scantling refusal returns as an `Evaluation` carrying the rule's words verbatim | **FIXED** `ca46d9a` |
 | F21 | P1 | mission | the brief could not state its ENGINE | "60 kW outboard" → `motor_kw` 15.0 (the default), while `motor_power` is a live row binding 497 of 720 candidates | kW + hp parsed, clamped and announced | **FIXED** `e037185` |
 | F22 | P1 | search | an empty front said NOTHING | 720 evaluations, 0 designs, empty array; the binding row was computed 720 times and discarded | `ParetoResult.why_empty()` off a per-row tally | **FIXED** `e037185` |
-| F23 | P1 | geometry → cfd | delivered designs produce a NON-WATERTIGHT STL | 3 of 6 front members of the 8 m launch; 13 open edges; 0 of 30 sampled hulls | root cause located; CONTRACT held by the `meshclose` probe; welded emit deferred | **CONTRACT HELD** `4daac14` |
+| F23 | P1 | geometry → cfd | delivered designs produce a NON-WATERTIGHT STL | 3 of 6 front members of the 8 m launch; 13 open edges; 0 of 30 sampled hulls | `closed_mesh` drops a triangle for TWO IDENTICAL VERTICES, never for a small area — a zero-area triangle with three distinct vertices IS the seam | **FIXED** `4daac14` + round three |
 | F24 | P2 | certify | meshability SAFE did not cover closure | `eligible True, meshability SAFE` for a hull the case writer refuses | `does_not_cover` names it; a cheap check was measured and REFUSED as a false-green | **NAMED** `4daac14` |
 | F25 | P3 | geometry → hydrostatics | the split's BM is not converged at 41 stations | −0.532% alone, −1.506% with dwl, vs ≤0.052% for every other feature | measured, and the probe is COUPLED to the split's withheld status — it turns P1 on promotion | **RECORDED** `eb85a7b` |
 | F26 | P2 | grammar | two gene boxes jointly exclude a region one was widened to reach | see below | — | **OPEN** |
@@ -326,4 +326,100 @@ every defect in this document — mechanically checkable on every push, with the
 ledger's own rule: a declared finding is carried with its number and its
 reason, a new one fails, a stale declaration fails, and **nothing above P3 may
 be merely declared**.
+
+---
+
+## 8 · Round three — the seam that was a hole, and the evidence that was there
+
+### 8.1 · F23 FIXED — a zero-area triangle with three distinct vertices is the SEAM
+
+The deferred "welded emit" turned out not to be the fix, and the real one is
+two lines. `Hull.closed_mesh` dropped a triangle when `area > 1e-10` failed.
+At the transom of the recorded genome, rows 0 and 1 land at **exactly** the
+same z (a raised keel, rocker 0.506, meeting a nearly-flat floor, beta_mid
+1.61°), so the cap's bottom quad is four points on a line. Its second triangle
+has three DISTINCT vertices and zero area — and it is the only face pairing the
+starboard shell's edge `S[0,0]→S[0,1]` with the port shell's `P[0,0]→P[0,1]`.
+Dropping it left the two shells meeting at a **pinch point**, not a seam.
+
+**Degeneracy is a statement about VERTICES.** The rule is now "drop iff two
+vertices are identical", and:
+
+| hull | `area > 1e-10` | identical-vertex rule |
+|---|---|---|
+| failing 80×16 | 3 open, 5243 tris | **0 open**, 5244 |
+| failing 200×40 | 7 open, 32311 | **0 open**, 32316 |
+| failing 600×120 | — | **0 open**, 288956 |
+| reference 80×16 | 0 open, 5232 | 0 open, **5232** |
+| reference 200×40 | 0 open, 32284 | 0 open, **32284** |
+| 4 sampled hulls | — | identical at both resolutions |
+
+The old kept-set is a strict SUBSET of the new one (identical vertices imply
+zero area), so equal counts **prove** the mesh is bit-identical on every hull
+that was already closed. `write_resistance_case` now ACCEPTS the recorded hull
+(watertight, 0 open edges). 150 tests across geometry, STL forensics, case
+wiring, mesh repair and manufacturing pass.
+
+Two hypotheses were refuted first and are recorded in the kernel so nobody
+re-tries them: it is not the sliver bar dropping one side of a shared edge, and
+keeping ALL degenerate cap triangles makes it worse (3 open edges → 20).
+
+**And broadening the probe found a new one.** The SPLIT STERN's surface does
+not close at all — **57 open edges at 80×16, 141 at 200×40** — because
+`closed_mesh` builds a starboard shell, a port shell, a deck lid and two caps,
+and the split's inner walls and wet deck are drawn by none of them. The
+hydrostatics integrate the hole; the mesh never learned to. Withheld from
+production, contract held by the case writer, coupled to reachability, and now
+the **second** recorded blocker on promoting the split.
+
+### 8.2 · F26 — my "no sourced range in tree" was FALSE
+
+Round two recorded that a planing LCB band could not be sourced from this tree.
+**That was wrong, and it was wrong the way this repository has a lesson about:
+a negative result about the literature is a claim about your search, and mine
+was two greps.** `docs/research/HULL-FORM-RULES.md` §7.3 tabulates eight
+published centres and states the consequence outright:
+
+> *"`LCB_BAND_PCT_LWL` is a band of ±3% and the sources put the CENTRE at −5 to
+> −12% depending on speed … A ±3% band applied around midships would exclude
+> every semi-displacement series in the table above."*
+
+| series | LCB %Lwl | Fn | expressible by the `lcb` gene? |
+|---|---|---|---|
+| MARIN FDS semi-displacement transom | −5.19 … −5.05 | 0.14–1.30 | **no** |
+| DTMB Series 64 round bilge | −6.56 | 0.06–1.50 | **no** |
+| Southampton catamaran demihull | −6.40 | 0.20–1.00 | **no** |
+| USCG hard chine | −12.00 | ≤2.54 | **no** |
+| semi-displacement min-R/W locus | −10.00 | ~0.6 | **no** |
+| NPL round bilge | −6.40 … −2.00 | 0.30–1.20 | yes (one end) |
+| Taylor standard series | 0.00 | ≤0.60 | yes (fixed by construction) |
+| DSYHS canoe body, 61 hulls | −7.90 … +0.01 | n/s | yes (tail only; median −3.28 is outside) |
+
+**5 of 8 are outside the gene's own box** — and that number was itself wrong at
+first: I counted DSYHS by its median and got 6, and the sweep's own probe
+caught the arithmetic. The band's comment also records this ladder's delivered
+hulls at −6.47 and −7.86 %Lwl, so the system's own output sits outside the band
+it is judged by.
+
+**What was fixed, and what was deliberately not.** `mission_lcb_band`'s basis
+string said *"UNKNOWN target law — no sourced Fn/topology→LCB relation in
+tree"*, and its docstring said *"no source, no series, no measurement"*. Both
+were false when written. The evidence now has a home
+(`limits.LCB_SOURCED_CENTRES`, `lcb_sourced_span(fn)`, precedented by
+`PRISMATIC_BY_FROUDE`) and the receipt tells the truth, including the
+uncomfortable part.
+
+**The bar is unchanged**, because §7.3 reserves that decision — *"Whether it is
+applied around midships or around a target is a question for `limits.py`'s
+owner and is NOT answered here"* — and because most rows are series DATA, not
+optima: only Blount's minimum-R/W locus is a measured best. Fitting a curve
+through series data and calling it a target would manufacture a recommendation
+nobody made. The `evidence` probe now counts the shortfall against a watermark
+of 5, so it cannot widen quietly.
+
+**The decision the owner now has, with its numbers**: centring the ±3% band on
+an Fn-dependent target would let the grammar express the semi-displacement and
+hard-chine canon it currently refuses, and would move every seeded population
+and recorded front. That is the trade; the evidence is now in `limits.py` to
+take it with.
 

@@ -922,21 +922,56 @@ def mission_cp_target(mission) -> float | None:
 def mission_lcb_band(mission) -> tuple[float, float, str]:
     """(lo_pct, hi_pct, basis) for LCB as %LWL from midships.
 
-    HONESTY OVER PRECISION (directive §6: 'do not invent arbitrary
-    naval-architecture formulas'). This tree holds NO defensible law tying
-    an LCB target to Froude number or topology — no source, no series, no
-    measurement — so the band is the EXISTING safe band every hull is
-    already judged by (`limits.LCB_BAND_PCT_LWL`, the same ±3 %LWL the lcb
-    constraint row enforces) and the basis SAYS the target law is UNKNOWN.
-    When a sourced law lands, it lands here, in the one home, with its
-    citation; until then a mission-dependent number would be fabricated
-    precision.
+    THE BAND IS UNCHANGED AND THE BASIS WAS FALSE. This returned
+    `"UNKNOWN target law — no sourced Fn/topology->LCB relation in tree"`,
+    and the docstring above it read "no source, no series, no measurement".
+    MEASURED 2026-09-01: `docs/research/HULL-FORM-RULES.md` §7.3 tabulates
+    EIGHT published series with their Froude ranges — Petersson 2020 §§6.1,
+    6.2, 6.4, 6.5 and Blount & McGrath App. A and §3.1 — and reads a monotone
+    trend from them: LCB moves AFT as design speed rises, from Taylor's
+    midships datum through -5 to -6.5 for the semi-displacement series to
+    -10 at the measured minimum-R/W locus and -12 for the USCG hard chine.
+    The relation this function said does not exist is in the tree, and was
+    when this was written.
+
+    That is this repository's own recorded error — *"a negative result about
+    the literature is a claim about your SEARCH"* — committed in a receipt.
+
+    WHAT IS AND IS NOT FIXED HERE. The evidence now has a home
+    (`limits.LCB_SOURCED_CENTRES`, `limits.lcb_sourced_span`) and the basis
+    string tells the truth, INCLUDING the part that is uncomfortable: 5 of the
+    8 sourced centres lie outside the `lcb` gene's own ±3 %LWL box, so this
+    band cannot express most of the published canon, and the ladder's own
+    delivered hulls (-6.47, -7.86 %LWL, recorded on `LCB_BAND_PCT_LWL`) sit
+    outside it too.
+
+    THE BAND ITSELF DOES NOT MOVE, and that is deliberate. §7.3 states the
+    decision is not its to take: *"Whether it is applied around midships or
+    around a target is a question for `limits.py`'s owner and is NOT answered
+    here."* Re-centring on an Fn-dependent target would move every seeded
+    population and every recorded front, and most rows in the table are series
+    DATA rather than measured optima — only Blount's minimum-R/W locus is one.
+    Fitting a curve through data and calling it a target would be the
+    fabricated precision the old docstring was right to fear; it was only
+    wrong about the evidence.
     """
-    from .limits import LCB_BAND_PCT_LWL
-    return (-LCB_BAND_PCT_LWL, LCB_BAND_PCT_LWL,
-            "UNKNOWN target law — no sourced Fn/topology->LCB relation in "
-            "tree; band = limits.LCB_BAND_PCT_LWL, the ladder's own "
-            "constraint row (basis approx)")
+    from .limits import LCB_BAND_PCT_LWL, lcb_sourced_span
+    fn = mission.design_fn() if hasattr(mission, "design_fn") else None
+    sourced = lcb_sourced_span(fn) if fn is not None else None
+    basis = ("band = limits.LCB_BAND_PCT_LWL (+-3 %LWL about MIDSHIPS), the "
+             "ladder's own constraint row (basis approx). ")
+    if sourced is None:
+        basis += ("No published series in limits.LCB_SOURCED_CENTRES covers "
+                  "this Froude number, so there is nothing to compare the "
+                  "band against here — see docs/research/HULL-FORM-RULES.md "
+                  "§7.3.")
+    else:
+        lo, hi, why = sourced
+        basis += (f"SOURCED CENTRES at this Fn span {lo:+.2f}..{hi:+.2f} "
+                  f"%LWL ({why}). The band is applied about midships and NOT "
+                  f"about those centres; re-centring is limits.py's owner's "
+                  f"decision, deferred by HULL-FORM-RULES §7.3.")
+    return (-LCB_BAND_PCT_LWL, LCB_BAND_PCT_LWL, basis)
 
 
 def mission_cp_band(mission, lwl_lo: float,

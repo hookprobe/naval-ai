@@ -181,7 +181,7 @@ different Gate 2M numbers came to circulate at once (gap J1).
 | Gate UI-SEED | the studio's default genome BUILDS before it is served, and a refused mesh is PAINTED in the viewport rather than leaving a blank stage with the reason in the response body | `tests/test_ui_seed_builds.py` (8 tests) |
 | Gate 0G | the ladder cannot be talked into passing | `tests/test_gate_integrity.py` (39 tests) |
 | Gate 0R | a missed clause is RED BY RECORD, never prose in a scope | `tests/test_red_by_record.py` (14 tests) |
-| Gate 0K | geometry kernel: SAC/DWL design curves + N-point section | `tests/test_geometry_kernel.py` (27 tests) |
+| Gate 0K | geometry kernel: SAC/DWL design curves + N-point section | `tests/test_geometry_kernel.py` (29 tests) |
 | Gate 1E | the stages agree with each other: one geometry, one resistance, one ply, tier+sigma across every handoff | `tests/test_end_to_end_flow.py` (14 tests) |
 | Gate 0F | the hull-form library: bands ordered, every band carries its basis, no family contradicts its own Froude regime | `tests/test_formlib.py` (51 tests) |
 | Gate 0X | the experiment suite: controlled sweeps hold their controlled quantities, out-of-envelope points are refused, and the Michell interference phase matches an independent superposition | `tests/test_experiments.py` (52 tests) |

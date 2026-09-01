@@ -813,7 +813,27 @@ def test_target_sampled_and_delivered_cp_are_three_named_numbers():
     assert abs(t["cp_gene"] - t["cp_target"]) > PRISMATIC_TOLERANCE
     # §6: no fabricated LCB law — UNKNOWN, with the safe band and its basis
     assert t["lcb_target_pct"] is None
-    assert "UNKNOWN" in t["lcb_basis"]
+    # THIS ASSERTION USED TO PIN A FALSE CLAIM. It read
+    # `assert "UNKNOWN" in t["lcb_basis"]`, holding `mission_lcb_band`'s
+    # basis string "UNKNOWN target law — no sourced Fn/topology->LCB relation
+    # in tree" in place. MEASURED 2026-09-01: the relation IS in the tree and
+    # was when both were written — `docs/research/HULL-FORM-RULES.md` §7.3
+    # tabulates eight published centres (Petersson 2020; Blount & McGrath),
+    # 5 of which lie outside the `lcb` gene's own ±3 %LWL box. A test that
+    # pins a false receipt makes the receipt harder to correct, which is the
+    # opposite of its job.
+    #
+    # What is still TRUE and worth holding is the pair of facts the receipt
+    # exists for: no TARGET is claimed (the sources give centres, and only one
+    # row is a measured optimum, so fitting a curve would be fabricated
+    # precision), and the band is applied about MIDSHIPS rather than about
+    # those centres — a decision §7.3 reserves for limits.py's owner.
+    basis = t["lcb_basis"]
+    assert "LCB_BAND_PCT_LWL" in basis and "MIDSHIPS" in basis, basis
+    assert "SOURCED CENTRES" in basis or "No published series" in basis, basis
+    assert "UNKNOWN target law" not in basis, (
+        "the receipt has gone back to denying evidence the tree holds — see "
+        "limits.LCB_SOURCED_CENTRES")
     assert t["lcb_band_pct"] == (-3.0, 3.0)
     # a mission with no length has no Froude number and NO target — the
     # receipt says so instead of inventing one
