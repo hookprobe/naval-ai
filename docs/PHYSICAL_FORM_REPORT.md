@@ -38,6 +38,15 @@ beta_transom = 0
       cwp_x = 0.1
  rb_transom = 0.38
     rb_stem = 0
+      tun_w = 0
+  tun_crown = 0
+    tun_len = 0
+    split_w = 0
+  split_len = 0
+    rho_bow = 0
+    rho_len = 0
+      ch2_z = 0
+      ch2_y = 0
 ```
 **Mission**: displacement target 800 kg · cruise 4 kn (design Fn 0.294) · category D · crew 2 · topology monohull · manning crewed
 
@@ -83,6 +92,8 @@ beta_transom = 0
 | Fn | 0.2939  | PASS [0.1, 0.4] — formlib.FAMILIES[hard_chine_displacement].fn [0.1, 0.4] (approx) — practice |
 | Re | 9.025e+06  | PASS [5e+06, +inf] — limits.RE_TRANSITION_BAND — ITTC-57 valid only above the laminar-turbulent transition ceiling (5e6); see limits.friction_line_validity |
 | separation_over_lwl | ABSENT | monohull — no second hull to be separated from |
+| sac_deviation_max_m2 | 1.11e-16  | UNKNOWN — no sourced range in tree |
+| sac_deviation_rel | 2.596e-16  | UNKNOWN — no sourced range in tree |
 
 **SAC distribution** — A(x)/A_max at the 11 lines-plan stations (station 0 = transom):
 
@@ -167,6 +178,15 @@ beta_transom = 0
       cwp_x = 0.1
  rb_transom = 0.38
     rb_stem = 0
+      tun_w = 0
+  tun_crown = 0
+    tun_len = 0
+    split_w = 0
+  split_len = 0
+    rho_bow = 0
+    rho_len = 0
+      ch2_z = 0
+      ch2_y = 0
 ```
 **Mission**: displacement target 14000 kg · cruise 7 kn (design Fn 0.297) · category C · crew 6 · topology monohull · manning crewed
 
@@ -210,6 +230,8 @@ beta_transom = 0
 | Fn | 0.2969  | PASS [0.1, 0.4] — formlib.FAMILIES[round_bilge_displacement].fn [0.1, 0.4] (approx) — practice; the NPL series covers Fn 0.30-1.20 of this range |
 | Re | 4.738e+07  | PASS [5e+06, +inf] — limits.RE_TRANSITION_BAND — ITTC-57 valid only above the laminar-turbulent transition ceiling (5e6); see limits.friction_line_validity |
 | separation_over_lwl | ABSENT | monohull — no second hull to be separated from |
+| sac_deviation_max_m2 | 4.441e-16  | UNKNOWN — no sourced range in tree |
+| sac_deviation_rel | 2.347e-16  | UNKNOWN — no sourced range in tree |
 
 **SAC distribution** — A(x)/A_max at the 11 lines-plan stations (station 0 = transom):
 
@@ -294,6 +316,15 @@ beta_transom = 0
       cwp_x = 0.12
  rb_transom = 0.32
     rb_stem = 0
+      tun_w = 0
+  tun_crown = 0
+    tun_len = 0
+    split_w = 0
+  split_len = 0
+    rho_bow = 0
+    rho_len = 0
+      ch2_z = 0
+      ch2_y = 0
 ```
 **Mission**: displacement target 3400 kg · cruise 5 kn (design Fn 0.260) · category D · crew 2 · topology catamaran · manning crewed · s/L 0.32
 
@@ -340,6 +371,8 @@ beta_transom = 0
 | separation_m | 3.2 m | UNKNOWN — no sourced range in tree |
 | demihull_beam_m | 0.82 m | UNKNOWN — no sourced range in tree |
 | demihull_beam_floated_m | 0.8128 m | UNKNOWN — no sourced range in tree |
+| sac_deviation_max_m2 | 1.11e-16  | UNKNOWN — no sourced range in tree |
+| sac_deviation_rel | 3.595e-16  | UNKNOWN — no sourced range in tree |
 
 **SAC distribution** — A(x)/A_max at the 11 lines-plan stations (station 0 = transom):
 
@@ -424,6 +457,15 @@ beta_transom = 0
       cwp_x = 0.12
  rb_transom = 0.32
     rb_stem = 0
+      tun_w = 0
+  tun_crown = 0
+    tun_len = 0
+    split_w = 0
+  split_len = 0
+    rho_bow = 0
+    rho_len = 0
+      ch2_z = 0
+      ch2_y = 0
 ```
 **Mission**: displacement target 4300 kg · cruise 5.5 kn (design Fn 0.261) · category C · crew 2 · topology catamaran · manning crewed · s/L 0.3
 
@@ -471,6 +513,8 @@ beta_transom = 0
 | separation_m | 3.6 m | UNKNOWN — no sourced range in tree |
 | demihull_beam_m | 0.8 m | UNKNOWN — no sourced range in tree |
 | demihull_beam_floated_m | 0.7963 m | UNKNOWN — no sourced range in tree |
+| sac_deviation_max_m2 | 5.551e-17  | UNKNOWN — no sourced range in tree |
+| sac_deviation_rel | 2.147e-16  | UNKNOWN — no sourced range in tree |
 
 **SAC distribution** — A(x)/A_max at the 11 lines-plan stations (station 0 = transom):
 
@@ -555,6 +599,15 @@ beta_transom = 0
       cwp_x = 0.1
  rb_transom = 0.38
     rb_stem = 0
+      tun_w = 0
+  tun_crown = 0
+    tun_len = 0
+    split_w = 0
+  split_len = 0
+    rho_bow = 0
+    rho_len = 0
+      ch2_z = 0
+      ch2_y = 0
 ```
 **Mission**: displacement target 500 kg · cruise 4 kn (design Fn 0.294) · category D · crew 1 · topology monohull · manning uncrewed
 
@@ -601,6 +654,8 @@ beta_transom = 0
 | Fn | 0.2939  | PASS [0.1, 0.4] — formlib.FAMILIES[hard_chine_displacement].fn [0.1, 0.4] (approx) — practice |
 | Re | 9.025e+06  | PASS [5e+06, +inf] — limits.RE_TRANSITION_BAND — ITTC-57 valid only above the laminar-turbulent transition ceiling (5e6); see limits.friction_line_validity |
 | separation_over_lwl | ABSENT | monohull — no second hull to be separated from |
+| sac_deviation_max_m2 | 1.11e-16  | UNKNOWN — no sourced range in tree |
+| sac_deviation_rel | 3.194e-16  | UNKNOWN — no sourced range in tree |
 
 **SAC distribution** — A(x)/A_max at the 11 lines-plan stations (station 0 = transom):
 
@@ -685,6 +740,15 @@ beta_transom = 0
       cwp_x = 0.1
  rb_transom = 0.38
     rb_stem = 0
+      tun_w = 0
+  tun_crown = 0
+    tun_len = 0
+    split_w = 0
+  split_len = 0
+    rho_bow = 0
+    rho_len = 0
+      ch2_z = 0
+      ch2_y = 0
 ```
 **Mission**: displacement target 1400 kg · cruise 4.5 kn (design Fn 0.279) · category C · crew 1 · topology monohull · manning uncrewed
 
@@ -730,6 +794,8 @@ beta_transom = 0
 | Fn | 0.2794  | PASS [0.1, 0.4] — formlib.FAMILIES[hard_chine_displacement].fn [0.1, 0.4] (approx) — practice |
 | Re | 1.421e+07  | PASS [5e+06, +inf] — limits.RE_TRANSITION_BAND — ITTC-57 valid only above the laminar-turbulent transition ceiling (5e6); see limits.friction_line_validity |
 | separation_over_lwl | ABSENT | monohull — no second hull to be separated from |
+| sac_deviation_max_m2 | 1.11e-16  | UNKNOWN — no sourced range in tree |
+| sac_deviation_rel | 2.594e-16  | UNKNOWN — no sourced range in tree |
 
 **SAC distribution** — A(x)/A_max at the 11 lines-plan stations (station 0 = transom):
 

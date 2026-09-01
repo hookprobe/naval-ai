@@ -120,6 +120,14 @@
    "tol": 1.1024508405337057,
    "value": 11.024508405337055
   },
+  "sac_deviation_max_m2": {
+   "tol": 1e-09,
+   "value": 1.1102230246251565e-16
+  },
+  "sac_deviation_rel": {
+   "tol": 1e-09,
+   "value": 2.596247004255121e-16
+  },
   "transom_area_ratio": {
    "tol": 0.02,
    "value": 0.19999999999999998
@@ -261,6 +269,14 @@
   "run_half_angle_deg": {
    "tol": 0.75,
    "value": 6.818741709218835
+  },
+  "sac_deviation_max_m2": {
+   "tol": 1e-09,
+   "value": 4.440892098500626e-16
+  },
+  "sac_deviation_rel": {
+   "tol": 1e-09,
+   "value": 2.347055742817823e-16
   },
   "transom_area_ratio": {
    "tol": 0.02,
@@ -411,6 +427,14 @@
   "run_half_angle_deg": {
    "tol": 0.75,
    "value": 3.212165087745615
+  },
+  "sac_deviation_max_m2": {
+   "tol": 1e-09,
+   "value": 1.1102230246251565e-16
+  },
+  "sac_deviation_rel": {
+   "tol": 1e-09,
+   "value": 3.5946998632376264e-16
   },
   "separation_m": {
    "tol": 0.32000000000000006,
@@ -570,6 +594,14 @@
    "tol": 0.75,
    "value": 2.628432114999653
   },
+  "sac_deviation_max_m2": {
+   "tol": 1e-09,
+   "value": 5.551115123125783e-17
+  },
+  "sac_deviation_rel": {
+   "tol": 1e-09,
+   "value": 2.146507795087992e-16
+  },
   "separation_m": {
    "tol": 0.36,
    "value": 3.5999999999999996
@@ -720,6 +752,14 @@
    "tol": 0.75,
    "value": 7.468190668219528
   },
+  "sac_deviation_max_m2": {
+   "tol": 1e-09,
+   "value": 1.1102230246251565e-16
+  },
+  "sac_deviation_rel": {
+   "tol": 1e-09,
+   "value": 3.194452069953812e-16
+  },
   "transom_area_ratio": {
    "tol": 0.020000000000000004,
    "value": 0.20000000000000004
@@ -764,11 +804,11 @@
   },
   "Cm": {
    "tol": 0.08324921696622584,
-   "value": 0.8324921696622584
+   "value": 0.8324921696622583
   },
   "Cp": {
-   "tol": 0.056799925985452616,
-   "value": 0.5679992598545262
+   "tol": 0.05679992598545263,
+   "value": 0.5679992598545263
   },
   "Cwp": {
    "tol": 0.06586299760695634,
@@ -861,6 +901,14 @@
   "run_half_angle_deg": {
    "tol": 0.75,
    "value": 7.203008257833854
+  },
+  "sac_deviation_max_m2": {
+   "tol": 1e-09,
+   "value": 1.1102230246251565e-16
+  },
+  "sac_deviation_rel": {
+   "tol": 1e-09,
+   "value": 2.59444814749813e-16
   },
   "transom_area_ratio": {
    "tol": 0.020000000000000004,

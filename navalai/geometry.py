@@ -1678,6 +1678,108 @@ def _sections_batch(K: np.ndarray, C: np.ndarray, S: np.ndarray,
 _LADDER_STATIONS = 41
 
 
+# --------------------------------------------------------------------------
+# THE ONE CONSTRUCTION of the immersed integral's arguments (2026-09-01).
+#
+# MEASURED DEFECT this replaces. `Hull.form_coefficients` carried a SECOND
+# copy of the sectional area — `A = K*yc*(c1*d - c2*m*yc) + d*d*f`, the bare
+# outer envelope — and a second copy of the waterplane, `yw = 2*y_wl`. Neither
+# knew about the tunnel notch (Phase 4), the split hole (Phase 4B) or the
+# topside knuckle chain (Phase 3 / Phase 5), all three of which
+# `_immersed_batch` has honoured since they landed. On a 16 x 4 m hull:
+#
+#     feature   V reported   V delivered   Cm reported   Awp vs the ladder
+#     split       31.04 m3     28.86 m3      1.1514        +6.33%
+#     tunnel      29.03 m3     28.86 m3      0.8353        +0.03%
+#     ch2         28.87 m3     29.42 m3      0.8353        -6.19%
+#
+# A midship coefficient of 1.151 is geometrically impossible, and every one of
+# those numbers is published by `formcheck.form_descriptors` into the critic,
+# the certification and the design report. This is the project's own recurring
+# defect — A NUMBER DECLARED TWICE — in the descriptor layer.
+#
+# So the five control points, the knuckle chain, the notch and the hole are
+# built HERE, once, from a `_stations` dict, and `Hull` and `form_coefficients`
+# both read them. `Hull.__post_init__` stores exactly these arrays, so the
+# refactor is expression-for-expression and every recorded hull stands.
+# --------------------------------------------------------------------------
+
+
+def _ctrl_rows(z_keel, y_chine, z_chine, y_sheer, z_sheer, y_wl, rho_x):
+    """(K, P0, C, P2, S), each (n, 2) — the section as two legs and one arc."""
+    zero = np.zeros(len(z_keel))
+    K = np.stack([zero, z_keel], axis=1)
+    C = np.stack([y_chine, z_chine], axis=1)
+    S = np.stack([y_sheer, z_sheer], axis=1)
+    W = np.stack([y_wl, zero], axis=1)
+    rho = np.asarray(rho_x, float)[:, None]
+    return (K, C + rho * (K - C), C, C + rho * (W - C), S)
+
+
+def _chain_rows(y_wl, y_ch2, z_ch2, wl_knuckle: bool, second_chine: bool):
+    """(n, k, 2) interior topside vertices ASCENDING IN z, or None."""
+    legs = []
+    if wl_knuckle:
+        legs.append(np.stack([y_wl, np.zeros(len(y_wl))], axis=1))
+    if second_chine:
+        legs.append(np.stack([y_ch2, z_ch2], axis=1))
+    if not legs:
+        return None
+    C = np.stack(legs, axis=1)
+    if C.shape[1] > 1:
+        order = np.argsort(C[:, :, 1], axis=1)
+        C = np.take_along_axis(C, order[:, :, None], axis=1)
+    return C
+
+
+def _notch_rows(y_tun, z_crown):
+    """(n, 2) [y_tun, crown height] rows, or None without a tunnel."""
+    if not float(np.max(y_tun)) > 0.0:
+        return None
+    return np.stack([y_tun, z_crown], axis=1)
+
+
+def _hole_rows(y_split):
+    """(n,) inner-wall half-breadths, or None without a split."""
+    if not float(np.max(y_split)) > 0.0:
+        return None
+    return np.asarray(y_split, float)
+
+
+def open_waterline_halfbreadth(b, y_split):
+    """The waterplane strip a split stern actually offers: `b - min(y_split, b)`.
+
+    The split's inner wall pierces the waterline BY DESIGN, so the strip is
+    [y_split, b] and not [0, b]. `_immersed` deliberately returns the OUTER
+    half-breadth (it says so) and defers the hole to whoever integrates the
+    waterplane — which was `hydrostatics.solve` and, until this function
+    existed, nobody else. `form_coefficients` published Cwp and LCF off the
+    unsubtracted `y_wl` and read a waterplane 6.33% too large on a split hull.
+    On every legacy hull `y_split` is 0.0 and `b - 0.0 == b` exactly, so no
+    recorded state moves.
+    """
+    b = np.asarray(b, float)
+    ys = np.minimum(np.asarray(y_split, float), b)
+    return b - ys
+
+
+def immersed_arguments(s: dict, params: np.ndarray):
+    """(K, P0, C, P2, S, chain, notch, hole) for the stations in `s`.
+
+    `s` is a `_stations(params, x)` dict at ANY x-grid — which is what lets
+    the descriptor layer measure the same surface the ladder floats, at its
+    own resolution, through the same integral.
+    """
+    p = grammar.named(params)
+    ctrl = _ctrl_rows(s["z_keel"], s["y_chine"], s["z_chine"],
+                      s["y_sheer"], s["z_sheer"], s["y_wl"], s["rho_x"])
+    chain = _chain_rows(s["y_wl"], s["y_ch2"], s["z_ch2"],
+                        float(p.get("dwl", 0.0)) > 0.0,
+                        float(p.get("ch2_y", 0.0)) > 0.0)
+    return (*ctrl, chain, _notch_rows(s["y_tun"], s["z_crown"]),
+            _hole_rows(s["y_split"]))
+
+
 @dataclass
 class Hull:
     """Evaluated hull geometry at n stations."""
@@ -1814,13 +1916,13 @@ class Hull:
         """(K, P0, C, P2, S), each (n_stations, 2). Memoised per hull."""
         c = self._ctrl
         if c is None:
-            zero = np.zeros(self.n_stations)
-            K = np.stack([zero, self.z_keel], axis=1)
-            C = np.stack([self.y_chine, self.z_chine], axis=1)
-            S = np.stack([self.y_sheer, self.z_sheer], axis=1)
-            W = np.stack([self.y_wl, zero], axis=1)
-            rho = self.roundness_x[:, None]      # per station (Phase 3)
-            c = (K, C + rho * (K - C), C, C + rho * (W - C), S)
+            # `_ctrl_rows` is the ONE construction (see its header): the
+            # descriptor layer builds the same five points on its own dense
+            # grid, so the surface it measures is the surface the ladder
+            # floats rather than a second algebraic copy of it.
+            c = _ctrl_rows(self.z_keel, self.y_chine, self.z_chine,
+                           self.y_sheer, self.z_sheer, self.y_wl,
+                           self.roundness_x)
             # READ-ONLY: these rows are handed out to `_immersed`, which must
             # not be able to write back into another station's control points.
             for arr in c:
@@ -1861,37 +1963,22 @@ class Hull:
         None — not an empty array — on a legacy hull, so the integrals take
         the k = 0 path they always took.
         """
-        legs = []
-        if self.has_wl_knuckle:
-            legs.append(np.stack([self.y_wl, np.zeros(self.n_stations)],
-                                 axis=1))
-        if self.has_second_chine:
-            legs.append(np.stack([self.y_ch2, self.z_ch2], axis=1))
-        if not legs:
-            return None
-        C = np.stack(legs, axis=1)                       # (n, k, 2)
-        if C.shape[1] > 1:
-            # ASCENDING z per station. The clip walks the chain assuming
-            # it climbs; an out-of-order pair would make `leg_cut`
-            # extrapolate off the end of a leg and return a half-breadth
-            # that is not on the hull.
-            order = np.argsort(C[:, :, 1], axis=1)
-            C = np.take_along_axis(C, order[:, :, None], axis=1)
-        return C
+        # ASCENDING z per station, in `_chain_rows`: the clip walks the
+        # chain assuming it climbs, and an out-of-order pair would make
+        # `leg_cut` extrapolate off the end of a leg and return a
+        # half-breadth that is not on the hull.
+        return _chain_rows(self.y_wl, self.y_ch2, self.z_ch2,
+                           self.has_wl_knuckle, self.has_second_chine)
 
     def _tunnel_notch(self):
         """(n, 2) [y_tun, crown_height] rows, or None without a tunnel —
         the notch argument of `_immersed`/`_immersed_batch` (Phase 4)."""
-        if not float(np.max(self.y_tun)) > 0.0:
-            return None
-        return np.stack([self.y_tun, self.z_crown], axis=1)
+        return _notch_rows(self.y_tun, self.z_crown)
 
     def _split_hole(self):
         """(n,) inner-wall half-breadths, or None without a split — the
         hole argument of the immersed integrals (Phase 4B)."""
-        if not float(np.max(self.y_split)) > 0.0:
-            return None
-        return np.asarray(self.y_split, float)
+        return _hole_rows(self.y_split)
 
     def _section_start_notch(self):
         """The SAMPLERS' start-of-section rows, 3-field (y_top, height,
@@ -2018,7 +2105,32 @@ class Hull:
         acceptance bar). It is A(x)/2 by construction wherever the geometric
         floor did not bite, which is what makes the bar meaningful: it tests
         the SAMPLING, not the target.
+
+        IT IS THE OUTER-ENVELOPE ALGEBRA AND IT REFUSES A SECTION IT CANNOT
+        EXPRESS (2026-09-01). The five-point quadratic below knows nothing
+        about the tunnel notch, the split hole or the topside knuckle chain,
+        so on a hull carrying any of them it returned the envelope area under
+        a docstring promising the IMMERSED one — MEASURED on a 16 x 4 m split
+        hull, 1.727 m^2 against a delivered 0.852 m^2 at the transom, a factor
+        of 2.03. Its whole value is being an INDEPENDENT derivation to check
+        `_immersed` against, so it must not be quietly redefined to delegate;
+        it refuses instead, and names the feature it cannot express. This is
+        the "unmeasurable metric is FATAL, never a default" rule
+        (docs/LESSONS.md defect class 1) applied to a second derivation.
         """
+        _blocked = [nm for nm, on in
+                    (("tunnel notch", self._tunnel_notch() is not None),
+                     ("split hole", self._split_hole() is not None),
+                     ("topside knuckle chain", self._topside_chain()
+                      is not None)) if on]
+        if _blocked:
+            raise GeometryError(
+                f"section_area is the OUTER-ENVELOPE closed form and this "
+                f"hull carries a {' and a '.join(_blocked)}, which it cannot "
+                f"express. The delivered immersed area is "
+                f"`immersed_section(i)` / `hydro_arrays()`; this function "
+                f"exists only as an independent check of those on a section "
+                f"they both describe.")
         d = float(-self.z_keel[i])
         yc = float(self.y_chine[i])
         f, m = float(self._f[i]), float(self._m[i])
@@ -2089,6 +2201,28 @@ class Hull:
         w = (1.0 - d) * self.y_wl + d * (0.5 * p["BWL"]) * b
         return np.abs(self.y_wl - w)
 
+    def sac_deviation(self) -> np.ndarray:
+        """delivered - target sectional area, per station [m^2].
+
+        THE REQUESTED-VS-ACHIEVED RECEIPT FOR THE SAC, and the twin of
+        `dwl_deviation`. Every feature that changes the immersed area folds
+        its change into the section solve's target (`_stations`' `_tnotch`),
+        so the delivered area is the commanded one to machine precision —
+        MEASURED at 3e-16 relative for the tunnel, the split, rho(x), pmb and
+        r_stem. The SECOND CHINE is the exception and this array is how it
+        says so: the knuckle redirects the topside leg BELOW it outboard, and
+        that wedge is not in the solve's target, so a chained hull delivers
+        up to ~0.2 * ch2_y more area than it was asked for (MEASURED
+        2026-09-01 on a 16 x 4 m hull: +0.39% of volume at ch2_y 0.02,
+        +1.96% at 0.10). Reported, never silent — the layer-table lesson
+        applied to the sectional area curve.
+
+        All zeros on every hull without a topside knuckle chain, so no
+        recorded state moves.
+        """
+        a, _b, _zc = self.hydro_arrays(0.0)
+        return 2.0 * np.asarray(a, float) - np.asarray(self.A_sac, float)
+
     def form_coefficients(self, n: int = 401) -> dict:
         """Cp, LCB, Cwp, LCF and Cm of the DELIVERED surface.
 
@@ -2105,13 +2239,21 @@ class Hull:
         L = p["LWL"]
         xs = np.union1d(np.linspace(0.0, L, n), np.array([p["x_mb"] * L]))
         s = _stations(self.params, xs)
-        yc, d, m, f, K = s["y_chine"], s["d"], s["m"], s["f"], s["K"]
-        c1, c2 = s["c1"], s["c2"]
-        A = K * yc * (c1 * d - c2 * m * yc) + d * d * f    # delivered, not target
-        A = np.where(d > 0.0, A, 0.0)
+        # THE DELIVERED SURFACE IS THE ONE THE LADDER FLOATS. This used to
+        # recompute `A = K*yc*(c1*d - c2*m*yc) + d*d*f` — the bare outer
+        # envelope — and `yw = 2*y_wl`, neither of which knows about the
+        # tunnel notch, the split hole or the topside knuckle chain. See the
+        # `_ctrl_rows` header for the three measured numbers that produced,
+        # the worst of them a midship coefficient of 1.151.
+        _K, _P0, _C, _P2, _S, _chain, _notch, _hole = immersed_arguments(
+            s, self.params)
+        a_half, b_half, _zc = _immersed_batch(_K, _P0, _C, _P2, _S, 0.0,
+                                              chain=_chain, notch=_notch,
+                                              hole=_hole)
+        A = 2.0 * a_half                        # full section, DELIVERED
         vol = float(np.trapezoid(A, xs))
         a_max = float(A.max())
-        yw = 2.0 * s["y_wl"]
+        yw = 2.0 * open_waterline_halfbreadth(b_half, s["y_split"])
         awp = float(np.trapezoid(yw, xs))
         return {
             "volume_m3": vol,

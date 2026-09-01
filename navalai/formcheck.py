@@ -364,6 +364,27 @@ def form_descriptors(params: np.ndarray, mission: MissionSpec | None = None
     arrays["sac_norm"] = [float(v / a_max) for v in A11]
     scalars["A_max_m2"] = a_max
 
+    # -- DELIVERED vs COMMANDED sectional area. Every descriptor above reads
+    # `geometry.sectional_area`, which is the SAC TARGET the section solve
+    # aims at; `Hull.hydro_arrays` is what the ladder actually floats. They
+    # are the same number to machine precision for every feature that folds
+    # its area change into the target — and they are NOT for two commands
+    # that this layer used to publish the target for without saying so:
+    # the second chine's knuckle wedge (up to 5.75% of a station's area at
+    # the gene ceiling) and a designed waterline that contradicts the SAC's
+    # own end ratio (`rb_stem` > 0 with `r_stem` = 0 asks a station for beam
+    # AND zero area; measured +0.43% of volume, all of it in the last two
+    # stations). Published rather than assumed: an unmeasured agreement is
+    # the "unmeasurable metric scored as a passing one" defect
+    # (docs/LESSONS.md class 1). 0.0 on every hull whose commands agree.
+    _dev = hull.sac_deviation()
+    scalars["sac_deviation_max_m2"] = float(np.max(np.abs(_dev)))
+    scalars["sac_deviation_rel"] = float(
+        np.max(np.abs(_dev) / np.maximum(np.asarray(hull.A_sac), 1e-9)))
+    meta["kernel"]["sac_deviation"] = (
+        "Hull.sac_deviation(): 2*hydro_arrays()[0] - A_sac, i.e. DELIVERED "
+        "minus COMMANDED sectional area at the design waterline")
+
     # -- sectional fullness: area coefficient per station,
     # A(x) / (2 * y_wl(x) * d(x)), all three read from the kernel.
     zk, _yc, _zc, _ys, _zs = geometry.station_geometry(x, xs11)
