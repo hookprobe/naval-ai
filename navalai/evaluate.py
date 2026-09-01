@@ -564,6 +564,44 @@ def sample_valid(n: int, mission: MissionSpec, seed: int = 0,
         bb_hi = min(float(hi[jb]), bhint * 1.1)
         if bb_lo <= bb_hi:
             lo[jb], hi[jb] = bb_lo, bb_hi
+
+    # THE BUILD METHOD IS A BOX, NOT A REJECTION -- the governance kernel's
+    # own idiom ("a length ceiling becomes a BOUND, not a rejection, so the
+    # search never spends evaluations outside the legal envelope"), applied
+    # to manufacturing instead of to law.
+    #
+    # MEASURED 2026-09-01 by the product funnel: P5's brief says "9 m hard
+    # chine PLYWOOD launch" and the word reached nothing. `roundness` drew
+    # uniform on [0, 1], and `unroll.hull_panels` REFUSES roundness > 0 --
+    # so a plywood brief was served hulls that provably cannot be cut from
+    # flat sheet. 6 of 6 sampled hulls routed `mould`, and the sheet-kit
+    # product class had a mission -> valid design rate of structurally ZERO.
+    #
+    # roundness = 0 is a PRECONDITION, not a preference: it is the
+    # difference between a two-strip ruled surface (which unrolls) and a
+    # filleted bilge (which the unroller refuses by name). It is pinned.
+    #
+    # `flare` and `forefoot` are narrowed toward the corner the 2026-08-19
+    # campaign MEASURED, not pinned: they set how much intrinsic twist the
+    # shell carries, and the refold meter -- not this box -- is what decides
+    # whether a given hull clears `REFOLD_BAR_MM`. Deadrise WARP
+    # (beta_bow - beta_mid <= +8 deg) is the third dial in that corner and
+    # is deliberately NOT bounded here: it is a DIFFERENCE of two genes and
+    # so is not expressible as an independent box. The meter still judges
+    # it, which is the right division -- a box bounds what the search may
+    # PROPOSE, a meter measures what the shell actually DOES.
+    #
+    # STREAM-SAFE: `build_method` is None on every existing fixture brief,
+    # so their draws are bit-identical. Narrowing changes no RNG position --
+    # `rng.uniform(lo, hi)` consumes the same fixed-width block either way.
+    if getattr(mission, "build_method", None) == "sheet-kit":
+        for _nm, _klo, _khi in (("roundness", 0.0, 0.0),
+                                ("flare", -5.0, 6.0),
+                                ("forefoot", 0.0, 0.25)):
+            _j = grammar.NAMES.index(_nm)
+            _a, _b = max(float(lo[_j]), _klo), min(float(hi[_j]), _khi)
+            if _a <= _b:
+                lo[_j], hi[_j] = _a, _b
     X, y = [], []
     # THE DRAW IS ARITY-STABLE. `rng.uniform(lo, hi)` consumes exactly
     # N_PARAMS values per candidate, so appending a gene shifts the whole
@@ -616,6 +654,35 @@ def sample_valid(n: int, mission: MissionSpec, seed: int = 0,
         x[_core] = rng.uniform(lo[_core], hi[_core])
         for _i, _v in _post.items():
             x[_i] = _v
+        # AN ARCHITECTURE THE MISSION ASKED FOR MUST BE DRAWN. This is the
+        # THIRD site of the defect `apply_feature_bundles_inplace`'s own
+        # docstring names -- the exploring stream was fixed, then
+        # `optimize.pareto_front`, and the PRODUCT FEED was still holding
+        # every requested feature at its no-op default.
+        #
+        # MEASURED 2026-09-01 by the product funnel, mission P4: the brief
+        # "13 m river cruiser with a PROTECTED PROP" parses correctly --
+        # `drive='tunnel'`, `grammar.features_for` returns
+        # `frozenset({'tunnel'})` -- and then all 40 drawn hulls carried
+        # tun_w = tun_crown = tun_len = 0.0, i.e. NO TUNNEL. 9 of them then
+        # died on `row:prop_space`, which is the exact constraint a tunnel
+        # exists to satisfy. The product accepted a tunnel brief, delivered
+        # zero tunnel hulls, and refused them for want of the feature it had
+        # declined to draw. Mission -> valid design rate for P4: 0 of 40.
+        #
+        # Bundles only, NOT the whole exploring draw: every other post-hoc
+        # gene stays at its proven no-op default, so this opens exactly what
+        # the brief asked for and nothing else.
+        #
+        # STREAM-SAFE BY CONSTRUCTION, two ways. The generator is SPAWNED
+        # (`_explore_rng`), so the legacy core block above consumes exactly
+        # the same uniforms it always did; and the helper returns
+        # immediately on an empty feature set, so a brief that asks for no
+        # architecture draws bit-identically to before.
+        _feats = grammar.features_for(mission)
+        if _feats and not explore_post_hoc:
+            grammar.apply_feature_bundles_inplace(
+                x, grammar._explore_rng(rng), _feats)
         if explore_post_hoc:
             # THE P1 EXPLORING STREAM (2026-08-27): post-hoc genes drawn
             # from a SPAWNED Generator (the legacy stream consumes nothing)

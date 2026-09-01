@@ -286,6 +286,31 @@ def credited_recess_m(hull, spec, law) -> tuple[float, str]:
     if not law.allows_recess:
         return 0.0, ""
     drawn = drawn_tunnel_recess_m(hull, law.station_frac)
+    # UNSTATED IS NOT THE SAME AS DECLARED ZERO -- on a TUNNEL drive, and
+    # only there. MEASURED 2026-09-01 by the product funnel, mission P4:
+    # the brief "13 m river cruiser with a PROTECTED PROP" parses to
+    # `drive='tunnel'` and leaves `prop_tunnel_recess_m` at its dataclass
+    # default of 0.0, so `min(declared, drawn)` credited 0.000 m on hulls
+    # that DRAW a 0.15-0.25 m tunnel. A tunnel drive whose only lever is
+    # the recess, scored as declaring no recess, is self-contradictory: the
+    # zero came from a field nobody set, not from a designer's decision.
+    #
+    # Narrow on purpose. `allows_recess` is ALSO true for SHAFT, where a
+    # declared zero is a real conservative choice and stays honoured; this
+    # branch fires only for the drive that exists to have a tunnel.
+    #
+    # The guard is untouched: the credit is still bounded by what the hull
+    # DRAWS, so a flat-bottomed tunnel brief is credited `drawn` = 0.000 m
+    # and gains nothing. "A lever the hull does not have contributes
+    # nothing" still holds -- what changes is only that a lever the hull
+    # DOES have is no longer thrown away by an unset field.
+    #
+    # This is a correctness fix and NOT a rescue of P4: MEASURED over the
+    # same 40 hulls it moves prop_space violations 28 -> 23 and the
+    # mission's all-rows-ok rate stays 0 of 40, because shape (31), gm (30)
+    # and rules (30) are what actually bind that brief.
+    if declared == 0.0 and str(getattr(spec, "drive", "")) == "tunnel":
+        return drawn, ""
     if declared <= drawn + 1e-12:
         return declared, ""
     return drawn, (

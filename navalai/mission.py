@@ -502,6 +502,22 @@ class MissionSpec:
     # clearance nothing used to check.
     bwl_hint_m: float | None = None
     hull_family: str | None = None
+    # HOW IT IS TO BE BUILT. `"sheet-kit"` when the brief names flat-sheet
+    # construction (plywood, stitch-and-glue, CNC kit, sheet metal); None
+    # when it does not, and then nothing changes.
+    #
+    # MEASURED 2026-09-01 by the product funnel: P5's brief is literally
+    # "9 m hard chine PLYWOOD launch" and NOTHING in it reached the
+    # grammar. `roundness` was drawn uniform on [0, 1] like every other
+    # mission, and `unroll.hull_panels` REFUSES roundness > 0 outright --
+    # "a radiused bilge is not a two-panel developable shell". So every
+    # design the feed delivered for a plywood brief was provably
+    # un-kittable, and the sheet-kit product class -- which the
+    # 2026-08-19 campaign MEASURED to exist in the grammar at
+    # roundness = 0, flare = 0, forefoot = 0, warp <= +8 deg (4.6-5.0 mm
+    # on both panels against the bar) -- was unreachable from any brief.
+    # 6 of 6 sampled hulls routed `mould`.
+    build_method: str | None = None
     berths: int | None = None
     air_draft_max_m: float | None = None
     displacement_target_kg: float = 6000.0
@@ -799,6 +815,19 @@ def parse_mission(text: str) -> MissionSpec:
         if any(w in t for w in _words):
             m.hull_family = _fam
             break
+
+    # THE BUILD METHOD. Same shape as the family: a small vocabulary, and
+    # an unrecognised word leaves it None rather than guessing. Every one
+    # of these names a FLAT-SHEET route, which is the only construction
+    # this project has a measured meter for (`buildability.kit_buildability`
+    # -> Gate 6D). "grp", "composite" and "strip plank" are deliberately
+    # NOT listed: they are mould routes, which is already the default
+    # behaviour, so a word for them would bind nothing.
+    if any(w in t for w in ("plywood", "ply ", "stitch and glue",
+                            "stitch-and-glue", "sheet metal", "sheet-metal",
+                            "cnc kit", "cnc-cut", "flat sheet", "flat-sheet",
+                            "sheet built", "sheet-built", "kit boat")):
+        m.build_method = "sheet-kit"
 
     if g := re.search(r"air" + _SEP + r"draft" + _SEP + r"(?:of" + _SEP
                       + r")?" + _NUM + _SEP + r"m\b", t):

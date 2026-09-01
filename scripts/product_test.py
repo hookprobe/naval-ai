@@ -153,14 +153,30 @@ def funnel(brief: str, n: int, seed: int = 5) -> dict:
 
     # the expensive stages run only on survivors — that is the product's own
     # ordering and measuring it any other way would price a funnel nobody runs
+    routes = collections.Counter()
     for x in survivors:
         hull = Hull(x)
+        # BUILDABILITY IS A ROUTE, NOT A PASS/FAIL -- and this harness got
+        # that wrong until 2026-09-01. It called `shell_complexity`, which is
+        # a GEOMETRY METRIC defined only on the two-strip ruled surface and
+        # so REFUSES any hull with roundness > 0 by design, and it labelled
+        # that refusal "not sheet-developable". Result: `buildable = 0` on
+        # ALL SEVEN missions, printed as though NavalAI could not deliver a
+        # manufacturable boat for any brief. It can: 6 of 6 sampled hulls
+        # route `mould`, and a mould boat is a boat. The instrument had
+        # committed the mislabelled-metric defect it exists to catch.
+        #
+        # `kit_buildability` is the meter that actually answers the question,
+        # and it answers with a ROUTE. Both routes are counted, because the
+        # product metric is "did a mission yield a buildable design", not
+        # "did it yield a CNC kit".
         try:
             from navalai import buildability
-            buildability.shell_complexity(hull)
+            route = buildability.kit_buildability(hull)["route"]
             counts["buildable"] += 1
-        except Exception:                                    # noqa: BLE001
-            deaths["buildability: not sheet-developable"] += 1
+            routes[route] += 1
+        except Exception as e:                               # noqa: BLE001
+            deaths[f"buildability: {type(e).__name__}"] += 1
         try:
             from navalai.geometry import open_edge_count
             V, F = hull.closed_mesh(nx=80, nz=16)
@@ -180,9 +196,39 @@ def funnel(brief: str, n: int, seed: int = 5) -> dict:
         except Exception as e:                               # noqa: BLE001
             deaths[f"certify: {type(e).__name__}"] += 1
 
+    # THE PRODUCT'S OWN DESIGN ROUTE IS A SEARCH, NOT A SAMPLER -- and this
+    # harness measured only the sampler until 2026-09-01, which made it
+    # report a product failure that was really a statement about uniform
+    # draws.
+    #
+    # MEASURED, same three briefs, pop=48 gens=30 seed=0:
+    #
+    #     brief          sample_valid (40 draws)   pareto_front
+    #     P1 monohull        3 all-rows-ok             48
+    #     P4 tunnel          0 all-rows-ok             41  (tun_w 0.065)
+    #     P5 plywood         2 all-rows-ok             45
+    #
+    # P4 -- "13 m river cruiser with a protected prop" -- reads 0 of 40 from
+    # the feed and 41 designs from the optimizer, WITH a drawn tunnel. A
+    # uniform draw is not the instrument for a brief whose feasible set is
+    # a thin sliver of the box; the search is. Reporting only the feed's
+    # yield as "mission -> valid design rate" would have libelled the
+    # product on the strength of the wrong instrument.
+    try:
+        from navalai.optimize import pareto_front
+        _r = pareto_front(m, pop=48, gens=30, seed=0)
+        _X = getattr(_r, "X", None)
+        out["optimizer_front"] = 0 if _X is None else len(np.atleast_2d(_X))
+        if not out["optimizer_front"]:
+            out["optimizer_why_empty"] = str(_r.why_empty())[:200]
+    except Exception as e:                                   # noqa: BLE001
+        out["optimizer_front"] = None
+        out["optimizer_error"] = f"{type(e).__name__}: {e}"
+
     out["funnel"] = {s: int(counts[s]) for s in STAGES}
     out["deaths"] = dict(deaths.most_common())
     out["survivors"] = len(survivors)
+    out["routes"] = dict(routes.most_common())
     out["elapsed_s"] = round(time.perf_counter() - t0, 1)
     return out
 
@@ -265,6 +311,13 @@ def main(argv=None) -> int:
             drop = "" if prev is None else f"  (-{prev - v})" if prev > v else ""
             print(f"      {s:18s} {v:5d}{drop}")
             prev = v
+        if r.get("optimizer_front") is not None:
+            print(f"      SEARCH (pareto_front, the product's own design "
+                  f"route): {r['optimizer_front']} designs")
+        if r.get("routes"):
+            print("      build route: "
+                  + ", ".join(f"{k} x{v}"
+                              for k, v in sorted(r["routes"].items())))
         if r["deaths"]:
             print("    where they died:")
             for why, n in list(r["deaths"].items())[:8]:
@@ -272,7 +325,7 @@ def main(argv=None) -> int:
     print("\n" + "=" * 78)
     print("SUMMARY — mission -> valid design rate")
     print(f"{'':4s} {'what':28s} {'gen':>5s} {'rows ok':>8s} "
-          f"{'buildable':>10s} {'meshes':>7s} {'CFD-adm':>8s}")
+          f"{'buildable':>10s} {'meshes':>7s} {'CFD-adm':>8s} {'SEARCH':>7s}")
     for k in keys:
         r = results[k]
         if r.get("fatal"):
@@ -284,7 +337,8 @@ def main(argv=None) -> int:
         f = r["funnel"]
         print(f"{k:4s} {r['what'][:28]:28s} {f['generated']:5d} "
               f"{f['all rows ok']:8d} {f['buildable']:10d} "
-              f"{f['mesh-closed']:7d} {f['CFD-admissible']:8d}")
+              f"{f['mesh-closed']:7d} {f['CFD-admissible']:8d} "
+              f"{('n/a' if r.get('optimizer_front') is None else r['optimizer_front']):>7}")
     if args.json:
         pathlib.Path(args.json).write_text(json.dumps(results, indent=1,
                                                       default=str))

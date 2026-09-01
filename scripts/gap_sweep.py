@@ -335,6 +335,12 @@ _FIELD_ALT = {
     "displacement_target_kg": 9999.0, "cruise_speed_kn": 11.0,
     "design_category": "B", "crew": 9, "lwl_hint_m": 17.0,
     "bwl_hint_m": 4.0, "hull_family": "barge", "berths": 7,
+    # added 2026-09-01 with the field itself: a sheet-kit brief bounds
+    # `roundness`/`flare`/`forefoot` differently, so two briefs that differ
+    # only in build_method are DIFFERENT design problems and must not share
+    # a fitted generator. This probe is what noticed the new field had
+    # joined the key untested.
+    "build_method": "sheet-kit",
     "air_draft_max_m": 3.3, "waters": "coastal", "windage": None,
     "name": "another name", "notes": "retyped",
     "energy": None, "vessel": None, "payload": None,
