@@ -490,10 +490,31 @@ GATES = [
     # really is recorded honestly — while the thing the product needs is
     # MISSED. Splitting them is what stops a green suite being quoted as a
     # capability. See data/gate-ledger.json and docs/gates/E5-CHINE.md.
-    Gate("Gate 0E5C-CAP", "the hard-chine CAPABILITY: 2 of 7 published series "
-         "are expressible. No parallel middle body (Cp ceiling 0.848 against "
-         "a real 0.95-0.97), no aft deadrise warp (beta_len <= 0.60, so "
-         "warped series miss by 8-9 deg), beta_mid capped at 25 deg",
+    # THE SCOPE STATES THE CLAUSE; THE LEDGER OWNS THE MEASUREMENT. It used
+    # to restate the measurement too, and the two drifted -- the recurring
+    # defect of this codebase, A NUMBER DECLARED TWICE, sitting in the gate
+    # registry itself.
+    #
+    # MEASURED 2026-09-02 by the final validation ladder. Commit 0632c85
+    # re-verdicted this gate and moved the ledger to "3 of 7 series
+    # expressible", recording in the entry's own words that "the count moved
+    # 2 -> 3 of 7 on exactly this" and that beta_mid now reaches 38 deg. The
+    # scope prose here still said 2 of 7, "no aft deadrise warp" and
+    # "beta_mid capped at 25 deg" -- the PRE-fix state on three counts, being
+    # printed by the ladder beside a ledger that said otherwise. A reader
+    # comparing them cannot tell which is current, and the gate's own verify
+    # command (`expects 3 of 7 expressible`) agrees with the ledger.
+    #
+    # THE GATE STAYS RED (section 50: RED gates are classified, never closed).
+    # What changes is only that the ladder stops printing a stale second copy
+    # of a number the ledger is the single home of. Same precedent as
+    # Gate 0R: "a missed clause is RED BY RECORD, never prose in a scope".
+    Gate("Gate 0E5C-CAP", "the hard-chine CAPABILITY: published hard-chine "
+         "series are EXPRESSIBLE in the grammar -- deadrise distribution "
+         "within 1 deg at the transom, 50% and 75% LWL, and the hull "
+         "round-tripping at its published prismatic coefficient. The count "
+         "and the remaining blockers are the ledger's "
+         "(data/gate-ledger.json; docs/gates/E5-CHINE.md), not this scope's",
          status=Verdict.RED),
     Gate("Gate 1", "L1 physics + Wigley anchor + <50ms", "tests/test_phase1.py"),
     # Gate 1's own bar names Holtrop-Mennen, and `grep -rin holtrop` used to hit
