@@ -43,9 +43,9 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from navalai.cfd.post import settled_drag                        # noqa: E402
-from navalai.constants import (G_STANDARD,                       # noqa: E402
-                               RHO_SEA_HOLTROP)                  # noqa: E402
+from navalai.cfd.post import (resistance_coefficient,            # noqa: E402
+                              settled_drag)                      # noqa: E402
+from navalai.constants import G_STANDARD                         # noqa: E402
 
 OUT = ROOT / "data" / "cfd_anchors.json"
 
@@ -175,8 +175,17 @@ def main() -> int:
         # physical result from numerical wreckage. Refused with a reason
         # printed, never silently clamped: the run may still be worth a human
         # reading its log, and the book must not be the thing that hides it.
-        _ct_check = (total / (0.5 * RHO_SEA_HOLTROP * u * u
-                              * float(r["s_wetted_m2"]))
+        # THE GUARD'S Ct MUST BE THE RECORD'S Ct. Until 2026-09-01 this
+        # divided by `RHO_SEA_HOLTROP` (1025.0) while every case in the book
+        # was SOLVED at `cfd.case._RHO_WATER` = RHO_FRESH_20C = 998.8, and the
+        # `ct` written on the same line comes from `post.resistance_coefficient`
+        # at that density. VERIFIED by inverting each record: the implied rho
+        # is 998.7-998.8 on all eight that carry a Ct, so the guard was
+        # computing a number 2.6% below the one it sits beside. It changed no
+        # verdict at a bar of 1.0 — and it was a SECOND DENSITY inside the very
+        # fence whose commit message says the fence exists to stop a second
+        # density (d2a8c3f). One call, one answer.
+        _ct_check = (resistance_coefficient(total, float(r["s_wetted_m2"]), u)
                      if (u > 0 and float(r.get("s_wetted_m2") or 0) > 0)
                      else None)
         if (not math.isfinite(total) or not math.isfinite(pres)
