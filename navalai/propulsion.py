@@ -238,6 +238,63 @@ def prop_immersion_m(hull, wl: float,
     return max(0.0, float(wl) - _keel_z_at(hull, station_frac))
 
 
+def drawn_tunnel_recess_m(hull, station_frac: float = PROP_STATION_FRAC
+                          ) -> float:
+    """The tunnel the HULL ACTUALLY DRAWS at the prop station [m].
+
+    `Hull.z_crown` is the Phase-4 tunnel crown height above the keel, per
+    station, in metres — zero on every hull whose `tun_*` genes are zero, so
+    this returns 0.0 for every hull drawn before the tunnel existed.
+    """
+    z_crown = getattr(hull, "z_crown", None)
+    if z_crown is None:
+        return 0.0
+    x = float(hull.x[0]) + float(station_frac) * _lwl(hull)
+    return max(0.0, float(np.interp(x, np.asarray(hull.x, float),
+                                    np.asarray(z_crown, float))))
+
+
+def credited_recess_m(hull, spec, law) -> tuple[float, str]:
+    """The tunnel recess this design may be SCORED with, and why not the
+    declared one when it is not. The single home of that decision.
+
+    MEASURED DEFECT, 2026-09-01 (the end-to-end integration audit). The
+    recess was read straight off `EnergySpec.prop_tunnel_recess_m`, a free
+    declaration, and nothing looked at the hull. On a 16 x 4 m hull with a
+    shaft drive and 6 kN of thrust:
+
+        max drawn crown:  flat hull 0.000 m | tunnelled hull 0.2467 m
+        flat-bottom  declared 0.00 -> prop_space g = +0.1315  VIOLATED
+        flat-bottom  declared 0.50 -> prop_space g = -0.1948  satisfied
+        tunnelled    declared 0.00 -> prop_space g = +0.1315  IDENTICAL
+        tunnelled    declared 0.50 -> prop_space g = -0.1948  IDENTICAL
+
+    So a flat-bottomed hull was credited a recess it does not have — flipping
+    a live constraint row and the `axis_clears_wake_deficit` verdict — while a
+    hull that DOES draw a 0.247 m tunnel got nothing for it. This is exactly
+    the P6 defect this module already fixed one level up ("a lever the DRIVE
+    does not have contributes NOTHING"), restated: **a lever the HULL does not
+    have contributes nothing either.** Before Phase 4 the kernel could not
+    draw a tunnel and the declaration was the only way to say it; it can now,
+    so the declaration is checked against the drawing.
+
+    The credit is `min(declared, drawn)` rather than simply `drawn`: a
+    designer may declare LESS tunnel than the hull carries (a conservative
+    installation), and refusing that would be a bar with no content.
+    """
+    declared = float(getattr(spec, "prop_tunnel_recess_m", 0.0) or 0.0)
+    if not law.allows_recess:
+        return 0.0, ""
+    drawn = drawn_tunnel_recess_m(hull, law.station_frac)
+    if declared <= drawn + 1e-12:
+        return declared, ""
+    return drawn, (
+        f"declared tunnel recess {declared:.3f} m exceeds the {drawn:.3f} m "
+        f"this hull draws at the prop station (tun_w / tun_crown / tun_len); "
+        f"credited {drawn:.3f} m — a lever the hull does not have contributes "
+        f"nothing")
+
+
 def transom_immersion_m(hull, wl: float) -> float:
     """Transom submergence, >= 0. Zero is a dry (ventilated) transom."""
     return max(0.0, float(wl) - _keel_z_at(hull, 0.02))
@@ -362,7 +419,9 @@ class PropulsionReport:
     motor_kw: float | None
     n_props: int
     drive: str                 # DriveArchitecture.value the rows were built for
-    tunnel_recess_m: float     # AS APPLIED (zeroed when the drive has no tunnel)
+    tunnel_recess_m: float     # AS APPLIED: zeroed when the DRIVE has no
+                               # tunnel, capped at what the HULL draws at the
+                               # prop station (`credited_recess_m`)
     prop_immersion_m: float    # L0
     d_prop_min_m: float        # from thrust; inherits resistance sigma
     d_prop_max_m: float        # L0
@@ -379,6 +438,11 @@ class PropulsionReport:
     prop_axis_depth_m: float
     wake_clean_depth_m: float
     axis_clears_wake_deficit: bool | None
+    #: WHY the applied recess is not the declared one, when it is not.
+    #: Empty means the declaration was honoured in full. A report that
+    #: echoes the request is the layer-table lie (docs/LESSONS.md class 1);
+    #: this says which metres were refused and on what grounds.
+    tunnel_recess_note: str = ""
 
 
 ROW_MOTOR = "motor_power"
@@ -392,8 +456,7 @@ def assess(hull, ev, spec) -> PropulsionReport:
     speed_ms = float(ev.energy.speed)
     arch, law = drive_law(spec)
     imm = prop_immersion_m(hull, wl, law.station_frac)
-    recess = (float(getattr(spec, "prop_tunnel_recess_m", 0.0) or 0.0)
-              if law.allows_recess else 0.0)
+    recess, recess_why = credited_recess_m(hull, spec, law)
     below = (float(getattr(spec, "prop_max_below_keel_m", 0.0) or 0.0)
              if law.allows_below_keel else 0.0)
     tr_imm = transom_immersion_m(hull, wl)
@@ -408,6 +471,7 @@ def assess(hull, ev, spec) -> PropulsionReport:
         n_props=int(getattr(spec, "n_props", 1) or 1),
         drive=arch.value,
         tunnel_recess_m=recess,
+        tunnel_recess_note=recess_why,
         prop_immersion_m=imm,
         d_prop_min_m=min_prop_diameter_m(thrust,
                                          int(getattr(spec, "n_props", 1) or 1)),
@@ -448,8 +512,7 @@ def rows_for(hull, wl: float, thrust_n: float, prop_power_w: float,
     # spec declares — an outboard credited with a tunnel recess, or a
     # protected tunnel drive credited with a below-keel hang, is measured
     # against a stern that does not exist (P6; audit H chain)
-    recess = (float(getattr(spec, "prop_tunnel_recess_m", 0.0) or 0.0)
-              if law.allows_recess else 0.0)
+    recess, recess_why = credited_recess_m(hull, spec, law)
     below = (float(getattr(spec, "prop_max_below_keel_m", 0.0) or 0.0)
              if law.allows_below_keel else 0.0)
     rated = float(spec.motor_kw) * MOTOR_CONTINUOUS_FRACTION
@@ -475,5 +538,6 @@ def rows_for(hull, wl: float, thrust_n: float, prop_power_w: float,
             f"<= {PROP_DISC_LOADING_MAX_PA:.0f} Pa loading) but the "
             f"{arch.value} stern offers {d_max:.2f} m ({imm:.2f} m "
             f"immersion + {recess:.2f} m tunnel recess + {below:.2f} m "
-            f"below-keel hang); " + ", ".join(levers))
+            f"below-keel hang); " + ", ".join(levers)
+            + ("; " + recess_why if recess_why else ""))
     return g, why

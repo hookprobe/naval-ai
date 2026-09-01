@@ -21,6 +21,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from dataclasses import replace
+
 import numpy as np
 import pytest
 
@@ -104,7 +106,17 @@ def test_a_conventional_shaft_drive_passes_where_shallow_is_refused():
 
 def test_the_assessments_twin_tunnel_fix_passes():
     """The arrangement drawn in motor_integration.png, machine-verified:
-    two props + 0.16 m tunnels at the governed 5 kn -> both rows satisfied."""
+    two props at the governed 5 kn -> both rows satisfied.
+
+    THE TITLE SAID "TWIN TUNNEL" AND THE NUMBER SAYS TWIN PROPS. MEASURED
+    2026-09-01 when the recess stopped being a free declaration
+    (`propulsion.credited_recess_m`): this hull draws NO tunnel, so the
+    0.16 m in the spec is credited as 0.000 m and `prop_space` reads
+    -0.2920 either way. The two props are the whole fix here, and the test
+    now says which lever it is testing — a claim about a tunnel has to be
+    made on a hull that has one, which is
+    `test_a_drawn_tunnel_is_what_buys_the_single_prop_its_disc`.
+    """
     ms = MissionSpec(name="prop-gate", lwl_hint_m=11.9,
                      displacement_target_kg=6500.0, cruise_speed_kn=5.0,
                      design_category="C", crew=4, waters="river+coastal",
@@ -114,6 +126,13 @@ def test_the_assessments_twin_tunnel_fix_passes():
     ev = evaluate(_hb19_vector(), ms)
     assert ev.g["motor_power"] < 0.0 and ev.g["prop_space"] < 0.0
     assert ev.ok, f"violations: {ev.violations}"
+    # and the declared recess is NOT what did it: the same mission with no
+    # recess at all returns the identical row, because the hull draws none
+    ms0 = replace(ms, energy=replace(ms.energy, prop_tunnel_recess_m=0.0))
+    assert evaluate(_hb19_vector(), ms0).g["prop_space"] == pytest.approx(
+        ev.g["prop_space"], abs=0.0, rel=0.0), (
+        "the declared recess moved a row on a hull that draws no tunnel — "
+        "a lever the hull does not have must contribute nothing")
 
 
 def test_a_toy_motor_is_refused_by_the_power_row():
@@ -342,3 +361,139 @@ def test_the_axis_convention_is_the_centred_disc_and_is_single_sourced():
     # worse.
     assert pr.prop_axis_depth_m(0.8, 0.2) > pr.prop_axis_depth_m(0.8, 0.0)
     assert pr.prop_axis_depth_m(-1.0, -1.0) == 0.0
+
+
+# ---------------------------------------------------------------------------
+# Gate PROP-GEOM (2026-09-01): the levers the propulsion rows are scored with
+# must be levers the HULL carries, not numbers the spec declares.
+# ---------------------------------------------------------------------------
+
+def _plain(**over):
+    """A 16 x 4 m inland cruiser, with the tunnel genes under the caller's
+    control. Deliberately not a sampled hull: the point is the difference
+    between two hulls that differ ONLY in whether the tunnel is drawn."""
+    g = dict(grammar.POST_HOC_DEFAULTS)
+    g.update({"LWL": 16.0, "BWL": 4.0, "T": 0.75, "D": 1.60, "Cp": 0.72,
+              "lcb": -1.0, "x_mb": 0.52, "r_transom": 0.55, "beta_mid": 6.0,
+              "beta_bow": 22.0, "beta_len": 0.30, "roundness": 0.35,
+              "rocker": 0.06, "forefoot": 0.10, "flare": 6.0,
+              "sheer_rise": 0.10})
+    g.update(over)
+    from navalai.geometry import Hull as _H
+    return _H(grammar.vector(g))
+
+
+def test_a_declared_tunnel_recess_is_not_credited_to_a_hull_without_one():
+    """THE MEASURED DEFECT (2026-09-01, the end-to-end integration audit).
+
+    `prop_tunnel_recess_m` is a free declaration on `EnergySpec` and nothing
+    looked at the hull, so on a 16 x 4 m hull at 6 kN of thrust:
+
+        max drawn crown:  flat 0.000 m | tunnelled 0.2467 m
+        flat  declared 0.00 -> prop_space +0.1315   VIOLATED
+        flat  declared 0.50 -> prop_space -0.1948   satisfied
+        tunnelled, both declarations -> IDENTICAL to the flat hull
+
+    A flat-bottomed hull bought itself a bigger disc by saying so, and a hull
+    that actually drew a tunnel got nothing for it. Same shape as the P6
+    defect above, one level down: a lever the HULL does not have contributes
+    nothing.
+    """
+    flat = _plain()
+    assert propulsion.drawn_tunnel_recess_m(flat) == 0.0
+    spec_r = EnergySpec(drive="shaft", n_props=1, motor_kw=40.0,
+                        prop_tunnel_recess_m=0.5)
+    spec_0 = EnergySpec(drive="shaft", n_props=1, motor_kw=40.0,
+                        prop_tunnel_recess_m=0.0)
+    g_r, why = propulsion.rows_for(flat, 0.0, 6000.0, 20000.0, spec_r)
+    g_0, _ = propulsion.rows_for(flat, 0.0, 6000.0, 20000.0, spec_0)
+    assert g_r["prop_space"] == pytest.approx(g_0["prop_space"], rel=0.0,
+                                              abs=0.0)
+    assert g_r["prop_space"] > 0.0, (
+        "the row must still FIRE on this hull — a guard that stops firing is "
+        "not a fix")
+    # and the refusal is NAMED, never silent
+    assert "does not have contributes nothing" in why["prop_space"]
+
+
+def test_a_drawn_tunnel_IS_credited_and_moves_the_row():
+    """The other half, and the half that makes the first one a fix rather
+    than a blanket refusal: a hull that draws the tunnel gets the metres it
+    draws. MEASURED at the prop station (0.12 L forward of the transom),
+    where the Phase-4 crown has tapered to 0.1587 m of its 0.3797 m maximum.
+    """
+    tun = _plain(tun_w=0.35, tun_crown=0.50, tun_len=0.35)
+    drawn = propulsion.drawn_tunnel_recess_m(tun)
+    assert drawn == pytest.approx(0.1587, rel=0.02), drawn
+    spec = EnergySpec(drive="shaft", n_props=1, motor_kw=40.0,
+                      prop_tunnel_recess_m=0.5)
+    law = propulsion.drive_law(spec)[1]
+    credited, note = propulsion.credited_recess_m(tun, spec, law)
+    assert credited == pytest.approx(drawn)
+    assert "credited 0.159 m" in note
+    g_t, _ = propulsion.rows_for(tun, 0.0, 6000.0, 20000.0, spec)
+    g_f, _ = propulsion.rows_for(_plain(), 0.0, 6000.0, 20000.0, spec)
+    assert g_t["prop_space"] < g_f["prop_space"], (
+        "drawing the tunnel must buy disc room; if it does not, the geometry "
+        "is still invisible to the propulsion rows")
+
+
+def test_a_modest_declaration_under_the_drawn_tunnel_is_honoured_in_full():
+    """`min(declared, drawn)`, not `drawn`: declaring LESS tunnel than the
+    hull carries is a conservative installation, and refusing it would be a
+    bar with no content."""
+    tun = _plain(tun_w=0.35, tun_crown=0.50, tun_len=0.35)
+    spec = EnergySpec(drive="shaft", n_props=1, motor_kw=40.0,
+                      prop_tunnel_recess_m=0.05)
+    law = propulsion.drive_law(spec)[1]
+    credited, note = propulsion.credited_recess_m(tun, spec, law)
+    assert credited == 0.05 and note == ""
+
+
+def test_the_drive_law_still_wins_over_the_geometry():
+    """An outboard on a tunnelled hull is still an outboard. The two guards
+    compose; neither may cancel the other."""
+    tun = _plain(tun_w=0.35, tun_crown=0.50, tun_len=0.35)
+    spec = EnergySpec(drive="outboard", n_props=1, motor_kw=40.0,
+                      prop_tunnel_recess_m=0.5)
+    law = propulsion.drive_law(spec)[1]
+    assert propulsion.credited_recess_m(tun, spec, law)[0] == 0.0
+
+
+def test_a_drawn_tunnel_is_what_buys_the_single_prop_its_disc():
+    """The claim `test_the_assessments_twin_tunnel_fix_passes` used to make,
+    now made on a hull that has the tunnel.
+
+    houseboat19 with ONE prop and no tunnel VIOLATES `prop_space`. Drawing
+    the Phase-4 tunnel turns it into a pass, and the threshold is measurable:
+
+        drawn at the prop station   prop_space   ladder
+            0.0432 m                 +0.0224     REFUSED
+            0.0718 m                 -0.0447     ok
+            0.1005 m                 -0.0433     ok
+            0.1720 m                    --       the hull no longer floats to
+                                                 its target displacement
+
+    The last row is the kernel's own contract holding: a notch deep enough to
+    change the floated state is refused by flotation, not mis-integrated.
+    """
+    import json as _json
+    base = _json.loads(_HB19.read_text()) if _HB19.exists() else None
+    if base is None:
+        pytest.skip("houseboat19 genome not on disk")
+    ms = MissionSpec(name="prop-gate", lwl_hint_m=11.9,
+                     displacement_target_kg=6500.0, cruise_speed_kn=5.0,
+                     design_category="C", crew=4, waters="river+coastal",
+                     energy=EnergySpec(battery_kwh=100.0, n_props=1,
+                                       prop_tunnel_recess_m=0.16,
+                                       prop_max_below_keel_m=0.0))
+    flat = evaluate(grammar.vector(base), ms)
+    assert flat.g["prop_space"] > 0.0, (
+        "one un-tunnelled prop on this hull must still violate prop_space — "
+        "that is the measured incident the row exists for")
+    tunnelled = evaluate(
+        grammar.vector({**base, "tun_w": 0.40, "tun_crown": 0.35,
+                        "tun_len": 0.30}), ms)
+    assert tunnelled.g["prop_space"] < 0.0 and tunnelled.ok, (
+        f"the drawn tunnel did not buy the disc: "
+        f"{tunnelled.g.get('prop_space')} {tunnelled.violations}")
