@@ -165,14 +165,19 @@ _AFT_GENES = ("r_transom", "beta_transom", "beta_run", "rb_transom",
 #: that are pinned at zero.
 AFT_EXPLORE_WEIGHT = 3.0
 
-#: What the weighting BUYS, recomputed rather than remembered:
-#: uniform share and weighted share of the aft genes over the full grammar.
+
 def aft_prior_shares() -> tuple[float, float]:
-    """(uniform share, weighted share) of picks that land on an aft gene."""
+    """(uniform share, weighted share) of picks that land on an aft gene.
+
+    What the weighting BUYS, recomputed rather than remembered — see the
+    comment on `AFT_EXPLORE_WEIGHT` for the arity event that made this a
+    function instead of a sentence.
+    """
     n = grammar.N_PARAMS
     k = len(_AFT_GENES)
     w = AFT_EXPLORE_WEIGHT
     return k / n, (w * k) / (w * k + (n - k))
+
 
 #: A stern is "bluff" when the SAC still carries area at the transom.
 #: CALIBRATED on the one anchor that has BOTH a genome and a measured
