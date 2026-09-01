@@ -89,7 +89,9 @@ def main(argv=None) -> int:
                     help="a deterministic vessel case (formcheck.CASES)")
     ap.add_argument("--mission", help="a mission brief to parse")
     ap.add_argument("--reference", action="store_true",
-                    help="certify the reference hull against --mission")
+                    help="certify the REFERENCE HULL against --mission "
+                         "instead of designing for it. Without this, "
+                         "--mission runs the search and reports a design.")
     ap.add_argument("--no-gz", action="store_true",
                     help="skip the righting-arm solve (faster)")
     ap.add_argument("--json", help="write the machine-readable result here")
@@ -115,10 +117,55 @@ def main(argv=None) -> int:
         print(f"case {case.key}: {case.title}")
     elif args.mission:
         mission = parse_mission(args.mission)
-        params = reference_params()
         print("mission:", args.mission)
-        print("geometry: the reference hull (pass --case for a specific "
-              "vessel)")
+        if args.reference:
+            # THE REFERENCE HULL, BECAUSE IT WAS ASKED FOR -- and said loudly.
+            params = reference_params()
+            print("geometry: THE REFERENCE HULL, not a design for this brief."
+                  "\n          Every number below, INCLUDING THE VERDICT, is "
+                  "about that hull.\n          Drop --reference to design for "
+                  "the brief instead.")
+        else:
+            # MISSION -> DESIGN. Until 2026-09-02 this branch used the
+            # reference hull unconditionally and `--reference` -- a flag
+            # declared, documented and NEVER READ -- selected nothing.
+            #
+            # MEASURED by the end-to-end flow check: the brief "8 m plywood
+            # cabin launch, 6 knots, 1.8 tonne" printed a full report headed
+            # by that brief, reporting a 2643 kg hull (a 1.8 t brief) with
+            # `VERDICT: REFUSE` and violations -- B/T 12.60 outside its band,
+            # beam_carried 0.122 -- that belong to the REFERENCE HULL and not
+            # to anything the user asked for. One parenthetical line said so;
+            # forty lines of numbers did not. A reader takes REFUSE to mean
+            # "your boat is bad" when it means "the reference hull does not
+            # meet your brief", and that is the worst kind of true statement.
+            #
+            # The product's design route is a SEARCH (`pareto_front`), the
+            # same one `ui/server.py` serves. The CLI face now runs it.
+            from navalai.optimize import pareto_front
+            print("designing for this brief (NSGA-II, pop 48 x 30 gens) ...")
+            res = pareto_front(mission, pop=48, gens=30, seed=0)
+            X = np.atleast_2d(res.X) if res.X is not None else np.empty((0, 0))
+            if not len(X):
+                # A REFUSAL IS A RESULT. It carries the row tally that
+                # explains it, exactly as the design feed's does.
+                print("VERDICT: REFUSE — no design satisfied this brief.")
+                print(" ", res.why_empty())
+                print("\nThis is the product saying no, with reasons. Pass "
+                      "--reference to certify the reference hull against the "
+                      "brief anyway.")
+                return 2
+            # WHICH design, and WHY that one, stated rather than implied: the
+            # front is 3-objective (min Wh/NM, min panel area, min build
+            # area) and there is no single best point on a Pareto front. The
+            # CLI reports the lowest-energy corner because energy is the
+            # objective the briefs are written in; the others are on the
+            # front and reachable through the UI.
+            j = int(np.argmin(np.atleast_2d(res.F)[:, 0]))
+            params = X[j]
+            print(f"geometry: DESIGNED for this brief — {len(X)} designs on "
+                  f"the Pareto front, reporting the lowest-energy one "
+                  f"(objective 1 of 3: Wh/NM, panel area, build area)")
     else:
         ap.error("need --case or --mission")
 
