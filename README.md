@@ -170,7 +170,7 @@ different Gate 2M numbers came to circulate at once (gap J1).
 | Gate DELIVERED-FORM | form_coefficients measures the surface the ladder floats — notch, hole and knuckle chain included; no feature reports an impossible Cm; the delivered SAC is the commanded SAC for every feature that folds its area into the solve, and the two that do not DECLARE their drift | `tests/test_delivered_form.py` (27 tests) |
 | Gate SWEEP | seam properties swept over the production flow: descriptors vs ladder, the SAC contract, declared-vs-drawn levers, cache identity, gene reachability, repair-vs-constraint, exception containment, receipts, numbers declared twice, the two design routes, and station convergence | `tests/test_gap_sweep.py` (5 tests) |
 | Gate REACHABILITY | every post-hoc gene is classified BLIND, REQUESTED or WITHHELD-with-a-measurement; a mission that asks for a protected prop gets a hull that draws the tunnel, one that does not gets none, and the aft prior's share is recomputed rather than remembered | `tests/test_feature_reachability.py` (11 tests) |
-| Gate CFD-KB | the CFD anchor book: every record honest about settledness and GCI, unsettled records never support a prediction, family bands refuse outside measured Fn support, and the hb19 L1 anchor carries its sigma and basis | `tests/test_cfd_kb.py` (12 tests) |
+| Gate CFD-KB | the CFD anchor book: every record honest about settledness and GCI, unsettled records never support a prediction, family bands refuse outside measured Fn support, and the hb19 L1 anchor carries its sigma and basis | `tests/test_cfd_kb.py` (14 tests) |
 | Gate RHO-X | the bilge radius varies along the length: the warp is the flare law's shape, rho_len = 0 is bit-identical legacy, the control points and the area coefficients are per-station, and a hull may be hard aft and round forward | `tests/test_rho_x.py` (6 tests) |
 | Gate SPLIT | the split stern: split genes are no-ops at zero, the SAC stays the net contract, the wall is vertical at y_split, the waterplane integrals subtract the hole, and split + tunnel on one station is refused by name | `tests/test_split.py` (9 tests) |
 | Gate TUNNEL | the W-stern: tunnel genes are no-ops at zero, the SAC stays the net displacement contract to the bit, a crown above the waterline is refused by name, and the wetted surface counts the tunnel walls | `tests/test_tunnel.py` (8 tests) |
@@ -185,16 +185,16 @@ different Gate 2M numbers came to circulate at once (gap J1).
 | Gate 1E | the stages agree with each other: one geometry, one resistance, one ply, tier+sigma across every handoff | `tests/test_end_to_end_flow.py` (14 tests) |
 | Gate 0F | the hull-form library: bands ordered, every band carries its basis, no family contradicts its own Froude regime | `tests/test_formlib.py` (51 tests) |
 | Gate 0X | the experiment suite: controlled sweeps hold their controlled quantities, out-of-envelope points are refused, and the Michell interference phase matches an independent superposition | `tests/test_experiments.py` (52 tests) |
-| Gate 1M | the vessel: topology/manning/regime, the parallel-axis I_T, separation in the PRODUCTION wave term, and no multihull safety verdict from a monohull GM floor | `tests/test_multihull.py` (31 tests) |
+| Gate 1M | the vessel: topology/manning/regime, the parallel-axis I_T, separation in the PRODUCTION wave term, and no multihull safety verdict from a monohull GM floor | `tests/test_multihull.py` (34 tests) |
 | Gate PV-B | vessel-conditional proportion bands, the sourced size box, and the multihull stability refusal | `tests/test_vessel_bands.py` (20 tests) |
 | Gate 0B | buildability metrics are PROXIES that refuse rather than default, are grid-converged by a measured residual, and price manufacturing in ABSOLUTE m^2 — never in a ratio an optimiser can inflate | `tests/test_buildability.py` (11 tests) |
 | Gate 0 | grammar/geometry/DB | `tests/test_phase0.py` (16 tests) |
 | Gate 0E5 | the geometry kernel against REAL PUBLISHED hulls: offsets from three independent source families round-trip through the genome, and the SHAPE residual is reported, not just the six scalars | `tests/test_e5_real_hulls.py` (276 tests) |
 | Gate 0E5C | the hard-chine EVIDENCE: published hard-chine geometry is acquired, is PUBLISHED_PARAMETRIC rather than traced off a drawing, carries a real chine, and every refusal is recorded with its reason | `tests/test_e5_hard_chine.py` (24 tests) |
 | Gate 0E5C-CAP | the hard-chine CAPABILITY: 2 of 7 published series are expressible. No parallel middle body (Cp ceiling 0.848 against a real 0.95-0.97), no aft deadrise warp (beta_len <= 0.60, so warped series miss by 8-9 deg), beta_mid capped at 25 deg | **RED** — `data/gate-ledger.json` |
-| Gate 1 | L1 physics + Wigley anchor + <50ms | `tests/test_phase1.py` (35 tests) |
+| Gate 1 | L1 physics + Wigley anchor + <50ms | `tests/test_phase1.py` (36 tests) |
 | Gate 1H | Holtrop-Mennen vs the 1982 worked example | `tests/test_holtrop.py` (57 tests) |
-| Gate 1C | the constraint vector: complete, ordered, finite, and no undefined state reported as ideal | `tests/test_constraints_honest.py` (23 tests) |
+| Gate 1C | the constraint vector: complete, ordered, finite, and no undefined state reported as ideal | `tests/test_constraints_honest.py` (25 tests) |
 | Gate 1P | the L1 physics core says what it actually computed | `tests/test_gapfix_physics.py` (27 tests) |
 | Gate 1b | NSGA-II Pareto front | `tests/test_optimize.py` (16 tests) |
 | Gate 2 | Capytaine BEM (Hulme anchor) | `tests/test_phase2.py` (18 tests) |
