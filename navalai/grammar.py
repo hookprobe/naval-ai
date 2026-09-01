@@ -848,7 +848,8 @@ def check(x: np.ndarray, vessel=None) -> GateReport:
 
 def sample(n: int, rng: np.random.Generator | None = None,
            max_tries: int = 200, vessel=None,
-           explore_post_hoc: bool = False) -> np.ndarray:
+           explore_post_hoc: bool = False,
+           features=frozenset()) -> np.ndarray:
     """Rejection-sample n feasible parameter vectors (uniform in bounds).
 
     `vessel` is passed straight through to `check`, so sampling for a catamaran
@@ -913,7 +914,7 @@ def sample(n: int, rng: np.random.Generator | None = None,
         for i, v in post.items():
             cand[i] = v
         if explore_post_hoc:
-            _explore_post_hoc_inplace(cand, _explore_rng(rng))
+            _explore_post_hoc_inplace(cand, _explore_rng(rng), features)
         if check(cand, vessel).ok:
             out[got] = cand
             got += 1
@@ -929,8 +930,104 @@ def _explore_rng(rng: np.random.Generator) -> np.random.Generator:
     return rng.spawn(1)[0]
 
 
+#: Post-hoc genes the exploring stream draws BLIND, and the reason each of
+#: the others is not in this set. Written down because "which features can
+#: the production search actually reach?" was, until 2026-09-01, answerable
+#: only by reading this function — and the answer was SEVEN of twenty.
+#:
+#: MEASURED that day on the live UI pool for the brief "16 m x 4 m
+#: recreational houseboat": `dwl`, `tun_crown`, `split_w`, `ch2_y` and
+#: `rho_len` were EXACTLY 0.000 in all 128 candidates, and a 48x15 NSGA-II
+#: run on the same brief reached no coherent feature either — every one of
+#: them needs two or three genes non-zero AT ONCE, which polynomial mutation
+#: from an all-zero start does not deliver. So four kernel phases were
+#: implemented, tested, gated, and produced by no production search.
+#:
+#: The fix is NOT to draw all thirteen at random. Each is classified:
+#:
+#:   rho_bow, rho_len   BLIND — a pure shape warp with an exact SAC
+#:                      contract (`2*a == A` at 3e-16). Added here.
+#:   tun_*              REQUESTED — a tunnel stern is an ARCHITECTURE the
+#:                      mission declares (`EnergySpec.drive == "tunnel"`,
+#:                      which `parse_mission` sets for "protected prop"),
+#:                      not a shape to stumble on. Drawn as a coherent
+#:                      TRIPLE when asked for, never partially: two of the
+#:                      three at zero is no tunnel at all.
+#:   dwl, cwp_x,        NEITHER, and that is a MEASURED decision, not an
+#:   rb_transom,        omission: `morphology_search` records that nudging
+#:   rb_stem            `dwl` blindly hands the joint solve targets nobody
+#:                      chose and the walk got WORSE (2/8 -> 0/8, "12 of 18
+#:                      losing walks ended at dwl = 0"). The designed route
+#:                      is `_derived_dwl`, which reads the delivered plan
+#:                      off the hull and fairs it. A blind draw here would
+#:                      re-acquire the refuted move.
+#:   split_w, split_len NEITHER: the split stern is an architecture like the
+#:                      tunnel, and no mission field expresses one yet. It
+#:                      becomes REQUESTED the day one does.
+#:   ch2_z, ch2_y       NEITHER: the second chine's knuckle wedge is not in
+#:                      the section solve's target, so it changes
+#:                      displacement by up to 5.75% of a station's area
+#:                      (Gate DELIVERED-FORM). It stays unreachable until
+#:                      the wedge is folded in — shipping a gene that
+#:                      silently moves displacement is worse than not
+#:                      reaching it.
+_EXPLORE_BLIND_SPANS = {"r_stem": 0.35, "pmb": 0.35, "stem_depth": 0.25,
+                        "beta_transom": 20.0, "beta_run": 0.5,
+                        "flare_len": 0.5,
+                        # rho(x), added 2026-09-01. Moderate like the rest:
+                        # the warp reaches the forward 0.4 L at most, and a
+                        # bow roundness anywhere in the box is legitimate
+                        # (a hard-chine bottom running into a rounded entry
+                        # is the shape the corpus keeps as a SEPARATE
+                        # family precisely because it was not expressible).
+                        "rho_len": 0.40, "rho_bow": 1.0}
+
+#: `flare_bow` is drawn blind too, from its FULL BOX rather than a span,
+#: because it is SIGNED — below zero is tumblehome, the wave-piercing bow's
+#: whole mechanism — and a one-sided span cannot express that. It lives in
+#: its own branch in `_explore_post_hoc_inplace`; this constant is what makes
+#: "which genes are drawn blind" answerable without reading the function.
+_EXPLORE_BLIND_FULL_BOX = ("flare_bow",)
+
+#: Every gene the exploring stream draws on EVERY candidate, span-based or
+#: full-box. Gate REACHABILITY reads this rather than restating it.
+EXPLORE_BLIND_GENES = frozenset(_EXPLORE_BLIND_SPANS) | frozenset(
+    _EXPLORE_BLIND_FULL_BOX)
+
+#: The architecture features the exploring stream draws ONLY when the mission
+#: asks for them, and the coherent bundle each one is. Drawing a partial
+#: bundle is drawing nothing: `tun_w` alone leaves `tun_crown` at zero and
+#: the notch has no height.
+_EXPLORE_FEATURE_BUNDLES = {
+    # floor, span — the floor is what makes it a tunnel rather than a
+    # rounding error. `tun_crown` is a fraction of LOCAL DRAFT and the
+    # crown must stay submerged at the floated state (the kernel refuses
+    # otherwise, by name), so its ceiling here is well under the gene's.
+    "tunnel": {"tun_w": (0.20, 0.30), "tun_crown": (0.15, 0.25),
+               "tun_len": (0.15, 0.25)},
+}
+
+
+def features_for(mission) -> frozenset:
+    """Which ARCHITECTURE features this mission asks the search to draw.
+
+    The single home of mission -> feature translation, so the sampler and any
+    future caller cannot disagree about what "protected prop" means.
+    """
+    if mission is None:
+        return frozenset()
+    e = getattr(mission, "energy", None)
+    want = set()
+    drive = str(getattr(e, "drive", "") or "")
+    if drive == "tunnel" or float(getattr(e, "prop_tunnel_recess_m", 0.0)
+                                  or 0.0) > 0.0:
+        want.add("tunnel")
+    return frozenset(want)
+
+
 def _explore_post_hoc_inplace(cand: np.ndarray,
-                              erng: np.random.Generator) -> None:
+                              erng: np.random.Generator,
+                              features=frozenset()) -> None:
     """Draw the post-hoc genes and re-fair (Cp, lcb) into deliverable bands.
 
     The post-hoc draw is MODERATE, not box-uniform: box-uniform fullness
@@ -940,14 +1037,23 @@ def _explore_post_hoc_inplace(cand: np.ndarray,
     neighbourhood, not of the box's corners. Bands are projected with the
     closed-form helpers so the candidate asks for a curve the family can
     deliver — the same re-fairing a designer does after moving fullness.
+
+    `features` is what the MISSION asked for (`features_for`). See
+    `_EXPLORE_BLIND_SPANS` for which genes are drawn blind, which are drawn
+    only on request, and — for each of the rest — why not.
     """
     from .geometry import GeometryError, cp_band, lcb_band
     g = dict(zip(NAMES, map(float, cand)))
-    spans = {"r_stem": 0.35, "pmb": 0.35, "stem_depth": 0.25,
-             "beta_transom": 20.0, "beta_run": 0.5,
-             "flare_len": 0.5}
+    spans = _EXPLORE_BLIND_SPANS
     for nm, hi in spans.items():
         cand[NAMES.index(nm)] = hi * erng.random()
+    # THE REQUESTED ARCHITECTURE, drawn as a whole bundle or not at all.
+    # Consumes from the exploring stream only when a feature was asked for,
+    # so a mission that asks for none draws exactly what it drew before.
+    for feat in sorted(features):
+        for nm, (floor, span) in _EXPLORE_FEATURE_BUNDLES.get(feat,
+                                                              {}).items():
+            cand[NAMES.index(nm)] = floor + span * erng.random()
     i_fb = NAMES.index("flare_bow")
     lo_fb, hi_fb = LOW[i_fb], HIGH[i_fb]
     cand[i_fb] = lo_fb + (hi_fb - lo_fb) * erng.random()

@@ -251,6 +251,24 @@ GATES = [
          "refused — and after it, Kelvin validates and an A/B is only "
          "attributable when the meshes match",
          suite="tests/test_preflight.py"),
+    # The end-to-end integration audit (2026-09-01). Two seams the suite was
+    # fully green across: the descriptor layer measuring a hull the ladder
+    # does not float, and four kernel phases no production search could
+    # reach. Both are SEAM gates — they assert that two subsystems agree
+    # about one hull, which is exactly the class of defect a per-module
+    # suite cannot see.
+    Gate("Gate DELIVERED-FORM", "form_coefficients measures the surface the "
+         "ladder floats — notch, hole and knuckle chain included; no feature "
+         "reports an impossible Cm; the delivered SAC is the commanded SAC "
+         "for every feature that folds its area into the solve, and the two "
+         "that do not DECLARE their drift",
+         suite="tests/test_delivered_form.py"),
+    Gate("Gate REACHABILITY", "every post-hoc gene is classified BLIND, "
+         "REQUESTED or WITHHELD-with-a-measurement; a mission that asks for "
+         "a protected prop gets a hull that draws the tunnel, one that does "
+         "not gets none, and the aft prior's share is recomputed rather than "
+         "remembered",
+         suite="tests/test_feature_reachability.py"),
     Gate("Gate CFD-KB", "the CFD anchor book: every record honest about "
          "settledness and GCI, unsettled records never support a "
          "prediction, family bands refuse outside measured Fn support, "

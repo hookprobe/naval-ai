@@ -447,6 +447,24 @@ def sample_valid(n: int, mission: MissionSpec, seed: int = 0,
             b_lo, b_hi = max(lo[j], band[0]), min(hi[j], band[1])
             if b_lo <= b_hi:
                 lo[j], hi[j] = b_lo, b_hi
+        # THE LENGTH BINDS THE LENGTH GENE, and not only the Froude window it
+        # opens on Cp. MEASURED 2026-09-01 on the live UI feed: the brief
+        # "16 m x 4 m recreational houseboat" returned hulls of 11.71 to
+        # 19.97 m, because this feed conditioned Cp on the hint and left LWL
+        # drawing the whole box. `optimize.pareto_front` has bound it as a BOX
+        # EDGE since the incident recorded in its own comment ("a mission
+        # saying 10 m produced an 18.58 m hull, +86%; 0 of 40 Pareto members
+        # within 10% of the stated length"), so the two production design
+        # routes answered the same brief with different lengths. Same +/-10%
+        # window and the same intersection law as the beam hint below:
+        # whichever of hint and policy is tighter on an edge wins, and a
+        # window that misses the box entirely is DROPPED with the box left
+        # standing, because a mission string must not loosen governance.
+        jl = grammar.NAMES.index("LWL")
+        ll_lo = max(float(lo[jl]), hint * 0.9)
+        ll_hi = min(float(hi[jl]), hint * 1.1)
+        if ll_lo <= ll_hi:
+            lo[jl], hi[jl] = ll_lo, ll_hi
     # THE MISSION CHOOSES THE BEAM (P2-A, 2026-08-27). "16 m x 4 m houseboat"
     # parsed a beam and NOTHING consumed it — the feed drew BWL across the
     # whole box for a brief that stated it. Unlike length (which reaches Cp
@@ -492,7 +510,8 @@ def sample_valid(n: int, mission: MissionSpec, seed: int = 0,
             # from a SPAWNED Generator (the legacy stream consumes nothing)
             # with (Cp, lcb) re-faired into the deliverable bands — see
             # grammar._explore_post_hoc_inplace for the whole argument.
-            grammar._explore_post_hoc_inplace(x, grammar._explore_rng(rng))
+            grammar._explore_post_hoc_inplace(
+                x, grammar._explore_rng(rng), grammar.features_for(mission))
         if not grammar.check(x, vessel=vessel_cfg).ok:
             continue
         ev = evaluate(x, mission, policy=policy)

@@ -147,10 +147,32 @@ _AFT_GENES = ("r_transom", "beta_transom", "beta_run", "rb_transom",
 #: How much likelier an aft gene is to be picked when the blind explorer
 #: fires on a bluff-sterned hull. DECLARED, basis approx: the campaign
 #: gives a direction, not a weight. 3x is chosen to bias the draw without
-#: starving the other genes — at 8 aft genes of 34, uniform gives them
-#: 24% of picks and this gives 49%, so more than half the exploration is
-#: still elsewhere.
+#: starving the other genes.
+#:
+#: THE ARITHMETIC IN THIS COMMENT WENT STALE ONE ARITY EVENT AFTER IT WAS
+#: WRITTEN (found 2026-09-01 by the end-to-end integration audit). It read
+#: "at 8 aft genes of 34, uniform gives them 24% of picks and this gives
+#: 49%" — correct at N_PARAMS 34, and `ch2_z`/`ch2_y` took the grammar to
+#: 36 the same week. At 36 the true figures are 22.2% uniform and 46.2%
+#: weighted. A number in a comment cannot be recomputed by the reader, so
+#: `test_the_aft_prior_share_is_what_the_comment_claims` recomputes both
+#: from `grammar.N_PARAMS` and fails when the arity moves again — the same
+#: discipline the rest of this repository applies to numbers in code.
+#:
+#: `split_w` / `split_len` are aft features and are deliberately NOT in
+#: `_AFT_GENES`: no production stream draws the split stern at all
+#: (Gate REACHABILITY), so weighting them would bias the draw toward genes
+#: that are pinned at zero.
 AFT_EXPLORE_WEIGHT = 3.0
+
+#: What the weighting BUYS, recomputed rather than remembered:
+#: uniform share and weighted share of the aft genes over the full grammar.
+def aft_prior_shares() -> tuple[float, float]:
+    """(uniform share, weighted share) of picks that land on an aft gene."""
+    n = grammar.N_PARAMS
+    k = len(_AFT_GENES)
+    w = AFT_EXPLORE_WEIGHT
+    return k / n, (w * k) / (w * k + (n - k))
 
 #: A stern is "bluff" when the SAC still carries area at the transom.
 #: CALIBRATED on the one anchor that has BOTH a genome and a measured

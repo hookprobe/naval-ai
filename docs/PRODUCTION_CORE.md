@@ -6,7 +6,12 @@ EXPERIMENT / HISTORICAL per the map's classification table.
 
 ## Core (the design path)
 - navalai/mission.py         (MissionSpec, VesselConfig, PayloadSpec, targets)
-- navalai/grammar.py         (the 16-gene parameterisation + L0 gate)
+- navalai/grammar.py         (the 36-gene parameterisation + L0 gate:
+                              16 CORE genes drawn by every stream, plus 20
+                              POST_HOC_DEFAULTS appended since 2026-08-24,
+                              each provably a no-op at its default. Which of
+                              the 20 a production search can reach is a
+                              tested fact: tests/test_feature_reachability.py)
 - navalai/limits.py          (sourced bands/floors — the constants of judgment)
 - navalai/constants.py       (physical constants, one home)
 - navalai/formlib.py         (form families, sourced ranges)

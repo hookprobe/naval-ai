@@ -162,11 +162,13 @@ different Gate 2M numbers came to circulate at once (gap J1).
 
 | Gate | Scope | Verified by |
 |---|---|---|
-| Gate PROP | propulsion integration: motor power and prop space are constraint rows; transom Froude, bilge-keel span and pitch entry are measured reports | `tests/test_propulsion.py` (20 tests) |
+| Gate PROP | propulsion integration: motor power and prop space are constraint rows; transom Froude, bilge-keel span and pitch entry are measured reports | `tests/test_propulsion.py` (25 tests) |
 | Gate MORPH | morphological plausibility: a hull must LOOK like a boat, judged on descriptors measured against 58 published hulls (89-92% of L0-valid generated hulls fail; 0 of 58 real ones do) | `tests/test_morphology.py` (19 tests) |
 | Gate HULL-KB | the reference corpus is learned and reconstruction is proven: KB citations resolve, and the measured cruiser / warped-V / split-topology reconstructions stand | `tests/test_hull_kb.py` (6 tests) |
 | Gate BARGE | a houseboat is a rectangle: the widened envelope draws it, the frozen DRAW box protects history, and the pointed bow stays reachable | `tests/test_barge_bow.py` (6 tests) |
 | Gate PREFLIGHT | before a solve is bought: theory answers what it can, a surface already solved is recognised, the family band speaks, an impulsive start above the measured Fn ceiling is refused — and after it, Kelvin validates and an A/B is only attributable when the meshes match | `tests/test_preflight.py` (11 tests) |
+| Gate DELIVERED-FORM | form_coefficients measures the surface the ladder floats — notch, hole and knuckle chain included; no feature reports an impossible Cm; the delivered SAC is the commanded SAC for every feature that folds its area into the solve, and the two that do not DECLARE their drift | `tests/test_delivered_form.py` (26 tests) |
+| Gate REACHABILITY | every post-hoc gene is classified BLIND, REQUESTED or WITHHELD-with-a-measurement; a mission that asks for a protected prop gets a hull that draws the tunnel, one that does not gets none, and the aft prior's share is recomputed rather than remembered | `tests/test_feature_reachability.py` (9 tests) |
 | Gate CFD-KB | the CFD anchor book: every record honest about settledness and GCI, unsettled records never support a prediction, family bands refuse outside measured Fn support, and the hb19 L1 anchor carries its sigma and basis | `tests/test_cfd_kb.py` (12 tests) |
 | Gate RHO-X | the bilge radius varies along the length: the warp is the flare law's shape, rho_len = 0 is bit-identical legacy, the control points and the area coefficients are per-station, and a hull may be hard aft and round forward | `tests/test_rho_x.py` (6 tests) |
 | Gate SPLIT | the split stern: split genes are no-ops at zero, the SAC stays the net contract, the wall is vertical at y_split, the waterplane integrals subtract the hole, and split + tunnel on one station is refused by name | `tests/test_split.py` (9 tests) |
