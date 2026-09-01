@@ -167,8 +167,8 @@ different Gate 2M numbers came to circulate at once (gap J1).
 | Gate HULL-KB | the reference corpus is learned and reconstruction is proven: KB citations resolve, and the measured cruiser / warped-V / split-topology reconstructions stand | `tests/test_hull_kb.py` (6 tests) |
 | Gate BARGE | a houseboat is a rectangle: the widened envelope draws it, the frozen DRAW box protects history, and the pointed bow stays reachable | `tests/test_barge_bow.py` (6 tests) |
 | Gate PREFLIGHT | before a solve is bought: theory answers what it can, a surface already solved is recognised, the family band speaks, an impulsive start above the measured Fn ceiling is refused — and after it, Kelvin validates and an A/B is only attributable when the meshes match | `tests/test_preflight.py` (11 tests) |
-| Gate DELIVERED-FORM | form_coefficients measures the surface the ladder floats — notch, hole and knuckle chain included; no feature reports an impossible Cm; the delivered SAC is the commanded SAC for every feature that folds its area into the solve, and the two that do not DECLARE their drift | `tests/test_delivered_form.py` (26 tests) |
-| Gate REACHABILITY | every post-hoc gene is classified BLIND, REQUESTED or WITHHELD-with-a-measurement; a mission that asks for a protected prop gets a hull that draws the tunnel, one that does not gets none, and the aft prior's share is recomputed rather than remembered | `tests/test_feature_reachability.py` (9 tests) |
+| Gate DELIVERED-FORM | form_coefficients measures the surface the ladder floats — notch, hole and knuckle chain included; no feature reports an impossible Cm; the delivered SAC is the commanded SAC for every feature that folds its area into the solve, and the two that do not DECLARE their drift | `tests/test_delivered_form.py` (27 tests) |
+| Gate REACHABILITY | every post-hoc gene is classified BLIND, REQUESTED or WITHHELD-with-a-measurement; a mission that asks for a protected prop gets a hull that draws the tunnel, one that does not gets none, and the aft prior's share is recomputed rather than remembered | `tests/test_feature_reachability.py` (11 tests) |
 | Gate CFD-KB | the CFD anchor book: every record honest about settledness and GCI, unsettled records never support a prediction, family bands refuse outside measured Fn support, and the hb19 L1 anchor carries its sigma and basis | `tests/test_cfd_kb.py` (12 tests) |
 | Gate RHO-X | the bilge radius varies along the length: the warp is the flare law's shape, rho_len = 0 is bit-identical legacy, the control points and the area coefficients are per-station, and a hull may be hard aft and round forward | `tests/test_rho_x.py` (6 tests) |
 | Gate SPLIT | the split stern: split genes are no-ops at zero, the SAC stays the net contract, the wall is vertical at y_split, the waterplane integrals subtract the hole, and split + tunnel on one station is refused by name | `tests/test_split.py` (9 tests) |
@@ -195,13 +195,13 @@ different Gate 2M numbers came to circulate at once (gap J1).
 | Gate 1H | Holtrop-Mennen vs the 1982 worked example | `tests/test_holtrop.py` (57 tests) |
 | Gate 1C | the constraint vector: complete, ordered, finite, and no undefined state reported as ideal | `tests/test_constraints_honest.py` (23 tests) |
 | Gate 1P | the L1 physics core says what it actually computed | `tests/test_gapfix_physics.py` (27 tests) |
-| Gate 1b | NSGA-II Pareto front | `tests/test_optimize.py` (13 tests) |
+| Gate 1b | NSGA-II Pareto front | `tests/test_optimize.py` (14 tests) |
 | Gate 2 | Capytaine BEM (Hulme anchor) | `tests/test_phase2.py` (18 tests) |
 | Gate 2R | CFD reference parity + GCI honesty | `tests/test_cfd_reference_parity.py` (100 tests) |
 | Gate 2P | slamming pressure is measurable: a bow patch that partitions the hull, a function object that refuses to point at nothing, and a Wagner C_p guarded at both limits | `tests/test_slamming.py` (14 tests) |
 | Gate 3 | surrogate spine: GP + co-kriging rho, OOD refusal, batched-EI infill + the held-out across-seed error bar | `tests/test_phase3.py` (25 tests) |
 | Gate 4 | generative + slider p95<100ms (raw feasibility: Gate 4F) | `tests/test_phase4.py` (27 tests) |
-| Gate 4U | the builder surface's honesty contract: every payload declares its source, no NaN on the wire, one home per absence, the kit/mould route reads the refold TREND, KG from the keel plane, Fn > 0.45 refused by name, and no gate verdict without a suite run | `tests/test_ui_surface.py` (15 tests) |
+| Gate 4U | the builder surface's honesty contract: every payload declares its source, no NaN on the wire, one home per absence, the kit/mould route reads the refold TREND, KG from the keel plane, Fn > 0.45 refused by name, and no gate verdict without a suite run | `tests/test_ui_surface.py` (17 tests) |
 | Gate 5 | mission translation + LLM seam | `tests/test_phase5.py` (18 tests) |
 | Gate 6 | rules-as-code mechanics | `tests/test_phase6.py` (6 tests) |
 | Gate 7 | flywheel: frozen suite != training draw, monotone regression mark, wall clock, committed baseline | `tests/test_phase7.py` (15 tests) |
@@ -249,7 +249,7 @@ different Gate 2M numbers came to circulate at once (gap J1).
 | Gate 6R | review-record mechanics, basis routing, AND edition parity: both implemented standards name the dated edition held | `tests/test_phase6r.py` (12 tests) |
 | Gate PF | physical form regression: six deterministic hulls stay boat-like (descriptors, SAC shape, sourced bands, ratchet) | `tests/test_physical_form.py` (46 tests) |
 | Gate VM | vessel matrix: five vessel classes end-to-end (ladder + manifest), refusals explicit, roles judged apart | `tests/test_vessel_matrix.py` (9 tests) |
-| Gate DC | design certification: cheap classify-and-rank with receipts, banded speed curves, loading matrix, regime refusals | `tests/test_design_certification.py` (12 tests) |
+| Gate DC | design certification: cheap classify-and-rank with receipts, banded speed curves, loading matrix, regime refusals | `tests/test_design_certification.py` (13 tests) |
 | Gate FG | fidelity governor: five gates route (not badge) a design to a tier, with named receipts and no silent passes | `tests/test_select_fidelity.py` (42 tests) |
 | Gate 4F | raw generative feasibility: UNFILTERED model draws vs the >=99% bar (BuildPlan Phase 4) | **RED** — `data/gate-ledger.json` |
 | Gate 2P-Stack | Gate 2 physics stack: hydrostatics as a MATHEMATICAL invariant (Wigley 4LBT/9, second-order convergence), and KCS pinned as solver verification only | `tests/test_gate2_physics_stack.py` (5 tests) |
