@@ -1277,6 +1277,93 @@ _GET = {
     "/api/cfd/cases": lambda: cfd_cases_payload(),
 }
 
+def save_payload(body: dict) -> dict:
+    """SAVE — the design into the provenance database, honesty rule 1's home.
+
+    The commissioning chain (USER -> ... -> BUILDABILITY -> SAVE -> EXPORT)
+    had no SAVE wire until 2026-09-02: `navalai.db.Provenance` existed,
+    `design_report` and the harvest scripts wrote to it, and the UI — the
+    surface a person actually designs on — could not reach it. A design the
+    user refined for an hour evaporated with the tab.
+
+    Saving is a LAB NOTEBOOK, not a certification: a failing design is
+    recorded too (its rows are the finding), and the payload says which it
+    was. What is recorded is the SAME {value, tier, sigma} rows `/eval`
+    displays — assembled by `eval_payload`, the one home of that shape —
+    so the notebook can never disagree with the screen.
+    """
+    from navalai.db import Provenance
+    params = body.get("params", {})
+    mission = _mission(body.get("mission"))
+    x = _vector(params)
+    t0 = time.perf_counter()
+    ev = evaluate(x, mission)
+    db = Provenance()
+    hid = db.add_hull(x)
+    # the SAME rows /eval displays: ui.server.eval_payload is the one home
+    # of the {value, tier, sigma} shape, imported (not copied) exactly like
+    # `_mission` above imports the one mission decoder.
+    import ui.server as _S
+    n_rows = 0
+    for name, q in (_S.eval_payload(params, body.get("mission"))
+                    .get("quantities") or {}).items():
+        v = q.get("value")
+        if v is None or not math.isfinite(float(v)):
+            continue                 # NaN means UNMEASURABLE; a notebook
+                                     # row of 0.0 would be the receipt lie
+        db.add_result(hid, str(q.get("tier", ev.tier)), "navalai-ladder",
+                      f"genome-{grammar.N_PARAMS}", name, float(v),
+                      uncertainty=(float(q["sigma"])
+                                   if q.get("sigma") is not None else None))
+        n_rows += 1
+    return {"source": "measured", "hull_id": hid, "ok": bool(ev.ok),
+            "tier": ev.tier, "recorded_quantities": n_rows,
+            "violations": [str(v) for v in ev.violations],
+            "elapsed_ms": round((time.perf_counter() - t0) * 1e3, 1)}
+
+
+def export_payload(body: dict) -> dict:
+    """EXPORT — STEP/IGES through the validation boundary, or a refusal.
+
+    The same missing wire as /api/save, with a sharper edge: the export
+    boundary (`export.refuse_unvalidated`) is honesty rule 2's ONLY
+    implementation — "nothing ships un-re-validated" — and the UI had no
+    path through it, valid or refused. The refusal envelope is
+    /api/buildability's exact shape, because a refusal IS the answer.
+
+    Files land in data/exports/ (a build-artifact directory, gitignored by
+    standing rule) named by `db.hull_id`, so the file on disk and the
+    provenance row a /api/save wrote name the same design.
+    """
+    from navalai import db as _db
+    from navalai import export as _ex
+    params = body.get("params", {})
+    fmt = str(body.get("format", "step")).lower()
+    if fmt not in ("step", "iges"):
+        return {"source": "refused",
+                "reason": f"unknown format {fmt!r}; have 'step', 'iges'",
+                "at": "export_payload", "elapsed_ms": 0.0}
+    mission = _mission(body.get("mission"))
+    x = _vector(params)
+    t0 = time.perf_counter()
+    ev = evaluate(x, mission)
+    h = _hull(params)
+    hid = _db.hull_id(x)
+    path = f"data/exports/{hid[:16]}.{ 'step' if fmt == 'step' else 'igs' }"
+    try:
+        writer = _ex.export_step if fmt == "step" else _ex.export_iges
+        out = writer(h, path, ev=ev)
+    except ValueError as exc:
+        # the boundary refusing IS the answer — same contract as the
+        # unroller's refusal on /api/buildability
+        return {"source": "refused", "reason": str(exc),
+                "at": "export.refuse_unvalidated",
+                "elapsed_ms": round((time.perf_counter() - t0) * 1e3, 1)}
+    return {"source": "measured", "hull_id": hid, "path": str(out),
+            "format": fmt,
+            "elapsed_ms": round((time.perf_counter() - t0) * 1e3, 1)}
+
+
 _POST = {
     "/api/envelope": envelope_payload,
     "/api/mesh": mesh_payload,
@@ -1289,6 +1376,8 @@ _POST = {
     "/api/search/status": search_status,
     "/api/search/cancel": search_cancel,
     "/api/twin": twin_payload,
+    "/api/save": save_payload,
+    "/api/export": export_payload,
 }
 
 

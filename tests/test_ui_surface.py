@@ -530,3 +530,95 @@ def test_the_generator_is_told_the_mission_not_only_the_scorer():
     assert S.get_model(a) is S.get_model(MissionSpec(lwl_hint_m=16.0,
                                                      bwl_hint_m=4.0)), (
         "the generator cache misses on an identical mission")
+
+
+def test_a_constant_feed_column_is_emitted_CONSTANT_by_the_generator():
+    """The nanometre of bilge that dead-ended the plywood brief.
+
+    MEASURED 2026-09-02 by the product-commissioning trace: a sheet-kit
+    brief pins `roundness` to [0, 0], the feed delivers 150 samples of
+    exactly 0.0, and the fitted pool served **9.97e-10** — outside the
+    mission's compiled box by one nanometre — whereupon
+    `/api/buildability` refused the pool's own hull with "roundness
+    0.000 ... Set roundness = 0", a refusal telling the user to do what
+    the display already shows as done. `_pin_post_hoc`'s recorded
+    mechanism (fitted covariance emits float noise on a zero-variance
+    column), reaching a CORE gene the day the mission box learned to pin
+    one. `generative._ConstantColumnPin` at the factory seam is the fix:
+    what the feed held constant, the model emits constant.
+    """
+    import numpy as np
+    from navalai import evaluate as E, generative, grammar
+    from navalai.mission import parse_mission
+
+    m = parse_mission("8 m plywood cabin launch, 6 knots, 1.8 tonne, "
+                      "category C, 2 berths")
+    assert m.build_method == "sheet-kit"
+    X, _ = E.sample_valid(40, m, seed=11, explore_post_hoc=True)
+    j = grammar.NAMES.index("roundness")
+    assert (X[:, j] == 0.0).all(), "the feed itself must pin the box"
+    g = generative.make_generator(X, kind="gmm", seed=1)
+    S = g.sample(6, seed=3)
+    assert (S[:, j] == 0.0).all(), (
+        "the pool re-introduced noise on a column the feed held constant: "
+        f"{S[:, j]!r}")
+    # ...and a column with real variance is NOT pinned — the pin removes
+    # noise, never a distribution
+    jL = grammar.NAMES.index("LWL")
+    assert len(np.unique(S[:, jL])) > 1
+
+
+def test_an_all_unknown_mission_dict_is_refused_not_defaulted():
+    """C-12's exact wording, surviving in the all-keys-unknown corner.
+
+    MEASURED 2026-09-02: POSTing /eval with {"mission": {"text": "8 m
+    plywood ... 1.8 tonne"}} — the /mission REQUEST shape, an easy client
+    mistake — returned a full, plausible report about the DEFAULT 6-tonne
+    mission: displacement 6000.001 kg, GM -0.44 m, four named violations,
+    every number about a boat the user never asked for. The filter dropped
+    the unknown key and fell through to MissionSpec().
+    """
+    import pytest
+    import ui.server as S
+
+    with pytest.raises(ValueError, match="no recognised MissionSpec field"):
+        S._mission_from({"text": "8 m plywood cabin launch"})
+    # a dict with real fields plus junk still works — the refusal is only
+    # for a dict that recognises NOTHING
+    m = S._mission_from({"displacement_target_kg": 1800.0, "junk": 1})
+    assert m.displacement_target_kg == 1800.0
+    # absent still means the default, explicitly
+    assert S._mission_from(None).displacement_target_kg == 6000.0
+
+
+def test_save_and_export_complete_the_commissioning_chain():
+    """USER -> ... -> BUILDABILITY -> SAVE -> EXPORT had no last two links:
+    `db.Provenance` and `export.export_step` existed and the UI could reach
+    neither, so a design refined for an hour evaporated with the tab and
+    honesty rule 2's only implementation (`refuse_unvalidated`) had no wire
+    to the surface a person designs on.
+
+    Both directions of the boundary are asserted, because the refusal IS
+    half the feature: an invalid design must come back "refused" with the
+    ladder's reason, never a file.
+    """
+    import numpy as np
+    from ui import api as A
+    from navalai import evaluate as E
+    from navalai.mission import MissionSpec
+
+    m = MissionSpec()
+    X, _ = E.sample_valid(1, m, seed=0)
+    from navalai import grammar
+    params = dict(zip(grammar.NAMES, map(float, X[0])))
+    mission_d = {"displacement_target_kg": m.displacement_target_kg}
+
+    sv = A.handle_post("/api/save", {"params": params,
+                                     "mission": mission_d})
+    assert sv["source"] == "measured" and len(sv["hull_id"]) == 24
+    assert sv["recorded_quantities"] > 0
+
+    xp = A.handle_post("/api/export", {"params": params,
+                                       "mission": mission_d,
+                                       "format": "nonsense"})
+    assert xp["source"] == "refused" and "unknown format" in xp["reason"]

@@ -78,17 +78,102 @@ class HullGenerator(Protocol):
     def raw_feasibility(self, n: int = ..., seed: int = ...) -> float: ...
 
 
+class _ConstantColumnPin:
+    """Emissions honour every column the training feed held CONSTANT.
+
+    `_pin_post_hoc` (above) already records the mechanism for the post-hoc
+    genes: a fitted covariance on a zero-variance column returns float
+    noise, and a gene bounded at exactly the constant then fails its own
+    bound "for a rounding artefact". THE SAME MECHANISM REACHED A CORE
+    GENE the day the mission box learned to PIN one: a sheet-kit brief
+    pins `roundness` to [0, 0], the feed delivers 150 samples of exactly
+    0.0, and the fitted model emitted **9.97e-10**.
+
+    MEASURED 2026-09-02 by the product-commissioning trace, on the brief
+    "8 m plywood cabin launch": /generate served that 1e-9 hull and
+    /api/buildability then REFUSED it with "roundness 0.000 ... Set
+    roundness = 0 for a sheet-built hull" — a refusal telling the user to
+    do what the number already displays as done. The generator was
+    proposing OUTSIDE the box the mission compiled, by one nanometre of
+    bilge radius, and the unroller's exact-zero guard (which is correct:
+    its two-panel assumption is a fact about sheet material) turned the
+    nanometre into a dead end.
+
+    The rule is `_pin_post_hoc`'s, generalised: a column whose training
+    data has ZERO peak-to-peak has exactly one honest value, and emitting
+    anything else is noise, not generation. Columns with any real variance
+    are untouched — this cannot narrow a distribution that exists, only
+    remove one that does not. Sits in the FACTORY so every generator kind
+    (and the next one) carries it; feasibility under Gate 4F can only be
+    unchanged or improved by it, for the same reason `_pin_post_hoc`'s
+    control experiment showed (fit-on-core-and-pad scored the same).
+    """
+
+    def __init__(self, inner: HullGenerator, X: np.ndarray) -> None:
+        self._inner = inner
+        X = np.asarray(X, float)
+        span = np.ptp(X, axis=0) if len(X) else np.array([])
+        self._idx = np.flatnonzero(span == 0.0)
+        self._val = X[0, self._idx] if len(X) else np.array([])
+
+    def _pin(self, Y: np.ndarray) -> np.ndarray:
+        Y = np.asarray(Y, float)
+        if Y.ndim == 2 and len(self._idx) and Y.shape[1] > self._idx.max():
+            Y = np.array(Y, copy=True)
+            Y[:, self._idx] = self._val
+        return Y
+
+    def sample(self, n: int, seed: int = 0, **kw) -> np.ndarray:
+        return self._pin(self._inner.sample(n, seed=seed, **kw))
+
+    def sample_conditioned(self, n: int, score_fn, percentile: float,
+                           **kw):
+        out = self._inner.sample_conditioned(n, score_fn, percentile, **kw)
+        # sample_conditioned may return (X, meta); pin only the genomes
+        if isinstance(out, tuple):
+            return (self._pin(out[0]),) + out[1:]
+        return self._pin(out)
+
+    # The protocol's remaining members are EXPLICIT delegations, not
+    # `__getattr__`: Python 3.12's `runtime_checkable` isinstance uses
+    # `getattr_static`, which does not consult `__getattr__`, so a wrapper
+    # that delegates dynamically silently stops being a `HullGenerator`
+    # (measured: the phase-4 protocol test went red on exactly that).
+    def to_latent(self, X):
+        return self._inner.to_latent(X)
+
+    def from_latent(self, uv, return_info: bool = False):
+        out = self._inner.from_latent(uv, return_info=return_info)
+        if return_info:
+            X, info = out
+            return self._pin(X), info
+        return self._pin(out)
+
+    def raw_feasibility(self, n: int = 200, seed: int = 0):
+        return self._inner.raw_feasibility(n=n, seed=seed)
+
+    @property
+    def training_data(self):
+        return self._inner.training_data
+
+    def __getattr__(self, name):
+        return getattr(self._inner, name)
+
+
 def make_generator(X: np.ndarray, kind: str = "gmm", seed: int = 0,
                    **kw) -> HullGenerator:
     """Factory — the seam the server calls so it never names a GMM knob.
 
     `kind` is the only implementation-specific word a caller has to say, and
-    adding "diffusion" here is the whole of the drop-in.
+    adding "diffusion" here is the whole of the drop-in. Every kind is
+    wrapped in `_ConstantColumnPin`: what the feed held constant, the
+    model emits constant (see the wrapper's docstring for the measured
+    nanometre-of-bilge incident that forced it).
     """
     if kind == "gmm":
-        return HullFamilyModel.fit(X, seed=seed, **kw)
+        return _ConstantColumnPin(HullFamilyModel.fit(X, seed=seed, **kw), X)
     if kind == "ppca":
-        return PPCAGenerator.fit(X, seed=seed, **kw)
+        return _ConstantColumnPin(PPCAGenerator.fit(X, seed=seed, **kw), X)
     raise ValueError(f"unknown generator kind {kind!r}; have 'gmm', 'ppca'")
 
 

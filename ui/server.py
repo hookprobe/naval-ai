@@ -371,8 +371,29 @@ def _mission_from(mission_d: dict | None) -> MissionSpec:
     """
     if not mission_d:
         return _mission_default
-    return MissionSpec(**{k: v for k, v in mission_d.items()
-                          if k in MissionSpec.__dataclass_fields__})
+    kept = {k: v for k, v in mission_d.items()
+            if k in MissionSpec.__dataclass_fields__}
+    # A MISSION THAT FILTERS TO NOTHING IS REFUSED, NOT DEFAULTED. The
+    # filter above drops unknown keys, which is right for a dict that
+    # carries real fields plus junk — but a NON-EMPTY dict whose EVERY key
+    # is unknown used to fall through as `MissionSpec()` and the endpoint
+    # evaluated THE DEFAULT 6-TONNE MISSION UNDER THE CALLER'S LABEL.
+    # MEASURED 2026-09-02 by the product-commissioning trace: POSTing
+    # /eval with {"mission": {"text": "8 m plywood ... 1.8 tonne"}} (the
+    # /mission REQUEST shape, an easy client mistake) returned a full,
+    # plausible report — displacement 6000.001 kg, GM -0.44 m, four named
+    # violations — every number about a boat the user never asked for.
+    # That is C-12's exact wording ("evaluating the default spec under the
+    # caller's label"), the defect this function's own docstring records
+    # fixing once already, surviving in the all-keys-unknown corner.
+    if not kept:
+        raise ValueError(
+            f"mission dict carries no recognised MissionSpec field "
+            f"(got keys {sorted(mission_d)[:6]}). If you have a text "
+            f"brief, POST /mission {{\"text\": ...}} first and pass its "
+            f"RESPONSE here — refusing to answer for the default mission "
+            f"under your label.")
+    return MissionSpec(**kept)
 
 
 def _mission_receipt(mission: MissionSpec) -> dict:
