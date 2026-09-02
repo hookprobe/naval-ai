@@ -47,7 +47,20 @@ for GRID in $GRIDS; do
   CASE="$ROOT/$GRID"
   [ "$GRID" = "." ] && CASE="$ROOT"
   [ -d "$CASE" ] || { echo "[campaign] skip $GRID (no case dir)"; continue; }
-  END="$(end_time_of "$CASE" 2>/dev/null || echo 0)"
+  # AN UNMEASURED endTime IS REFUSED, NEVER ASSUMED ZERO. This line was
+  # `|| echo 0`, and `foamDictionary` exists only inside the `openfoam`
+  # environment -- so invoking this script outside the wrapper made END=0,
+  # NOW(0) >= END(0), and it printed "COMPLETE at t=0/0" and exited 0
+  # HAVING RUN NOTHING (measured 2026-09-02 launching runs/kcs_free1).
+  # That is the same class as the `${VAR:-0}` receipts run-case.sh already
+  # purged: a metric that could not be measured reported as its most
+  # permissive value. A campaign that cannot read the endTime it is
+  # supposed to reach cannot claim to have reached it.
+  if ! END="$(end_time_of "$CASE" 2>/dev/null)" || [ -z "$END" ]; then
+    echo "[campaign] FATAL: cannot read endTime of $CASE/system/controlDict" >&2
+    echo "[campaign]        (foamDictionary missing? run via: openfoam bash $0 ...)" >&2
+    exit 3
+  fi
   STALL=0            # consecutive attempts that advanced t by nothing
 
   for attempt in $(seq 1 "$MAX"); do
