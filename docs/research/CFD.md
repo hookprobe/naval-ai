@@ -689,3 +689,31 @@ declared a false DIVERGENCE on this complete run (re-solving its last
 2.35 s twice on the way). Completion now takes max(checkpoint, solver-log
 time); the checkpoint remains the resume truth, the log the completion
 truth.
+
+### §3 addendum, 2026-09-03: the 90 s / 6.03 FT extension — the mode damps, too slowly
+
+`gate2m.py` at t = 90 s (781 samples over t = 72–90 s): **still NO
+RESULT**, and every settledness metric moved the right way:
+
+    metric            4.02 FT     6.03 FT    bar
+    total drift        19.1 %      10.7 %    5 %
+    pressure drift     18.7 %       9.1 %    5 %
+    total batch err    39.6 %      28.9 %    5 %
+    sinkage          −12.04 mm   −16.60 mm   (EFD −13.94; drift 9.2 %)
+    trim             −0.111°     −0.172°     (EFD −0.169; −2.0 % off, drift 44.6 %)
+    C_T              4.596e-3    4.699e-3    (EFD 3.711e-3; E%D −26.6 %)
+
+Read: the 6-DoF mode is damping at roughly HALF per two flow-throughs, so
+drift alone would need ~2 more FT (+30 s, ~2.5 h) and the batch error —
+decaying slower — plausibly ~4 more FT (+60 s, ~5 h), with no guarantee.
+The two window means of C_T agree at ≈ −25 % E%D, so the persistent
+oscillation rides on a level that is NOT moving toward the band on its own.
+
+**§3's own decision rule therefore fires: damping coefficients, not more
+hours.** The case's sixDoF setup carries damper terms
+(`navalai/cfd/case.py` DYNAMIC_MESH); the next run tunes them to kill the
+ringing without biasing the settled attitude — a case-setup change with
+its own budget line, NOT run tonight. Meanwhile the trim window mean
+sitting 2 % off EFD (and sinkage oscillating around EFD's value) is
+strong — unsettled, unquotable, but strong — evidence that the free
+attitude is converging on the tank's.
