@@ -64,6 +64,16 @@ OUT = ROOT / "data" / "cfd_anchors.json"
 #: waveModels carries no mean current). A mesh study is a third thing.
 #: Only `calm_resistance` records may support a resistance prediction.
 CASES: dict[str, tuple[str, str]] = {
+    # THE FIRST GENOME-CARRYING ANCHOR OF THE CURRENT KERNEL (2026-09-03,
+    # the overnight flywheel run). Its identity did its job on arrival:
+    # `c06_case_a_n5` below is ALSO "canonical case a", solved 2026-09-01
+    # at the same speed -- and carries genome 9163220c..., not this run's
+    # 73c9b968..., because the case-a genome moved with the kernel between
+    # the two runs. Same name, provably different boat. Without
+    # `genome_sha256` in the record, both would be quoted as "case a" and
+    # their numbers mixed -- the exact defect `cfd_kb.same_design` exists
+    # to make impossible.
+    "flywheel_a": ("formcheck_case_a", "calm_resistance"),
     "hookprobe_cruise_n10": ("hookprobe_hybrid", "calm_resistance"),   # v1
     "hookprobe_v2": ("hookprobe_hybrid", "calm_resistance"),
     "hookprobe_v3": ("hookprobe_hybrid", "calm_resistance"),

@@ -1,11 +1,12 @@
 {
  "_schema": "cfd-anchor-book/1",
- "_written": "2026-08-28",
+ "_written": "2026-09-03",
  "_method": "extracted by scripts/harvest_cfd_anchors.py via navalai.cfd.post.settled_drag; family labels are hand-entered with provenance in the script",
  "anchors": {
   "hookprobe_cruise_n10": {
    "family": "hookprobe_hybrid",
    "stl_sha256": "5e7e66b0103c5313bf2f0e372b9e048515659873f718ddd4569ef99763efd72c",
+   "genome_sha256": null,
    "lwl_m": 11.84,
    "speed_ms": 4.1,
    "fn": 0.3804938729236303,
@@ -31,11 +32,12 @@
    "single_grid_no_gci": true,
    "case_dir": "runs/hookprobe_cruise_n10",
    "directory_gone": false,
-   "harvested": "2026-08-28"
+   "harvested": "2026-09-03"
   },
   "hookprobe_v2": {
    "family": "hookprobe_hybrid",
    "stl_sha256": "2d3aa930d0cbb7d2f0f569ab8ba3d7ad2c1f1a383a1daeee7c07979b54897161",
+   "genome_sha256": null,
    "lwl_m": 11.84,
    "speed_ms": 4.1,
    "fn": 0.3804938729236303,
@@ -59,11 +61,12 @@
    "single_grid_no_gci": true,
    "case_dir": "runs/hookprobe_v2",
    "directory_gone": false,
-   "harvested": "2026-08-28"
+   "harvested": "2026-09-03"
   },
   "hookprobe_v3": {
    "family": "hookprobe_hybrid",
    "stl_sha256": "a87df44fc95af90eb1266def61aba6502deebafc41eb25a6237d5c92e1e200c0",
+   "genome_sha256": null,
    "lwl_m": 11.84,
    "speed_ms": 4.1,
    "fn": 0.3804938729236303,
@@ -87,11 +90,12 @@
    "single_grid_no_gci": true,
    "case_dir": "runs/hookprobe_v3",
    "directory_gone": false,
-   "harvested": "2026-08-28"
+   "harvested": "2026-09-03"
   },
   "hookprobe_v3_10kn": {
    "family": "hookprobe_hybrid",
    "stl_sha256": "a87df44fc95af90eb1266def61aba6502deebafc41eb25a6237d5c92e1e200c0",
+   "genome_sha256": null,
    "lwl_m": 11.84,
    "speed_ms": 5.14,
    "fn": 0.47700939190913655,
@@ -118,11 +122,12 @@
    "single_grid_no_gci": true,
    "case_dir": "runs/hookprobe_v3_10kn",
    "directory_gone": false,
-   "harvested": "2026-08-28"
+   "harvested": "2026-09-03"
   },
   "hookprobe_v3_seas": {
    "family": "hookprobe_hybrid",
    "stl_sha256": "a87df44fc95af90eb1266def61aba6502deebafc41eb25a6237d5c92e1e200c0",
+   "genome_sha256": null,
    "lwl_m": 11.84,
    "speed_ms": 2.57,
    "fn": 0.23850469595456827,
@@ -151,11 +156,12 @@
    "single_grid_no_gci": true,
    "case_dir": "runs/hookprobe_v3_seas",
    "directory_gone": false,
-   "harvested": "2026-08-28"
+   "harvested": "2026-09-03"
   },
   "hookprobe_v4": {
    "family": "hookprobe_hybrid_appendaged",
    "stl_sha256": "c6b63b9f81d32ac14d935be35127383acefb30b0afeb555244027fe73adf0a0f",
+   "genome_sha256": null,
    "lwl_m": 11.82,
    "speed_ms": 4.1,
    "fn": 0.3808156436981948,
@@ -179,11 +185,12 @@
    "single_grid_no_gci": true,
    "case_dir": "runs/hookprobe_v4",
    "directory_gone": false,
-   "harvested": "2026-08-28"
+   "harvested": "2026-09-03"
   },
   "hookprobe_v5_20kn": {
    "family": "hookprobe_hybrid",
    "stl_sha256": "d2ffa23e413ffdd85135bc7af1b97e2dbe18871d682c120ad6b0b10a71aeec7e",
+   "genome_sha256": null,
    "lwl_m": 11.82,
    "speed_ms": 10.29,
    "fn": 0.9557543838181524,
@@ -210,11 +217,12 @@
    "single_grid_no_gci": true,
    "case_dir": "runs/hookprobe_v5_20kn",
    "directory_gone": false,
-   "harvested": "2026-08-28"
+   "harvested": "2026-09-03"
   },
   "hb19_7kn": {
    "family": "bluff_stern_houseboat",
    "stl_sha256": "a6eec3c04f04f92f71a87b756577fe066232dd53362769b7ece8b7083f49ca71",
+   "genome_sha256": null,
    "lwl_m": 11.9,
    "speed_ms": 3.601,
    "fn": 0.3333414366939297,
@@ -238,11 +246,12 @@
    "single_grid_no_gci": true,
    "case_dir": "runs/hb19_7kn",
    "directory_gone": false,
-   "harvested": "2026-08-28"
+   "harvested": "2026-09-03"
   },
   "kcs": {
    "family": "slender_cargo_benchmark",
    "stl_sha256": "87062dbf11fc20683ee51de7d9526342a4ff28bab89308569b44c2e9fd82faec",
+   "genome_sha256": null,
    "lwl_m": 7.2786,
    "speed_ms": 2.196,
    "fn": 0.2599250112454447,
@@ -266,11 +275,12 @@
    "single_grid_no_gci": true,
    "case_dir": "runs/kcs",
    "directory_gone": false,
-   "harvested": "2026-08-28"
+   "harvested": "2026-09-03"
   },
   "kcs_s1": {
    "family": "slender_cargo_benchmark",
    "stl_sha256": "87062dbf11fc20683ee51de7d9526342a4ff28bab89308569b44c2e9fd82faec",
+   "genome_sha256": null,
    "lwl_m": 7.2786,
    "speed_ms": 2.1966,
    "fn": 0.25999602900808005,
@@ -297,11 +307,12 @@
    "single_grid_no_gci": true,
    "case_dir": "runs/kcs_s1",
    "directory_gone": false,
-   "harvested": "2026-08-28"
+   "harvested": "2026-09-03"
   },
   "c06_case_a_n5": {
    "family": "canonical_case_a",
    "stl_sha256": "5cd34851a5896c69232c5e9b19807d6e2cf2988249526bddc1bc4a2fe2f2e2ee",
+   "genome_sha256": "9163220c72b6d4194556a0bcc43e093384a0be07c48b8694af794b866a62a705",
    "lwl_m": 5.0,
    "speed_ms": 2.057776,
    "fn": 0.29386831158855575,
@@ -325,7 +336,41 @@
    "single_grid_no_gci": true,
    "case_dir": "runs/c06_case_a_n5",
    "directory_gone": false,
-   "harvested": "2026-08-28"
+   "harvested": "2026-09-03"
+  },
+  "flywheel_a": {
+   "family": "formcheck_case_a",
+   "stl_sha256": "b2f8701d18c613c8db5b0f862a137860315755453432f8f173bd0d9e23f8ddd8",
+   "genome_sha256": "73c9b968cc84272325309470ae8e4ffe26f9016a2788c86724bbfc180eab8d05",
+   "lwl_m": 5.0,
+   "speed_ms": 2.057776,
+   "fn": 0.29386831158855575,
+   "flow_throughs": 3.6571892552533334,
+   "cells": 261687,
+   "symmetric": true,
+   "total_n": 104.69592011725184,
+   "pressure_n": 71.04672447056946,
+   "viscous_n": 33.64919664673056,
+   "pressure_fraction": 0.6786006980119405,
+   "run_type": "calm_resistance",
+   "ct": 0.007963051969603053,
+   "wetted_m2": 6.2173522656035995,
+   "surface_facets": 231508,
+   "domain_wavelengths": 8.296154271597656,
+   "ct_trusted": true,
+   "layer_coverage": 0.772,
+   "viscous_valid": true,
+   "settled": false,
+   "settle_reasons": [
+    "total drift 10.3% > 5%",
+    "pressure drift 9.5% > 5%",
+    "total batch error 27.4% > 5% \u2014 the window mean is not reproducible across the window, which drift alone cannot see",
+    "pressure batch error 26.9% > 5% \u2014 the window mean is not reproducible across the window, which drift alone cannot see"
+   ],
+   "single_grid_no_gci": true,
+   "case_dir": "runs/flywheel_a",
+   "directory_gone": false,
+   "harvested": "2026-09-03"
   }
  }
 }
