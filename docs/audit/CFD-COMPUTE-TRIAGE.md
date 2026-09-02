@@ -145,3 +145,16 @@ The immediate work is the USER → UI → MISSION → HULL → HYDROSTATICS →
 RESISTANCE → MESH → BUILDABILITY → SAVE → EXPORT trace, which costs
 seconds of compute, not hours — and is also the artifact gap I13 needs a
 human for at its far end.
+
+---
+
+## Addendum 2026-09-02: the DEFER now has a batch mechanism
+
+`scripts/cfd_batch.sh <case> <wall-minutes> [np]` runs a slice, then stops
+CLEANLY at a checkpoint (`stopAt writeNow` — the solver finishes its step
+and writes at whatever time it reached, so nothing is lost between slices)
+and restores the case for the next slice. Proven on the deferred case
+itself: three slices chained t = 0 → 1.0388 → 1.4890 → 1.9086 s, resuming
+to the timestep, mesh built once. The 78 CPU-hour case is therefore
+~4 × 2-hour evening slices or one overnight — **when the operator assigns
+the time**, which remains the DEFER's condition.
