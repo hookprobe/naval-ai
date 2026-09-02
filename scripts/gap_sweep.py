@@ -743,7 +743,16 @@ def _stations():
         genes = set(FEATURES.get(label, {}))
         is_reachable = bool(genes) and genes <= reachable
         try:
-            coarse, _a = solve_to_displacement(Hull(x, n_stations=41), 6000.0)
+            # THE SHIPPED COUNT, not a hardcoded 41. This probe used to pin
+            # n_stations=41 — which measured a configuration the product
+            # stopped shipping the moment the kernel learned to resolve a
+            # feature with more stations (a split hull ships at 161 since
+            # 2026-09-02). Measuring the sampler instead of the product is
+            # the same instrument error scripts/product_test.py made with
+            # `buildable`, one file over. 641 stays the refined reference
+            # for both (16x for a 41-station hull, 4x for a 161).
+            shipped = Hull(x)
+            coarse, _a = solve_to_displacement(shipped, 6000.0)
             fine, _b = solve_to_displacement(Hull(x, n_stations=641), 6000.0)
         except Exception:                                    # noqa: BLE001
             continue                # a refusal is that feature's own business
@@ -754,8 +763,10 @@ def _stations():
             "stations",
             "P1" if is_reachable else "P3",
             "geometry -> hydrostatics",
-            f"{label}: BM is converged at the shipped 41 stations",
-            f"BM {coarse.bm:.4f} at 41 vs {fine.bm:.4f} at 641 "
+            f"{label}: BM is converged at the shipped "
+            f"{shipped.n_stations} stations",
+            f"BM {coarse.bm:.4f} at {shipped.n_stations} vs "
+            f"{fine.bm:.4f} at 641 "
             f"({100 * (coarse.bm / fine.bm - 1):+.3f}%), bar "
             f"{100 * _BM_CONVERGENCE_BAR:.1f}%. "
             + ("THIS FEATURE IS REACHABLE FROM PRODUCTION — BM drives GM and "
@@ -764,7 +775,8 @@ def _stations():
                "Withheld from every production draw today, so no shipped hull "
                "carries it; resolve the discretisation BEFORE promoting it."),
             {"case": label, "reachable": is_reachable,
-             "bm_41": coarse.bm, "bm_641": fine.bm}))
+             "n_shipped": shipped.n_stations,
+             "bm_shipped": coarse.bm, "bm_641": fine.bm}))
     return out
 
 

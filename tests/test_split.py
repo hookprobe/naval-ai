@@ -192,3 +192,56 @@ def test_the_grammar_draws_the_hookprobe_schematic_the_script_called_impossible(
         "the form draws but does not FLOAT up the ladder — expressible is "
         "not the same as evaluable, and the claim being retired is about "
         "both")
+
+
+def test_the_split_surface_CLOSES_and_its_BM_is_converged_as_shipped():
+    """The two recorded blockers on promoting the split stern, closed
+    2026-09-02 — pinned here beside the feature they blocked, on top of the
+    Gate SWEEP probes that re-measure them on every run.
+
+    BLOCKER 1 (meshclose): `closed_mesh` drew a starboard shell, a port
+    shell, a deck lid and two caps — and the slot's ceiling by NONE of them.
+    Row 0 of a split section is the TOP of the slot's inner wall, not the
+    keel, so the two shells stopped meeting at the centreline: MEASURED 41
+    unpaired edges at 80x16 and 101 at 200x40, every one on the row-0 curves
+    or the transom-cap edge bridging the slot mouth. The closure is one
+    ribbon between the row-0 curves (the wet deck); on every hull without a
+    split both of its triangles degenerate and are dropped, so the reference
+    hull's mesh is BIT-IDENTICAL (5232 / 32284 triangles, the counts the
+    `closed_mesh` docstring records).
+
+    BLOCKER 2 (stations): BM off 0.532%% at the then-shipped 41 stations
+    against the sweep's 0.1%% bar — the quadratic split taper puts a 6th-power
+    decay into the `y_split**3` waterplane subtraction and 41 uniform
+    stations straddle it. Split hulls now SHIP at 161 stations
+    (`_SPLIT_LADDER_STATIONS`, the tree's aligned 4x40+1 count) after
+    clustered-41 grids were measured and refuted: each grid law fixed one
+    corner of the (split_w, split_len) box and broke another.
+    """
+    import numpy as np
+    from navalai import grammar
+    from navalai.geometry import (Hull, _LADDER_STATIONS,
+                                  _SPLIT_LADDER_STATIONS, open_edge_count)
+    from navalai.reference import reference_params
+
+    x = np.asarray(reference_params(), float).copy()
+    x[grammar.NAMES.index("split_w")] = 0.3
+    x[grammar.NAMES.index("split_len")] = 0.25
+    h = Hull(x)
+
+    # blocker 2: the shipped default resolves the feature; an explicit count
+    # is honoured (that is what keeps convergence studies meaningful)
+    assert h.n_stations == _SPLIT_LADDER_STATIONS == 161
+    assert Hull(np.asarray(reference_params(), float)).n_stations \
+        == _LADDER_STATIONS == 41
+    assert Hull(x, n_stations=41).n_stations == 41
+
+    # blocker 1: closed at both shipped resolutions, and the ribbon is a
+    # no-op on a hull without a split (the recorded reference counts)
+    for nx, nz, ref_tris in ((80, 16, 5232), (200, 40, 32284)):
+        V, F = h.closed_mesh(nx=nx, nz=nz)
+        assert open_edge_count(V, F) == 0, (nx, nz)
+        V0, F0 = Hull(np.asarray(reference_params(), float)).closed_mesh(
+            nx=nx, nz=nz)
+        assert open_edge_count(V0, F0) == 0
+        assert len(F0) == ref_tris

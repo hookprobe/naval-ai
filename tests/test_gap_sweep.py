@@ -38,32 +38,28 @@ import gap_sweep                                             # noqa: E402
 #: the reason it is not being fixed today. A finding outside this list fails
 #: the gate. Nothing above P3 may ever appear here: a P0/P1/P2 seam defect is
 #: a fix, not a record.
-DECLARED = {
-    ("meshclose", "split"): (
-        "the SPLIT STERN's moulded surface does not close at all — 57 open "
-        "edges at nx=80/nz=16 and 141 at 200x40 — because `closed_mesh` "
-        "builds a starboard shell, a port shell, a deck lid and two caps, and "
-        "the split's INNER WALLS and wet deck are drawn by none of them. The "
-        "hydrostatics integrate the hole (`awp ~ b - y_split`, "
-        "`ixx ~ b^3 - ys^3`); the mesh never learned to. Not live: the split "
-        "is WITHHELD from every production draw (Gate REACHABILITY) and "
-        "`write_resistance_case` refuses a non-watertight surface outright, "
-        "so the contract holds and nothing ships it. The probe is COUPLED to "
-        "reachability and turns P1 the day the split is promoted. This is the "
-        "SECOND recorded blocker on promoting the split; the first is its BM "
-        "discretisation below."),
-    ("stations", "split"): (
-        "the split stern's BM carries -0.532% of discretisation error at the "
-        "shipped 41 stations, because `y_split` has a KINK at split_len*L "
-        "that a uniform trapezoid straddles. Not live: the split is WITHHELD "
-        "from every production draw (Gate REACHABILITY), so no hull ships "
-        "with it. The probe is COUPLED to that fact and turns P1 the day the "
-        "split is promoted, so the discretisation cannot be promoted past by "
-        "forgetting it. `export.py` records a 2026-08-13 measurement "
-        "declining to raise Hull.n_stations — taken two weeks before the "
-        "split existed, on hulls for which it was correct."),
+DECLARED: dict = {
+    # EMPTY since 2026-09-02, and the two entries that stood here are worth a
+    # tombstone because both were CLOSED rather than carried:
+    #
+    #   ("meshclose", "split") — the split stern's surface did not close (57
+    #   open edges at 80x16, 141 at 200x40). Root cause located by printing
+    #   the unpaired edges: they were the two row-0 curves (the TOPS of the
+    #   slot's inner walls — row 0 is the keel only on a hull without a
+    #   split) plus the one transom-cap edge bridging the slot mouth. Closed
+    #   by ONE ribbon quad strip between the port and starboard row-0 curves
+    #   (the slot ceiling / wet deck) in `closed_mesh`; on every hull without
+    #   a split both of its triangles have two identical vertices and are
+    #   dropped, so the reference hull and 4 sampled hulls are BIT-IDENTICAL
+    #   (same triangle counts, 5232/32284, as the docstring records).
+    #
+    #   ("stations", "split") — BM off 0.532% at 41 stations against the
+    #   0.1% bar. Closed by shipping split hulls at 161 stations
+    #   (`geometry._SPLIT_LADDER_STATIONS`; 161 = 4x40+1, the tree's aligned
+    #   count) after clustered-41 grids were measured and REFUTED: each grid
+    #   law fixed one corner of the (split_w, split_len) box and broke
+    #   another. Uniform 161 measures <= 0.063% on every corner tried.
 }
-
 
 @pytest.fixture(scope="module")
 def findings():

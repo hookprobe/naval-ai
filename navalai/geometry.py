@@ -1677,6 +1677,31 @@ def _sections_batch(K: np.ndarray, C: np.ndarray, S: np.ndarray,
 #     high, the whole of plate P1's +-0.01 bar spent on a sampling artefact).
 _LADDER_STATIONS = 41
 
+#: The ladder station count FOR A SPLIT-STERN HULL, and only there. The
+#: split taper is quadratic (`split_frac = u**2`), so the waterplane
+#: subtraction integrand `y_split**3` decays like the SIXTH power of
+#: distance from the transom and 41 uniform stations under-resolve it:
+#: MEASURED 2026-09-02 (gap_sweep's `stations` probe, solve_to_displacement
+#: at 6 t), BM at 41 stations vs 641 was off 0.532% against the probe's
+#: 0.1% bar — and BM drives GM, which is a safety floor.
+#:
+#: Clustered 41-station grids were tried FIRST and are recorded as refuted,
+#: so nobody re-tries them: a one-sided q=1.5 cluster measured 0.013% on the
+#: probe's case and 0.168% at (split_w 0.15, split_len 0.5); a two-sided
+#: cluster fixed that case and broke (0.3, 0.25) at 0.164%. A grid law tuned
+#: on one corner of the gene box is an instrument that fails on another.
+#: Uniform 161 passes EVERY measured corner — worst 0.063% at
+#: (0.2, 0.6) — with no shape law to go stale.
+#:
+#: 161 is not arbitrary: it is 4 x 40 + 1, the SAME aligned count as
+#: `export._LOFT_STATIONS`, so it CONTAINS the 41 ladder stations exactly
+#: (see the alignment note above). The cost record that DECLINED raising
+#: `_LADDER_STATIONS` itself (evaluate() +189% at 161) is about paying on
+#: EVERY hull of every NSGA-II generation; a split hull pays it alone, and
+#: today no production draw carries the split genes (Gate REACHABILITY), so
+#: nothing recorded moves and no search slows down.
+_SPLIT_LADDER_STATIONS = 161
+
 
 # --------------------------------------------------------------------------
 # THE ONE CONSTRUCTION of the immersed integral's arguments (2026-09-01).
@@ -1813,7 +1838,12 @@ class Hull:
     """Evaluated hull geometry at n stations."""
 
     params: np.ndarray
-    n_stations: int = _LADDER_STATIONS
+    #: None means "the shipped default for THIS hull's features", resolved in
+    #: `__post_init__`: 41 (`_LADDER_STATIONS`) for every hull without a
+    #: split stern, 161 (`_SPLIT_LADDER_STATIONS`) with one. An explicit
+    #: count is always honoured — that is what keeps convergence studies
+    #: (this file's own probes compare explicit 161 vs 641) meaningful.
+    n_stations: int | None = None
 
     x: np.ndarray = field(init=False)          # station positions [m], 0=transom
     z_keel: np.ndarray = field(init=False)     # keel z per station
@@ -1849,6 +1879,12 @@ class Hull:
         # anyway — a warning that names an arithmetic operation instead of the
         # gene is exactly the misattribution this check exists to end.
         p0 = grammar.named(_require_finite(self.params))
+        if self.n_stations is None:
+            self.n_stations = (
+                _SPLIT_LADDER_STATIONS
+                if p0.get("split_w", 0.0) > 0.0
+                and p0.get("split_len", 0.0) > 0.0
+                else _LADDER_STATIONS)
         x = np.linspace(0.0, p0["LWL"], self.n_stations)
         s = _stations(self.params, x)
         self.x = x
@@ -2762,6 +2798,42 @@ class Hull:
             # and inertia. They were safe only because the flipped patch is the
             # deck, which is clipped away above the waterline — luck, not design.
             quad(S[i, nz], P[i, nz], P[i + 1, nz], S[i + 1, nz])
+            # THE SLOT CEILING. Row 0 of the section is the KEEL on a normal
+            # hull -- but on a split stern it is the TOP OF THE SLOT'S INNER
+            # WALL: `_section_at_rows` in the split region starts at
+            # (y_split, deck) and runs DOWN the inner wall before turning
+            # out under the demihull. The two shells therefore stop meeting
+            # at the centreline (the keel seam closes by coordinate
+            # coincidence at y = +/-0.0, and y_split > 0 breaks the
+            # coincidence), and the surface is open along both row-0 curves
+            # plus the one transom-cap edge that bridges the slot mouth.
+            #
+            # MEASURED 2026-09-02 on the reference hull with split_w 0.3 /
+            # split_len 0.25: 41 unpaired edges at 80x16 and 101 at 200x40,
+            # every one of them ON the row-0 curves (x/L 0.00-0.24, i.e.
+            # exactly the split region; y up to +/-y_split; z from deck down
+            # the closing ramp) or the slot-mouth cap edge
+            # (0, -y_split, deck)--(0, +y_split, deck). This is the standing
+            # `meshclose` finding of scripts/gap_sweep.py, and it is why the
+            # split stern was withheld from every production draw.
+            #
+            # The closure is this ONE ribbon between the port and starboard
+            # row-0 curves -- the slot's ceiling (the wet deck of a split
+            # stern). Its aft edge IS the bridging cap edge, so it pairs
+            # that too; where the slot ramps out, row 0 descends to the keel
+            # and the ribbon follows it down; forward of the slot the two
+            # row-0 points coincide at y = +/-0.0 and BOTH triangles of the
+            # quad have two identical vertices, so the two-identical-
+            # vertices rule above drops them and every hull without a split
+            # is BIT-IDENTICAL to before (measured: same triangle count,
+            # same open-edge count, reference hull and 4 sampled hulls at
+            # both resolutions).
+            #
+            # Winding: P-first, so the shared row-0 edges are traversed
+            # OPPOSITE to the shell's inner-wall quads (manifold
+            # orientation) and the flat aft portion's normal points -z --
+            # down into the slot, away from the hull, as a ceiling must.
+            quad(P[i, 0], S[i, 0], S[i + 1, 0], P[i + 1, 0])
         # transom cap at x = xs[0] (outward -x)
         for j in range(nz):
             quad(S[0, j], P[0, j], P[0, j + 1], S[0, j + 1])
