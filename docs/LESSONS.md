@@ -617,3 +617,22 @@ surface the case writer rejects. Not building it was the fix; naming what the
 verdict does NOT cover was the rest of it. A guard that can only be built
 wrong is better left unbuilt and declared.
 
+
+## 15 · Compute is launched by decision, not by gate colour (2026-09-02)
+
+A 78 CPU-hour KCS solve was launched because it was "the next experiment" of
+a RED gate — correct case selection (the single free-trim grid, not the 687
+CPU-hour triplet), healthy solve, and still the wrong default: it was priced
+only AFTER the operator asked what it cost, and the pricing changed the
+decision to DEFER. The trap is that a well-prepared Queue-A (verification)
+experiment always looks like the next task, because it is concrete and its
+gate is red; meanwhile the Queue-B (product) experiment that costs the same
+— one own-hull flywheel case — is the one that advances what the project is
+for. Two rules came out of it, in `docs/audit/CFD-COMPUTE-TRIAGE.md`:
+every CFD launch states purpose / gate / cases / wall / CPU-hours /
+evidence / consumer BEFORE it runs, and a red verification gate never
+outranks product work for machine hours unless a traced dependency says the
+product is waiting on it (for Gate 2M, traced: nothing is). The same launch
+also caught `run_campaign.sh` declaring COMPLETE at t=0/0 outside the
+OpenFOAM wrapper — the `|| echo 0` defect class again — so the one run that
+was stopped still paid for itself.
