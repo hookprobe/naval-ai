@@ -185,3 +185,24 @@ produced a CATAMARAN carrying a note saying it was a monohull. **The note was
 the only monohull in the result.** A guard that asserts a state instead of
 establishing it is a guard with a hidden premise, and this campaign changed
 the premise.
+
+### P4's feed rate, closed as MEASURED-NOT-A-DEFECT (2026-09-02)
+
+Three hypotheses, all measured on the same 40 draws:
+
+* **The tunnel bundle is exonerated.** The same hulls with the tunnel genes
+  zeroed fail identically (0/40, same row profile: gm 30, rules 29–30). The
+  requested architecture is not what kills them.
+* **All three feed modes agree**: exploring 0/40, plain 0/40,
+  plain+repair 0/40.
+* **The misses are not near-misses.** Median GM on P4's draws is **−0.15 m**
+  (range −0.92 to +3.47) — outright unstable hulls, not a box grazing a
+  floor. P1's profile is the same in kind (24/40 GM violations, median
+  violation +0.57), so this is the exploring stream's base character, not a
+  P4 seam.
+
+The one "fix" available — biasing the draw toward stability so the funnel
+number improves — is §59-forbidden by name (*"changing the test distribution
+to improve statistics"*). The feed's 0/40 stands as a true statement about
+uniform draws on this brief; the product's answer to the brief is the SEARCH
+column (41 designs, drawn tunnel), and that is the column the summary reports.
