@@ -30,6 +30,24 @@ latest_of() {
   echo "$best"
 }
 
+# HOW FAR THE SOLVE ACTUALLY GOT — from the solver's own log, not the
+# checkpoint. The two are NOT the same number, and judging completion by
+# the checkpoint alone produced a false DIVERGENCE verdict on a COMPLETE
+# case (MEASURED 2026-09-02, runs/kcs_free1): a cfd_batch.sh `writeNow`
+# stop re-anchors the adjustableRunTime write grid (resume at 51.648 ->
+# writes at 57.648, next due 63.6 > endTime 60), so t=60 never got a field
+# write. The solver ran to 60.0002 and printed "End"; the checkpoint said
+# 57.648 forever; this loop re-solved the last 2.35 s, saw the checkpoint
+# unmoved, and exit-4'd a finished run as a divergence. Completion now
+# takes the MAX of both readings. The checkpoint remains the resume truth;
+# the log is the completion truth.
+solved_to() {
+  local ck lg
+  ck="$(latest_of "$1")"
+  lg="$(grep -a '^Time = ' "$1/log.interFoam" 2>/dev/null | tail -1         | sed 's/^Time = //')"
+  awk -v a="${ck:-0}" -v b="${lg:-0}" 'BEGIN{print (a+0 > b+0) ? a : b}'
+}
+
 # A single case directory is a campaign of one. Without this, pointing the
 # script at one case printed "skip coarse/medium/fine (no case dir)" followed
 # by "done" — a SUCCESSFUL-looking exit that ran nothing, which is exactly the
@@ -64,7 +82,7 @@ for GRID in $GRIDS; do
   STALL=0            # consecutive attempts that advanced t by nothing
 
   for attempt in $(seq 1 "$MAX"); do
-    NOW="$(latest_of "$CASE")"
+    NOW="$(solved_to "$CASE")"
     if awk -v a="$NOW" -v b="$END" 'BEGIN{exit !(a+0 >= b+0-1e-6)}'; then
       echo "[campaign] $GRID COMPLETE at t=$NOW/$END"
       break
@@ -84,7 +102,7 @@ for GRID in $GRIDS; do
     # A thermal nap always leaves a LATER checkpoint than the attempt started
     # from; a divergence leaves the same one. So: no progress twice in a row
     # is fatal, and the message names the real cause.
-    AFTER="$(latest_of "$CASE")"
+    AFTER="$(solved_to "$CASE")"
     if awk -v a="$AFTER" -v b="$END" 'BEGIN{exit !(a+0 >= b+0-1e-6)}'; then
       continue
     fi
@@ -105,7 +123,7 @@ for GRID in $GRIDS; do
     sleep 120
   done
 
-  FINAL="$(latest_of "$CASE")"
+  FINAL="$(solved_to "$CASE")"
   awk -v a="$FINAL" -v b="$END" 'BEGIN{exit !(a+0 >= b+0-1e-6)}' || \
     echo "[campaign] WARNING: $GRID stopped at t=$FINAL of $END after $MAX attempts"
 done

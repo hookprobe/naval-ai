@@ -637,3 +637,55 @@ not by comparing hulls.
   cost more than it buys AT n=7 ON THIS BATCH, which is not the same as it
   being right. It should be re-measured once the layer search is in the loop,
   because six of its regressions may be knife-edge in n rather than caused.
+
+## 3 · 2026-09-02, `runs/kcs_free1` — the FREE sinkage-and-trim run: NO RESULT at 4.02 flow-throughs, and what it measured anyway
+
+The run §2 called for. Symmetric half-domain, 230 388 cells, `n_layers 5`,
+`sixDoFRigidBodyMotion` (heave + pitch, KG = 0.2303 m), endTime 60 s =
+4.02 flow-throughs, solved in five resumable slices by `scripts/cfd_batch.sh`
+(~9 h wall total on 10 ranks). Mass conserved (Phase-1 0.800162 → 0.800098),
+alpha in [−3.0e-6, 1], deltaT stable 1.8–2.2e-3 throughout, no thermal sleep.
+
+**`gate2m.py` verdict: NO RESULT — not settled — and that refusal is the
+correct reading of this data.** Over the last fifth (t = 48–60 s,
+524 samples): total drift 19.1 %, pressure drift 18.7 %, batch errors
+39.6 / 40.5 % against the 5 % bar. Every number below is therefore a
+WINDOW MEAN OF AN UNSETTLED SIGNAL, recorded for direction, not for use:
+
+    C_T (window mean)   4.5958e-3    E%D −23.8 %   (EFD 3.711e-3)
+    sinkage             −12.04 mm    EFD −13.94 mm   drift 39.1 %
+    trim                −0.111°      EFD −0.169°     drift 29.9 %
+
+Three things this run DID establish:
+
+1. **The free-motion machinery works end to end** — first production use of
+   the `rigidBodyMotion` path: the hull sank and trimmed toward the
+   measured attitude (sinkage passed through −10.6 → −31 → −6 → −12 mm), the
+   solve stayed stable for 60 s of motion, and the case is reproducible
+   from its manifest.
+2. **The attitude oscillates with a period the run did not outlast.** The
+   heave/pitch transient is still ringing at 4 flow-throughs — sinkage
+   drift 39 % in the last fifth. The FIXED case settled at 3.4 FT (§2)
+   because nothing was moving; the free case adds a slow decaying 6-DoF
+   mode. Longer run needed, or stronger numerical damping — measure,
+   don't guess which.
+3. **The direction of C_T is toward the measurement, with a wide honest
+   band.** The fixed-attitude history read E%D ≈ −80 %; this window mean
+   reads −23.8 %. That is CONSISTENT with §2's localisation (the missing
+   physics is what sinkage and trim move) — but with a 40 % batch error it
+   is a direction, not a delta. Do not quote −23.8 % as a result; it is
+   the same class of number as §2's struck-through oscillation readings.
+
+**Next experiment: extend THIS case, not a new one.** `--end-time 90`
+(6.0 FT, ≈ +2.5 h wall in one `cfd_batch.sh` slice, resuming from the
+t = 57.648 checkpoint) answers whether the 6-DoF mode damps out. If at
+6 FT the attitude still rings, the mode needs damping coefficients, not
+more hours — and that is a case-setup change with its own budget line.
+
+Operational finding, fixed the same day: a `cfd_batch.sh` `writeNow` stop
+re-anchors the adjustableRunTime write grid, so endTime may never receive
+a field write; `run_campaign.sh` judged completion by CHECKPOINT time and
+declared a false DIVERGENCE on this complete run (re-solving its last
+2.35 s twice on the way). Completion now takes max(checkpoint, solver-log
+time); the checkpoint remains the resume truth, the log the completion
+truth.
