@@ -33,6 +33,15 @@ class CFDManifest:
 
     # --- identity ----------------------------------------------------------
     genome_sha256: str            # sha of the 16 parameter floats
+    # The genome alone does not name a SURFACE: the STL is the genome lofted
+    # at a station count, and two counts give two surfaces with two hashes.
+    # This was the unrecorded half of the ROUND 3 identity chain
+    # (docs/audit/ROUND3_SYSTEM_MAP.md 3.1: "geometry identity is genome +
+    # an unrecorded n_stations") — `stl_sha256` could not be TIED to
+    # `genome_sha256` because the resolution between them lived only in
+    # `export._LOFT_STATIONS`, outside the record. Filled from that ONE home
+    # at build time; recorded, never re-derived by a reader.
+    loft_stations: int
     # --- geometry + floated state (the §13 single truth) -------------------
     lwl_m: float
     waterline_m: float            # wl0 at midships, ev.wl
@@ -144,8 +153,10 @@ def manifest_from_evaluation(ev, mission, *, mesh_scale: float = 1.0,
     genome = np.asarray(ev.params, float)
     from .. import grammar
     t_design = float(grammar.named(genome)["T"])
+    from ..export import _LOFT_STATIONS
     return CFDManifest(
         genome_sha256=hashlib.sha256(genome.tobytes()).hexdigest(),
+        loft_stations=int(_LOFT_STATIONS),
         lwl_m=lwl,
         waterline_m=float(ev.wl),
         trim_deg=float(ev.trim_deg),

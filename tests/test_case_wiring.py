@@ -738,3 +738,28 @@ def test_the_single_cell_band_arithmetic_does_not_divide_by_zero():
     assert "if n <= 1:" in text, (
         "the single-cell guard in _shared_cell was removed; scale <= 0.40 "
         "will raise ZeroDivisionError again")
+
+
+def test_the_manifest_names_the_SURFACE_not_just_the_genome():
+    """ROUND 3 identity chain, the unrecorded half (ROUND3_SYSTEM_MAP.md
+    3.1): the genome alone does not name a surface — the STL is the genome
+    LOFTED at a station count, and two counts give two surfaces with two
+    hashes. Until 2026-09-02 that count lived only in
+    `export._LOFT_STATIONS`, outside the record, so `stl_sha256` could not
+    be tied to `genome_sha256` by anything a purged case directory left
+    behind (gap N6's shape, applied to identity).
+
+    The manifest records it FROM the one home; this test pins that they
+    agree, so the record can never silently diverge from the loft.
+    """
+    from navalai import evaluate as E
+    from navalai.cfd.manifest import manifest_from_evaluation
+    from navalai.export import _LOFT_STATIONS
+    from navalai.mission import MissionSpec
+
+    m = MissionSpec()
+    X, _ = E.sample_valid(1, m, seed=0)
+    ev = E.evaluate(X[0], m)
+    man = manifest_from_evaluation(ev, m)
+    assert man.loft_stations == _LOFT_STATIONS == 161
+    assert "manifest_loft_stations=161" in man.render_case_info()
