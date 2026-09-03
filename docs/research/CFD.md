@@ -717,3 +717,53 @@ its own budget line, NOT run tonight. Meanwhile the trim window mean
 sitting 2 % off EFD (and sinkage oscillating around EFD's value) is
 strong — unsettled, unquotable, but strong — evidence that the free
 attitude is converging on the tank's.
+
+### §3 second addendum, 2026-09-03: the 120 s critically-damped continuation — three hypotheses die, one suspect remains
+
+Dampers raised to CRITICAL (zeta 0.30 → 1.00) at t = 90 (recorded in
+case.info: velocity-proportional, zero at equilibrium, cannot bias the
+settled attitude) and the case continued to 120 s = 8.05 FT. `gate2m`:
+**still NO RESULT, and WORSE** — C_T window mean 6.025e-3 (E%D −62.4%),
+total drift 22.6%. The full record in 10-s windows (N, full-hull):
+
+    window     total   pressure   viscous
+      0- 10    160.8      82.2      78.7
+     30- 40    107.1      32.7      74.4
+     60- 70    154.8      85.8      69.0
+     70- 80    101.3      30.4      70.9
+     90-100    201.6     129.4      72.2    <- damping ON since t=90
+    110-120     79.8       5.2      74.6
+
+**Viscous is 68–75 N for 120 straight seconds. Pressure wanders 5–129 N —
+several times its own expected mean (~21 N) — on a 20–40 s timescale
+(1.3–2.7 FT), through critical body damping as if it were not there.**
+
+Refuted today, each by measurement:
+1. **Body-motion ringing** — critical damping changed nothing about the
+   pressure wander. The attitude means keep landing near EFD (sinkage
+   −12.25 vs −13.94 mm; trim −0.153 vs −0.169°): the MOTION physics is
+   fine.
+2. **Tank resonance, free-case edition** — `tank_resonance.py` over the
+   full record: best sinusoid explains 8.4% against the 50% bar. NO
+   RESULT, broadband, exactly as §2 found for the fixed case.
+3. **More hours** — drift at 4/6/8 FT read 19.1 / 10.7 / 22.6%: not a
+   decaying transient. The wander's timescale is comparable to the
+   averaging window, so the drift criterion can never settle on it.
+
+One suspect remains, and two independent receipts point at it:
+**free-surface/wave-field resolution.** cells_per_wavelength is 21.5
+against the project's own ≥20 bar — marginal, and the pressure signal is
+exactly the wave-field integral. Second receipt: Phase-1 volume began
+CREEPING once the mesh started moving (0.800098 → 0.800351, +3.2e-4) —
+interface diffusion under the moving mesh, small but directionally new.
+The fixed case shows the same broadband pressure wander (§2: 36% batch
+error; the current bars mark kcs_s1 unsettled too), so this is a property
+of the DISCRETISED WAVE FIELD, not of the motion.
+
+Next experiment, NOT run (its own budget line): regenerate the case with a
+finer free-surface band — target ≥30 cells/wavelength — fixed attitude
+first (cheaper, and the attitude question is answered), and watch the
+pressure window variance specifically. If the wander shrinks with
+resolution, it is discretisation and the GCI triplet becomes the honest
+finish; if it does not, it is physical transom/wave unsteadiness and the
+bar itself must learn time-averaging over longer records.
