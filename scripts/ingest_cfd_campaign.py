@@ -42,7 +42,17 @@ def main(argv=None) -> int:
     ap.add_argument("root", help="campaign root, e.g. runs/g2u_repeat")
     ap.add_argument("--json", required=True,
                     help="the campaign's row file (carries the genome per hull)")
-    ap.add_argument("--db", default="data/provenance.db")
+    # THE DEFAULT IS THE CLASS DEFAULT — one database, one home. Until
+    # 2026-09-03 this said "data/provenance.db" while Provenance() and every
+    # product consumer (UI save, design_report, co-kriging callers) open
+    # "data/navalai.sqlite3". MEASURED: the 2026-08-22 Gate 2U ingest wrote
+    # the project's ONLY five L3 rows into the orphan file, and the tier the
+    # flywheel refuses-for-want-of sat on disk, invisible, for twelve days.
+    # The number-declared-twice defect, as a file path. The orphan's rows
+    # were merged (hulls INSERT OR IGNORE by hull_id; results deduplicated
+    # on (hull_id,tier,quantity,value,created_utc)) and the file removed.
+    ap.add_argument("--db", default=None,
+                    help="provenance DB path (default: Provenance()'s own)")
     ap.add_argument("--tier", default="L3")
     ap.add_argument("--quantity", default="resistance_N")
     ap.add_argument("--n", type=int, default=25,
@@ -84,7 +94,8 @@ def main(argv=None) -> int:
     print(f"population verified: {len(rows)} rows reconstruct from "
           f"(n={a.n}, seed={a.seed})\n")
 
-    prov = None if a.dry_run else Provenance(a.db)
+    prov = None if a.dry_run else (Provenance() if a.db is None
+                               else Provenance(a.db))
     kept = skipped = 0
     for d in sorted(glob.glob(os.path.join(a.root, "h*/"))):
         name = os.path.basename(d.rstrip("/"))
@@ -128,7 +139,7 @@ def main(argv=None) -> int:
                       "cells": r.get("cells"),
                       "scored_by": "post.settled_drag components rule"})
     print(f"\n{kept} settled row(s) ingested at {a.tier}, {skipped} skipped"
-          + (" (DRY RUN — nothing written)" if a.dry_run else f" -> {a.db}"))
+          + (" (DRY RUN — nothing written)" if a.dry_run else f" -> {a.db or 'data/navalai.sqlite3'}"))
     return 0
 
 
