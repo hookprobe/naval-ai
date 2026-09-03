@@ -699,3 +699,76 @@ def test_a_requested_tunnel_is_drawn_by_the_PRODUCTION_feed():
                        "category C")
     X0, _ = E.sample_valid(6, m0, seed=1)
     assert (X0[:, j] == 0.0).all()
+
+
+def test_no_novice_control_is_a_silent_no_op():
+    """Directive 9: ACTIVE / PINNED / WITHHELD — never SILENT NO-OP.
+
+    The six intent controls live in a JS table (`BEHAVIOUR` in
+    screens-design.js), each driving grammar parameters BY NAME through
+    `drives: {param: amp}`. Nothing type-checks a JS string against
+    `grammar.NAMES`, so a grammar rename would orphan a `drives:` key and
+    the slider would silently stop moving anything — the user drags "Bow
+    attitude" and the boat does not change. This test parses the table
+    from the source (the one home of the mapping — re-implementing the
+    composition law here would be the number-declared-twice defect) and
+    pins two facts:
+
+      1. every driven name IS a grammar parameter, and
+      2. every control drives at least one parameter whose grammar span
+         is nonzero — i.e. each control is ACTIVE somewhere; a control
+         pinned by a mission box is PINNED (a shorter track), which the
+         mapping already handles by composing on the LEGAL span.
+    """
+    import pathlib
+    import re
+
+    from navalai import grammar
+
+    src = pathlib.Path("ui/app/screens-design.js").read_text()
+    block = src[src.index("export const BEHAVIOUR"):
+                src.index("export function behaviourToParams")]
+    controls = re.findall(r'id:\s*"(\w+)".*?drives:\s*\{([^}]*)\}',
+                          block, re.S)
+    assert len(controls) == 6, "the six-control table changed shape"
+    spans = {n: hi - lo for n, lo, hi in
+             zip(grammar.NAMES, grammar.LOW, grammar.HIGH)}
+    for cid, drives in controls:
+        names = re.findall(r"(\w+)\s*:", drives)
+        assert names, cid
+        for n in names:
+            assert n in grammar.NAMES, (
+                f"control {cid!r} drives {n!r}, which is not a grammar "
+                f"parameter — the slider is a SILENT NO-OP on that axis")
+        assert any(spans[n] > 0 for n in names), (
+            f"control {cid!r} drives only zero-span parameters")
+
+
+def test_unmodeled_requirements_are_declared_not_silently_stored():
+    """Directive 7: a stated requirement the product cannot enforce must say
+    so, structurally — "NOT CURRENTLY ENFORCED" beats a silently stored
+    value. One registry (navalai.unmodeled), joined against the mission at
+    /mission time, so the admission rides with the parse.
+
+    The registry's honesty rules are themselves pinned: air_draft is
+    PARTIAL (a bare-hull checker exists — calling it UNMODELED would erase
+    a real enforcement; calling it enforced would promise a superstructure
+    model that does not exist), and every entry states its current_effect.
+    """
+    from navalai.mission import parse_mission
+    from navalai.unmodeled import REGISTRY, report
+
+    assert all(r.status in ("UNMODELED", "PARTIAL") for r in REGISTRY)
+    assert all(r.current_effect for r in REGISTRY)
+
+    m = parse_mission("14 m houseboat, 5 knots, 5 tonne, category C, "
+                      "air draft 3.2 m")
+    rep = {r["requirement"]: r for r in report(m)}
+    ad = rep["air_draft"]
+    assert ad["status"] == "PARTIAL"
+    assert ad["stated_value"] == 3.2          # the value the user stated...
+    assert "no constraint row" in ad["reason"] or "SEARCH" in ad["reason"]
+    # ...and a mission that stated nothing gets the registry without a value
+    m0 = parse_mission("12 m motorboat, 8 knots, 4 tonne, category C")
+    assert "stated_value" not in {r["requirement"]: r
+                                  for r in report(m0)}["air_draft"]

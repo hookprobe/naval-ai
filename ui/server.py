@@ -822,7 +822,14 @@ class Handler(BaseHTTPRequestHandler):
             if self.path == "/eval":
                 out = eval_payload(body.get("params", {}), body.get("mission"))
             elif self.path == "/mission":
-                out = json.loads(parse_mission(body.get("text", "")).to_json())
+                _m = parse_mission(body.get("text", ""))
+                out = json.loads(_m.to_json())
+                # WHAT THE PRODUCT HEARD AND CANNOT YET ENFORCE rides with
+                # the parse itself — the moment the user learns what landed
+                # is the moment to say what did NOT. One registry
+                # (navalai.unmodeled), never prose copied per screen.
+                from navalai.unmodeled import report as _unmod
+                out["unmodeled"] = _unmod(_m)
             elif self.path == "/generate":
                 # `mission` joined the wire. It was absent, so a
                 # mission-specific generate was not slow — it was IMPOSSIBLE,
