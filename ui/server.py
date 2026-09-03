@@ -667,9 +667,15 @@ def eval_payload(params: dict, mission_d: dict | None) -> dict:
                         **{k: float(v) for k, v in params.items()}})
     mission = _mission_from(mission_d)
     ev = evaluate(x, mission)
+    from navalai.db import hull_id
     out: dict = {
         "ok": ev.ok,
         "tier": ev.tier,
+        # the SAME canonical genome hash the provenance DB and /api/save
+        # use — the client compares this against each derived payload's
+        # `design` to detect a measurement describing a previous hull
+        # revision (see ui/api.handle_post for the class and the incident)
+        "design": hull_id(x),
         "violations": list(ev.violations),
         "eval_ms": round(ev.eval_ms, 2),
     }

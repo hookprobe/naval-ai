@@ -1388,4 +1388,29 @@ def handle_get(path: str):
 
 def handle_post(path: str, body: dict):
     fn = _POST.get(path)
-    return None if fn is None else fn(body or {})
+    if fn is None:
+        return None
+    out = fn(body or {})
+    # DESIGN IDENTITY ON EVERY DERIVED PAYLOAD, stamped CENTRALLY so a
+    # future endpoint cannot forget it. `db.hull_id` is the tree's existing
+    # canonical genome hash (sha over the canonical parameter vector) — the
+    # same identity the provenance database and /api/save use, deliberately
+    # NOT a second hash system.
+    #
+    # WHY (2026-09-03, the stale-derived-state audit): the studio's
+    # /eval//api/mesh//api/sections had a local generation counter, but
+    # S.refold did not — a user could measure refold on hull A, drag a
+    # slider to hull B, and keep READING hull A's refold under hull B's
+    # viewport. A browser counter alone cannot close that class; the
+    # SERVER now names which design each answer describes, and the client
+    # compares identities instead of trusting timing.
+    if isinstance(out, dict) and "design" not in out:
+        params = (body or {}).get("params")
+        if params:
+            try:
+                from navalai.db import hull_id
+                out["design"] = hull_id(_vector(params))
+            except Exception:            # noqa: BLE001 — a bad params dict
+                pass                     # already failed inside fn(); the
+                                         # stamp is a label, not a gate
+    return out

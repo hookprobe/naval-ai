@@ -743,6 +743,23 @@ export async function hull(host) {
       + "same gesture that causes it."));
     function paint() {
       const r = S.refold; if (!r) return;
+      // A MEASUREMENT NAMES ITS DESIGN, AND THE BOX BELIEVES THE NAME.
+      // Until 2026-09-03 this box painted whatever S.refold held: measure
+      // hull A, drag a slider to hull B, and hull A's refold verdict kept
+      // rendering under hull B's viewport. /eval//mesh//sections had a
+      // generation counter; refold had nothing. The server now stamps
+      // every derived payload with the canonical genome hash (`design`),
+      // so staleness is an IDENTITY comparison, not a timing guess — and
+      // the stale result is KEPT and labelled, never silently deleted:
+      // evidence about the previous revision is still evidence.
+      const cur = S.evalOut && S.evalOut.design;
+      if (r.design && cur && r.design !== cur) {
+        bar2.textContent = ""; bar2.append(el("i", { class: "warn",
+          style: "width:100%;opacity:.35" }));
+        txt.textContent = "STALE — measured for a previous hull revision. "
+          + "Re-measure for this hull.";
+        return;
+      }
       if (r.source === "refused") {
         bar2.textContent = ""; bar2.append(el("i", { class: "fail",
           style: "width:100%" }));
@@ -761,6 +778,7 @@ export async function hull(host) {
         + ` mm  (bar ${fmt(bar_mm, 1)} mm)`;
     }
     if (S.refold) paint();
+    sub(paint);          // hull edits emit(); the meter re-judges identity
     return box;
   }
 
@@ -847,6 +865,16 @@ export async function buildability(host) {
   function render() {
     const r = S.refold;
     out.textContent = "";
+    // same identity rule as the studio's buildability meter — see paint()
+    const cur = S.evalOut && S.evalOut.design;
+    if (r.design && cur && r.design !== cur) {
+      out.append(el("div", { class: "note" },
+        el("span", { class: "lbl" }, "STALE"),
+        el("p", {}, "This refold family was measured for a previous hull "
+          + "revision. The numbers below are kept as evidence about that "
+          + "revision — re-measure for the current hull."),
+      ));
+    }
     if (r.source === "refused") {
       out.append(el("div", { class: "note refuse" },
         el("span", { class: "lbl" }, "REFUSED"),

@@ -622,3 +622,80 @@ def test_save_and_export_complete_the_commissioning_chain():
                                        "mission": mission_d,
                                        "format": "nonsense"})
     assert xp["source"] == "refused" and "unknown format" in xp["reason"]
+
+
+def test_every_derived_payload_names_the_design_that_produced_it():
+    """The stale-derived-state class, closed at the WIRE (2026-09-03).
+
+    The studio protected /eval, /api/mesh and /api/sections with a local
+    generation counter — and S.refold with nothing: measure refold on hull
+    A, drag a slider to hull B, and hull A's verdict kept rendering under
+    hull B's viewport. A browser counter cannot close that class (it is
+    timing, not identity), so the SERVER now stamps every derived payload
+    with `design` — `db.hull_id`, the same canonical genome hash the
+    provenance DB uses, deliberately not a second hash system — stamped
+    CENTRALLY in `handle_post` so a future endpoint cannot forget it.
+    """
+    import numpy as np
+    from ui import api as A
+    from navalai import evaluate as E, grammar
+    from navalai.db import hull_id
+    from navalai.mission import MissionSpec
+
+    X, _ = E.sample_valid(1, MissionSpec(), seed=0)
+    params = dict(zip(grammar.NAMES, map(float, X[0])))
+    edited = dict(params); edited["LWL"] = params["LWL"] * 1.03
+
+    stamped = 0
+    for path in ("/api/mesh", "/api/sections", "/api/refold",
+                 "/api/envelope", "/api/buildability"):
+        out = A.handle_post(path, {"params": params})
+        if not isinstance(out, dict):
+            continue
+        assert out.get("design"), f"{path} lost its design stamp"
+        assert out["design"] == hull_id(A._vector(params)), path
+        stamped += 1
+    assert stamped >= 4
+
+    # the edit changes the identity — this inequality IS the staleness test
+    m1 = A.handle_post("/api/mesh", {"params": params})
+    m2 = A.handle_post("/api/mesh", {"params": edited})
+    assert m1["design"] != m2["design"]
+
+    # and /eval (the legacy route in ui.server) carries the SAME identity,
+    # because the client compares refold.design against evalOut.design
+    import ui.server as S
+    ev = S.eval_payload(params, None)
+    assert ev["design"] == m1["design"]
+
+
+def test_a_requested_tunnel_is_drawn_by_the_PRODUCTION_feed():
+    """Gate directive 17: never regress the third-site fix (b1e916f).
+
+    The defect had a written history at two other sites before it was
+    found in the production feed: the brief parses to drive='tunnel' and
+    features={'tunnel'}, and `sample_valid` held tun_w/tun_crown/tun_len
+    at their no-op defaults — 40 of 40 hulls with NO tunnel, 9 of them
+    then killed by row:prop_space, the constraint a tunnel exists to
+    satisfy. The fix wired `apply_feature_bundles_inplace` into the feed
+    (spawned generator, stream-safe); THIS pin is what it never got.
+    """
+    import numpy as np
+    from navalai import evaluate as E, grammar
+    from navalai.mission import parse_mission
+
+    m = parse_mission("13 m river cruiser with a protected prop, 6 knots, "
+                      "5 tonne, category C")
+    assert grammar.features_for(m) == frozenset({"tunnel"})
+    X, _ = E.sample_valid(6, m, seed=1)
+    j = [grammar.NAMES.index(n) for n in ("tun_w", "tun_crown", "tun_len")]
+    drawn = X[:, j]
+    assert (drawn > 0).all(), (
+        "a mission that asked for a tunnel was served hulls without one: "
+        f"{drawn!r}")
+
+    # ...and a mission that asked for NOTHING stays bit-identically boring
+    m0 = parse_mission("12 m displacement motorboat, 8 knots, 4 tonne, "
+                       "category C")
+    X0, _ = E.sample_valid(6, m0, seed=1)
+    assert (X0[:, j] == 0.0).all()
