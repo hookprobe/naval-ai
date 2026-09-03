@@ -767,3 +767,48 @@ pressure window variance specifically. If the wander shrinks with
 resolution, it is discretisation and the GCI triplet becomes the honest
 finish; if it does not, it is physical transom/wave unsteadiness and the
 bar itself must learn time-averaging over longer records.
+
+### §3 third addendum, 2026-09-04 00:56 — the resolution hypothesis SUPPORTED: settled at −4.3% vs EFD
+
+`runs/kcs_fs30` — same KCS, same speed, FIXED attitude, the free-surface
+band at **30.2 cells/wavelength** (583 685 cells, 2.53× the coarse recipe;
+`fs_dz` 10.2 → 6.8 mm) — solved to 60 s in eight ~90-min checkpoint
+slices. `gate2m.py`:
+
+    C_T 3.8720e-3   vs EFD 3.711e-3   E%D −4.3%   drift 0.7%   SETTLED
+
+and the pressure record beside the coarse one is the whole story:
+
+    window      fs30 pressure (std)     coarse pressure (std)
+    14–20 s        20.6  (2.8)             54.1  (49.4)
+    20–26 s        21.6  (1.2)             50.1  (86.4)
+    38–44 s        22.1  (1.3)                broadband
+    44–50 s        22.1  (1.2)                5–129 N swings
+
+The wander that survived critical body damping, had no coherent mode, and
+did not decay with hours was DISCRETISATION: resolve the wave field and
+the pressure signal sits at ~22 N with ~1 N of noise, within ~6 % of the
+tank decomposition's expectation, and the total lands 4.3 % above EFD on
+a single grid.
+
+WHAT THIS IS EVIDENCE FOR, exactly: the resolution hypothesis on THIS
+hull at THIS Froude number, and (pending `flywheel_fs30`, running now)
+TRANSFER EVIDENCE to one NavalAI design. It is NOT a universal mesh rule
+— that claim needs geometrically diverse cases — and it is NOT a closed
+Gate 2M: the gate's own output says UNDER-RUN (4.02 of 5.0
+flow-throughs, "a trend, not a result") and carries no GCI. Per the
+operator's decision tree, the discretisation branch now JUSTIFIES pricing
+the minimum GCI evidence: a triplet anchored at this recipe, ~3.9× +
+~15.6× the fs30 cost for medium and fine members — an owner decision,
+not an overnight default.
+
+Operational wart, recorded not fixed (00:56 is not the hour): the
+writeNow de-phase still costs a redundant tail re-solve at the very end —
+the final checkpoint sat at t = 59.38, no field write ever lands at 60,
+and the campaign re-solved the last 0.62 s before declaring a false
+DIVERGENCE on a complete, settled record (`solved_to` reads the solver
+LOG, but each resume attempt REWRITES log.interFoam from its own start
+time, so the completion reading regresses between attempts). The forces
+history is unaffected; gate2m reads it correctly. Fix: run-case.sh should
+preserve prior log segments or the batch should write a completion
+receipt.
