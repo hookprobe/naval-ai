@@ -29,6 +29,7 @@
   "verify": "python scripts/gate2m.py runs/kcs_fs30",
   "review_by": "2026-10-04",
   "why_red": [
+   "OPERATOR DECISION 2026-09-04: the GCI triplet (~370 wall-hours) is DECLINED. The -4.3% single-grid figure STANDS WITH ITS CAVEATS as the calibration statement: CFD resistance on slender displacement hulls is within ~5% of measured, discretisation uncertainty unquantified. Revisit only with dedicated hardware or a changed product need.",
    "STILL RED, with a NUMBER now: the bar needs the scatter band AND a GCI, and -4.3% is outside the band (3.620..3.733e-3) on a single grid with no discretisation uncertainty attached.",
    "THE 2026-09-06 REVIEW, DISCHARGED EARLY (2026-09-04): the free-trim campaign measured the attitude physics correct (sinkage/trim land on the KRISO values), refuted body-ringing, tank resonance and run-length as causes of the unsettleable pressure, and isolated the cause to wave-field resolution \u2014 21.5 c/lambda wanders 5-129 N, 30.2 settles at ~1 N. fidelity.MIN_CELLS_PER_WAVELENGTH moved 20 -> 30 on that measurement (commit df45a38).",
    "REMAINING, in order: the GCI triplet anchored at the 30 c/lambda recipe (~370 wall-hours, operator decision); a 5.0-flow-through confirmation of the settled window; the second (small-craft) anchor, which no KCS result can substitute for.",
