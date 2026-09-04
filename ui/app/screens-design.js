@@ -414,13 +414,35 @@ export async function requirements(host) {
         el("p", { style: "font-size:.88rem" }, label),
         el("p", { class: "mini", style: "margin-top:4px" }, note)))));
 
-  host.append(el("div", { class: "note", style: "margin-top:16px" },
-    el("span", { class: "lbl" }, "requirements with nowhere to land"),
-    el("p", {}, "Cost, air draft, motion in a chop and noise are all things a "
-      + "builder asks for and none of them has a row or an objective in this "
-      + "tree. They are listed on the screens where they would appear, "
-      + "hatched, with what would close them. Storing them here as if they "
-      + "were enforced would be worse than not offering them.")));
+  // THE REGISTRY, NOT PROSE (2026-09-04). This block used to be a
+  // hand-written sentence naming four requirements; the server now sends
+  // the structured registry (navalai.unmodeled, attached to the /mission
+  // response), per-requirement, with an honest STATUS — and PARTIAL is
+  // rendered differently from UNMODELED because "a bare-hull check exists"
+  // and "nothing exists" are different promises. A stated value the user
+  // gave (air draft 3.2 m) is shown NEXT TO its non-enforcement, which is
+  // the whole point: never silently stored.
+  const unmod = S.mission && S.mission.unmodeled;
+  if (unmod && unmod.length) {
+    const box = el("div", { class: "note", style: "margin-top:16px" },
+      el("span", { class: "lbl" }, "requirements not currently enforced"));
+    for (const r of unmod) {
+      box.append(el("p", { style: "margin-top:6px" },
+        el("b", {}, r.requirement.replace(/_/g, " ")),
+        " — " + r.status
+        + (r.stated_value != null
+           ? ` (you stated ${r.stated_value}; ` + r.current_effect + ")"
+           : ` (${r.current_effect})`)));
+      box.append(el("p", { class: "mini" }, r.reason));
+    }
+    host.append(box);
+  } else {
+    host.append(el("div", { class: "note", style: "margin-top:16px" },
+      el("span", { class: "lbl" }, "requirements with nowhere to land"),
+      el("p", {}, "Cost, air draft, motion in a chop and noise have no row "
+        + "or objective in this tree. Storing them as if they were enforced "
+        + "would be worse than not offering them.")));
+  }
 
   host.append(el("div", { class: "row", style: "margin-top:14px" },
     el("button", {
