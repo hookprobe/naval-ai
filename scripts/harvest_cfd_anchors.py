@@ -74,6 +74,17 @@ CASES: dict[str, tuple[str, str]] = {
     # their numbers mixed -- the exact defect `cfd_kb.same_design` exists
     # to make impossible.
     "flywheel_a": ("formcheck_case_a", "calm_resistance"),
+    # The 38.6 c/lambda twin of flywheel_a — SAME genome (73c9b968...),
+    # finer wave field. Kept BESIDE the coarse record, never replacing it:
+    # the pair is a within-design discretisation experiment (operator
+    # directive 2026-09-03 section 1/7). Partial record (clean-stopped at
+    # the overnight window's edge); resumes on granted machine time.
+    "flywheel_fs30": ("formcheck_case_a", "calm_resistance"),
+    # KCS at 30.2 c/lambda, fixed attitude — the run that SETTLED at
+    # E%D -4.3% (drift 0.7%) and supported the resolution hypothesis.
+    # docs/research/CFD.md section 3, third addendum.
+    "kcs_fs30": ("slender_cargo_benchmark", "calm_resistance"),
+
     "hookprobe_cruise_n10": ("hookprobe_hybrid", "calm_resistance"),   # v1
     "hookprobe_v2": ("hookprobe_hybrid", "calm_resistance"),
     "hookprobe_v3": ("hookprobe_hybrid", "calm_resistance"),

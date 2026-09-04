@@ -1,6 +1,6 @@
 {
  "_schema": "cfd-anchor-book/1",
- "_written": "2026-09-03",
+ "_written": "2026-09-04",
  "_method": "extracted by scripts/harvest_cfd_anchors.py via navalai.cfd.post.settled_drag; family labels are hand-entered with provenance in the script",
  "anchors": {
   "hookprobe_cruise_n10": {
@@ -32,7 +32,7 @@
    "single_grid_no_gci": true,
    "case_dir": "runs/hookprobe_cruise_n10",
    "directory_gone": false,
-   "harvested": "2026-09-03"
+   "harvested": "2026-09-04"
   },
   "hookprobe_v2": {
    "family": "hookprobe_hybrid",
@@ -61,7 +61,7 @@
    "single_grid_no_gci": true,
    "case_dir": "runs/hookprobe_v2",
    "directory_gone": false,
-   "harvested": "2026-09-03"
+   "harvested": "2026-09-04"
   },
   "hookprobe_v3": {
    "family": "hookprobe_hybrid",
@@ -90,7 +90,7 @@
    "single_grid_no_gci": true,
    "case_dir": "runs/hookprobe_v3",
    "directory_gone": false,
-   "harvested": "2026-09-03"
+   "harvested": "2026-09-04"
   },
   "hookprobe_v3_10kn": {
    "family": "hookprobe_hybrid",
@@ -122,7 +122,7 @@
    "single_grid_no_gci": true,
    "case_dir": "runs/hookprobe_v3_10kn",
    "directory_gone": false,
-   "harvested": "2026-09-03"
+   "harvested": "2026-09-04"
   },
   "hookprobe_v3_seas": {
    "family": "hookprobe_hybrid",
@@ -156,7 +156,7 @@
    "single_grid_no_gci": true,
    "case_dir": "runs/hookprobe_v3_seas",
    "directory_gone": false,
-   "harvested": "2026-09-03"
+   "harvested": "2026-09-04"
   },
   "hookprobe_v4": {
    "family": "hookprobe_hybrid_appendaged",
@@ -185,7 +185,7 @@
    "single_grid_no_gci": true,
    "case_dir": "runs/hookprobe_v4",
    "directory_gone": false,
-   "harvested": "2026-09-03"
+   "harvested": "2026-09-04"
   },
   "hookprobe_v5_20kn": {
    "family": "hookprobe_hybrid",
@@ -217,7 +217,7 @@
    "single_grid_no_gci": true,
    "case_dir": "runs/hookprobe_v5_20kn",
    "directory_gone": false,
-   "harvested": "2026-09-03"
+   "harvested": "2026-09-04"
   },
   "hb19_7kn": {
    "family": "bluff_stern_houseboat",
@@ -246,7 +246,7 @@
    "single_grid_no_gci": true,
    "case_dir": "runs/hb19_7kn",
    "directory_gone": false,
-   "harvested": "2026-09-03"
+   "harvested": "2026-09-04"
   },
   "kcs": {
    "family": "slender_cargo_benchmark",
@@ -275,7 +275,7 @@
    "single_grid_no_gci": true,
    "case_dir": "runs/kcs",
    "directory_gone": false,
-   "harvested": "2026-09-03"
+   "harvested": "2026-09-04"
   },
   "kcs_s1": {
    "family": "slender_cargo_benchmark",
@@ -307,7 +307,7 @@
    "single_grid_no_gci": true,
    "case_dir": "runs/kcs_s1",
    "directory_gone": false,
-   "harvested": "2026-09-03"
+   "harvested": "2026-09-04"
   },
   "c06_case_a_n5": {
    "family": "canonical_case_a",
@@ -336,7 +336,7 @@
    "single_grid_no_gci": true,
    "case_dir": "runs/c06_case_a_n5",
    "directory_gone": false,
-   "harvested": "2026-09-03"
+   "harvested": "2026-09-04"
   },
   "flywheel_a": {
    "family": "formcheck_case_a",
@@ -368,7 +368,65 @@
    "single_grid_no_gci": true,
    "case_dir": "runs/flywheel_a",
    "directory_gone": false,
-   "harvested": "2026-09-03"
+   "harvested": "2026-09-04"
+  },
+  "flywheel_fs30": {
+   "family": "formcheck_case_a",
+   "stl_sha256": "b2f8701d18c613c8db5b0f862a137860315755453432f8f173bd0d9e23f8ddd8",
+   "genome_sha256": "73c9b968cc84272325309470ae8e4ffe26f9016a2788c86724bbfc180eab8d05",
+   "lwl_m": 5.0,
+   "speed_ms": 2.057776,
+   "fn": 0.29386831158855575,
+   "flow_throughs": 1.4795106646149598,
+   "cells": 659749,
+   "symmetric": true,
+   "total_n": 107.43575072275411,
+   "pressure_n": 73.562833278915,
+   "viscous_n": 33.87291812883103,
+   "pressure_fraction": 0.6847146576817741,
+   "run_type": "calm_resistance",
+   "ct": 0.008171440352599159,
+   "wetted_m2": 6.2173522656035995,
+   "surface_facets": 231508,
+   "domain_wavelengths": 8.296154271597656,
+   "ct_trusted": true,
+   "layer_coverage": 0.77,
+   "viscous_valid": true,
+   "settled": true,
+   "settle_reasons": [],
+   "single_grid_no_gci": true,
+   "case_dir": "runs/flywheel_fs30",
+   "directory_gone": false,
+   "harvested": "2026-09-04"
+  },
+  "kcs_fs30": {
+   "family": "slender_cargo_benchmark",
+   "stl_sha256": "87062dbf11fc20683ee51de7d9526342a4ff28bab89308569b44c2e9fd82faec",
+   "genome_sha256": null,
+   "lwl_m": 7.2786,
+   "speed_ms": 2.196,
+   "fn": 0.2599250112454447,
+   "flow_throughs": 4.022613534152941,
+   "cells": 583685,
+   "symmetric": true,
+   "total_n": 89.05941589688872,
+   "pressure_n": 22.484837737952187,
+   "viscous_n": 66.5745781242119,
+   "pressure_fraction": 0.25247007867180155,
+   "run_type": "calm_resistance",
+   "ct": 0.003871973466476805,
+   "wetted_m2": 9.550679257990158,
+   "surface_facets": 10402,
+   "domain_wavelengths": 10.60436429565837,
+   "ct_trusted": false,
+   "layer_coverage": 0.794,
+   "viscous_valid": true,
+   "settled": true,
+   "settle_reasons": [],
+   "single_grid_no_gci": true,
+   "case_dir": "runs/kcs_fs30",
+   "directory_gone": false,
+   "harvested": "2026-09-04"
   }
  }
 }
