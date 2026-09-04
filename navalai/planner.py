@@ -282,9 +282,6 @@ def plan(question: str, quantities: frozenset[str], priors: dict[str, Belief],
     p = Plan(question=question, target_sigma_rel=target_sigma_rel,
              beliefs=dict(priors))
     pool = candidates(cond, quantities, budget)
-    for exp in pool:
-        if not exp.admissible:
-            p.rejected.append((exp, "; ".join(str(r) for r in exp.refusals)))
 
     # THEORY FIRST, THEN THE BOOK, THEN A SOLVE (CFD audit P1-8). The
     # owner's methodology principle — "known water behaviour should be
@@ -306,6 +303,22 @@ def plan(question: str, quantities: frozenset[str], priors: dict[str, Belief],
         _prior = _pf.already_measured(stl_sha, speed_ms=float(cond.speed))
         if _prior and _prior.data.get("same_speed"):
             _blocked.append(_prior.detail)
+    # REASON PRECEDENCE (2026-09-04): a question-level reason outranks a
+    # grid-level one. When the wave-resolution bar moved 20 -> 30, every
+    # L3 candidate at Fn 0.26 became inadmissible on resolution or cost —
+    # and the theory-first reason VANISHED from the record, because the
+    # admissibility loop ran first and wrote its reasons alone. A reader
+    # then saw "grid too coarse" on a run that should never be bought at
+    # ANY grid, which invites exactly the wrong fix (buy a finer grid).
+    # An L3 rejection now LEADS with the question-level truth and keeps
+    # the grid-level refusal beside it; both are true, the stronger one
+    # first.
+    for exp in pool:
+        if not exp.admissible:
+            reasons = "; ".join(str(r) for r in exp.refusals)
+            if _blocked and exp.tier == "L3":
+                reasons = "; ".join(_blocked) + "; also: " + reasons
+            p.rejected.append((exp, reasons))
     if _blocked:
         why = "; ".join(_blocked)
         for exp in list(pool):

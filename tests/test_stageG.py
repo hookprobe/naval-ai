@@ -428,12 +428,15 @@ def test_stated_budget_and_the_wave_resolution_bar_are_unsatisfiable_together():
     spec_m, _ = fidelity.cheapest_admissible(cond, fidelity.STATED_MEDIUM)
     assert spec_m is None
     # the cheapest physically-valid grid, and what it actually costs.
-    # RE-BASED 2026-08-14: this pinned ~0.98, a number computed with the
-    # DRIFTED fourth copy of _NX_BASE (54); with the inverse now importing
-    # the live 57 the floor is 57/54 lower, 0.9294 — verified round-trip:
-    # cells_per_wavelength(0.26, 0.9294) = 20.01 against the 20 bar.
+    # RE-BASED 2026-08-14 (0.98 -> 0.9294, the drifted _NX_BASE copy) and
+    # AGAIN 2026-09-04 (0.9294 -> 1.394): the bar moved 20 -> 30 on the KCS
+    # campaign's measurement (21.5 c/lambda unsettleable, 30.2 settled at
+    # drift 0.7%), and the floor scales linearly with it — verified
+    # round-trip below against the constant, not a literal. The CONFLICT
+    # this test pins got 50% worse: the cheapest valid grid is now density
+    # ~1.4, which is runs/kcs_fs30's own recipe at ~7.8 h wall on 10 ranks.
     need = fidelity.density_for_wave_resolution(cond.fn)
-    assert need == pytest.approx(0.9294, rel=0.02)
+    assert need == pytest.approx(1.394, rel=0.02)
     assert fidelity.cells_per_wavelength(cond.fn, need) >=         fidelity.MIN_CELLS_PER_WAVELENGTH - 0.05
     cost = fidelity.estimate(cond, FidelitySpec(mesh_density=1.0))
      # RE-BASED 2026-08-07: _NX_BASE moved 54 -> 57 when the four branches
@@ -1027,8 +1030,21 @@ def test_theory_first_refuses_a_resolve_of_a_surface_already_in_the_book():
                         speed=float(speed))
     again = pl.plan("what is this hull's total resistance?", q,
                     _loose_priors(), cond=cond, stl_sha=sha)
+    # THE CONTROL RUNS AT A CONDITION WHERE A GRID IS BUYABLE AT ALL.
+    # When the wave-resolution bar moved 20 -> 30 (2026-09-04, the KCS
+    # measurement), Fn 0.26 stopped having ANY admissible L3 under the
+    # 6 h thermal ceiling — the recorded budget/bar conflict, 50% worse —
+    # so a control at the anchor's own speed proves nothing about the
+    # book check (everything is refused regardless). cells/wavelength
+    # goes as Fn^2, so the same hull at Fn 0.32 reads ~32.6 at density
+    # 1.0 and an L3 is admissible again; the book leg above deliberately
+    # stays at the anchor's real condition, because THAT is the identity
+    # being re-queried.
+    import math as _math
+    _lwl = float(a.get("lwl_m") or 7.2786)
+    _fast = pl.Condition(lwl=_lwl, speed=0.32 * _math.sqrt(9.81 * _lwl))
     fresh = pl.plan("what is this hull's total resistance?", q,
-                    _loose_priors(), cond=cond, stl_sha="0" * 64)
+                    _loose_priors(), cond=_fast, stl_sha="0" * 64)
 
     assert not any(e.tier == "L3" for e, *_ in again.steps), (
         f"the planner re-bought a grid for surface {sha[:12]} at "

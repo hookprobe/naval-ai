@@ -109,9 +109,30 @@ NP_REFERENCE = 10
 # resumable or they are a gamble, not a plan.
 THERMAL_SAFE_HOURS = 6.0
 
-# The project's own resolution bar: below 20 cells per wavelength the wave field
-# is decoration and the drag rides on hull-local refinement instead.
-MIN_CELLS_PER_WAVELENGTH = 20.0
+# The project's own resolution bar — RAISED 20 -> 30 on 2026-09-04, by the
+# strongest single measurement this project has produced. The old 20 was a
+# literature floor ("below 20 the wave field is decoration"); the KCS
+# campaign then measured what sits JUST ABOVE it:
+#
+#   21.5 c/lambda (the old scale-1 recipe): pressure drag wandering 5-129 N
+#     around a ~21 N expected mean, broadband (no mode above an 8.4%
+#     explained fraction), immune to critical body damping, NOT decaying
+#     with run length — drift 19/11/23% across 4/6/8 flow-throughs. The
+#     free-trim case could never settle; neither could the fixed one under
+#     the current bars (kcs_s1 harvests unsettled).
+#   30.2 c/lambda (runs/kcs_fs30, same hull, same speed, fixed): pressure
+#     ~22 N with ~1 N std, SETTLED at drift 0.7%, C_T within 4.3% of the
+#     KRISO EFD on a single grid. Transfer evidence on one NavalAI design
+#     (flywheel_a/flywheel_fs30, same genome): the coarse twin never
+#     settled in 3.7 FT, the fine twin settled in 1.5.
+#
+# So 20-21 is not "just above the bar", it is measured-inadequate: a bar a
+# failing configuration PASSES is the bar telling you nothing. 30 is the
+# lowest resolution measured to work, not a proven optimum — a cheaper
+# working point may exist in (21.5, 30.2) and nobody has bought the sweep.
+# TIGHTENED, never softened; the planner's density derivation and every
+# admissibility check inherit it from this one home.
+MIN_CELLS_PER_WAVELENGTH = 30.0
 
 
 @dataclass(frozen=True)

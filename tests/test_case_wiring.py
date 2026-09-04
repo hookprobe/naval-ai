@@ -411,8 +411,17 @@ def test_a_low_froude_case_is_flagged_against_the_wave_resolution_bar(tmp_path):
     The property is asserted below the number, because the number is only
     the witness.
 
-    Fn 0.26, the KCS calibration point, reads 21.52 and is CLEAR — the bar is
-    not one no shipped case can meet.
+    Fn 0.26, the KCS calibration point, reads 21.52 and WAS clear against
+    the old bar of 20.
+
+    RE-PINNED AGAIN 2026-09-04, bar 20 -> 30, and this time the change is
+    the KCS campaign's own measurement: 21.5 c/lambda produced a pressure
+    signal wandering 5-129 N that nothing could settle, and 30.2 settled at
+    drift 0.7% within 4.3% of the EFD. So Fn 0.26 at scale 1.0 is now
+    FLAGGED — correctly, because that exact configuration is the one
+    MEASURED to be inadequate. `scale_needed` at Fn 0.20 becomes
+    2.3684 (= 30/12.67 snapped to the writer's integer rung); the property
+    assertions below are unchanged because they read the constant.
     """
     hull = Hull(reference_params())
     lwl = float(hull.x[-1])
@@ -421,7 +430,7 @@ def test_a_low_froude_case_is_flagged_against_the_wave_resolution_bar(tmp_path):
     scr = C.wave_resolution_screen(lwl, slow, 1.0)
     assert scr["verdict"] == "FLAGGED"
     assert scr["cells_per_wavelength"] == pytest.approx(12.73, abs=0.02)
-    assert scr["scale_needed"] == pytest.approx(1.5789, abs=1e-3)
+    assert scr["scale_needed"] == pytest.approx(2.3684, abs=1e-3)
     # THE PROPERTY, not the number: the rung the screen names, fed back in,
     # must CLEAR. Pinning only the value let a continuous inverse that
     # misses by 0.5% sit here looking correct.
@@ -436,14 +445,19 @@ def test_a_low_froude_case_is_flagged_against_the_wave_resolution_bar(tmp_path):
                                 symmetric=True)
     info = _info(out)
     assert info["wave_resolution_verdict"] == "FLAGGED"
-    assert float(info["wave_resolution_bar"]) == 20.0
+    assert float(info["wave_resolution_bar"]) == 30.0
     assert float(info["wave_resolution_scale_needed"]) == pytest.approx(
-        1.5789, abs=1e-3)
+        2.3684, abs=1e-3)
 
+    # the CLEAR side of the screen, at the recipe MEASURED to clear it:
+    # 21.52 at scale 1.0 was this assertion's fixture while the bar was 20;
+    # the KCS campaign then measured that configuration unsettleable, the
+    # bar moved to 30, and CLEAR is now exhibited at scale 1.4 (30.1 —
+    # runs/kcs_fs30's own recipe).
     fast = 0.26 * math.sqrt(C._G * lwl)
-    clear = C.wave_resolution_screen(lwl, fast, 1.0)
+    clear = C.wave_resolution_screen(lwl, fast, 1.4)
     assert clear["verdict"] == "CLEAR"
-    assert clear["cells_per_wavelength"] == pytest.approx(21.52, abs=0.02)
+    assert clear["cells_per_wavelength"] == pytest.approx(30.20, abs=0.05)
 
 
 def test_the_screened_wave_resolution_is_the_meshs_own(tmp_path):
@@ -567,13 +581,21 @@ def test_both_receipts_are_written_when_both_are_clear(tmp_path):
     wave field, and nothing said so — which is exactly the silence C3 exists
     to end, found by the fix in its first run. The case is still written (the
     rung is scale >= 1.541); the receipt now says it.
+
+    RE-FIXTURED 2026-09-04, bar 20 -> 30: Fn 0.26 at scale 1.0 reads 21.5
+    cells per wavelength, which the KCS campaign MEASURED to produce an
+    unsettleable pressure field (5-129 N wander; runs/kcs_fs30 at 30.2
+    settled at drift 0.7%) — so the old clear-clear fixture is now honestly
+    FLAGGED and this test writes its case at scale 1.4 (30.1 c/lambda).
+    Same PROPERTY asserted; only the configuration exhibiting it moved,
+    exactly as this docstring records happening once before.
     """
     hull = Hull(reference_params())
     lwl = float(hull.x[-1])
     speed = 0.26 * math.sqrt(C._G * lwl)
     out = tmp_path / "case"
     C.write_resistance_case(hull, speed, out, end_time=1.0, np_procs=1,
-                            symmetric=True)
+                            symmetric=True, scale=1.4)
     info = _info(out)
     assert info["flow_regime"] == "fully_turbulent"
     assert info["flow_regime_verdict"] == "CLEAR"
