@@ -162,3 +162,46 @@ def test_the_motor_power_defect_is_fixed_the_way_the_sentinel_demanded():
 
     assert "motor_kw" in EnergySpec.__dataclass_fields__
     assert "motor_power" in CONSTRAINT_NAMES
+
+
+def test_a_houseboat_mission_search_delivers_a_BARGE_not_a_cruiser():
+    """The flagship-class finding of the 2026-09-03 overnight audit, closed.
+
+    MEASURED before the fix: the entire 48-member pareto front for
+    "16 m x 4.5 m liveaboard houseboat" carried beam_carried <= 0.341
+    (energy-best member 0.220) — handsome displacement CRUISERS wearing a
+    houseboat's label, because the barge family bands were one-sided
+    PERMISSIONS (they stopped the general bars refusing a true barge) and
+    all three objectives punish barge-form, so the proven liveaboard-barge
+    parent was seeded and then dominated out. "Mathematically valid but
+    nautically nonsensical", the exact failure mode the product exists to
+    prevent, in its flagship class.
+
+    The fix is ONE requiring band: barge missions demand
+    beam_carried >= 0.50, sourced between the cruiser front's measured
+    ceiling (0.341) and the proven parent's measured 0.585 on the current
+    kernel. MEASURED after: the front returns 5 members, every one at
+    beam_carried >= 0.51, plan-form with beam carried across the midbody.
+
+    This test runs a REDUCED search and asserts the property, not the
+    numbers: a non-empty front whose every member clears the barge floor.
+    The budget is itself measured: pop 24x12 and 48x12 STARVE (the
+    barge-feasible region is thin and the parent neighbourhood needs
+    generations to propagate); 36x20 is the smallest measured budget that
+    finds it (front of 2 in ~14 s).
+    """
+    import numpy as np
+    from navalai import geometry, morphology, optimize
+    from navalai.mission import parse_mission
+
+    m = parse_mission("16 m x 4.5 m recreational liveaboard houseboat, "
+                      "5 knots, 6 tonne, category C")
+    assert m.hull_family == "barge"
+    r = optimize.pareto_front(m, pop=36, gens=20, seed=0)
+    X = np.atleast_2d(r.X) if r.X is not None else np.empty((0, 0))
+    assert len(X), f"the barge floor emptied the search: {r.why_empty()}"
+    for x in X:
+        d = morphology.describe(morphology.from_hull(geometry.Hull(x)))
+        assert d.beam_carried >= 0.50 - 1e-9, (
+            f"a cruiser (beam_carried {d.beam_carried:.3f}) survived a "
+            f"barge mission's shape row")

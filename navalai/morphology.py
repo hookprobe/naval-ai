@@ -584,8 +584,22 @@ _FAMILY_BAR: dict[str, dict] = {
     # waist may be the derived-beam artifact (one curve, two jobs — the
     # Phase-3 B(x) work); re-measure and TIGHTEN these when the design
     # waterline lands.
+    # ...AND ONE REQUIRING BAND (2026-09-04). The rows above are one-sided
+    # PERMISSIONS — they stop the general bars refusing a true barge — and
+    # nothing DEMANDED barge-ness, so the P2 search delivered a round-bilge
+    # cruiser wearing a houseboat's label: MEASURED, the entire 48-member
+    # pareto front for "16 m x 4.5 m liveaboard houseboat" carried
+    # beam_carried <= 0.341 (energy-best member: 0.220), because all three
+    # objectives punish barge-form and no constraint pulled toward it. The
+    # proven liveaboard-barge parent measures beam_carried 0.585 on the
+    # CURRENT kernel (the 0.88 in the comment above is a prior kernel's
+    # descriptor — both are recorded, neither is restated as the other),
+    # so the floor is set BETWEEN the cruiser front's ceiling (0.341) and
+    # the proven barge (0.585): a family mission must carry its beam over
+    # at least half the waterline or the shape row says SPEARHEAD, exactly
+    # as it does for the general fleet at 0.200.
     "barge": {"plan_waist_max": 0.12, "waterline_convexity_min": 0.70,
-              "pmb_frac_max": 0.98},
+              "pmb_frac_max": 0.98, "beam_carried_min": 0.50},
 }
 
 
