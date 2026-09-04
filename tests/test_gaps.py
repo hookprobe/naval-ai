@@ -455,7 +455,21 @@ _WATERMARK_DOCS = ("ALIGNMENT.md", "PLM.md", "README.md", "MACBOOK.md",
 # Left as an empty dict rather than deleted, because the MECHANISM is still
 # needed: the next ledger row with a one- or two-digit watermark must be named
 # here with its reason rather than silently dropped from the fence.
-_UNSEARCHABLE_WATERMARKS: dict[str, str] = {}
+_UNSEARCHABLE_WATERMARKS: dict[str, str] = {
+    # -4.3 carries two digits, and a two-digit grep matches noise across the
+    # whole tree, so the restatement fence cannot cover this watermark by
+    # search. Named rather than silently dropped (2026-09-04, the day the
+    # 2M watermark became a number again after 29 days as the string NONE).
+    # The J1 risk this fence exists for — a document quoting the watermark
+    # and going stale — is bounded for this entry by the ledger being its
+    # explicitly-declared ONLY home (CLAUDE.md: "no Gate 2M measurement is
+    # restated in this file"; tests/test_gate_integrity.py scans the docs
+    # for superseded 2M figures by its own list).
+    "Gate 2M": ("the watermark -4.3 has fewer than three digits, so a "
+                "tree-wide search for it would match unrelated numbers; "
+                "gate-integrity's superseded-figure scan and CLAUDE.md's "
+                "no-restatement rule carry the coverage for this entry"),
+}
 
 
 def _searchable_watermarks() -> dict[str, tuple[str, re.Pattern[str]]]:
