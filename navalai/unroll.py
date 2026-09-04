@@ -660,14 +660,41 @@ def strake_pairings(hull: Hull, edge_a: int, edge_b: int,
     COUNT stand (they are measured on a 200-point auxiliary grid and reproduce
     exactly), but a seam must be placed where the pairing breaks at the 41
     stations the panel is actually developed at, not where the branch breaks on
-    the auxiliary grid. Deriving the cut from the same resolution the panel
-    uses is the next attempt; until then `hull_panels` keeps "developable" as
-    its default and this mode exists to be measured, not adopted.
+    the auxiliary grid.
+
+    THAT NEXT ATTEMPT WAS RUN, 2026-09-04, AND IT IS NOT SUFFICIENT. Seams
+    are now derived at panel resolution (the tracker's clamp/no-root events
+    ARE the cuts — see `_branch_pairing(return_breaks=True)`), and with the
+    per-strake METER fixed the same day (it was charging a strake the
+    two-sided distance to hull OUTSIDE its own span — the old table's
+    573-868 mm rows were ~90% ruler), the reference hull measures:
+
+        developable  2 panels   UNION  74.6 mm   worst panel  124.1
+        strakes     10 panels   UNION 657.7 mm   worst strake 8757 (!)
+
+    Two facts out of that. (1) The clamp-event detector over-cuts — the
+    topside splits into NINE strakes, so the break signal is noisy, not
+    only misplaced. (2) The per-segment pairings are DEGENERATE — a strake
+    refolds metres from the hull over its own span, so following the local
+    root branch inside a segment is producing pairings develop() cannot
+    use, which is a deeper defect than seam placement. The mode therefore
+    STAYS unadopted and unrouted; the union meter
+    (`refold_panelisation_deviation_mm`) now exists so the next attempt is
+    judged on the honest whole-boat number from the start.
     """
     x = np.asarray(hull.x, dtype=float)
     L = float(x[-1])
-    seams = developable_seams(hull, edge_a, edge_b, n_b=n_b)
-    cuts = [0.0] + [s for s in seams] + [L]
+    # SEAMS AT PANEL RESOLUTION (2026-09-04) — the 2026-08-12 record's own
+    # prescription, implemented: "a seam must be placed where the pairing
+    # breaks at the stations the panel is actually developed at, not where
+    # the branch breaks on the auxiliary grid." One full-panel tracker pass
+    # reports every station where it found no root or had to clamp; those
+    # ARE the cuts. `developable_seams` (the auxiliary-grid derivation)
+    # remains for the existence/seam-count measurements it was built for.
+    _, brk = _branch_pairing(hull, edge_a, edge_b, x, n_b,
+                             return_breaks=True)
+    cuts = [0.0] + [float(x[i]) for i in sorted(set(brk))
+                    if 0 < i < len(x) - 1] + [L]
     # drop segments too short to be a plank
     keep = [cuts[0]]
     for c in cuts[1:-1]:
@@ -686,7 +713,8 @@ def strake_pairings(hull: Hull, edge_a: int, edge_b: int,
 
 
 def _branch_pairing(hull: Hull, edge_a: int, edge_b: int,
-                    xs: np.ndarray, n_b: int) -> np.ndarray:
+                    xs: np.ndarray, n_b: int,
+                    return_breaks: bool = False):
     """Follow the planarity root across `xs`, clamped monotone and to the ends.
 
     Falls back to the station's own x wherever the branch has no root, so the
@@ -711,19 +739,34 @@ def _branch_pairing(hull: Hull, edge_a: int, edge_b: int,
           * np.linalg.norm(dB, axis=1)[None, :]
           * np.linalg.norm(r, axis=2) + 1e-300)
     v = np.empty(len(xs))
+    breaks: list[int] = []
     prev = float(xs[0])
     for i in range(len(xs)):
         k = np.flatnonzero(np.diff(np.sign(d[i])) != 0)
         if len(k) == 0:
+            breaks.append(i)                    # no root: a genuine break
             v[i] = prev = max(prev, float(xs[i]))
             continue
         cand = np.array([xb[j] + (xb[j + 1] - xb[j]) * abs(d[i, j])
                          / (abs(d[i, j]) + abs(d[i, j + 1]) + 1e-300)
                          for j in k])
         pick = cand[np.argmin(np.abs(cand - (prev if i else xs[0])))]
+        # THE CLAMP EVENT IS THE SEAM (2026-09-04). This line used to bind
+        # silently — `max(pick, prev)` — and the 2026-08-12 record measured
+        # the consequence: the clamp bound at 14/28, 19/40 and 11/36
+        # stations INSIDE strake segments, so at up to half the stations
+        # the "pairing" was not a root of the planarity condition at all,
+        # and the strakes measured 573-868 mm against a 5 mm bar. A pick
+        # that must be forced upward to stay monotone is the branch
+        # crossing a previous ruling — which is exactly the definition of
+        # a place to CUT, not a place to clamp. Recorded for the caller.
+        if float(pick) < prev - 1e-6 * L:
+            breaks.append(i)
         v[i] = prev = max(float(pick), prev + 1e-9)
     # the strake must span its own segment, not a convenient part of it
     v[0], v[-1] = float(xs[0]), float(xs[-1])
+    if return_breaks:
+        return np.maximum.accumulate(v), breaks
     return np.maximum.accumulate(v)
 
 
@@ -993,7 +1036,23 @@ def refold_surface_deviation_mm(hull: Hull, panel: FlatPanel,
         b = B[i] + t * (B[i + 1] - B[i])
         P.append((a[None] + s * (b - a)[None]).reshape(-1, 3))
     P = np.vstack(P)
-    xs = np.linspace(float(hull.x[0]), float(hull.x[-1]), 4001)
+    # A STRAKE IS MEASURED OVER ITS OWN SPAN (2026-09-04). This meter
+    # sampled the hull over the FULL length for every panel — right for the
+    # two whole-hull panels it was written for, and a category error for a
+    # strake: a plank covering x in [2, 5] m was charged the two-sided
+    # distance to hull surface it never claimed, so the strake table read
+    # in METRES (8757 mm "deviation" on a 10 m hull) and the mode looked
+    # broken for a reason that was 90% the ruler. Per-strake numbers now
+    # cover the strake's own longitudinal span; the PANELISATION is judged
+    # by `refold_panelisation_deviation_mm` below — hull vs the UNION —
+    # which is the honest whole-boat number the 2026-08-12 record already
+    # named as the only fair metric.
+    _x0, _x1 = float(hull.x[0]), float(hull.x[-1])
+    if panel.par_a is not None:
+        _pa = np.asarray(panel.par_a, dtype=float)
+        if _pa[-1] - _pa[0] < (_x1 - _x0) - 1e-9:
+            _x0, _x1 = float(_pa[0]), float(_pa[-1])
+    xs = np.linspace(_x0, _x1, 4001)
     e = hull.edge_curves(xs)
     K, D = e[ia], e[ib] - e[ia]
     dd = np.einsum("ij,ij->i", D, D)
@@ -1055,6 +1114,48 @@ _REFOLD_CONVERGED_TOL = 1.02
 #: 41 is `geometry._LADDER_STATIONS`, the count the ladder already floats at;
 #: the family doubles from there so successive ratios describe one power law.
 REFOLD_COUNTS: tuple[int, ...] = (41, 81, 161)
+
+
+def refold_panelisation_deviation_mm(hull: Hull, panels,
+                                     n_along: int = 8,
+                                     n_across: int = 9) -> float:
+    """Two-sided deviation between the SHELL and the UNION of its panels.
+
+    The honest whole-boat number for a multi-panel development, named by
+    the 2026-08-12 strake record ("charging one strake for what another
+    covers is not a measure of the panelisation") and never implemented —
+    every caller measured per-panel and the per-panel meter, until
+    2026-09-04, charged strakes for hull outside their span. Hull side:
+    both shell panel surfaces sampled full-length; panel side: every
+    refolded panel's surface. max(hull->panels, panels->hull), in mm.
+    """
+    import re as _re2
+    pts_p = []
+    for panel in panels:
+        A = np.asarray(panel.src_a, dtype=float)
+        B = refold(panel)
+        t = np.linspace(0.0, 1.0, n_along + 1)[:, None]
+        sacross = np.linspace(0.0, 1.0, n_across)[:, None, None]
+        for i in range(len(A) - 1):
+            a = A[i] + t * (A[i + 1] - A[i])
+            b = B[i] + t * (B[i + 1] - B[i])
+            pts_p.append((a[None] + sacross * (b - a)[None]).reshape(-1, 3))
+    Pp = np.vstack(pts_p)
+    xs = np.linspace(float(hull.x[0]), float(hull.x[-1]), 801)
+    e = hull.edge_curves(xs)
+    pts_h = []
+    fr = np.linspace(0.0, 1.0, n_across)[:, None, None]
+    for ia, ib in ((0, 1), (1, 2)):
+        pts_h.append((e[ia][None] + fr * (e[ib] - e[ia])[None]).reshape(-1, 3))
+    Ph = np.vstack(pts_h)
+    def _dmax(Xq, Xr):
+        out = 0.0
+        for i in range(0, len(Xq), 2048):
+            q = Xq[i:i + 2048]
+            d2 = ((q[:, None, :] - Xr[None, :, :]) ** 2).sum(-1)
+            out = max(out, float(np.sqrt(d2.min(axis=1).max())))
+        return out
+    return 1e3 * max(_dmax(Ph, Pp), _dmax(Pp, Ph))
 
 
 def refold_convergence(params, counts: tuple[int, ...] = REFOLD_COUNTS,
