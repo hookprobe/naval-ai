@@ -754,10 +754,23 @@ def test_the_gate2m_ledger_entry_points_at_something_real():
         assert (_ROOT / ref).exists(), (
             f"the ledger's verify command names {ref}, which does not exist — "
             f"a verify that cannot run is not a verification")
-    assert not isinstance(entry["watermark"], (int, float)), (
-        "no settled measurement exists, so there is no watermark to state; "
-        "inventing one is the failure this ledger exists to prevent")
-    assert "DELETED" in entry["measured_on"]
+    # RE-VERDICTED 2026-09-04: a settled measurement EXISTS now —
+    # runs/kcs_fs30, drift 0.7%, E%D -4.3 at 30.2 cells/wavelength — so
+    # the assertion flips: the watermark IS a number again, and it must
+    # point at a run directory that is genuinely on disk (the deletion
+    # incident this test was born from). The 2026-08-06..09-04 period in
+    # which the watermark was deliberately NOT a number stays recorded in
+    # the entry's why_red history block.
+    assert isinstance(entry["watermark"], (int, float)), (
+        "runs/kcs_fs30 settled on 2026-09-04; a ledger that still claims "
+        "no measurement exists is stale")
+    assert entry["watermark"] == pytest.approx(-4.3, abs=0.05)
+    assert "kcs_fs30" in entry["measured_on"]
+    assert (_ROOT / "runs/kcs_fs30").exists(), (
+        "the watermark cites runs/kcs_fs30, which is gone — record the "
+        "deletion in the entry (watermark back to NONE) before cleaning")
+    assert "UNDER-RUN" in entry["measured_on"] and "NO GCI" in entry["measured_on"], (
+        "the watermark's own caveats are part of the measurement")
 
 
 # --------------------------------------------------------------------------
